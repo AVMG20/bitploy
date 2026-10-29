@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/domains"
-	"github.com/arno/bitploy/internal/metrics"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/domains"
+	"github.com/AVMG20/bitploy/internal/metrics"
 )
 
 var _ metrics.Docker = (*dockerx.Client)(nil)

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // Status messages written by the event handler. Restores on `start` only

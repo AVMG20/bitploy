@@ -2,7 +2,7 @@ SHELL := /bin/bash
 GO ?= go
 SQLC ?= $(shell command -v sqlc || echo $(HOME)/go/bin/sqlc)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-IMAGE ?= ghcr.io/arno/bitploy
+IMAGE ?= ghcr.io/avmg20/bitploy
 
 .PHONY: dev build web go test test-integration lint generate release clean
 

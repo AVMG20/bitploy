@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 func catalogService(t *testing.T) *Service {

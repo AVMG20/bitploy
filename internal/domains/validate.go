@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // ChallengePrefix is the label under which the TXT token is published.

@@ -40,7 +40,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // GitSource describes one branch of a repository. Token is the user's GitHub

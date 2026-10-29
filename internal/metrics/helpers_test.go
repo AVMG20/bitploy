@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 type dbQ = db.Queries

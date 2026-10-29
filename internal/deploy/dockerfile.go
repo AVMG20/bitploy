@@ -20,8 +20,8 @@ import (
 	"github.com/moby/patternmatcher"
 	"github.com/moby/patternmatcher/ignorefile"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/templates"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/templates"
 )
 
 // Finding codes. image_too_large is checked by the deploy pipeline after the build.

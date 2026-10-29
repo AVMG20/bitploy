@@ -3,7 +3,7 @@ package app
 import (
 	"time"
 
-	"github.com/arno/bitploy/internal/deploy"
+	"github.com/AVMG20/bitploy/internal/deploy"
 )
 
 // These are the public shapes returned by the service layer. The REST API

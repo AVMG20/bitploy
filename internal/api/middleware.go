@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arno/bitploy/internal/app"
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/auth"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/ids"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/auth"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/ids"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // ---- response recorder (status + bytes, still streams, still flushes) ----

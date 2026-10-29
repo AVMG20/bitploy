@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 const (

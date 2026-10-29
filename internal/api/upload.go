@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/auth"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/auth"
 )
 
 const maxUploadBytes = 95 << 20 // under Cloudflare's 100 MB request cap

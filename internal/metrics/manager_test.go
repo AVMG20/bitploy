@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 var t0 = time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)

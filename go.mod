@@ -1,4 +1,4 @@
-module github.com/arno/bitploy
+module github.com/AVMG20/bitploy
 
 go 1.26.8
 

@@ -33,7 +33,7 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   bitploy:
-    image: ${BITPLOY_IMAGE:-ghcr.io/arno/bitploy:latest}
+    image: ${BITPLOY_IMAGE:-ghcr.io/avmg20/bitploy:latest}
     container_name: bitploy
     restart: unless-stopped
     env_file: /etc/bitploy/bitploy.env

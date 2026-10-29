@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // BuildTimeout is the hard limit for one `docker buildx build`.

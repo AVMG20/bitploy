@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arno/bitploy/internal/templates"
+	"github.com/AVMG20/bitploy/internal/templates"
 )
 
 func codes(res CheckResult) map[string]Finding {

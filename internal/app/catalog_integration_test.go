@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // Needs network access to github.com.

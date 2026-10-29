@@ -16,7 +16,7 @@
 #   BITPLOY_APPS_DOMAIN, BITPLOY_ACME_EMAIL and either BITPLOY_ORIGIN_CERT_FILE
 #   and BITPLOY_ORIGIN_KEY_FILE or put origin.pem and origin.key in /etc/bitploy/origin.
 # Optional: BITPLOY_PUBLIC_URL, BITPLOY_EDGE_HOST, BITPLOY_SERVER_IPV4, BITPLOY_SERVER_IPV6,
-#   BITPLOY_IMAGE (default ghcr.io/arno/bitploy:latest),
+#   BITPLOY_IMAGE (default ghcr.io/avmg20/bitploy:latest),
 #   BITPLOY_BUILD_LOCAL=1 (build the image from this checkout instead of pulling it),
 #   BITPLOY_SKIP_SSH_HARDENING=1, BITPLOY_SKIP_OS_CHECK=1.
 set -euo pipefail

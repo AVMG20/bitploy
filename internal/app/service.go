@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/proxy"
-	"github.com/arno/bitploy/internal/store"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/proxy"
+	"github.com/AVMG20/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // Channel is the door a request came through.

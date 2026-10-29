@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // redactingHandler strips bp_ and GitHub tokens from every log message and

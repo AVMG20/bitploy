@@ -71,7 +71,7 @@ git clone <this repo> && cd bitploy
 sudo deploy/install.sh
 ```
 
-If the image `ghcr.io/arno/bitploy` is not published yet, build it on the server: `sudo BITPLOY_BUILD_LOCAL=1 deploy/install.sh`.
+If the image `ghcr.io/avmg20/bitploy` is not published yet, build it on the server: `sudo BITPLOY_BUILD_LOCAL=1 deploy/install.sh`.
 
 The script is safe to run twice. It does five things:
 
@@ -118,7 +118,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_INTERNAL_URL` | `http://bitploy:8080` | How Traefik reaches bitploy (dashboard route, "No app here" page) |
 | `BITPLOY_APPS_SCHEME`, `BITPLOY_APPS_PORT` | `https`, empty | Scheme and port of app URLs (development uses `http` and `8000`) |
 | `BITPLOY_DEV` | `1` | Local development only: plain HTTP, no `Secure` cookies, no Docker cache pruning |
-| `BITPLOY_IMAGE` | `ghcr.io/arno/bitploy:1.2.0` | Used by `docker-compose.yml`, not by bitploy itself. Pin a version here. |
+| `BITPLOY_IMAGE` | `ghcr.io/avmg20/bitploy:1.2.0` | Used by `docker-compose.yml`, not by bitploy itself. Pin a version here. |
 
 ### Custom domains (what your users do)
 

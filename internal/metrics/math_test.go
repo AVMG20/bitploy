@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arno/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/dockerx"
 )
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }

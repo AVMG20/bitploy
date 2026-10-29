@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/proxy"
-	"github.com/arno/bitploy/internal/store"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/proxy"
+	"github.com/AVMG20/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 const depStaticDockerfile = "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 8080\nUSER nginx\n"

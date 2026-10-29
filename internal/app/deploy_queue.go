@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/deploy"
-	"github.com/arno/bitploy/internal/ids"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
+	"github.com/AVMG20/bitploy/internal/ids"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 const (

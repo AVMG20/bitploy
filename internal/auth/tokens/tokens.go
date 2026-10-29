@@ -6,8 +6,8 @@ package tokens
 import (
 	"regexp"
 
-	"github.com/arno/bitploy/internal/ids"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/ids"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 const (

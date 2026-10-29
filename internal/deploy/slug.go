@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/ids"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/ids"
 )
 
 // Reserved subdomains (SPEC "Domains & routing"). Anything starting with

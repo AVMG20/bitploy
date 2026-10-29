@@ -8,11 +8,11 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/deploy"
-	"github.com/arno/bitploy/internal/mcp/rules"
-	"github.com/arno/bitploy/internal/store/db"
-	"github.com/arno/bitploy/internal/templates"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
+	"github.com/AVMG20/bitploy/internal/mcp/rules"
+	"github.com/AVMG20/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/templates"
 )
 
 func templateFrom(t templates.Template) Template {

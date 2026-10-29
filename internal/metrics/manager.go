@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 // Docker is the part of the Docker client the metrics code uses. It is an

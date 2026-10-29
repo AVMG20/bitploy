@@ -6,9 +6,9 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/arno/bitploy/internal/app"
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/auth"
+	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/auth"
 )
 
 type loginRequest struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/metrics"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/metrics"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 const mib = 1 << 20

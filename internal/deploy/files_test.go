@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 func TestCleanRelPath(t *testing.T) {

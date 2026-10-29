@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 type acctClock struct{ now atomic.Int64 }

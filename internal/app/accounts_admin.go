@@ -8,8 +8,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 func (s *Service) adminUser(ctx context.Context, u db.User) (AdminUser, error) {

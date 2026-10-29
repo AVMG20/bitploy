@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // SeriesPoint is one chart point. Max values are zero for raw samples.

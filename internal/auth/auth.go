@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arno/bitploy/internal/app"
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
 )
 
 type ctxKey int

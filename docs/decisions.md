@@ -3,7 +3,7 @@
 Choices made where SPEC.md was open or ambiguous. Newest at the bottom.
 
 - **Timestamps are unix seconds (INTEGER) in SQLite.** Avoids driver-specific time parsing; the service layer converts to RFC 3339 UTC for JSON.
-- **Go module path `github.com/arno/bitploy`.** Placeholder owner; change with `go mod edit -module` when the repo moves.
+- **Go module path `github.com/AVMG20/bitploy`**, matching the GitHub repository; images are `ghcr.io/avmg20/bitploy`.
 - **`BITPLOY_DEV=1`, `BITPLOY_APPS_SCHEME`, `BITPLOY_APPS_PORT`, `BITPLOY_LISTEN`, `BITPLOY_TRAEFIK_CONTAINER`, `BITPLOY_INTERNAL_URL` config vars** were added for local development (HTTP, `<slug>.localhost:8000`) and for wiring Traefik to bitploy.
 - **auth-api: password hashing and token generation live in `internal/auth/passwd` and `internal/auth/tokens`**, not in `internal/auth` itself, because `internal/auth` imports `internal/app` (for `Actor`) and `internal/app` needs the hashing code. Hash format is a PHC string, argon2id m=19456 KiB, t=2, p=1; at most 4 hashes run at once to cap memory.
 - **auth-api: login rate limit and API rate limit are in memory** (5 failures / 15 min per email+IP, 120 req/min per token as a token bucket). They reset on restart. The `/mcp` mount shares the per-token bucket with `/api/v1`. The 20 deployments/hour/user limit is left to the service layer.

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/domains"
-	"github.com/arno/bitploy/internal/metrics"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/domains"
+	"github.com/AVMG20/bitploy/internal/metrics"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 // opsFakeDNS answers from maps; unknown names are NXDOMAIN.

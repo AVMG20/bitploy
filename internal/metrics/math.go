@@ -6,7 +6,7 @@ package metrics
 import (
 	"sort"
 
-	"github.com/arno/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/dockerx"
 )
 
 // BucketSeconds is the rollup resolution: 5 minutes.

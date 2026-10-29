@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/arno/bitploy/internal/dockerx"
-	"github.com/arno/bitploy/internal/store/db"
+	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // Point is the newest sample of an app, kept in memory for the app lists.

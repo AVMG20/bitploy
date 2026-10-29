@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arno/bitploy/internal/app"
-	"github.com/arno/bitploy/internal/auth"
-	"github.com/arno/bitploy/internal/config"
-	"github.com/arno/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/auth"
+	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/store"
 )
 
 const publicURL = "https://bitploy.test"
