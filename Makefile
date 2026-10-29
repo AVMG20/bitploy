@@ -34,7 +34,7 @@ lint:
 	cd web && npx vue-tsc --noEmit && npx eslint .
 
 release:
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE):$(VERSION) -t $(IMAGE):latest --push .
+	docker buildx build --build-arg VERSION=$(VERSION) --platform linux/amd64,linux/arm64 -t $(IMAGE):$(VERSION) -t $(IMAGE):latest --push .
 
 clean:
 	rm -rf bin web/dist/assets

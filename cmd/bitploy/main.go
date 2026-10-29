@@ -34,6 +34,9 @@ import (
 	"github.com/arno/bitploy/web"
 )
 
+// version is set at build time with -ldflags "-X main.version=…".
+var version = "dev"
+
 func main() {
 	log := slog.New(newRedactingHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	slog.SetDefault(log)
@@ -43,6 +46,9 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "version":
+		fmt.Println(version)
+		return
 	case "serve":
 		err = serve(log)
 	case "migrate":
@@ -133,7 +139,7 @@ func serve(log *slog.Logger) error {
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("bitploy listening", "addr", srv.Addr, "public_url", svc.Cfg.PublicURL)
+		log.Info("bitploy listening", "version", version, "addr", srv.Addr, "public_url", svc.Cfg.PublicURL)
 		errCh <- srv.ListenAndServe()
 	}()
 	select {

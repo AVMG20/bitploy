@@ -72,6 +72,9 @@ apply() {
     echo "*filter"
     echo ":$FWD_CHAIN - [0:0]"
     echo ":$IN_CHAIN - [0:0]"
+    # --noflush keeps other chains; flush ours so a second run changes nothing.
+    echo "-F $FWD_CHAIN"
+    echo "-F $IN_CHAIN"
     echo "-A $FWD_CHAIN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
     # Each app network is one /24: traffic that stays inside it is Traefik <-> app.
     for i in $(seq 0 255); do

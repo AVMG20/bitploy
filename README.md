@@ -110,6 +110,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files, backups |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account (written into Traefik's config by `install.sh`) |
 | `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
+| `BITPLOY_ADMIN_PASSWORD` | — | Password for `bitploy admin create-user` without a prompt (scripts only) |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
 | `BITPLOY_LISTEN` | `:8080` | Listen address |
 | `BITPLOY_TRAEFIK_CONTAINER` | `bitploy-traefik` | Traefik's container name; joined to every app network |
@@ -230,7 +231,7 @@ Apps that keep SQLite files in `/data` are backed up as a live copy of the files
    ```
 3. Migrations run when bitploy starts. Apps keep serving while it restarts, because Traefik routes straight to them.
 
-To update `deploy/` itself (compose file, Traefik config), pull the repository and run `sudo deploy/install.sh` again; it keeps your settings. Cloudflare changes its IP ranges now and then: `deploy/update-cloudflare-ips.sh` refreshes the list in `traefik.yml`.
+To update `deploy/` itself (compose file, Traefik config), pull the repository and run `sudo deploy/install.sh` again; it keeps your settings. Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips.sh` in your checkout of the repository (it edits `deploy/traefik/traefik.yml`), copy the same ranges into `internal/auth/cloudflare.go`, commit, and run `install.sh` again.
 
 ### Operating notes
 

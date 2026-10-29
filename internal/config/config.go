@@ -45,7 +45,7 @@ func Load() (*Config, error) {
 		Signup:            env("BITPLOY_SIGNUP", "invite"),
 		Listen:            env("BITPLOY_LISTEN", ":8080"),
 		TraefikContainer:  env("BITPLOY_TRAEFIK_CONTAINER", "bitploy-traefik"),
-		TraefikInternal:   strings.TrimRight(env("BITPLOY_TRAEFIK_INTERNAL_URL", "http://traefik:8081"), "/"),
+		TraefikInternal:   strings.TrimRight(env("BITPLOY_TRAEFIK_INTERNAL_URL", "http://bitploy-traefik:8081"), "/"),
 		InternalURL:       env("BITPLOY_INTERNAL_URL", "http://bitploy:8080"),
 		Dev:               env("BITPLOY_DEV", "") == "1",
 		MaxParallelBuilds: 2,

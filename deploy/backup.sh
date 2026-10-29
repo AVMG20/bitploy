@@ -58,7 +58,9 @@ copy_database() {
     return
   fi
   local newest
-  newest="$(ls -1t "$DATA_DIR"/backups/bitploy-*.db 2>/dev/null | head -n1 || true)"
+  # Nightly copies are named bitploy-<UTC timestamp>.db, so the last in glob order is the newest.
+  newest=""
+  for f in "$DATA_DIR"/backups/bitploy-*.db; do [ -e "$f" ] && newest="$f"; done
   [ -n "$newest" ] || die "sqlite3 is not installed and there is no copy from bitploy's nightly job in $DATA_DIR/backups"
   log "sqlite3 not found; using the nightly copy $newest"
   cp "$newest" "$STAGE/bitploy.db"

@@ -57,7 +57,7 @@ env_default() {
   printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"
 }
 
-env_get() { grep "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2-; }
+env_get() { grep "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- || true; }
 
 # ---------------------------------------------------------------- 1. Docker
 say "1/5 Docker Engine and buildx"
@@ -210,7 +210,7 @@ MSG
     echo "--- certificate (-----BEGIN CERTIFICATE-----) ---"
     cat </dev/tty >"$ORIGIN_DIR/origin.pem" || true
     echo "--- private key (-----BEGIN PRIVATE KEY-----) ---"
-    cat </dev/tty >"$ORIGIN_DIR/origin.key" || true
+    ( umask 077; cat </dev/tty >"$ORIGIN_DIR/origin.key" ) || true
     chmod 0644 "$ORIGIN_DIR/origin.pem"
     chmod 0600 "$ORIGIN_DIR/origin.key"
   fi

@@ -39,8 +39,8 @@ pass() { say "  ok    $*"; }
 bad() { say "  FAIL  $*"; fail=1; }
 
 cleanup() {
-  [ -n "$listener_pid" ] && kill "$listener_pid" 2>/dev/null || true
-  [ -n "$www" ] && rm -rf "$www"
+  if [ -n "$listener_pid" ]; then kill "$listener_pid" 2>/dev/null || true; fi
+  if [ -n "$www" ]; then rm -rf "$www"; fi
   docker rm -f "$CLIENT" "$SIBLING" "$OTHER" >/dev/null 2>&1 || true
   docker network rm "$NET" "$NET_OTHER" >/dev/null 2>&1 || true
 }
@@ -126,7 +126,7 @@ else
   bad "rule lines changed from $rules_before to $rules_after"
 fi
 jumps="$(iptables -S DOCKER-USER | grep -c -- '-j BITPLOY-APPS' || true)"
-[ "$jumps" = 1 ] && pass "exactly one jump from DOCKER-USER" || bad "$jumps jumps from DOCKER-USER"
+if [ "$jumps" = 1 ]; then pass "exactly one jump from DOCKER-USER"; else bad "$jumps jumps from DOCKER-USER"; fi
 
 say "Must work"
 expect_reach "internet ($URL)" "$URL"
