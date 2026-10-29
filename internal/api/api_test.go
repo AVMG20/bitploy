@@ -328,19 +328,16 @@ func TestListsArePaged(t *testing.T) {
 func TestIdempotencyKeyReplays(t *testing.T) {
 	e := newEnv(t)
 	e.login("me@example.nl", false)
-	post := func(key string, name string) *httptest.ResponseRecorder {
-		b, _ := json.Marshal(map[string]any{"name": name, "scope": "read"})
-		r := httptest.NewRequest("POST", "/api/v1/tokens", bytes.NewReader(b))
-		r.Header.Set("Content-Type", "application/json")
-		r.AddCookie(e.cookie)
-		r.Header.Set("Origin", pub)
-		r.Header.Set("X-CSRF-Token", e.csrf)
+	tc := decode[app.TokenCreated](t, e.asSession("POST", "/api/v1/tokens", map[string]any{"name": "ci", "scope": "deploy"}))
+	hdr := func(key string) map[string]string {
+		h := map[string]string{"Authorization": "Bearer " + tc.Value}
 		if key != "" {
-			r.Header.Set("Idempotency-Key", key)
+			h["Idempotency-Key"] = key
 		}
-		w := httptest.NewRecorder()
-		e.h.ServeHTTP(w, r)
-		return w
+		return h
+	}
+	post := func(key, name string) *httptest.ResponseRecorder {
+		return e.req("POST", "/api/v1/apps", map[string]any{"name": name}, hdr(key))
 	}
 	w1 := post("key-1", "first")
 	w2 := post("key-1", "first")
@@ -350,35 +347,117 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	if w2.Header().Get("Idempotent-Replayed") != "true" {
 		t.Fatal("replay not marked")
 	}
-	list := decode[app.Page[app.Token]](t, e.asSession("GET", "/api/v1/tokens", nil))
+	list := decode[app.Page[app.App]](t, e.req("GET", "/api/v1/apps", nil, hdr("")))
 	if len(list.Items) != 1 {
-		t.Fatalf("replayed request created %d tokens", len(list.Items))
+		t.Fatalf("replayed request created %d apps", len(list.Items))
 	}
 	// Same key, different request.
-	b, _ := json.Marshal(map[string]any{"name": "x", "scope": "read"})
-	r := httptest.NewRequest("POST", "/api/v1/sessions/revoke-others", bytes.NewReader(b))
-	r.AddCookie(e.cookie)
-	r.Header.Set("Origin", pub)
-	r.Header.Set("X-CSRF-Token", e.csrf)
-	r.Header.Set("Idempotency-Key", "key-1")
-	w := httptest.NewRecorder()
-	e.h.ServeHTTP(w, r)
-	if w.Code != 422 || decode[errResp](t, w).Error.Code != "idempotency_key_reused" {
+	if w := e.req("POST", "/api/v1/apps/first/redeploy", nil, hdr("key-1")); w.Code != 422 || decode[errResp](t, w).Error.Code != "idempotency_key_reused" {
 		t.Fatalf("key reuse: %d %s", w.Code, w.Body)
 	}
 	// Without a key every POST creates.
 	post("", "a")
 	post("", "b")
-	list = decode[app.Page[app.Token]](t, e.asSession("GET", "/api/v1/tokens", nil))
+	list = decode[app.Page[app.App]](t, e.req("GET", "/api/v1/apps", nil, hdr("")))
 	if len(list.Items) != 3 {
-		t.Fatalf("want 3 tokens, got %d", len(list.Items))
+		t.Fatalf("want 3 apps, got %d", len(list.Items))
 	}
 	// A failed request is not remembered: fix it and retry with the same key.
-	if w := post("key-2", ""); w.Code == 201 {
-		t.Fatal("empty name should fail")
+	if w := e.req("POST", "/api/v1/apps", map[string]any{"name": "fixed", "type": "cron"}, hdr("key-2")); w.Code == 201 {
+		t.Fatal("unknown type should fail")
 	}
 	if w := post("key-2", "fixed"); w.Code != 201 {
 		t.Fatalf("retry after failure: %d %s", w.Code, w.Body)
+	}
+}
+
+// Responses that hold a credential (raw API token, invite URL, upload URL) or
+// that belong to account routes must never be stored: the table is in backups.
+func TestIdempotencyNeverStoresCredentialResponses(t *testing.T) {
+	e := newEnv(t)
+	e.login("admin@example.nl", true)
+	send := func(method, path string, body any, key string) *httptest.ResponseRecorder {
+		var rd io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = bytes.NewReader(b)
+		}
+		r := httptest.NewRequest(method, path, rd)
+		r.RemoteAddr = "203.0.113.7:1000"
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(e.cookie)
+		r.Header.Set("Origin", pub)
+		r.Header.Set("X-CSRF-Token", e.csrf)
+		r.Header.Set("Idempotency-Key", key)
+		w := httptest.NewRecorder()
+		e.h.ServeHTTP(w, r)
+		return w
+	}
+	w1 := send("POST", "/api/v1/tokens", map[string]any{"name": "t", "scope": "read"}, "k-token")
+	w2 := send("POST", "/api/v1/tokens", map[string]any{"name": "t", "scope": "read"}, "k-token")
+	raw := decode[app.TokenCreated](t, w1).Value
+	if w1.Code != 201 || w2.Code != 201 || w2.Header().Get("Idempotent-Replayed") != "" || strings.Contains(w2.Body.String(), raw) {
+		t.Fatalf("token creation was replayed or leaked:\n%s\n%s", w1.Body, w2.Body)
+	}
+	if w := send("POST", "/api/v1/admin/invites", map[string]any{}, "k-invite"); w.Code != 201 {
+		t.Fatalf("invite: %d %s", w.Code, w.Body)
+	}
+	if w := send("POST", "/api/v1/apps", map[string]any{"name": "site"}, "k-app"); w.Code != 201 {
+		t.Fatalf("app: %d %s", w.Code, w.Body)
+	}
+	send("POST", "/api/v1/apps/site/uploads", map[string]any{}, "k-upload")
+	send("POST", "/api/v1/sessions/revoke-others", nil, "k-sessions")
+
+	rows, err := e.svc.Store.DB.Query(`SELECT key, path, body FROM idempotency_keys`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	stored := map[string]bool{}
+	for rows.Next() {
+		var key, path string
+		var body []byte
+		rows.Scan(&key, &path, &body)
+		stored[key] = true
+		if strings.Contains(string(body), raw) || strings.Contains(string(body), "bp_") || strings.Contains(string(body), "/invite/") {
+			t.Fatalf("credential stored for %s: %s", path, body)
+		}
+	}
+	if len(stored) != 1 || !stored["k-app"] {
+		t.Fatalf("only resource-creating app routes may be stored, got %v", stored)
+	}
+}
+
+func TestIdempotentPathAllowList(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/api/v1/apps": true, "/api/v1/apps/x/files": true, "/api/v1/apps/x/deployments": true,
+		"/api/v1/apps/x/domains": true, "/api/v1/apps/x/rollback": true, "/api/v1/apps/x/redeploy": true,
+		"/api/v1/apps/x/uploads": false, "/api/v1/apps/x/stop": false, "/api/v1/tokens": false,
+		"/api/v1/admin/invites": false, "/api/v1/invites/open/accept": false, "/api/v1/auth/login": false,
+		"/api/v1/me/password": false, "/api/v1/sessions/revoke-others": false, "/api/v1/apps/x/domains/a.b/check": false,
+	} {
+		if got := idempotentPath(p); got != want {
+			t.Errorf("idempotentPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// What is stored passes through the same redaction as logs.
+func TestIdempotencyStoresRedactedBody(t *testing.T) {
+	e := newEnv(t)
+	e.login("me@example.nl", false)
+	tc := decode[app.TokenCreated](t, e.asSession("POST", "/api/v1/tokens", map[string]any{"name": "ci", "scope": "deploy"}))
+	h := map[string]string{"Authorization": "Bearer " + tc.Value, "Idempotency-Key": "k"}
+	name := "bp_" + strings.Repeat("a", 30)
+	if w := e.req("POST", "/api/v1/apps", map[string]any{"name": name}, h); w.Code != 201 || !strings.Contains(w.Body.String(), name) {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	var body string
+	if err := e.svc.Store.DB.QueryRow(`SELECT body FROM idempotency_keys WHERE key = 'k'`).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, name) {
+		t.Fatalf("stored body is not redacted: %s", body)
 	}
 }
 
@@ -679,7 +758,20 @@ func actorFrom(r *http.Request) (app.Actor, bool) { return auth.ActorFrom(r.Cont
 func TestProfilePasswordAndGitHubStatusEndpoints(t *testing.T) {
 	e := newEnv(t)
 	e.login("me@example.nl", false)
-	w := e.asSession("PATCH", "/api/v1/me", map[string]any{"name": "Ada", "email": "Ada@Example.nl"})
+	// The email needs the current password; a name does not.
+	if w := e.asSession("PATCH", "/api/v1/me", map[string]any{"email": "Ada@Example.nl"}); w.Code != 400 || decode[errResp](t, w).Error.Code != "current_password_required" {
+		t.Fatalf("email without password: %d %s", w.Code, w.Body)
+	}
+	if w := e.asSession("PATCH", "/api/v1/me", map[string]any{"name": "Nope", "email": "Ada@Example.nl", "current_password": "wrong-password"}); w.Code != 401 {
+		t.Fatalf("email with wrong password: %d %s", w.Code, w.Body)
+	}
+	if w := e.asSession("GET", "/api/v1/me", nil); decode[app.Me](t, w).User.Name == "Nope" {
+		t.Fatal("name changed although the password was wrong")
+	}
+	if w := e.asSession("PATCH", "/api/v1/me", map[string]any{"name": "Grace"}); w.Code != 200 {
+		t.Fatalf("name only: %d %s", w.Code, w.Body)
+	}
+	w := e.asSession("PATCH", "/api/v1/me", map[string]any{"name": "Ada", "email": "Ada@Example.nl", "current_password": "password-1234"})
 	u := decode[app.User](t, w)
 	if w.Code != 200 || u.Name != "Ada" || u.Email != "ada@example.nl" {
 		t.Fatalf("patch me: %d %s", w.Code, w.Body)

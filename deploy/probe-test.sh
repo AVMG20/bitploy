@@ -6,20 +6,20 @@
 # It starts a probe container on a fresh network "bp-probe" (a /24 from the app
 # pool, like any app) and checks:
 #   must work    the internet; another container on the same network (Traefik <-> app)
-#   must fail    the host (bridge gateway and primary address), the metadata
+#   must fail    Traefik's internal port 8081 on the app's own network, the host (bridge gateway and primary address), the metadata
 #                address, a container on another app network
 #
 # Before it checks the "must fail" cases it takes the firewall away once, so a
 # green run means the rules are what blocks the traffic, not the test setup.
 # It only creates and removes containers and networks named bp-probe*.
 #
-#   PROBE_IMAGE=alpine:3.24  image with busybox wget
+#   PROBE_IMAGE=busybox:1.37  image with busybox wget and httpd
 #   PROBE_URL=http://example.com   an HTTP page on the internet
 #   PROBE_SKIP_BASELINE=1    do not remove the firewall for the control run
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${PROBE_IMAGE:-alpine:3.24}"
+IMAGE="${PROBE_IMAGE:-busybox:1.37}"
 URL="${PROBE_URL:-http://example.com}"
 HOST_PORT="${PROBE_HOST_PORT:-18099}"
 NET="bp-probe"
@@ -31,6 +31,7 @@ LABEL="nl.bitploy.probe=1"
 METADATA_IP="169.254.169.254"
 
 fail=0
+firewall_removed=0
 listener_pid=""
 www=""
 
@@ -43,6 +44,8 @@ cleanup() {
   if [ -n "$www" ]; then rm -rf "$www"; fi
   docker rm -f "$CLIENT" "$SIBLING" "$OTHER" >/dev/null 2>&1 || true
   docker network rm "$NET" "$NET_OTHER" >/dev/null 2>&1 || true
+  # The control run takes the rules away; always put them back, also on Ctrl-C or an early exit.
+  if [ "$firewall_removed" -eq 1 ]; then "$HERE/firewall.sh" apply >/dev/null || say "  WARNING: could not re-apply the firewall: run systemctl restart bitploy-firewall"; fi
 }
 trap cleanup EXIT
 
@@ -96,16 +99,25 @@ GATEWAY="$(gateway "$NET")"
 say "  host address $HOST_IP, test server on port $HOST_PORT"
 
 docker run -d --name "$CLIENT" --network "$NET" --label "$LABEL" "$IMAGE" sleep 600 >/dev/null
+# The sibling also listens on 8081, like Traefik's internal entrypoint does on every app network.
 docker run -d --name "$SIBLING" --network "$NET" --label "$LABEL" "$IMAGE" \
-  sh -c 'echo ok >/tmp/index.html; exec httpd -f -p 8000 -h /tmp' >/dev/null
+  sh -c 'echo ok >/tmp/index.html; httpd -p 8081 -h /tmp; exec httpd -f -p 8000 -h /tmp' >/dev/null
 docker run -d --name "$OTHER" --network "$NET_OTHER" --label "$LABEL" "$IMAGE" \
   sh -c 'echo ok >/tmp/index.html; exec httpd -f -p 8000 -h /tmp' >/dev/null
+for c in "$SIBLING" "$OTHER"; do
+  sleep 0.5
+  if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != true ]; then
+    say "probe server $c did not start: $(docker logs "$c" 2>&1 | tail -n1)"
+    exit 2
+  fi
+done
 SIBLING_IP="$(docker inspect "$SIBLING" -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}")"
 OTHER_IP="$(docker inspect "$OTHER" -f "{{(index .NetworkSettings.Networks \"$NET_OTHER\").IPAddress}}")"
 sleep 1
 
 if [ -z "${PROBE_SKIP_BASELINE:-}" ]; then
   say "Control run without the firewall (the traffic must get through)"
+  firewall_removed=1
   "$HERE/firewall.sh" remove >/dev/null
   expect_reach "host gateway $GATEWAY:$HOST_PORT reachable without rules" "http://$GATEWAY:$HOST_PORT/"
   expect_reach "host address $HOST_IP:$HOST_PORT reachable without rules" "http://$HOST_IP:$HOST_PORT/"
@@ -137,6 +149,7 @@ drops_before="$(metadata_drops || true)"
 expect_blocked "host via bridge gateway $GATEWAY:$HOST_PORT" "http://$GATEWAY:$HOST_PORT/"
 expect_blocked "host via primary address $HOST_IP:$HOST_PORT" "http://$HOST_IP:$HOST_PORT/"
 expect_blocked "container of another app $OTHER_IP:8000" "http://$OTHER_IP:8000/"
+expect_blocked "Traefik's internal port 8081 on the same app network" "http://$SIBLING_IP:8081/"
 expect_blocked "metadata service $METADATA_IP" "http://$METADATA_IP/"
 drops_after="$(metadata_drops || true)"
 if [ "${drops_after:-0}" -gt "${drops_before:-0}" ]; then

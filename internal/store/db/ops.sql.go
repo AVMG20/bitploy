@@ -193,6 +193,19 @@ func (q *Queries) OpsDeleteSamplesBefore(ctx context.Context, ts int64) (int64, 
 	return result.RowsAffected()
 }
 
+const opsDeleteStaleDomain = `-- name: OpsDeleteStaleDomain :execrows
+DELETE FROM domains WHERE id = ? AND status IN ('pending_dns', 'failed')
+`
+
+// A claim that never proved ownership (still waiting for DNS, or gave up) may be replaced.
+func (q *Queries) OpsDeleteStaleDomain(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, opsDeleteStaleDomain, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const opsDeleteUpload = `-- name: OpsDeleteUpload :exec
 DELETE FROM uploads WHERE id = ?
 `
@@ -646,6 +659,55 @@ func (q *Queries) OpsListUploadsBefore(ctx context.Context, createdAt int64) ([]
 	return items, nil
 }
 
+const opsListVolumeUsage = `-- name: OpsListVolumeUsage :many
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, u.quota_volume_mb, d.volume_bytes
+FROM apps a
+JOIN users u ON u.id = a.user_id
+JOIN app_disk d ON d.app_id = a.id
+WHERE a.volume_enabled = 1
+`
+
+type OpsListVolumeUsageRow struct {
+	ID            string
+	Slug          string
+	Status        string
+	StatusMessage string
+	DesiredState  string
+	QuotaVolumeMb int64
+	VolumeBytes   int64
+}
+
+func (q *Queries) OpsListVolumeUsage(ctx context.Context) ([]OpsListVolumeUsageRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListVolumeUsage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsListVolumeUsageRow{}
+	for rows.Next() {
+		var i OpsListVolumeUsageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Status,
+			&i.StatusMessage,
+			&i.DesiredState,
+			&i.QuotaVolumeMb,
+			&i.VolumeBytes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const opsRunningSecondsSince = `-- name: OpsRunningSecondsSince :one
 SELECT CAST(COALESCE(SUM(running_seconds), 0) AS INTEGER) AS seconds
 FROM usage_daily WHERE user_id = ? AND day >= ?
@@ -709,6 +771,7 @@ func (q *Queries) OpsSetDomainStatus(ctx context.Context, arg OpsSetDomainStatus
 
 const opsSumMemoryLimitsMB = `-- name: OpsSumMemoryLimitsMB :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps
+WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL
 `
 
 func (q *Queries) OpsSumMemoryLimitsMB(ctx context.Context) (int64, error) {
@@ -778,8 +841,8 @@ const opsUsageAppTotals = `-- name: OpsUsageAppTotals :one
 SELECT
     COUNT(*) AS apps,
     CAST(COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
-    CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis
 FROM apps WHERE user_id = ?
 `
 

@@ -130,7 +130,7 @@ func RequireDeploy(a Actor) error {
 	if a.Scope == ScopeRead {
 		return apperr.Forbidden("token_read_only",
 			"This token can only read; this action changes something.",
-			"Create a token with the deploy scope in the bitploy dashboard under Tokens.")
+			"Ask the user to create a token with the deploy scope in the bitploy dashboard under Tokens, put it in the MCP client config and reconnect. You cannot do this yourself.").WithNext("whoami")
 	}
 	return nil
 }
@@ -154,7 +154,8 @@ func RequireAdmin(a Actor) error {
 }
 
 // LoadApp finds an app by slug or app ID that the actor may see.
-// Admins may read every app. write=true additionally requires ownership
+// Admins may read every app, but only with a dashboard session (not with an
+// API token of any scope). write=true additionally requires ownership
 // (admins may still stop any app — callers that allow that pass write=false
 // and check themselves).
 func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) (db.App, error) {
@@ -178,7 +179,9 @@ func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) 
 		return row, nil
 	}
 	if row.UserID != a.UserID {
-		if a.IsAdmin() && !write {
+		// Only a logged-in dashboard session may look at other users' apps:
+		// a leaked admin API token (even read-only) must not expose every user.
+		if a.IsAdmin() && !write && a.Scope == ScopeSession {
 			return row, nil
 		}
 		return db.App{}, appNotFound(ref)

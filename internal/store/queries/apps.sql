@@ -18,9 +18,11 @@ DELETE FROM apps WHERE id = ?;
 SELECT COUNT(*) FROM apps WHERE user_id = ?;
 
 -- name: SumAppResourcesByUser :one
+-- Only apps that are meant to run and have a deployment reserve memory and CPU.
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
-FROM apps WHERE user_id = ? AND id != ?;
+FROM apps WHERE user_id = ? AND id != ?
+  AND desired_state = 'running' AND current_deployment_id IS NOT NULL;
 
 -- name: AppSlugExists :one
 SELECT COUNT(*) FROM apps WHERE slug = ?;

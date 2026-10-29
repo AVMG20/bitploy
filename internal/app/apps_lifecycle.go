@@ -43,10 +43,13 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 	}
 	if !row.CurrentDeploymentID.Valid {
 		return App{}, apperr.Conflict("app_not_deployed", "This app has not been deployed yet, so there is nothing to "+map[bool]string{true: "restart", false: "start"}[force]+".",
-			"Deploy it first with deploy_files, or upload a zip and call deploy.").WithNext("deploy_files")
+			"Deploy it first with deploy_files, or upload a zip and call deploy. If a deploy was started before and failed, call deploy with only app= to retry without resending files.").WithNext("deploy_files")
 	}
 	if !force && row.DesiredState == "running" && s.currentRunning(ctx, row) {
 		return s.appView(ctx, a, row), nil
+	}
+	if err := s.checkStartQuota(ctx, row); err != nil { // start_app of a stopped app
+		return App{}, err
 	}
 	if ae := s.startCurrentLocked(ctx, row); ae != nil {
 		return App{}, ae

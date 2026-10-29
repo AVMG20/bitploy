@@ -48,6 +48,13 @@ func (c *Client) RemoveNetwork(ctx context.Context, name string) error {
 
 // ListManagedNetworks lists networks with the managed label.
 func (c *Client) ListManagedNetworks(ctx context.Context) ([]network.Summary, error) {
-	res, err := c.API.NetworkList(ctx, client.NetworkListOptions{Filters: client.Filters{}.Add("label", LabelManaged+"=1")})
-	return res.Items, err
+	f, err := c.ownedFilter()
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.NetworkList(ctx, client.NetworkListOptions{Filters: f})
+	if err != nil {
+		return nil, err
+	}
+	return keepOwned(c, res.Items, func(n network.Summary) map[string]string { return n.Labels }), nil
 }

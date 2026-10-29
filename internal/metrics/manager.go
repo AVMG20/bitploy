@@ -21,7 +21,6 @@ type Docker interface {
 	TailLogs(ctx context.Context, name string, n int, since time.Time) ([]dockerx.LogEntry, error)
 	DiskUsage(ctx context.Context, verbose bool) (dockerx.DiskUsage, error)
 	PruneDanglingImages(ctx context.Context) (uint64, error)
-	PruneBuildCache(ctx context.Context, keepBytes int64) (uint64, error)
 }
 
 // Manager owns the collector, the Docker event handler and the scheduled
@@ -41,6 +40,9 @@ type Manager struct {
 
 	// SampleInterval is how often the collector writes (15 s).
 	SampleInterval time.Duration
+	// BuildxPrune trims the cache of the isolated builder (`docker buildx prune
+	// --builder bitploy`) down to keepBytes. May be nil.
+	BuildxPrune func(ctx context.Context, keepBytes int64) error
 	// BuildCacheKeepBytes caps the BuildKit cache after the nightly prune.
 	BuildCacheKeepBytes int64
 
@@ -96,5 +98,6 @@ func (m *Manager) Run(ctx context.Context) {
 	start("collector", m.runCollector)
 	start("events", m.runEvents)
 	start("schedule", m.runSchedule)
+	start("volume quota", m.runVolumeQuota)
 	wg.Wait()
 }

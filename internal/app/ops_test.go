@@ -106,7 +106,7 @@ func (e *opsEnv) exec(t *testing.T, q string, args ...any) {
 
 func (e *opsEnv) addApp(t *testing.T, id, slug, user, typ string) {
 	t.Helper()
-	e.exec(t, `INSERT INTO apps (id, user_id, slug, name, type, status, memory_mb, cpu_millis, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'running', 512, 500, 1, 1)`,
+	e.exec(t, `INSERT INTO apps (id, user_id, slug, name, type, status, desired_state, current_deployment_id, memory_mb, cpu_millis, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'running', 'running', 'dep_seed', 512, 500, 1, 1)`,
 		id, user, slug, slug, typ)
 }
 
@@ -174,7 +174,8 @@ func TestAddDomain(t *testing.T) {
 		t.Errorf("apex records = %+v", apex.Records)
 	}
 
-	// One hostname belongs to one app.
+	// One hostname belongs to one app once it passed the DNS check.
+	e.exec(t, `UPDATE domains SET status = 'issuing_cert' WHERE hostname = 'www.example.com'`)
 	_, err = e.svc.AddDomain(ctx, e.other, "calm-fox-1234", "www.example.com")
 	wantCode(t, err, "domain_taken")
 
@@ -541,5 +542,56 @@ func TestRunBackgroundWithoutDockerStopsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("RunBackground did not stop")
+	}
+}
+
+// A claim that never proved ownership (pending_dns, failed) must not block the
+// real owner of the hostname; one that passed DNS must.
+func TestAddDomainReplacesStaleClaim(t *testing.T) {
+	e := newOpsEnv(t)
+	ctx := context.Background()
+	e.addApp(t, "app_1", "quiet-otter-3f9a", "usr_owner", "web")
+	e.addApp(t, "app_2", "calm-fox-1234", "usr_other", "web")
+
+	for _, status := range []string{"pending_dns", "failed"} {
+		squat, err := e.svc.AddDomain(ctx, e.owner, "quiet-otter-3f9a", "shop.example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.exec(t, `UPDATE domains SET status = ? WHERE id = ?`, status, squat.ID)
+		oldTXT, _ := recordOf(squat, "TXT")
+
+		real, err := e.svc.AddDomain(ctx, e.other, "calm-fox-1234", "shop.example.com")
+		if err != nil {
+			t.Fatalf("%s claim should be replaceable: %v", status, err)
+		}
+		if real.ID == squat.ID || real.Status != "pending_dns" {
+			t.Fatalf("new claim = %+v", real)
+		}
+		if newTXT, _ := recordOf(real, "TXT"); newTXT.Value == oldTXT.Value {
+			t.Fatal("the replaced claim's TXT token must not carry over")
+		}
+		if list, _ := e.svc.ListDomains(ctx, e.owner, "quiet-otter-3f9a"); len(list) != 0 {
+			t.Fatalf("squatter still holds %d domains", len(list))
+		}
+		var audits int
+		if err := e.svc.Store.DB.QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'domain.claim_replaced' AND target_id = ?`, squat.ID).Scan(&audits); err != nil || audits != 1 {
+			t.Fatalf("claim_replaced audit rows = %d (%v)", audits, err)
+		}
+		// Hand it back for the next round.
+		if err := e.svc.RemoveDomain(ctx, e.other, "calm-fox-1234", "shop.example.com"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Once the DNS check passed, nobody can take it over.
+	held, err := e.svc.AddDomain(ctx, e.owner, "quiet-otter-3f9a", "held.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"issuing_cert", "active"} {
+		e.exec(t, `UPDATE domains SET status = ? WHERE id = ?`, status, held.ID)
+		_, err = e.svc.AddDomain(ctx, e.other, "calm-fox-1234", "held.example.com")
+		wantCode(t, err, "domain_taken")
 	}
 }

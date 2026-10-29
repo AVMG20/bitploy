@@ -107,17 +107,18 @@ type Managed struct {
 // ManagedContainers lists bitploy containers (label nl.bitploy.managed=1
 // and an app id). With all=false only running ones are returned.
 func (c *Client) ManagedContainers(ctx context.Context, all bool) ([]Managed, error) {
-	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{
-		All:     all,
-		Filters: client.Filters{}.Add("label", LabelManaged+"=1"),
-	})
+	f, err := c.ownedFilter()
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{All: all, Filters: f})
 	if err != nil {
 		return nil, err
 	}
 	var out []Managed
 	for _, it := range res.Items {
 		appID := it.Labels[LabelAppID]
-		if appID == "" {
+		if appID == "" || !c.owned(it.Labels) {
 			continue
 		}
 		name := ""
@@ -211,9 +212,11 @@ func (c *Client) DiskUsage(ctx context.Context, verbose bool) (DiskUsage, error)
 // PruneDanglingImages removes untagged images that bitploy built (label
 // nl.bitploy.managed=1). Other images on the host are never touched.
 func (c *Client) PruneDanglingImages(ctx context.Context) (uint64, error) {
-	res, err := c.API.ImagePrune(ctx, client.ImagePruneOptions{
-		Filters: client.Filters{}.Add("dangling", "true").Add("label", LabelManaged+"=1"),
-	})
+	f, err := c.ownedFilter()
+	if err != nil {
+		return 0, err
+	}
+	res, err := c.API.ImagePrune(ctx, client.ImagePruneOptions{Filters: f.Add("dangling", "true")})
 	if err != nil {
 		return 0, err
 	}

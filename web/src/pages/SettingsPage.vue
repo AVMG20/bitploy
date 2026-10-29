@@ -28,30 +28,47 @@ const qc = useQueryClient()
 const { user } = useSession()
 
 // ---------------------------------------------------------------- profile
+function emailChanged(email: string | undefined): boolean {
+  const current = user.value?.email.toLowerCase() ?? ''
+  return !!email && email.trim().toLowerCase() !== current
+}
 const profile = useForm({
   validationSchema: toTypedSchema(
-    z.object({
-      name: z.string().trim().min(1, 'Tell us your name.'),
-      email: z.string().min(1, 'Enter your email address.').email('That does not look like an email address.'),
-    }),
+    z
+      .object({
+        name: z.string().trim().min(1, 'Tell us your name.'),
+        email: z.string().min(1, 'Enter your email address.').email('That does not look like an email address.'),
+        password: z.string().optional(),
+      })
+      .refine((v) => !emailChanged(v.email) || !!v.password, {
+        path: ['password'],
+        message: 'Enter your current password to change your email address.',
+      }),
   ),
-  initialValues: { name: '', email: '' },
+  initialValues: { name: '', email: '', password: '' },
 })
+const needsPassword = computed(() => emailChanged(profile.values.email))
 let profileLoaded = false
 watch(
   user,
   (u) => {
     if (u && !profileLoaded) {
       profileLoaded = true
-      profile.resetForm({ values: { name: u.name, email: u.email } })
+      profile.resetForm({ values: { name: u.name, email: u.email, password: '' } })
     }
   },
   { immediate: true },
 )
 const saveProfile = useMutation({
-  mutationFn: (v: { name: string; email: string }) => api.updateProfile({ name: v.name.trim(), email: v.email.trim() }),
-  onSuccess: () => {
+  mutationFn: (v: { name: string; email: string; password?: string }) =>
+    api.updateProfile(
+      emailChanged(v.email)
+        ? { name: v.name.trim(), email: v.email.trim(), current_password: v.password }
+        : { name: v.name.trim() },
+    ),
+  onSuccess: (u) => {
     toastOk('Profile saved')
+    profile.resetForm({ values: { name: u.name, email: u.email, password: '' } })
     void qc.invalidateQueries({ queryKey: SESSION_KEY })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -153,6 +170,14 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
           </FormField>
           <FormField v-slot="{ componentField }" name="email">
             <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" autocomplete="email" v-bind="componentField" /></FormControl><FormMessage /></FormItem>
+          </FormField>
+          <FormField v-if="needsPassword" v-slot="{ componentField }" name="password">
+            <FormItem>
+              <FormLabel>Current password</FormLabel>
+              <FormControl><Input type="password" autocomplete="current-password" v-bind="componentField" /></FormControl>
+              <FormDescription>Needed to change your email address.</FormDescription>
+              <FormMessage />
+            </FormItem>
           </FormField>
           <div><Button type="submit" :disabled="saveProfile.isPending.value">{{ saveProfile.isPending.value ? 'Saving...' : 'Save profile' }}</Button></div>
         </form>

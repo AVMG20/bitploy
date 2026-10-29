@@ -35,7 +35,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	apiChain = annotate(apiChain)
 	apiChain = limiter.middleware(apiChain)
 	apiChain = auth.Middleware(svc, auth.Options{Channel: app.ChannelAPI, AllowCookie: true, CheckOrigin: true})(apiChain)
-	apiChain = limitBody(maxAPIBody, withMeta(svc.Cfg, apiChain))
+	apiChain = readDeadline(apiReadTimeout, limitBody(maxAPIBody, withMeta(svc.Cfg, apiChain)))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -51,12 +51,12 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 		m = annotate(m)
 		m = limiter.middleware(m)
 		m = auth.Middleware(svc, auth.Options{Channel: app.ChannelMCP})(m)
-		m = limitBody(mcpBodyLimit, withMeta(svc.Cfg, m))
+		m = readDeadline(mcpReadTimeout, limitBody(mcpBodyLimit, withMeta(svc.Cfg, m)))
 		mux.Handle("/mcp", m)
 		mux.Handle("/mcp/", m)
 	}
 
-	mux.HandleFunc("POST /u/{id}", a.upload)
+	mux.Handle("POST /u/{id}", readDeadline(uploadReadTimeout, http.HandlerFunc(a.upload)))
 	mux.Handle("GET /docs/api", &docs{api: a.h, base: prefix})
 	static := spa(web)
 	mux.Handle("/", static)

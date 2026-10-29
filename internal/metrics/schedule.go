@@ -215,11 +215,12 @@ func (m *Manager) PruneDocker(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("image prune: %w", err)
 	}
-	cache, err := m.Docker.PruneBuildCache(ctx, m.BuildCacheKeepBytes)
-	if err != nil {
-		return fmt.Errorf("builder prune: %w", err)
+	if m.BuildxPrune != nil {
+		if err := m.BuildxPrune(ctx, m.BuildCacheKeepBytes); err != nil {
+			return fmt.Errorf("builder prune: %w", err)
+		}
 	}
-	m.Log.Info("docker pruned", "images_reclaimed_bytes", images, "build_cache_reclaimed_bytes", cache)
+	m.Log.Info("docker pruned", "images_reclaimed_bytes", images, "build_cache_cap_bytes", m.BuildCacheKeepBytes)
 	return nil
 }
 

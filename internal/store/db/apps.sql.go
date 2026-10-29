@@ -363,6 +363,7 @@ const sumAppResourcesByUser = `-- name: SumAppResourcesByUser :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
 FROM apps WHERE user_id = ? AND id != ?
+  AND desired_state = 'running' AND current_deployment_id IS NOT NULL
 `
 
 type SumAppResourcesByUserParams struct {

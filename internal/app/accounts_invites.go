@@ -87,6 +87,16 @@ func (s *Service) RevokeInvite(ctx context.Context, a Actor, id string) error {
 	return nil
 }
 
+func tooManySignups(wait int64) *apperr.Error {
+	mins := (wait + 59) / 60
+	if mins < 1 {
+		mins = 1
+	}
+	return apperr.TooMany("too_many_attempts",
+		"Too many signup attempts from this network.",
+		"Wait about "+acctItoa(mins)+" minute(s) and try again.").WithDetail("retry_after_seconds", wait)
+}
+
 func acctInviteInvalid(status int, why string) *apperr.Error {
 	return apperr.New(status, "invite_invalid", why, "Ask the person who invited you for a new invite link.")
 }
@@ -96,9 +106,18 @@ func acctInviteInvalid(status int, why string) *apperr.Error {
 func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInviteInput, ip, userAgent string) (cookie string, info SessionInfo, err error) {
 	var inv db.Invite
 	open := code == OpenSignupCode && s.Cfg.Signup == "open"
+	// Signup and invite acceptance: 5 attempts per hour per IP. Wrong invite
+	// codes and real signups count; plain validation errors (bad email, short
+	// password) do not, so a typo is not punished.
+	lim := s.limiter()
+	sigKey := "signup|" + ip
+	if wait, full := lim.full(sigKey, s.now(), signupMax, signupWindow); full {
+		return "", SessionInfo{}, tooManySignups(wait)
+	}
 	if !open {
 		inv, err = s.Q.GetInviteByHash(ctx, store.HashToken(code))
 		if errors.Is(err, sql.ErrNoRows) {
+			lim.add(sigKey, s.now())
 			return "", SessionInfo{}, acctInviteInvalid(404, "This invite link is not valid.")
 		}
 		if err != nil {
@@ -135,9 +154,13 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 	if !open {
 		role = inv.Role
 	}
+	if wait, ok := lim.reserve(sigKey, s.now(), signupMax, signupWindow); !ok {
+		return "", SessionInfo{}, tooManySignups(wait)
+	}
 	hash, herr := passwd.Hash(in.Password)
 	if herr != nil {
-		return "", SessionInfo{}, apperr.Internal(herr)
+		lim.refund(sigKey)
+		return "", SessionInfo{}, acctHashErr(herr)
 	}
 	var user db.User
 	terr := s.Store.Tx(ctx, func(q *db.Queries) error {
@@ -158,7 +181,16 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 		return nil
 	})
 	if terr != nil {
-		return "", SessionInfo{}, apperr.As(terr)
+		e := apperr.As(terr)
+		if open && e.Code == "email_taken" {
+			// Without email verification an open signup cannot hide that an
+			// address is registered, but it should not confirm it either.
+			// (Enumeration is further capped by the 5 per hour per IP limit.)
+			return "", SessionInfo{}, apperr.Conflict("signup_failed",
+				"The account could not be created with these details.",
+				"If you already have an account, log in instead; otherwise try a different email address.")
+		}
+		return "", SessionInfo{}, e
 	}
 	cookie, csrf, serr := s.newSession(ctx, user.ID, ip, userAgent)
 	if serr != nil {

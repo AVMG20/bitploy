@@ -106,6 +106,10 @@ func newService(ctx context.Context, log *slog.Logger, needDocker bool) (*app.Se
 		if err != nil {
 			return nil, err
 		}
+		// Everything bitploy creates in Docker carries this id, and cleanup only touches resources with it.
+		if dk.Instance, err = st.InstanceID(ctx); err != nil {
+			return nil, err
+		}
 	}
 	routes := &proxy.Writer{Dir: cfg.RoutesDir(), EntryPoint: "websecure", TLS: true}
 	if cfg.Dev {
@@ -136,6 +140,10 @@ func serve(log *slog.Logger) error {
 		Handler:           api.New(svc, mcp.Handler(svc), web.Dist()),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+		// No ReadTimeout/WriteTimeout on purpose: they would cut SSE log
+		// streams, long-polls and 95 MB uploads. internal/api sets per-route
+		// body read deadlines (API 30 s, /mcp 60 s, /u/{id} 15 min).
 	}
 	errCh := make(chan error, 1)
 	go func() {

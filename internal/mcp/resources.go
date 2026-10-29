@@ -22,7 +22,7 @@ func (s *srv) registerResources() {
 		URI:         rulesURI,
 		Name:        "rules",
 		Title:       "Bitploy deploy rules",
-		Description: "The rules every deploy follows and the runtime contract (port, logs, /data).",
+		Description: "Everything an agent needs: the Dockerfile rule, runtime contract (0.0.0.0:$PORT, /data), limits, how to update an app later, how env and setting changes apply, a fix per error code, custom domains.",
 		MIMEType:    "text/markdown",
 	}, s.readRules)
 
@@ -55,7 +55,7 @@ func (s *srv) readRules(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp
 	if err != nil {
 		return nil, err
 	}
-	md, err := s.svc.DeployRules(ctx, a)
+	md, err := s.rulesDoc(ctx, a)
 	if err != nil {
 		return nil, err
 	}
@@ -118,24 +118,30 @@ func (s *srv) registerPrompts() {
 }
 
 func deployPrompt(app, instructions string) string {
-	target := "Create a new app for it (create_app, with a short readable name)."
+	target := "Which app? (a) The project has a .bitploy file: update that app (the UPDATE path below). (b) No .bitploy, but the user says the project is already online: find it with list_apps and confirm with the user by name and url (ask which if several could match). (c) Otherwise call create_app with a short readable name for a NEW app, and never reuse an app only because its name looks similar. After creating, save {\"app\":\"<slug>\",\"url\":\"<url>\"} as .bitploy in the project (do not deploy that file)."
 	if app != "" {
-		target = fmt.Sprintf("Update the existing app %q (get_app) instead of creating a new one.", app)
+		target = fmt.Sprintf("Update the existing app %q (get_app) instead of creating a new one: this is the UPDATE path below.", app)
 	}
 	return `Put the project in the current folder online with bitploy. Follow these steps in order, and do not skip validation.
 
-1. Look at the project: which files exist, what language, and what port the app listens on. Check for an existing Dockerfile.
-2. No Dockerfile? Call get_template with the stack that fits (static for plain HTML, node, node-spa, python, go, php, or generic). Save its Dockerfile and .dockerignore into the project and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost.
+1. Look at the project: which files exist, what language, and what port the app listens on. Check for an existing Dockerfile and for a .bitploy file.
+2. No Dockerfile? Call get_template with the stack that fits (static for plain HTML, node-spa for a Vite/React/Vue build, node, python, go, php, or generic). Save its Dockerfile and .dockerignore into the project and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost. A bot with no web port: create the app with type=worker.
 3. Call validate_dockerfile with the Dockerfile text and the list of project files. Fix every error. Read the warnings.
 4. ` + target + `
-5. Secrets (API keys, passwords) never go into files. Set them with set_env.
-6. Send the code. Up to 2 MB and 200 files: deploy_files. Bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. A git repository: set_git_source, then deploy.
+5. Secrets (API keys, passwords, bot tokens) never go into files. Set them with set_env. They reach the app after restart_app, or with the first deploy.
+6. Send the code. Up to 2 MB and 200 files: deploy_files with ALL files. Bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. A git repository: set_git_source, then deploy. A private GitHub repository needs a token the user saves in the dashboard under Settings; ask the user.
 7. deploy and deploy_files return at once. Call get_deployment with wait_seconds=30 until the state is running or failed. If it failed, read error.hint and the log tail, fix the cause and deploy again. After 3 failures with the same error code, stop and explain the problem to the user in plain words.
 8. When it runs, give the user the URL and one or two plain sentences on what you did. Assume the user is not technical.
 
+UPDATE path (the app already exists, also in a new session):
+- Find the app: the .bitploy file. Without it, only if the user says the project is already online: list_apps and confirm by name and url with the user. Never take an app just because its name looks similar. Never create a second app for a project that has a .bitploy.
+- deploy_files again with app=<slug> and ALL files. It is a full snapshot that replaces the old source, not a patch. For git or zip sources: deploy (zip: create_upload first).
+- Only env vars or settings changed: set_env then restart_app (app running), or deploy with only app= (app failed or never ran). volume, memory and CPU (update_app) apply on restart_app.
+- Then step 7 and 8 as above. The URL stays the same.
+
 Never stop, delete or roll back an app the user did not name.
 
-Reference (the same rules the server announces):
+Reference (the same rules the server announces; get_deploy_rules has the full fix list per error code):
 
 ` + instructions
 }

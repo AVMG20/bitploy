@@ -10,6 +10,17 @@ import (
 	"database/sql"
 )
 
+const countAllApps = `-- name: CountAllApps :one
+SELECT count(*) FROM apps
+`
+
+func (q *Queries) CountAllApps(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAllApps)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getApp = `-- name: GetApp :one
 SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at FROM apps WHERE id = ?
 `

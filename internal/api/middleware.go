@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -174,6 +175,58 @@ func limitBody(n int64, next http.Handler) http.Handler {
 	})
 }
 
+// ---- per-route read deadlines ----
+
+// Read deadlines for request bodies. There is no server-wide ReadTimeout
+// because it would also cut Server-Sent Events, long-polls and slow uploads.
+const (
+	apiReadTimeout    = 30 * time.Second
+	mcpReadTimeout    = 60 * time.Second
+	uploadReadTimeout = 15 * time.Minute
+)
+
+// readDeadline gives the request body d to arrive. It only applies to requests
+// that have a body, and the deadline is lifted again when the body is done (or
+// failed), so a long response (long-poll, deploy wait) is not cut off: an
+// expired read deadline would cancel the request context.
+func readDeadline(d time.Duration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil && r.Body != http.NoBody {
+			rc := http.NewResponseController(w)
+			if err := rc.SetReadDeadline(time.Now().Add(d)); err == nil {
+				r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type deadlineBody struct {
+	io.ReadCloser
+	rc   *http.ResponseController
+	done bool
+}
+
+func (b *deadlineBody) lift() {
+	if !b.done {
+		b.done = true
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.lift()
+	}
+	return n, err
+}
+
+func (b *deadlineBody) Close() error {
+	b.lift()
+	return b.ReadCloser.Close()
+}
+
 // ---- rate limit: 120 requests per minute per API token ----
 
 const (
@@ -247,10 +300,30 @@ const (
 	idempotencyMaxBody = 1 << 20
 )
 
+// idempotentPath says whether a POST path (below /api/v1) may be replayed from
+// the stored response. It is an allow-list of resource-creating app routes:
+// responses of account routes (/tokens holds a raw bp_ token, /admin/invites an
+// invite URL, /auth/*, /me*, /sessions*) and of /apps/{app}/uploads (a one-time
+// upload URL) are credentials and must never land in the database or backups.
+func idempotentPath(p string) bool {
+	rest := strings.TrimPrefix(p, prefix)
+	if rest == "/apps" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 3 && parts[0] == "apps" && parts[1] != "" {
+		switch parts[2] {
+		case "files", "deployments", "domains", "rollback", "redeploy":
+			return true
+		}
+	}
+	return false
+}
+
 func idempotency(svc *app.Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("Idempotency-Key")
-		if r.Method != http.MethodPost || key == "" {
+		if r.Method != http.MethodPost || key == "" || !idempotentPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -292,7 +365,7 @@ func idempotency(svc *app.Service, next http.Handler) http.Handler {
 		if rec.status >= 200 && rec.status < 300 && rec.body != nil {
 			if err := svc.Q.InsertIdempotencyKey(ctx, db.InsertIdempotencyKeyParams{
 				UserID: actor.UserID, Key: key, Method: r.Method, Path: r.URL.Path,
-				Status: int64(rec.status), Body: rec.body.Bytes(), CreatedAt: now,
+				Status: int64(rec.status), Body: []byte(apperr.Redact(rec.body.String())), CreatedAt: now,
 			}); err != nil {
 				svc.Log.Warn("idempotency store failed", "err", err)
 			}

@@ -501,26 +501,38 @@ func dirSize(root string, limit int64) (int64, error) {
 	return total, err
 }
 
-// dropEscapingSymlinks removes symlinks that point outside the checkout.
+// dropEscapingSymlinks removes every symlink whose fully resolved target is
+// not inside the checkout (filepath.EvalSymlinks, so chains such as
+// x -> ., y1 -> x/.., y2 -> y1/.. are followed on disk). Dangling and looping
+// links are removed too. Removing one link can change what another resolves
+// to, so it repeats until a pass removes nothing. Links that stay always
+// resolve to a path inside the checkout.
 func dropEscapingSymlinks(root string) error {
-	return filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.Type()&os.ModeSymlink == 0 {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	for pass := 0; pass < 1000; pass++ {
+		removed := 0
+		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.Type()&os.ModeSymlink == 0 {
+				return nil
+			}
+			real, rerr := filepath.EvalSymlinks(p)
+			if rerr == nil && (real == rootReal || strings.HasPrefix(real, rootReal+string(filepath.Separator))) {
+				return nil
+			}
+			removed++
+			return os.Remove(p)
+		})
+		if err != nil {
+			return err
+		}
+		if removed == 0 {
 			return nil
 		}
-		target, lerr := os.Readlink(p)
-		if lerr != nil {
-			return os.Remove(p)
-		}
-		resolved := target
-		if !filepath.IsAbs(target) {
-			resolved = filepath.Join(filepath.Dir(p), target)
-		}
-		rel, rerr := filepath.Rel(root, filepath.Clean(resolved))
-		if filepath.IsAbs(target) || rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return os.Remove(p)
-		}
-		return nil
-	})
+	}
+	return errors.New("symlink cleanup did not settle")
 }
 
 func checkSubdir(root, sub string) error {

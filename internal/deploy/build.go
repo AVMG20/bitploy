@@ -25,6 +25,9 @@ type BuildSpec struct {
 	Labels     map[string]string
 	Timeout    time.Duration // default BuildTimeout
 	Docker     string        // docker binary, default "docker"
+	// Builder, when set, runs the build in the isolated builder (see builder.go)
+	// instead of the daemon's default one. The caller must have called Ensure.
+	Builder *Builder
 }
 
 // ErrBuildTimeout is returned when the build ran past its timeout.
@@ -32,7 +35,11 @@ var ErrBuildTimeout = errors.New("build timed out")
 
 // BuildArgs returns the argument list for `docker`.
 func (b BuildSpec) BuildArgs() []string {
-	args := []string{"buildx", "build", "--progress=plain", "--load", "--provenance=false", "--sbom=false", "-t", b.Tag, "-f", b.Dockerfile}
+	args := []string{"buildx", "build"}
+	if b.Builder != nil {
+		args = append(args, "--builder", BuilderName)
+	}
+	args = append(args, "--progress=plain", "--load", "--provenance=false", "--sbom=false", "-t", b.Tag, "-f", b.Dockerfile)
 	keys := make([]string, 0, len(b.Labels))
 	for k := range b.Labels {
 		keys = append(keys, k)
@@ -60,7 +67,11 @@ func RunBuild(ctx context.Context, b BuildSpec, onLine func(string)) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(bctx, bin, b.BuildArgs()...)
-	cmd.Env = append(os.Environ(), "BUILDKIT_PROGRESS=plain", "DOCKER_CLI_HINTS=false")
+	env := os.Environ()
+	if b.Builder != nil {
+		env = b.Builder.Env()
+	}
+	cmd.Env = append(env, "BUILDKIT_PROGRESS=plain", "DOCKER_CLI_HINTS=false")
 	cmd.WaitDelay = 10 * time.Second
 	setChildAttrs(cmd)
 	pr, pw := io.Pipe()

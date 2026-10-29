@@ -200,6 +200,7 @@ env_default BITPLOY_SERVER_IPV4 "$BITPLOY_SERVER_IPV4"
 env_default BITPLOY_ACME_EMAIL "$BITPLOY_ACME_EMAIL"
 env_default BITPLOY_SIGNUP invite
 env_default BITPLOY_MAX_PARALLEL_BUILDS 2
+env_default BITPLOY_MAX_APPS 100
 env_default BITPLOY_DATA_DIR "$DATA_DIR"
 
 # Cloudflare Origin CA certificate: the default certificate in Traefik.

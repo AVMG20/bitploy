@@ -100,7 +100,7 @@ func (s *Service) validate(dockerfile string, fileList []string, appPort int, ap
 	}
 	if res.OK {
 		out.NextSteps = []string{
-			"Deploy it: deploy_files with the project files (up to 2 MB and 200 files), or create_upload for a zip.",
+			"Deploy it: deploy_files with ALL project files, it replaces the whole source (up to 2 MB and 200 files), or create_upload for a zip.",
 			"Read any warnings first; they do not block the deploy.",
 		}
 	} else {

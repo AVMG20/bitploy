@@ -57,3 +57,27 @@ func TestWriteRemoveAndList(t *testing.T) {
 		t.Fatalf("public router must not exist before the swap:\n%s", b)
 	}
 }
+
+func TestRemoveRewritesCatchAll(t *testing.T) {
+	w := &Writer{Dir: t.TempDir(), EntryPoint: "web"}
+	w.Write(Route{Slug: "a-app", Host: "a-app.localhost", Upstream: "http://bp-a-app-1:80"})
+	w.WriteCatchAll("localhost", "http://bitploy:8080")
+	catch := filepath.Join(w.Dir, "_catchall.yml")
+	before, _ := os.ReadFile(catch)
+	i1, _ := os.Stat(catch)
+	if err := w.Remove("a-app"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(catch)
+	i2, _ := os.Stat(catch)
+	if string(before) != string(after) {
+		t.Fatal("catch-all content must not change")
+	}
+	if os.SameFile(i1, i2) {
+		t.Fatal("catch-all must be written again (new file) so Traefik reloads")
+	}
+	// Removing a route that does not exist is not an error and writes nothing.
+	if err := w.Remove("nope"); err != nil {
+		t.Fatal(err)
+	}
+}

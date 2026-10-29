@@ -36,7 +36,13 @@ const s = computed(() => server.data.value)
         :sub="s ? `Images ${formatGB(s.docker_images_gb)}, build cache ${formatGB(s.docker_build_cache_gb)}, volumes ${formatGB(s.docker_volumes_gb)}` : ''"
       />
       <StatCard title="Builds" :loading="!s" :value="s ? `${s.builds_running} running` : ''" :sub="s ? `${s.builds_queued} waiting in line` : ''" />
-      <StatCard title="Apps" :loading="!s" :value="s ? `${s.apps_running} of ${s.apps_total} running` : ''" :progress="s ? pct(s.apps_running, s.apps_total) : undefined" />
+      <StatCard
+        title="Apps"
+        :loading="!s"
+        :value="s ? `${s.apps_running} of ${s.apps_total} running` : ''"
+        :sub="s ? `${s.apps_total} of ${s.apps_max} apps allowed on this server` : ''"
+        :progress="s ? pct(s.apps_total, s.apps_max) : undefined"
+      />
     </div>
   </div>
 </template>

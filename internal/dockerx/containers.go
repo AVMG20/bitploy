@@ -29,6 +29,10 @@ func ManagedLabels(appID, slug string) map[string]string {
 	return map[string]string{LabelManaged: "1", LabelAppID: appID, LabelSlug: slug}
 }
 
+// AppCapabilities are the only Linux capabilities an app container keeps
+// (everything else, including NET_RAW and MKNOD, is dropped).
+var AppCapabilities = []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "NET_BIND_SERVICE"}
+
 // RunSpec describes one app container.
 type RunSpec struct {
 	Name      string
@@ -43,7 +47,7 @@ type RunSpec struct {
 
 // CreateContainer creates (does not start) a locked-down app container:
 // memory = memory+swap, CPU quota, pids/nofile limits, no-new-privileges,
-// NET_RAW dropped, json-file logs 10m x 3, restart unless-stopped, no
+// all capabilities dropped except AppCapabilities, json-file logs 10m x 3, restart unless-stopped, no
 // published ports, no host mounts.
 func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error) {
 	mem := s.MemoryMB * 1024 * 1024
@@ -58,12 +62,23 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 			Ulimits:    []*container.Ulimit{{Name: "nofile", Soft: NoFileSoft, Hard: NoFileSoft}},
 		},
 		SecurityOpt:   []string{"no-new-privileges"},
-		CapDrop:       []string{"NET_RAW"},
+		CapDrop:       []string{"ALL"},
+		CapAdd:        append([]string(nil), AppCapabilities...),
 		LogConfig:     container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m", "max-file": "3"}},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 	}
 	if s.Volume != "" {
 		hc.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: s.Volume, Target: DataMount}}
+	}
+	// Everything bitploy manages carries this installation's id, so the
+	// reconciler of another installation on the same daemon leaves it alone.
+	if s.Labels[LabelManaged] == "1" && c.Instance != "" && s.Labels[LabelInstance] == "" {
+		labels := make(map[string]string, len(s.Labels)+1)
+		for k, v := range s.Labels {
+			labels[k] = v
+		}
+		labels[LabelInstance] = c.Instance
+		s.Labels = labels
 	}
 	res, err := c.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name:       s.Name,
@@ -120,18 +135,62 @@ func (c *Client) ContainerExists(ctx context.Context, name string) (bool, error)
 
 // ListManagedContainers lists every container (running or not) with the managed label.
 func (c *Client) ListManagedContainers(ctx context.Context) ([]container.Summary, error) {
-	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{
-		All: true, Filters: client.Filters{}.Add("label", LabelManaged+"=1"),
-	})
-	return res.Items, err
+	f, err := c.ownedFilter()
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: f})
+	if err != nil {
+		return nil, err
+	}
+	return keepOwned(c, res.Items, func(s container.Summary) map[string]string { return s.Labels }), nil
+}
+
+// keepOwned drops items that do not carry this installation's labels (a second
+// line of defence behind the daemon-side filter).
+func keepOwned[T any](c *Client, items []T, labels func(T) map[string]string) []T {
+	out := items[:0:0]
+	for _, it := range items {
+		if c.owned(labels(it)) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// CountForeign counts managed containers that belong to another installation
+// or to a version before instance ids. They are never touched; callers log it once.
+func (c *Client) CountForeign(ctx context.Context) (int, error) {
+	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: client.Filters{}.Add("label", LabelManaged+"=1")})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, it := range res.Items {
+		if it.Labels[LabelAppID] != "" && !c.owned(it.Labels) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // ListAppContainers lists every managed container of one app.
 func (c *Client) ListAppContainers(ctx context.Context, appID string) ([]container.Summary, error) {
-	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{
-		All: true, Filters: client.Filters{}.Add("label", LabelManaged+"=1", LabelAppID+"="+appID),
-	})
-	return res.Items, err
+	f, err := c.appFilter(appID)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: f})
+	if err != nil {
+		return nil, err
+	}
+	out := res.Items[:0:0]
+	for _, it := range res.Items {
+		if c.ownedOrLegacy(it.Labels) {
+			out = append(out, it)
+		}
+	}
+	return out, nil
 }
 
 // SummaryName returns the container name without the leading slash.

@@ -144,7 +144,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
               <RelativeTime v-else :date="t.expires_at" />
             </TableCell>
             <TableCell>
-              <Button size="sm" variant="ghost" class="text-destructive" :disabled="!!t.revoked_at" @click="toRevoke = t"><Trash2 /> Revoke</Button>
+              <Button v-if="!t.revoked_at" size="sm" variant="ghost" class="text-destructive" @click="toRevoke = t"><Trash2 /> Revoke</Button>
             </TableCell>
           </TableRow>
         </TableBody>

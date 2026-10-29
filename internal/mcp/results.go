@@ -1,0 +1,509 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/deploy"
+)
+
+// This file turns service results into what an agent reads: a one-line
+// summary, structured data and next_steps that name the tool to call next.
+
+// limitsInfo lists the hard limits an agent must plan around.
+func limitsInfo() map[string]any {
+	return map[string]any{
+		"deploy_files_max_files":      deploy.MaxInlineFiles,
+		"deploy_files_max_bytes":      deploy.MaxInlineBytes,
+		"zip_upload_max_bytes":        deploy.MaxZipCompressed,
+		"zip_unpacked_max_bytes":      deploy.MaxZipUnpacked,
+		"zip_max_files":               deploy.MaxZipFiles,
+		"upload_url_valid_minutes":    15,
+		"git_clone_max_bytes":         500 << 20,
+		"build_timeout_minutes":       15,
+		"image_max_bytes":             deploy.MaxImageBytes,
+		"health_check_seconds":        60,
+		"worker_counts_healthy_after": 30,
+		"get_deployment_wait_max_sec": maxWaitSec,
+		"logs_max_lines":              1000,
+		"images_kept_for_rollback":    3,
+		"env_vars_max":                100,
+	}
+}
+
+// changeRules says which tool applies which kind of change.
+func changeRules() map[string]string {
+	return map[string]string{
+		"code_or_dockerfile":      "deploy_files again with ALL files (it replaces the whole source); git or zip sources: deploy",
+		"env_vars":                "set_env, then restart_app (app is running) or deploy with only app= (app is failed or never ran)",
+		"volume_memory_cpu":       "update_app, then restart_app",
+		"port_health_path_etc":    "update_app, then deploy with only app= (rebuilds the last source, no files needed)",
+		"slug_rename":             "update_app slug: applies at once, the URL changes, a few seconds of downtime, not allowed with a volume",
+		"persistent_files":        "update_app volume=true, restart_app; the app writes to /data and its user must own /data",
+		"back_to_working_version": "rollback (only when the user asks)",
+	}
+}
+
+// rulesDoc is the deploy rules markdown plus facts about this server and user.
+func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
+	md, err := s.svc.DeployRules(ctx, a)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString(md)
+	b.WriteString("\n## This server\n\n")
+	fmt.Fprintf(&b, "- Apps are served at %s (base domain %s).\n", s.svc.Cfg.AppURL("<slug>"), s.svc.Cfg.AppsDomain)
+	fmt.Fprintf(&b, "- Dashboard (API tokens, the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
+	if me, err := s.svc.Me(ctx, a); err == nil {
+		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
+		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB volume.\n",
+			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DeploysPerHour, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
+		fmt.Fprintf(&b, "- You use %d apps and %d MB memory right now.\n", me.Usage.Apps, me.Usage.MemoryReservedMB)
+	}
+	return b.String(), nil
+}
+
+// ---- apps ----
+
+type deploymentBrief struct {
+	ID        string `json:"id"`
+	Seq       int64  `json:"seq"`
+	State     string `json:"state"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+func briefOf(d app.Deployment) *deploymentBrief {
+	b := &deploymentBrief{ID: d.ID, Seq: d.Seq, State: d.State}
+	if d.Error != nil {
+		b.ErrorCode = d.Error.Code
+	}
+	return b
+}
+
+// appBrief is the compact per-app entry of list_apps.
+type appBrief struct {
+	Slug              string           `json:"slug"`
+	Name              string           `json:"name"`
+	Type              string           `json:"type"`
+	URL               string           `json:"url"`
+	Status            string           `json:"status"`
+	StatusMessage     string           `json:"status_message,omitempty"`
+	Healthy           bool             `json:"healthy"`
+	Problem           string           `json:"problem,omitempty"`
+	Source            string           `json:"source,omitempty"`
+	Volume            bool             `json:"volume"`
+	CurrentDeployment *deploymentBrief `json:"current_deployment"`
+	LatestDeployment  *deploymentBrief `json:"latest_deployment"`
+	Domains           []string         `json:"domains"`
+	RestartCount      int64            `json:"restart_count"`
+	CPUPercent        *float64         `json:"cpu_percent,omitempty"`
+	MemoryMB          *float64         `json:"memory_mb,omitempty"`
+	MemoryLimitMB     int64            `json:"memory_limit_mb"`
+}
+
+func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
+	b := appBrief{
+		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage,
+		Volume: ap.Volume, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
+	}
+	if ap.Current != nil {
+		b.CurrentDeployment = briefOf(*ap.Current)
+	}
+	switch {
+	case ap.GitSource != nil:
+		b.Source = "git " + ap.GitSource.RepoURL
+	case ap.Current != nil:
+		b.Source = ap.Current.SourceKind
+	}
+	for _, d := range ap.Domains {
+		b.Domains = append(b.Domains, d.Hostname+" ("+d.Status+")")
+	}
+	if ap.Live != nil {
+		cpu, mem := ap.Live.CPU, ap.Live.MemoryMB
+		b.CPUPercent, b.MemoryMB = &cpu, &mem
+	}
+	switch ap.Status {
+	case "failed":
+		b.Problem = "the last deploy failed and nothing is live"
+	case "crashed":
+		b.Problem = "the app stopped on its own"
+	case "running":
+		if latest != nil && latest.State == "failed" {
+			b.Problem = "the newest deploy failed (" + latest.ErrorCode + "); the previous version is still live"
+		} else if ap.Live != nil && ap.MemoryMB > 0 && ap.Live.MemoryMB > 0.9*float64(ap.MemoryMB) {
+			b.Problem = fmt.Sprintf("memory almost full (%.0f of %d MB)", ap.Live.MemoryMB, ap.MemoryMB)
+		}
+	}
+	if b.Problem != "" && ap.StatusMessage != "" {
+		b.Problem += ": " + oneLine(ap.StatusMessage)
+	}
+	b.Healthy = ap.Status == "running" && b.Problem == ""
+	return b
+}
+
+func listAppsResult(briefs []appBrief) *result {
+	if len(briefs) == 0 {
+		return &result{
+			Summary: "0 apps.",
+			Data:    data("apps", []appBrief{}, "counts", map[string]int{"total": 0, "healthy": 0, "need_attention": 0}),
+			Next:    []string{"There are no apps yet. Call create_app to make one, then send the code with deploy_files."},
+		}
+	}
+	healthy, attention, fresh := 0, 0, 0
+	var lines []string
+	var next []string
+	for _, b := range briefs {
+		line := fmt.Sprintf("- %s \"%s\" [%s] %s", b.Slug, b.Name, b.Status, b.URL)
+		if b.Problem != "" {
+			attention++
+			line += " PROBLEM: " + b.Problem
+			if len(next) < 3 {
+				next = append(next, fmt.Sprintf("Check %s: call get_deployment with app=%s for the error and log tail, or get_logs with kind=runtime.", b.Slug, b.Slug))
+			}
+		} else if b.Healthy {
+			healthy++
+		} else if b.Status == "new" {
+			fresh++
+		}
+		lines = append(lines, line)
+	}
+	next = append(next,
+		"This project's app is the one in its .bitploy file. Without .bitploy, only reuse an app if the user says it is already online and name AND url match (ask the user if unsure); otherwise create_app for a NEW app. Never overwrite an app just because its name is similar.",
+		"Call get_app for the full settings of one app.")
+	return &result{
+		Summary: fmt.Sprintf("%d app(s): %d healthy, %d need attention, %d not deployed yet.\n%s", len(briefs), healthy, attention, fresh, strings.Join(lines, "\n")),
+		Data:    data("apps", briefs, "counts", map[string]int{"total": len(briefs), "healthy": healthy, "need_attention": attention}),
+		Next:    next,
+	}
+}
+
+func appLine(ap app.App) string {
+	url := ap.URL
+	if url == "" {
+		url = "no web address"
+	}
+	s := fmt.Sprintf("%s (%s, %s): status %s, %s", ap.Slug, ap.Name, ap.Type, ap.Status, url)
+	if ap.Current != nil {
+		s += ", deployment " + ap.Current.ID + " " + ap.Current.State
+	}
+	if ap.StatusMessage != "" {
+		s += ". " + oneLine(ap.StatusMessage)
+	}
+	return s + "."
+}
+
+// updateHow says how to publish new code to this app.
+func updateHow(slug, sourceKind string, git bool) string {
+	switch {
+	case git || sourceKind == "git":
+		return "push the change to the repository, then call deploy with app=" + slug
+	case sourceKind == "upload":
+		return "zip the folder again: create_upload with app=" + slug + ", run its curl command, then deploy with the new upload_id"
+	}
+	return "call deploy_files with app=" + slug + " and ALL project files (it replaces the whole source, it is not a patch)"
+}
+
+func appUpdateHow(ap app.App) string {
+	kind := ""
+	if ap.Current != nil {
+		kind = ap.Current.SourceKind
+	}
+	return updateHow(ap.Slug, kind, ap.GitSource != nil && kind != "files" && kind != "upload")
+}
+
+func bitployFileStep(ap app.App) string {
+	content := fmt.Sprintf(`{"app":%q}`, ap.Slug)
+	if ap.URL != "" {
+		content = fmt.Sprintf(`{"app":%q,"url":%q}`, ap.Slug, ap.URL)
+	}
+	return "Save " + content + " as the file .bitploy in the project folder (do not send it with the deploy) so a later session updates this app instead of creating a new one."
+}
+
+func appNext(ap app.App) []string {
+	slug := ap.Slug
+	switch ap.Status {
+	case "new":
+		return []string{"Nothing is deployed yet. Send the code with deploy_files (up to 2 MB and 200 files), create_upload (zip) or set_git_source then deploy."}
+	case "failed":
+		return []string{
+			"The last deploy failed and nothing is live. Call get_deployment with app=" + slug + " for the error, hint and log tail.",
+			"Fix the cause, then " + appUpdateHow(ap) + ".",
+		}
+	case "crashed":
+		return []string{
+			"The app stopped on its own. Call get_logs with app=" + slug + " and kind=runtime to see why.",
+			"A missing environment variable: set_env then restart_app. A code bug: fix it, then " + appUpdateHow(ap) + ". A one-off crash: restart_app.",
+		}
+	case "stopped":
+		return []string{"The app is stopped on purpose. Call start_app only if the user wants it running again."}
+	case "deploying":
+		if ap.Current != nil {
+			return []string{"A deploy is in progress. Call get_deployment with app=" + slug + " and wait_seconds=30 until it is running or failed."}
+		}
+		return []string{"A deploy is in progress. Call get_deployment with app=" + slug + " and wait_seconds=30 until it is running or failed."}
+	}
+	url := ap.URL
+	if url == "" {
+		url = "(worker, no web address)"
+	}
+	return []string{
+		"The app is running at " + url + ". To publish changes: " + appUpdateHow(ap) + ".",
+		"If the user reports a problem: get_logs with kind=runtime; for usage: get_metrics.",
+	}
+}
+
+func updateAppNext(in updateAppIn, ap app.App) []string {
+	var out []string
+	deployed := ap.Current != nil
+	if in.Slug != nil && ap.URL != "" {
+		out = append(out, "The app now lives at "+ap.URL+"; the old address no longer works. Tell the user, and update the url in the project's .bitploy file.")
+	}
+	if in.Volume != nil || in.MemoryMB != nil || in.CPUMillis != nil {
+		if deployed {
+			out = append(out, "Call restart_app with app="+ap.Slug+" to apply volume, memory and CPU (no rebuild, a few seconds).")
+		} else {
+			out = append(out, "These settings apply at the first deploy.")
+		}
+	}
+	if in.Port != nil || in.HealthPath != nil || in.DockerfilePath != nil || in.ContextDir != nil || in.Type != nil {
+		if deployed || ap.Status == "failed" {
+			out = append(out, "Call deploy with only app="+ap.Slug+" to rebuild with these settings (no files needed), then get_deployment with wait_seconds=30.")
+		} else {
+			out = append(out, "These settings apply at the first deploy.")
+		}
+	}
+	if in.Volume != nil && *in.Volume {
+		out = append(out, "The app must write its persistent files to /data, and its user must own that folder: in the Dockerfile add RUN mkdir /data && chown <user> /data before USER. Anything outside /data is lost on redeploy.")
+	}
+	if len(out) == 0 {
+		out = append(out, "Done. Call get_app to see the current settings.")
+	}
+	return out
+}
+
+func setEnvNext(slug string, cur *app.App) []string {
+	if cur == nil {
+		return []string{"The values apply when the app next starts: call restart_app if it is running, or deploy with only app=" + slug + " if it is failed or never ran."}
+	}
+	switch {
+	case cur.Status == "new":
+		return []string{"Nothing is deployed yet; the first deploy will use these variables. Send the code with deploy_files."}
+	case cur.Status == "stopped":
+		return []string{"The app is stopped; the variables apply when it is started again (start_app, only if the user wants it running)."}
+	case cur.Status == "deploying":
+		return []string{"A deploy is in progress and may have read the old values. When it ends, call restart_app with app=" + slug + " to be sure."}
+	case cur.Current == nil:
+		return []string{"The app has no running version yet. Call deploy with only app=" + slug + " (rebuilds the last files, no resend needed), then get_deployment with wait_seconds=30."}
+	}
+	return []string{
+		"Call restart_app with app=" + slug + " to apply the variables (no rebuild, a few seconds). The running app does not see them until then.",
+		"Then call get_app, or get_logs with kind=runtime if it does not come up.",
+	}
+}
+
+// ---- deployments ----
+
+func redoStep(d app.Deployment) string {
+	switch d.SourceKind {
+	case "git":
+		return "push the fix and call deploy with app=" + d.AppSlug
+	case "upload":
+		return "zip again with create_upload (app=" + d.AppSlug + ") and deploy with the new upload_id"
+	case "rollback":
+		return "call list_deployments to pick another deployment"
+	}
+	return "call deploy_files again with app=" + d.AppSlug + " and ALL files"
+}
+
+// failureSteps gives specific next steps for a failed deployment.
+func failureSteps(d app.Deployment) []string {
+	slug := d.AppSlug
+	redo := redoStep(d)
+	var out []string
+	e := d.Error
+	if e == nil {
+		return []string{"Read log_tail for the cause, fix it, then " + redo + "."}
+	}
+	if e.Hint != "" && len(e.Hint) <= 300 && !strings.Contains(e.Hint, "\n") {
+		out = append(out, "Fix: "+e.Hint)
+	}
+	switch e.Code {
+	case "dockerfile_missing":
+		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore into the project, then "+redo+".")
+	case "port_unknown", "port_ambiguous", "port_reserved":
+		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
+	case "build_failed":
+		out = append(out, "Read log_tail: the first error line is the cause (a missing file, a wrong package name, a missing package-lock.json for npm ci). Fix it, then "+redo+".")
+	case "start_failed":
+		out = append(out, "Check the Dockerfile's CMD/ENTRYPOINT, then "+redo+". If the message says it is a server problem, tell the user to contact the bitploy admin.")
+	case "unhealthy", "out_of_memory", "app_crashed":
+		switch {
+		case strings.Contains(e.Message, "ran out of memory"):
+			out = append(out, "Call update_app with a higher memory_mb (whoami shows the quota) and then deploy with only app="+slug+"; or make the app use less memory.")
+		case strings.Contains(e.Hint, "0.0.0.0") && strings.Contains(e.Hint, "localhost"):
+			out = append(out, "Change the code so the server listens on 0.0.0.0 and the PORT variable, then "+redo+".")
+		case strings.Contains(e.Message, "stopped") || strings.Contains(e.Message, "worker"):
+			out = append(out, "The program crashed or exited: read log_tail. A missing environment variable (KeyError, undefined, 'is required'): set_env, then deploy with only app="+slug+". Otherwise fix the code, then "+redo+".")
+		case strings.Contains(e.Message, "HEALTHCHECK"):
+			out = append(out, "Fix the HEALTHCHECK command in the Dockerfile (or remove it), then "+redo+".")
+		default:
+			out = append(out, "The app started but did not answer. Read log_tail. If it listens on another port, call update_app with port=<number>; if the health path returns 500, call update_app with health_path=/healthz (any path below 500); then deploy with only app="+slug+".")
+		}
+	case "image_too_large":
+		out = append(out, "Shrink the image (smaller base, multi-stage build, a .dockerignore), then "+redo+".")
+	case "deploy_rate_limited":
+		out = append(out, "Wait as the hint says and tell the user; do not retry in a loop.")
+	default:
+		if strings.HasPrefix(e.Code, "source_") || strings.HasPrefix(e.Code, "github_") {
+			out = append(out, "Check the repository address, branch and subfolder with set_git_source, then call deploy with app="+slug+".")
+		} else {
+			out = append(out, "Read log_tail for the cause, fix it, then "+redo+".")
+		}
+	}
+	if e.Next != "" && !healthFailure(e.Code) {
+		out = append(out, "Suggested next tool: "+e.Next+".")
+	}
+	return out
+}
+
+// healthFailure reports the deploy error codes of an app that started but did not come up.
+func healthFailure(code string) bool {
+	return code == "unhealthy" || code == "out_of_memory" || code == "app_crashed"
+}
+
+// deploymentResult renders a deployment with state-specific next steps.
+func deploymentResult(verb string, d app.Deployment) *result {
+	if d.Error != nil && healthFailure(d.Error.Code) && !strings.Contains(d.Error.Hint, "0.0.0.0") && deploy.MentionsLocalhost(d.LogTail) {
+		// Safety net for the most common failure; the pipeline normally sets this hint itself.
+		e := *d.Error
+		e.Hint = deploy.LocalhostHint + ". For example Node: app.listen(process.env.PORT || 3000, \"0.0.0.0\"); Flask: app.run(host=\"0.0.0.0\", port=int(os.environ.get(\"PORT\", 8000))). Then deploy again."
+		d.Error = &e
+	}
+	var next []string
+	summary := fmt.Sprintf("%s %s of %s (#%d): %s", verb, d.ID, d.AppSlug, d.Seq, d.State)
+	switch d.State {
+	case "running":
+		if d.URL != "" {
+			summary += ". Live at " + d.URL
+		} else {
+			summary += ". The worker is running"
+		}
+		who := "the URL " + d.URL
+		if d.URL == "" {
+			who = "that the worker is running"
+		}
+		if d.SourceKind == "rollback" {
+			next = []string{"The previous version is live again. Tell the user " + who + " and that it is the older version."}
+		} else {
+			next = []string{"Give the user " + who + " and one or two plain sentences on what you did."}
+		}
+		next = append(next,
+			"To publish changes later: "+updateHow(d.AppSlug, d.SourceKind, false)+". The URL stays the same.",
+			bitployFileStep(app.App{Slug: d.AppSlug, URL: d.URL}),
+		)
+		if len(d.Warnings) > 0 {
+			next = append(next, "Mention the warnings only if they matter to the user.")
+		}
+	case "failed":
+		if d.Error != nil {
+			summary += " with " + d.Error.Code + ": " + oneLine(d.Error.Message)
+		}
+		next = failureSteps(d)
+		next = append(next, "After 3 failures with the same error code, stop and explain the problem to the user in plain words.")
+	case "superseded", "cancelled":
+		next = []string{"A newer deployment replaced this one. Call get_app to find the current deployment."}
+	default:
+		next = []string{"Call get_deployment with id=" + d.ID + " and wait_seconds=30 until the state is running or failed (a first build can take a few minutes)."}
+		if verb != "Deployment" {
+			next = append(next, "While waiting there is nothing else to do; do not call deploy again.")
+		}
+	}
+	if len(d.NextSteps) > 0 && !d.Terminal() {
+		next = append(next, d.NextSteps...)
+	}
+	d.NextSteps = nil
+	return &result{Summary: summary + ".", Data: data("deployment", d), Next: dedupe(next)}
+}
+
+// ---- domains ----
+
+func domainRecordLines(d app.Domain) []string {
+	var out []string
+	for _, r := range d.Records {
+		out = append(out, fmt.Sprintf("%s record, name %s, value %s", r.Type, r.Name, r.Value))
+	}
+	return out
+}
+
+// dnsMessage is a plain-language explanation the agent can pass to the user.
+func dnsMessage(d app.Domain) string {
+	if d.Status == "active" {
+		return "Your domain " + d.Hostname + " is connected and live at https://" + d.Hostname + "."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "To use %s for your site, add these records where you manage the domain (the company you bought it from, for example GoDaddy, Namecheap, TransIP or Cloudflare). Look for \"DNS settings\" or \"DNS records\" and add each line exactly as written:\n", d.Hostname)
+	for _, l := range domainRecordLines(d) {
+		b.WriteString("- " + l + "\n")
+	}
+	b.WriteString("Some providers want only the first part of the name (for example www instead of www.example.com). ")
+	b.WriteString("Changes need 5 to 30 minutes, sometimes up to an hour. Tell me when you have added them and I will check.")
+	for _, n := range d.Notes {
+		b.WriteString("\nNote: " + n)
+	}
+	return b.String()
+}
+
+// ---- metrics ----
+
+func metricsResult(slug, window string, m app.Metrics) *result {
+	var peakCPU, peakMem float64
+	for _, p := range m.Points {
+		peakCPU = maxf(peakCPU, maxf(p.CPU, p.CPUMax))
+		peakMem = maxf(peakMem, maxf(p.MemoryMB, p.MemMaxMB))
+	}
+	total := len(m.Points)
+	// Keep the answer small: at most 48 evenly spread samples.
+	pts := m.Points
+	if total > 48 {
+		step := float64(total) / 48
+		sampled := make([]app.MetricPoint, 0, 48)
+		for i := 0; i < 48; i++ {
+			sampled = append(sampled, m.Points[int(float64(i)*step)])
+		}
+		pts = sampled
+	}
+	m.Points = nonNil(pts)
+	d := toMap(m)
+	d["points_total"] = total
+	d["peak_cpu_percent"] = peakCPU
+	d["peak_memory_mb"] = peakMem
+	summary := fmt.Sprintf("%d sample(s) for %s over %s.", total, slug, window)
+	if m.Latest != nil {
+		summary += fmt.Sprintf(" Now: CPU %.1f%%, memory %.0f of %d MB.", m.Latest.CPU, m.Latest.MemoryMB, m.MemoryLimitMB)
+	}
+	if total > 0 {
+		summary += fmt.Sprintf(" Peak: CPU %.1f%%, memory %.0f MB.", peakCPU, peakMem)
+	}
+	var next []string
+	switch {
+	case total == 0:
+		next = []string{"No samples: the app is not running or just started. Call get_app to check its status."}
+	case m.MemoryLimitMB > 0 && peakMem > 0.85*float64(m.MemoryLimitMB):
+		next = []string{
+			fmt.Sprintf("Memory peaked at %.0f of %d MB: close to the limit, the app may be killed (out of memory). Call update_app with a higher memory_mb (whoami shows the quota), then restart_app; or make the app use less.", peakMem, m.MemoryLimitMB),
+		}
+	default:
+		next = []string{"Usage looks fine. CPU is a percentage of one core; the memory limit is " + fmt.Sprint(m.MemoryLimitMB) + " MB. Account totals are in whoami."}
+	}
+	return &result{Summary: summary, Data: d, Next: next}
+}
+
+func maxf(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}

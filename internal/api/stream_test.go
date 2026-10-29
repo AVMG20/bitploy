@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/auth"
 )
 
 func TestSSEStreamsLinesHeartbeatAndEnd(t *testing.T) {
@@ -92,5 +94,92 @@ func TestFollowRoutingFallsThroughWithoutFlag(t *testing.T) {
 	// Anonymous follow gets a 401, not a stream.
 	if w := e.req("GET", "/api/v1/apps/nope/logs?follow=1", nil, nil); w.Code != 401 {
 		t.Fatalf("anonymous follow: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestStreamCapPerUser(t *testing.T) {
+	var c streamCounter
+	var rels []func()
+	for i := 0; i < maxStreamsPerUser; i++ {
+		rel, ok := c.acquire("usr_a")
+		if !ok {
+			t.Fatalf("stream %d refused", i)
+		}
+		rels = append(rels, rel)
+	}
+	if _, ok := c.acquire("usr_a"); ok {
+		t.Fatal("11th stream of one user must be refused")
+	}
+	if rel, ok := c.acquire("usr_b"); !ok {
+		t.Fatal("another user is not affected")
+	} else {
+		rel()
+	}
+	rels[0]()
+	if rel, ok := c.acquire("usr_a"); !ok {
+		t.Fatal("a closed stream frees its slot")
+	} else {
+		rel()
+	}
+}
+
+func TestFollowRefusesStreamsOverTheCap(t *testing.T) {
+	a := &API{}
+	for i := 0; i < maxStreamsPerUser; i++ {
+		if _, ok := a.streams.acquire("usr_a"); !ok {
+			t.Fatal("setup")
+		}
+	}
+	h := a.follow(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("must not fall through") }))
+	for _, path := range []string{"/api/v1/apps/x/logs?follow=1", "/api/v1/deployments/dep_1/log?follow=1"} {
+		r := httptest.NewRequest("GET", path, nil)
+		r = r.WithContext(auth.WithActor(r.Context(), app.Actor{UserID: "usr_a", Scope: app.ScopeSession}))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 429 || !strings.Contains(w.Body.String(), "too_many_streams") || w.Header().Get("Retry-After") == "" {
+			t.Fatalf("%s: %d %s", path, w.Code, w.Body)
+		}
+	}
+}
+
+func TestReadDeadlineCutsSlowBodiesButNotSlowResponses(t *testing.T) {
+	errs := make(chan error, 2)
+	srv := httptest.NewServer(readDeadline(150*time.Millisecond, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, bodyErr := io.ReadAll(r.Body)
+		errs <- bodyErr
+		if bodyErr != nil {
+			return
+		}
+		time.Sleep(400 * time.Millisecond) // a long-poll style answer, past the deadline
+		if r.Context().Err() != nil {
+			t.Error("request context was cancelled after the body was read")
+		}
+		w.Write([]byte("done"))
+	})))
+	defer srv.Close()
+
+	// A body that arrives in time, followed by a slow response, works.
+	resp, err := http.Post(srv.URL, "text/plain", strings.NewReader("fast"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if bodyErr := <-errs; string(b) != "done" || bodyErr != nil {
+		t.Fatalf("fast body: %q %v", b, bodyErr)
+	}
+
+	// A body that trickles in too slowly is cut off.
+	pr, pw := io.Pipe()
+	go func() {
+		pw.Write([]byte("slow"))
+		time.Sleep(600 * time.Millisecond)
+		pw.Close()
+	}()
+	if resp, err := http.Post(srv.URL, "text/plain", pr); err == nil {
+		resp.Body.Close()
+	}
+	if bodyErr := <-errs; bodyErr == nil {
+		t.Fatal("slow body was not cut off by the read deadline")
 	}
 }

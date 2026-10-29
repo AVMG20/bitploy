@@ -10,6 +10,11 @@
 #
 #   FORWARD, via the DOCKER-USER chain (Docker never touches this chain)
 #     - replies to connections that were already allowed: pass
+#     - NEW TCP connections to port 8081 (Traefik's internal entrypoint): DROP.
+#       Traefik has an address on every app network, so without this rule an
+#       app could reach that entrypoint through its own /24. As a result an
+#       app cannot listen on port 8081 itself (Traefik's connections to it
+#       would be dropped too).
 #     - the app's own /24: pass. Traefik is a member of every app network, so
 #       Traefik <-> app traffic stays inside one /24 and must keep working.
 #     - 169.254.169.254 (Hetzner metadata service) and every private, link-local,
@@ -36,6 +41,7 @@ set -euo pipefail
 
 APP_POOL="${BITPLOY_APP_POOL:-10.200.0.0/16}"   # must match daemon.json (a /16 split into /24 blocks)
 METADATA_IP="169.254.169.254"
+TRAEFIK_INTERNAL_PORT=8081   # unpublished "internal" entrypoint of Traefik; apps cannot listen on it
 FWD_CHAIN="BITPLOY-APPS"
 IN_CHAIN="BITPLOY-INPUT"
 # Never reachable from an app. 10.0.0.0/8 includes the whole app pool and the bitploy network.
@@ -76,6 +82,10 @@ apply() {
     echo "-F $FWD_CHAIN"
     echo "-F $IN_CHAIN"
     echo "-A $FWD_CHAIN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+    # Traefik's internal entrypoint (health checks of candidates, route probes) must
+    # only be reachable from the "bitploy" network. Traefik has an address on every
+    # app network, so this has to come before the same-/24 rules below.
+    echo "-A $FWD_CHAIN -s $APP_POOL -p tcp --dport $TRAEFIK_INTERNAL_PORT -m conntrack --ctstate NEW -j DROP"
     # Each app network is one /24: traffic that stays inside it is Traefik <-> app.
     for i in $(seq 0 255); do
       echo "-A $FWD_CHAIN -s $prefix.$i.0/24 -d $prefix.$i.0/24 -j RETURN"

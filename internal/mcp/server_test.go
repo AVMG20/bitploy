@@ -17,6 +17,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/proxy"
 	"github.com/AVMG20/bitploy/internal/store"
 	"github.com/AVMG20/bitploy/internal/templates"
 )
@@ -47,7 +48,8 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := app.New(cfg, st, cr, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	routes := &proxy.Writer{Dir: filepath.Join(dir, "traefik"), EntryPoint: "web"}
+	svc := app.New(cfg, st, cr, nil, routes, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
 	u, err := svc.CreateUser(ctx, "ada@example.com", "Ada", "correct horse battery", false)
 	if err != nil {

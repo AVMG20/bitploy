@@ -16,6 +16,43 @@ import (
 
 var heartbeatEvery = 15 * time.Second
 
+// maxStreamsPerUser caps concurrent ?follow=1 streams per user: each one holds
+// a connection, a goroutine and (for runtime logs) a Docker log stream.
+const maxStreamsPerUser = 10
+
+// streamCounter counts open streams per user. The zero value is ready to use.
+type streamCounter struct {
+	mu   sync.Mutex
+	open map[string]int
+}
+
+// acquire reserves a stream slot; release must be called when the stream ends.
+func (c *streamCounter) acquire(user string) (release func(), ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.open == nil {
+		c.open = map[string]int{}
+	}
+	if c.open[user] >= maxStreamsPerUser {
+		return nil, false
+	}
+	c.open[user]++
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.open[user]--; c.open[user] <= 0 {
+			delete(c.open, user)
+		}
+	}, true
+}
+
+func tooManyStreams() *apperr.Error {
+	return apperr.TooMany("too_many_streams",
+		"You already have 10 live log streams open, which is the limit.",
+		"Close one (leave the logs page or stop the other follow request), or read logs without follow=1.").
+		WithDetail("retry_after_seconds", 5)
+}
+
 // follow handles the ?follow=1 variants of the two log endpoints as
 // Server-Sent Events. Everything else falls through to the JSON/text handlers.
 func (a *API) follow(next http.Handler) http.Handler {
@@ -33,6 +70,12 @@ func (a *API) follow(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r) // the normal handler answers 401
 				return
 			}
+			release, ok := a.streams.acquire(actor.UserID)
+			if !ok {
+				auth.WriteError(w, tooManyStreams())
+				return
+			}
+			defer release()
 			id := parts[1]
 			a.sse(w, r, func(ctx context.Context) error {
 				_, err := a.svc.GetDeployment(ctx, actor, id, 0)
@@ -45,6 +88,12 @@ func (a *API) follow(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			release, ok := a.streams.acquire(actor.UserID)
+			if !ok {
+				auth.WriteError(w, tooManyStreams())
+				return
+			}
+			defer release()
 			ref := parts[1]
 			tail := 200
 			if v := r.URL.Query().Get("tail"); v != "" {
@@ -92,6 +141,8 @@ func (a *API) sse(w http.ResponseWriter, r *http.Request, precheck func(context.
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	rc := http.NewResponseController(w)
+	// A stream outlives any read deadline; an expiring one would cancel the request.
+	_ = rc.SetReadDeadline(time.Time{})
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")

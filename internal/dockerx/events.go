@@ -19,6 +19,7 @@ type Event struct {
 	ID       string
 	Name     string
 	AppID    string
+	Instance string // nl.bitploy.instance of the container
 	Slug     string
 	ExitCode string // for die
 	Time     time.Time
@@ -37,7 +38,7 @@ func ParseEvent(m events.Message) (Event, bool) {
 	action := string(m.Action)
 	ev := Event{
 		ID: m.Actor.ID, Name: strings.TrimPrefix(attrs["name"], "/"),
-		AppID: attrs[LabelAppID], Slug: attrs[LabelSlug], ExitCode: attrs["exitCode"],
+		AppID: attrs[LabelAppID], Instance: attrs[LabelInstance], Slug: attrs[LabelSlug], ExitCode: attrs["exitCode"],
 		Time: time.Unix(0, m.TimeNano),
 	}
 	if m.TimeNano == 0 {
@@ -60,9 +61,11 @@ func ParseEvent(m events.Message) (Event, bool) {
 // the stream breaks (the error says why). Pass the time of the last event
 // seen as since to resume without gaps; the zero time starts from now.
 func (c *Client) WatchEvents(ctx context.Context, since time.Time, fn func(Event)) error {
-	opts := client.EventsListOptions{
-		Filters: client.Filters{}.Add("type", "container").Add("label", LabelManaged+"=1"),
+	f, err := c.ownedFilter()
+	if err != nil {
+		return err
 	}
+	opts := client.EventsListOptions{Filters: f.Add("type", "container")}
 	if !since.IsZero() {
 		opts.Since = fmt.Sprintf("%d.%09d", since.Unix(), since.Nanosecond())
 	}
@@ -73,7 +76,7 @@ func (c *Client) WatchEvents(ctx context.Context, since time.Time, fn func(Event
 			if !ok {
 				return <-res.Err
 			}
-			if ev, ok := ParseEvent(m); ok {
+			if ev, ok := ParseEvent(m); ok && ev.Instance == c.Instance {
 				fn(ev)
 			}
 		case err := <-res.Err:

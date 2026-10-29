@@ -33,39 +33,69 @@ const (
 
 // ---- authentication (called by internal/auth middleware) ----
 
-// Login checks email + password (rate limited: 5 failures / 15 min per email+IP)
-// and creates a session. Returns the raw cookie value and the session info.
+// Login checks email + password and creates a session. Returns the raw cookie
+// value and the session info.
+//
+// Limits (in memory, per process): 5 failures / 15 min per email+IP, 30
+// attempts / 15 min per IP over all emails, 20 failures / hour per email over
+// all IPs. An attempt is reserved atomically BEFORE the password is checked, so
+// a burst of parallel requests cannot get more tries than the limit; the
+// reservations on the IP and the email are given back on a correct password.
 func (s *Service) Login(ctx context.Context, email, password, ip, userAgent string) (cookie string, info SessionInfo, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	key := email + "|" + ip
-	lim := s.limiter()
-	now := s.now()
-	if wait, blocked := lim.check(key, now); blocked {
-		return "", SessionInfo{}, tooManyLogins(wait)
-	}
 	if email == "" || password == "" {
 		return "", SessionInfo{}, apperr.BadRequest("credentials_missing",
 			"Email and password are both required.", "Send both fields: {\"email\": \"...\", \"password\": \"...\"}.")
 	}
+	lim := s.limiter()
+	now := s.now()
+	keyEmailIP, keyIP, keyEmail := "login|"+email+"|"+ip, "loginip|"+ip, "loginemail|"+email
+	if wait, ok := lim.reserve(keyIP, now, loginIPMax, loginIPWindow); !ok {
+		return "", SessionInfo{}, tooManyLogins(wait)
+	}
+	if wait, ok := lim.reserve(keyEmailIP, now, loginMaxFailures, loginWindow); !ok {
+		lim.refund(keyIP)
+		return "", SessionInfo{}, tooManyLogins(wait)
+	}
+	if wait, ok := lim.reserve(keyEmail, now, loginEmailMax, loginEmailWindow); !ok {
+		lim.refund(keyIP)
+		lim.refund(keyEmailIP)
+		return "", SessionInfo{}, tooManyLogins(wait)
+	}
+	giveBack := func() { // the attempt was not a failure
+		lim.refund(keyIP)
+		lim.refund(keyEmail)
+		lim.refund(keyEmailIP)
+	}
 	u, err := s.Q.GetUserByEmail(ctx, email)
 	if errors.Is(err, sql.ErrNoRows) {
-		_, _ = passwd.Verify(password, passwd.Dummy()) // equalise timing
-		return "", SessionInfo{}, s.loginFailed(ctx, lim, key, "", email, ip)
+		if _, verr := passwd.Verify(password, passwd.Dummy()); errors.Is(verr, passwd.ErrBusy) { // equalise timing
+			giveBack()
+			return "", SessionInfo{}, acctBusy(verr)
+		}
+		return "", SessionInfo{}, s.loginFailed(ctx, "", email, ip)
 	}
 	if err != nil {
+		giveBack()
 		return "", SessionInfo{}, apperr.Internal(err)
 	}
 	ok, verr := passwd.Verify(password, u.PasswordHash)
+	if errors.Is(verr, passwd.ErrBusy) {
+		giveBack()
+		return "", SessionInfo{}, acctBusy(verr)
+	}
 	if verr != nil {
 		s.Log.Error("stored password hash is invalid", "user", u.ID, "err", verr)
 	}
 	if !ok {
-		return "", SessionInfo{}, s.loginFailed(ctx, lim, key, u.ID, email, ip)
+		return "", SessionInfo{}, s.loginFailed(ctx, u.ID, email, ip)
 	}
+	lim.reset(keyEmailIP)
+	lim.refund(keyIP)
+	lim.refund(keyEmail)
 	if u.Status == "suspended" {
 		return "", SessionInfo{}, acctSuspended()
 	}
-	lim.reset(key)
 	cookie, csrf, err := s.newSession(ctx, u.ID, ip, userAgent)
 	if err != nil {
 		return "", SessionInfo{}, err
@@ -74,8 +104,22 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 	return cookie, SessionInfo{User: acctUserFromRow(u), CSRFToken: csrf}, nil
 }
 
-func (s *Service) loginFailed(ctx context.Context, lim *loginLimiter, key, userID, email, ip string) error {
-	lim.fail(key, s.now())
+// acctBusy maps passwd.ErrBusy (argon2 queue full) to 429 with Retry-After.
+func acctBusy(err error) *apperr.Error {
+	return apperr.TooMany("too_many_requests",
+		"bitploy is busy checking passwords right now.", "Try again in a few seconds.").
+		WithDetail("retry_after_seconds", int64(5)).WithCause(err)
+}
+
+// acctHashErr turns an error from passwd.Hash into an apperr.
+func acctHashErr(err error) *apperr.Error {
+	if errors.Is(err, passwd.ErrBusy) {
+		return acctBusy(err)
+	}
+	return apperr.Internal(err)
+}
+
+func (s *Service) loginFailed(ctx context.Context, userID, email, ip string) error {
 	s.Audit(ctx, Actor{UserID: userID, Channel: ChannelDashboard, IP: ip}, "auth.login_failed", "user", userID, map[string]any{"email": email})
 	return apperr.Unauthorized("invalid_credentials",
 		"The email or password is wrong.",
@@ -88,7 +132,7 @@ func tooManyLogins(wait int64) *apperr.Error {
 		mins = 1
 	}
 	return apperr.TooMany("too_many_attempts",
-		"Too many failed logins for this email from this network.",
+		"Too many login attempts for this email or from this network.",
 		"Wait about "+acctItoa(mins)+" minute(s) and try again.").WithDetail("retry_after_seconds", wait)
 }
 
@@ -318,15 +362,20 @@ func (s *Service) ChangePassword(ctx context.Context, a Actor, cookie, current, 
 	}
 	lim := s.limiter()
 	key := "pw|" + a.UserID
-	if wait, blocked := lim.check(key, s.now()); blocked {
+	// Reserve the attempt before verifying so parallel guesses cannot exceed the limit.
+	if wait, ok := lim.reserve(key, s.now(), loginMaxFailures, loginWindow); !ok {
 		return tooManyLogins(wait)
 	}
 	u, err := s.Q.GetUser(ctx, a.UserID)
 	if err != nil {
 		return apperr.Internal(err)
 	}
-	if ok, _ := passwd.Verify(current, u.PasswordHash); !ok {
-		lim.fail(key, s.now())
+	ok, verr := passwd.Verify(current, u.PasswordHash)
+	if errors.Is(verr, passwd.ErrBusy) {
+		lim.refund(key)
+		return acctBusy(verr)
+	}
+	if !ok {
 		return apperr.Unauthorized("invalid_credentials", "The current password is wrong.", "Type your current password again.")
 	}
 	lim.reset(key)
@@ -335,7 +384,7 @@ func (s *Service) ChangePassword(ctx context.Context, a Actor, cookie, current, 
 	}
 	hash, err := passwd.Hash(next)
 	if err != nil {
-		return apperr.Internal(err)
+		return acctHashErr(err)
 	}
 	if err := s.Q.UpdateUserPassword(ctx, db.UpdateUserPasswordParams{PasswordHash: hash, UpdatedAt: s.now(), ID: a.UserID}); err != nil {
 		return apperr.Internal(err)
@@ -427,7 +476,7 @@ func (s *Service) CreateUser(ctx context.Context, email, name, password string, 
 func (s *Service) insertUser(ctx context.Context, p acctNewUser) (db.User, error) {
 	hash, err := passwd.Hash(p.Password)
 	if err != nil {
-		return db.User{}, apperr.Internal(err)
+		return db.User{}, acctHashErr(err)
 	}
 	return s.insertUserHashed(ctx, s.Q, p, hash)
 }
@@ -477,11 +526,20 @@ func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 	}
 }
 
-// ---- login rate limit (in memory) ----
+// ---- login / signup rate limits (in memory) ----
 
 const (
 	loginMaxFailures = 5
-	loginWindow      = 15 * 60 // seconds
+	loginWindow      = 15 * 60 // seconds; per email+IP
+	loginIPMax       = 30
+	loginIPWindow    = 15 * 60 // per IP, all emails
+	loginEmailMax    = 20
+	loginEmailWindow = 60 * 60 // per email, all IPs
+	signupMax        = 5
+	signupWindow     = 60 * 60 // per IP
+
+	// limiterKeep is the longest window; older entries are dropped.
+	limiterKeep = 60 * 60
 )
 
 type loginLimiter struct {
@@ -499,11 +557,16 @@ func (s *Service) limiter() *loginLimiter {
 	return l.(*loginLimiter)
 }
 
-func (l *loginLimiter) prune(key string, now int64) []int64 {
-	var keep []int64
+// recent returns the entries of key younger than window (and forgets entries
+// older than limiterKeep). The caller holds l.mu.
+func (l *loginLimiter) recent(key string, now, window int64) []int64 {
+	var keep, inWindow []int64
 	for _, t := range l.fails[key] {
-		if now-t < loginWindow {
+		if now-t < limiterKeep {
 			keep = append(keep, t)
+			if now-t < window {
+				inWindow = append(inWindow, t)
+			}
 		}
 	}
 	if len(keep) == 0 {
@@ -511,29 +574,54 @@ func (l *loginLimiter) prune(key string, now int64) []int64 {
 	} else {
 		l.fails[key] = keep
 	}
-	return keep
+	return inWindow
 }
 
-// check reports whether key is blocked and, if so, for how many more seconds.
-func (l *loginLimiter) check(key string, now int64) (int64, bool) {
+// reserve atomically counts one attempt for key unless max attempts already
+// happened within window; then it says for how many more seconds key is blocked.
+func (l *loginLimiter) reserve(key string, now int64, max int, window int64) (int64, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	f := l.prune(key, now)
-	if len(f) < loginMaxFailures {
-		return 0, false
+	f := l.recent(key, now, window)
+	if len(f) >= max {
+		return f[0] + window - now, false
 	}
-	return f[0] + loginWindow - now, true
-}
-
-func (l *loginLimiter) fail(key string, now int64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if len(l.fails) > 10000 { // bound memory under a spray of random emails
 		for k := range l.fails {
-			l.prune(k, now)
+			l.recent(k, now, limiterKeep)
 		}
 	}
-	l.fails[key] = append(l.prune(key, now), now)
+	l.fails[key] = append(l.fails[key], now)
+	return 0, true
+}
+
+// refund gives back the newest reservation of key.
+func (l *loginLimiter) refund(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if f := l.fails[key]; len(f) > 1 {
+		l.fails[key] = f[:len(f)-1]
+	} else {
+		delete(l.fails, key)
+	}
+}
+
+// full reports whether key already holds max entries within window, without counting.
+func (l *loginLimiter) full(key string, now int64, max int, window int64) (int64, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f := l.recent(key, now, window)
+	if len(f) < max {
+		return 0, false
+	}
+	return f[0] + window - now, true
+}
+
+// add counts one attempt without checking.
+func (l *loginLimiter) add(key string, now int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.fails[key] = append(l.fails[key], now)
 }
 
 func (l *loginLimiter) reset(key string) {
@@ -542,8 +630,10 @@ func (l *loginLimiter) reset(key string) {
 	delete(l.fails, key)
 }
 
-// UpdateEmail changes the login email of the signed-in user.
-func (s *Service) UpdateEmail(ctx context.Context, a Actor, email string) (User, error) {
+// UpdateEmail changes the login email of the signed-in user. The current
+// password is required: a stolen session cookie alone must not be enough to
+// take over the account (password reset by email would follow the new address).
+func (s *Service) UpdateEmail(ctx context.Context, a Actor, email, currentPassword string) (User, error) {
 	if err := RequireSession(a); err != nil {
 		return User{}, err
 	}
@@ -558,6 +648,25 @@ func (s *Service) UpdateEmail(ctx context.Context, a Actor, email string) (User,
 	if strings.EqualFold(old.Email, email) {
 		return acctUserFromRow(old), nil
 	}
+	if currentPassword == "" {
+		return User{}, apperr.BadRequest("current_password_required",
+			"Changing the email address needs your current password.",
+			"Send {\"email\": \"...\", \"current_password\": \"...\"}.")
+	}
+	lim := s.limiter()
+	key := "pw|" + a.UserID // shared with ChangePassword: one budget for password guesses
+	if wait, ok := lim.reserve(key, s.now(), loginMaxFailures, loginWindow); !ok {
+		return User{}, tooManyLogins(wait)
+	}
+	ok, verr := passwd.Verify(currentPassword, old.PasswordHash)
+	if errors.Is(verr, passwd.ErrBusy) {
+		lim.refund(key)
+		return User{}, acctBusy(verr)
+	}
+	if !ok {
+		return User{}, apperr.Unauthorized("invalid_credentials", "The current password is wrong.", "Type your current password again.")
+	}
+	lim.reset(key)
 	if err := s.Q.UpdateUserEmail(ctx, db.UpdateUserEmailParams{Email: email, UpdatedAt: s.now(), ID: a.UserID}); err != nil {
 		if acctIsUnique(err) {
 			return User{}, apperr.Conflict("email_taken", "An account with this email already exists.", "Use a different email address.")

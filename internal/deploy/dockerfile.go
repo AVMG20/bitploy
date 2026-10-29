@@ -37,7 +37,13 @@ const (
 	CodeUnpinnedBase      = "unpinned_base"
 	CodeRunsAsRoot        = "runs_as_root"
 	CodeNoHealthcheck     = "no_healthcheck"
+	CodeBaseForbidden     = "base_image_forbidden"
+	CodePortReserved      = "port_reserved"
 )
+
+// ReservedPort is Traefik's internal entrypoint. firewall.sh drops connections
+// to it from the app networks, so an app listening on it would be unreachable.
+const ReservedPort = 8081
 
 // MaxImageBytes is the image size limit enforced after the build (image_too_large).
 const MaxImageBytes = 2 << 30
@@ -147,6 +153,12 @@ func CheckDockerfile(in CheckInput) CheckResult {
 	g := newGraph(stages, metaArgs, parsed.EscapeToken)
 	last := len(stages) - 1
 
+	// Images that bitploy built for apps (bitploy/<slug>:<n>) are never allowed
+	// as a base, COPY --from or RUN --mount from source: they belong to users.
+	for _, f := range g.forbiddenImages() {
+		add(f)
+	}
+
 	// Ports.
 	if worker {
 		res.Port = in.AppPort
@@ -186,6 +198,15 @@ func CheckDockerfile(in CheckInput) CheckResult {
 		default:
 			res.Port = ports[0]
 		}
+	}
+
+	if res.Port == ReservedPort && !worker {
+		add(Finding{
+			Code:     CodePortReserved,
+			Severity: sevError,
+			Message:  fmt.Sprintf("Port %d is reserved for bitploy's own proxy, so an app cannot listen on it.", ReservedPort),
+			Hint:     "Make the app listen on another port (for example 8080), change EXPOSE to match, or set it with update_app (port).",
+		})
 	}
 
 	// Healthcheck.
@@ -759,7 +780,7 @@ func FirstError(res CheckResult, files []string) *apperr.Error {
 		e.Message = first.Message + describeStack(stack)
 		e.Hint = fmt.Sprintf("Use the %q template. Save this as Dockerfile in the top folder of the project, adapt it, and save the second file as .dockerignore:\n\n"+
 			"Dockerfile:\n%s\n.dockerignore:\n%s\n"+
-			"Then call validate_dockerfile and deploy again. Call get_template for more stacks (%s).",
+			"Then call validate_dockerfile and deploy again with ALL project files including these two (deploy_files replaces the whole source). Call get_template for more stacks (%s).",
 			name, tpl.Dockerfile, tpl.Dockerignore, strings.Join(templates.Stacks, ", "))
 		e.WithDetail("stack", stack)
 		e.WithDetail("template", name)
@@ -788,4 +809,72 @@ func describeStack(stack string) string {
 		return " This looks like a PHP project."
 	}
 	return " Bitploy could not tell what kind of project this is."
+}
+
+// forbiddenImage reports whether an image reference points at an image bitploy
+// built for an app (bitploy/<slug>:<n>), with or without a Docker Hub host.
+func forbiddenImage(ref string) bool {
+	ref = strings.ToLower(strings.TrimSpace(ref))
+	for _, host := range []string{"index.docker.io/", "registry-1.docker.io/", "registry.hub.docker.com/", "docker.io/"} {
+		ref = strings.TrimPrefix(ref, host)
+	}
+	return strings.HasPrefix(ref, "bitploy/")
+}
+
+// forbiddenImages finds every FROM, COPY --from and RUN --mount from= that
+// names a bitploy/* image (defence in depth: the isolated builder cannot see
+// local images anyway).
+func (g *graph) forbiddenImages() []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	report := func(ref string, line int) {
+		if seen[ref] {
+			return
+		}
+		seen[ref] = true
+		out = append(out, Finding{
+			Code:     CodeBaseForbidden,
+			Severity: sevError,
+			Line:     line,
+			Message:  fmt.Sprintf("The Dockerfile uses the image %q, which is an app image built by bitploy. Apps cannot use each other's images.", ref),
+			Hint:     "Start from a public image instead, such as node:24-alpine, python:3.14-slim or nginx:1.29-alpine, and copy your own files into it. Remove every FROM, COPY --from and RUN --mount from= that names bitploy/....",
+		})
+	}
+	check := func(raw string, vars map[string]string, line int) {
+		ref := raw
+		if strings.Contains(raw, "$") {
+			r, ok := g.expand(raw, vars)
+			if !ok {
+				return
+			}
+			ref = r
+		}
+		if _, isStage := g.byName[strings.ToLower(ref)]; isStage {
+			return
+		}
+		if forbiddenImage(ref) {
+			report(ref, line)
+		}
+	}
+	for i, st := range g.stages {
+		if g.baseIdx[i] < 0 {
+			check(st.BaseName, g.meta, stageLine(st))
+		}
+		vars := g.scopeVars(i)
+		for _, c := range st.Commands {
+			switch cmd := c.(type) {
+			case *instructions.CopyCommand:
+				if cmd.From != "" {
+					check(cmd.From, vars, firstLine(cmd.Location()))
+				}
+			case *instructions.RunCommand:
+				for _, m := range instructions.GetMounts(cmd) {
+					if m.From != "" {
+						check(m.From, vars, firstLine(cmd.Location()))
+					}
+				}
+			}
+		}
+	}
+	return out
 }

@@ -176,6 +176,13 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 		_ = os.RemoveAll(p.buildDir) // the context is no longer needed
 	}
 
+	// Several first deploys can be queued at once: check again when the app is
+	// about to start consuming, with the current state of the user's other apps.
+	if fresh, err := p.s.Q.GetApp(ctx, p.app.ID); err == nil {
+		if err := p.s.checkStartQuota(ctx, fresh); err != nil {
+			return apperr.As(err)
+		}
+	}
 	if ae := p.setState(ctx, "starting"); ae != nil {
 		return ae
 	}
@@ -312,18 +319,28 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		return apperr.Unavailable("disk_full", "The server is almost out of disk space, so new builds are paused.",
 			"Tell the bitploy admin; your running apps are not affected. Try again later.")
 	}
-	ctxDir := filepath.Join(p.srcRoot, filepath.FromSlash(p.app.ContextDir))
-	dockerfile := filepath.Join(p.srcRoot, filepath.FromSlash(p.app.DockerfilePath))
 	if !filepath.IsLocal(filepath.FromSlash(p.app.ContextDir)) && p.app.ContextDir != "." {
 		return apperr.Unprocessable("context_dir_invalid", "The build context folder is outside the project.", "Use update_app to set context_dir to a folder inside the project.")
 	}
+	// Resolve symlinks on disk: the context and the Dockerfile must stay inside the source.
+	ctxDir, dockerfile, perr := deploy.ResolveBuildPaths(p.srcRoot, p.app.ContextDir, p.app.DockerfilePath)
+	if perr != nil {
+		return perr
+	}
+	bld := s.buildBuilder()
+	if err := bld.Ensure(ctx); err != nil {
+		if ctx.Err() != nil {
+			return errCancelled
+		}
+		return asApperr(err, "builder_unavailable")
+	}
 	p.image = dockerx.ImageName(p.app.Slug, p.dep.Seq)
-	labels := dockerx.ManagedLabels(p.app.ID, p.app.Slug)
+	labels := s.Docker.ManagedLabels(p.app.ID, p.app.Slug)
 	labels[dockerx.LabelDeployment] = p.dep.ID
 	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
 	p.builtHere = true
 	p.logf("Building %s with docker buildx.", p.image)
-	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels}, p.writeLog)
+	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}, p.writeLog)
 	if err != nil {
 		if ctx.Err() != nil {
 			return errCancelled
@@ -549,28 +566,31 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 	p.failTail = lines
 
 	var msg, hint string
+	code, next := "unhealthy", "get_logs"
 	switch {
 	case detail == "oom":
+		code, next = "out_of_memory", "update_app"
 		msg = "Your app ran out of memory and was killed."
-		hint = fmt.Sprintf("Give it more memory with update_app (it has %d MB now) or make it use less.", p.app.MemoryMb)
+		hint = fmt.Sprintf("Raise memory_mb with update_app (it has %d MB now; whoami shows your quota) and call deploy with only app=, or make the app use less memory.", p.app.MemoryMb)
 	case strings.HasPrefix(detail, "exited") || detail == "keeps restarting":
+		code = "app_crashed"
 		if kind == "worker" {
 			msg = "Your worker stopped before it ran for 30 seconds (" + detail + ")."
 		} else {
 			msg = "Your app stopped right after starting (" + detail + ")."
 		}
-		hint = "Read log_tail for the error. A worker or server must keep running in the foreground."
+		hint = "Read log_tail for the error. A worker or server must keep running in the foreground. If the log shows a missing environment variable, add it with set_env and call deploy with only app= (no files needed)."
 	case kind == "healthcheck":
 		msg = "The Docker HEALTHCHECK in your Dockerfile never reported healthy (" + detail + ")."
 		hint = "Check that the HEALTHCHECK command works inside the container and that the app starts in time."
 	default:
 		msg = fmt.Sprintf("Your app did not answer GET %s with a status below 500 within %d seconds (%s).", p.app.HealthPath, int(healthTimeout.Seconds()), detail)
-		hint = fmt.Sprintf("Make sure the app listens on 0.0.0.0:%d (the PORT variable), starts within a minute and does not fail on %s. Use update_app to set another health_path if needed.", p.port, p.app.HealthPath)
+		hint = fmt.Sprintf("Make sure the app listens on 0.0.0.0:%d (the PORT variable), starts within a minute and does not fail on %s. Use update_app to set another health_path if needed. If the logs show a different port, call update_app with port=<number> and deploy again.", p.port, p.app.HealthPath)
 	}
 	if deploy.MentionsLocalhost(lines) && detail != "oom" {
 		hint = deploy.LocalhostHint
 	}
-	return apperr.Unprocessable("unhealthy", msg, hint).WithNext("get_logs")
+	return apperr.Unprocessable(code, msg, hint).WithNext(next)
 }
 
 // ---- swapping ----

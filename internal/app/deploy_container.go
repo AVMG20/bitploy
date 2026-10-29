@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -69,7 +70,7 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
 	}
 	app := p.App
-	labels := dockerx.ManagedLabels(app.ID, app.Slug)
+	labels := dk.ManagedLabels(app.ID, app.Slug)
 	netName := dockerx.NetworkName(app.Slug)
 	if err := dk.EnsureNetwork(ctx, netName, labels); err != nil {
 		return startFailed("Docker could not create the network for this app: "+apperr.Redact(dockerx.DescribeError(err)),
@@ -88,7 +89,19 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 	volume := ""
 	if app.VolumeEnabled != 0 {
 		volume = dockerx.VolumeName(app.Slug)
-		if err := dk.EnsureVolume(ctx, volume, labels); err != nil {
+		created, err := dk.EnsureVolume(ctx, volume, labels)
+		if err == nil && created {
+			// A new volume is root:root 755; make /data writable for the app's own user.
+			if perr := dk.PrepareVolume(ctx, volume); perr != nil {
+				_ = dk.RemoveVolume(context.WithoutCancel(ctx), volume) // so the next start prepares it again
+				err = perr
+			}
+		}
+		if err != nil {
+			if errors.Is(err, dockerx.ErrVolumeOwnedByOther) {
+				return startFailed("A data volume named "+volume+" already exists on this server and belongs to a different app, so bitploy will not use it.",
+					"This is a server problem, not your app. Tell the bitploy admin to check or remove that Docker volume, or pick another app subdomain.")
+			}
 			return startFailed("Docker could not create the data volume: "+apperr.Redact(dockerx.DescribeError(err)), "Try again in a minute, or tell the bitploy admin.")
 		}
 	}
@@ -96,7 +109,7 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 	if exists, _ := dk.ContainerExists(ctx, name); exists {
 		_ = dk.RemoveContainer(ctx, name)
 	}
-	cl := dockerx.ManagedLabels(app.ID, app.Slug)
+	cl := dk.ManagedLabels(app.ID, app.Slug)
 	cl[dockerx.LabelDeployment] = p.DepID
 	cl[dockerx.LabelSeq] = fmt.Sprint(p.Seq)
 	if _, err := dk.CreateContainer(ctx, dockerx.RunSpec{
@@ -183,7 +196,7 @@ func (s *Service) retireContainer(name string, delay time.Duration) {
 func (s *Service) startCurrentLocked(ctx context.Context, app db.App) *apperr.Error {
 	if !app.CurrentDeploymentID.Valid {
 		return apperr.Conflict("app_not_deployed", "This app has not been deployed yet, so there is nothing to start.",
-			"Deploy it first with deploy_files, or upload a zip and call deploy.").WithNext("deploy_files")
+			"Deploy it first with deploy_files, or upload a zip and call deploy. If a deploy was started before and failed, call deploy with only app= to retry without resending files.").WithNext("deploy_files")
 	}
 	d, err := s.Q.GetDeployment(ctx, app.CurrentDeploymentID.String)
 	if err != nil {

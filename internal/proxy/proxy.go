@@ -172,13 +172,28 @@ func (w *Writer) Write(r Route) error {
 	return atomicWrite(filepath.Join(w.Dir, r.Slug+".yml"), b)
 }
 
-// Remove deletes an app's route file.
+// Remove deletes an app's route file. Traefik's file watcher (notably on
+// Docker Desktop bind mounts) can miss deletions, so afterwards _catchall.yml
+// is written again with the same content: a fresh write is always noticed and
+// makes Traefik reload the whole directory.
 func (w *Writer) Remove(slug string) error {
 	err := os.Remove(filepath.Join(w.Dir, slug+".yml"))
 	if os.IsNotExist(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	w.nudge()
+	return nil
+}
+
+// nudge rewrites _catchall.yml unchanged to force a Traefik reload. Best effort.
+func (w *Writer) nudge() {
+	path := filepath.Join(w.Dir, "_catchall.yml")
+	if b, err := os.ReadFile(path); err == nil {
+		_ = atomicWrite(path, b)
+	}
 }
 
 // List returns the slugs that currently have a route file (for the reconciler).

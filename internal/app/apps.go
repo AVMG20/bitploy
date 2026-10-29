@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"time"
 
@@ -80,10 +81,20 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 			fmt.Sprintf("You already have %d apps, which is the maximum for your account.", n),
 			"Delete an app you no longer need with delete_app, or ask a bitploy admin to raise your quota.").WithNext("list_apps")
 	}
-	if err := s.checkResourceQuota(ctx, user, "", mem, cpu); err != nil {
-		return App{}, err
+	if s.Cfg.MaxApps > 0 {
+		total, err := s.Q.CountAllApps(ctx)
+		if err != nil {
+			return App{}, apperr.Internal(err)
+		}
+		if total >= int64(s.Cfg.MaxApps) {
+			return App{}, apperr.Forbidden("server_app_limit",
+				fmt.Sprintf("This bitploy server already runs %d apps, which is its maximum.", total),
+				"Delete an app you no longer need with delete_app, or ask the bitploy admin to raise BITPLOY_MAX_APPS.").WithNext("list_apps")
+		}
 	}
-	if err := s.checkServerRoom(ctx, mem); err != nil {
+	// A new app reserves nothing until it runs (first deploy, start_app): the
+	// memory and CPU quota is checked then. Here only reject what can never fit.
+	if err := checkFitsQuota(user, mem, cpu); err != nil {
 		return App{}, err
 	}
 
@@ -253,13 +264,17 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		if err := validResources(p.MemoryMb, p.CpuMillis); err != nil {
 			return App{}, err
 		}
-		if err := s.checkResourceQuota(ctx, owner, row.ID, p.MemoryMb, p.CpuMillis); err != nil {
-			return App{}, err
-		}
-		if delta := p.MemoryMb - row.MemoryMb; delta > 0 {
-			if err := s.checkServerRoom(ctx, delta); err != nil {
+		if appConsumes(row) {
+			if err := s.checkResourceQuota(ctx, owner, row.ID, p.MemoryMb, p.CpuMillis); err != nil {
 				return App{}, err
 			}
+			if delta := p.MemoryMb - row.MemoryMb; delta > 0 {
+				if err := s.checkServerRoom(ctx, delta); err != nil {
+					return App{}, err
+				}
+			}
+		} else if err := checkFitsQuota(owner, p.MemoryMb, p.CpuMillis); err != nil {
+			return App{}, err // not running: checked in full when it starts
 		}
 		changed["memory_mb"], changed["cpu_millis"] = p.MemoryMb, p.CpuMillis
 	}
@@ -425,7 +440,12 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 				_ = s.Docker.RemoveImage(bg, t)
 			}
 		}
-		_ = s.Docker.RemoveVolume(bg, dockerx.VolumeName(row.Slug))
+		if err := s.Docker.RemoveVolume(bg, dockerx.VolumeName(row.Slug)); err != nil {
+			s.Log.Error("remove volume", "app", row.Slug, "err", err)
+			return apperr.Unavailable("volume_remove_failed",
+				"The app's containers are gone, but Docker could not remove its data volume, so the app was not deleted.",
+				"Call delete_app again in a minute. If it keeps failing, tell the bitploy admin to check the Docker volume "+quote(dockerx.VolumeName(row.Slug))+".").WithNext("delete_app")
+		}
 	}
 	for _, d := range deps {
 		_ = os.Remove(s.Cfg.BuildLog(d.ID))
@@ -478,6 +498,9 @@ func validPort(p int64) *apperr.Error {
 	if p < 1 || p > 65535 {
 		return apperr.BadRequest("port_invalid", fmt.Sprintf("The port %d is not valid.", p), "Use a number between 1 and 65535, the port your app listens on.")
 	}
+	if p == deploy.ReservedPort {
+		return apperr.BadRequest("port_reserved", fmt.Sprintf("Port %d is reserved for bitploy's own proxy, so an app cannot listen on it.", p), "Make the app listen on another port, for example 8080, and set that port.")
+	}
 	return nil
 }
 
@@ -506,8 +529,48 @@ func (s *Service) activeUser(ctx context.Context, userID string) (db.User, error
 	return u, nil
 }
 
-// checkResourceQuota verifies the sum of the user's app memory and CPU,
-// with this app (excludeID, may be "") counted at mem and cpu.
+// appConsumes reports whether an app reserves memory and CPU: it is meant to
+// run and has a current deployment. Same rule as SumAppResourcesByUser.
+func appConsumes(a db.App) bool {
+	return a.DesiredState == "running" && a.CurrentDeploymentID.Valid
+}
+
+// checkFitsQuota rejects one app that is bigger than the user's whole quota.
+func checkFitsQuota(u db.User, mem, cpu int64) error {
+	if mem > u.QuotaMemoryMb {
+		return apperr.Forbidden("memory_quota_exceeded",
+			fmt.Sprintf("This needs %d MB of memory, but your whole quota is %d MB.", mem, u.QuotaMemoryMb),
+			"Use a smaller memory_mb, or ask a bitploy admin for a bigger quota.").WithNext("update_app")
+	}
+	if cpu > u.QuotaCpuMillis {
+		return apperr.Forbidden("cpu_quota_exceeded",
+			fmt.Sprintf("This needs %d CPU millis, but your whole quota is %d.", cpu, u.QuotaCpuMillis),
+			"Use a smaller cpu_millis, or ask a bitploy admin for a bigger quota.").WithNext("update_app")
+	}
+	return nil
+}
+
+// checkStartQuota is called when an app that is not running yet is about to
+// consume memory and CPU (first deploy, start_app, deploying a stopped app): the
+// user's other running apps plus this one must fit the quota, and the server
+// must have room. Apps that already consume pass without a check.
+func (s *Service) checkStartQuota(ctx context.Context, app db.App) error {
+	if appConsumes(app) {
+		return nil
+	}
+	user, err := s.activeUser(ctx, app.UserID)
+	if err != nil {
+		return err
+	}
+	if err := s.checkResourceQuota(ctx, user, app.ID, app.MemoryMb, app.CpuMillis); err != nil {
+		return err
+	}
+	return s.checkServerRoom(ctx, app.MemoryMb)
+}
+
+// checkResourceQuota verifies the sum of the memory and CPU of the user's
+// running apps (desired state running, with a deployment), with this app
+// (excludeID, may be "") counted at mem and cpu.
 func (s *Service) checkResourceQuota(ctx context.Context, u db.User, excludeID string, mem, cpu int64) error {
 	sum, err := s.Q.SumAppResourcesByUser(ctx, db.SumAppResourcesByUserParams{UserID: u.ID, ID: excludeID})
 	if err != nil {
@@ -530,7 +593,12 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 	ok, err := s.ServerHasRoom(ctx, extraMB)
 	if err != nil {
 		s.Log.Warn("server room check failed", "err", err)
-		return nil
+		if runtime.GOOS != "linux" {
+			return nil // no host memory stats off Linux (dev machines)
+		}
+		return apperr.Unavailable("server_room_unknown",
+			"Bitploy could not check whether the server has room for this app right now.",
+			"Try again in a minute. If it keeps failing, tell the bitploy admin.")
 	}
 	if !ok {
 		return apperr.Unavailable("server_full",
@@ -607,6 +675,9 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	}
 	if ds, err := s.ListDomains(ctx, a, r.Slug); err == nil && ds != nil {
 		v.Domains = ds
+	}
+	if r.DesiredState == "running" {
+		v.Live = s.LatestSample(r.ID)
 	}
 	return v
 }

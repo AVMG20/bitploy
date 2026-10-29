@@ -91,8 +91,14 @@ function canRollback(d: Deployment): boolean {
             <pre class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs whitespace-pre-wrap">{{ d.log_tail.join('\n') }}</pre>
           </details>
         </div>
-        <ul v-if="d.warnings?.length" class="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
-          <li v-for="(w, i) in d.warnings" :key="i">{{ w.message }}<span v-if="w.hint"> {{ w.hint }}</span></li>
+        <ul v-if="d.warnings?.length" class="grid gap-1 text-sm">
+          <li
+            v-for="(w, i) in d.warnings"
+            :key="i"
+            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'"
+          >
+            {{ w.message }}<template v-if="w.hint">&nbsp;{{ w.hint }}</template>
+          </li>
         </ul>
       </article>
     </template>

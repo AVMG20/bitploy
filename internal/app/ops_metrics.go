@@ -157,6 +157,7 @@ func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, e
 		return ServerStats{}, apperr.Internal(err)
 	}
 	st.AppsTotal, st.AppsRunning = counts.Total, counts.Running
+	st.AppsMax = int64(s.Cfg.MaxApps)
 	return st, nil
 }
 

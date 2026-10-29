@@ -29,6 +29,10 @@ WHERE id = ?;
 -- name: OpsDeleteDomain :execrows
 DELETE FROM domains WHERE id = ?;
 
+-- name: OpsDeleteStaleDomain :execrows
+-- A claim that never proved ownership (still waiting for DNS, or gave up) may be replaced.
+DELETE FROM domains WHERE id = ? AND status IN ('pending_dns', 'failed');
+
 -- ---- apps ----
 
 -- name: OpsSetAppDesiredState :exec
@@ -40,7 +44,8 @@ FROM apps a JOIN deployments d ON d.id = a.current_deployment_id
 WHERE a.id = ?;
 
 -- name: OpsSumMemoryLimitsMB :one
-SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps;
+SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps
+WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL;
 
 -- ---- metric samples and rollups ----
 
@@ -98,8 +103,8 @@ FROM usage_daily WHERE user_id = ? AND day >= ?;
 SELECT
     COUNT(*) AS apps,
     CAST(COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
-    CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis
 FROM apps WHERE user_id = ?;
 
 -- name: OpsCountDeploymentsSince :one
@@ -129,6 +134,13 @@ DELETE FROM usage_daily WHERE day < ? AND app_id NOT IN (SELECT id FROM apps);
 
 -- name: OpsListAppVolumes :many
 SELECT id, slug, volume_enabled FROM apps;
+
+-- name: OpsListVolumeUsage :many
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, u.quota_volume_mb, d.volume_bytes
+FROM apps a
+JOIN users u ON u.id = a.user_id
+JOIN app_disk d ON d.app_id = a.id
+WHERE a.volume_enabled = 1;
 
 -- ---- admin server stats ----
 

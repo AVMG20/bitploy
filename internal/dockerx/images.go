@@ -48,14 +48,19 @@ func (c *Client) TagImage(ctx context.Context, source, target string) error {
 
 // ListAppImages returns the tags of every image built for an app (label match).
 func (c *Client) ListAppImages(ctx context.Context, appID string) ([]string, error) {
-	res, err := c.API.ImageList(ctx, client.ImageListOptions{
-		Filters: client.Filters{}.Add("label", LabelManaged+"=1", LabelAppID+"="+appID),
-	})
+	f, err := c.appFilter(appID)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.ImageList(ctx, client.ImageListOptions{Filters: f})
 	if err != nil {
 		return nil, err
 	}
 	var tags []string
 	for _, im := range res.Items {
+		if !c.ownedOrLegacy(im.Labels) {
+			continue
+		}
 		tags = append(tags, im.RepoTags...)
 	}
 	return tags, nil
@@ -94,12 +99,19 @@ type ManagedImage struct {
 
 // ListManagedImages lists images carrying the managed label.
 func (c *Client) ListManagedImages(ctx context.Context) ([]ManagedImage, error) {
-	res, err := c.API.ImageList(ctx, client.ImageListOptions{Filters: client.Filters{}.Add("label", LabelManaged+"=1")})
+	f, err := c.ownedFilter()
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.API.ImageList(ctx, client.ImageListOptions{Filters: f})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ManagedImage, 0, len(res.Items))
 	for _, im := range res.Items {
+		if !c.owned(im.Labels) {
+			continue
+		}
 		out = append(out, ManagedImage{AppID: im.Labels[LabelAppID], Tags: im.RepoTags})
 	}
 	return out, nil

@@ -175,17 +175,32 @@ func TestQuotas(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()
 	e.exec(t, `UPDATE users SET quota_apps = 3, quota_memory_mb = 1024, quota_cpu_millis = 1200 WHERE id = ?`, e.user.UserID)
-	e.mustApp(t, CreateAppInput{})
+	// Creating apps reserves nothing: three 512 MB apps fit a 1024 MB quota until they run.
+	first := e.mustApp(t, CreateAppInput{})
 	second := e.mustApp(t, CreateAppInput{})
-	// Memory: 512 + 512 used of 1024.
-	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{}); depCode(err) != "memory_quota_exceeded" {
-		t.Errorf("memory: %v", err)
+	third := e.mustApp(t, CreateAppInput{})
+	// An app bigger than the whole quota can never run.
+	huge := int64(2000)
+	if _, err := e.s.UpdateApp(ctx, e.user, third.Slug, UpdateAppInput{MemoryMB: &huge}); depCode(err) != "memory_quota_exceeded" {
+		t.Errorf("bigger than the quota: %v", err)
 	}
+	bigCPU := int64(5000)
+	if _, err := e.s.UpdateApp(ctx, e.user, third.Slug, UpdateAppInput{CPUMillis: &bigCPU}); depCode(err) != "cpu_quota_exceeded" {
+		t.Errorf("cpu bigger than the quota: %v", err)
+	}
+	// App count: 3 of 3.
 	small := int64(64)
-	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{MemoryMB: &small}); depCode(err) != "memory_quota_exceeded" {
-		t.Errorf("memory exactly full: %v", err)
+	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{MemoryMB: &small}); depCode(err) != "apps_quota_exceeded" {
+		t.Errorf("count: %v", err)
 	}
-	// Freeing memory with update_app makes room; raising past the quota fails.
+
+	// Two apps run (desired state running and a deployment): 1024 of 1024 MB reserved.
+	e.exec(t, `UPDATE apps SET desired_state = 'running', current_deployment_id = 'dep_x' WHERE id IN (?, ?)`, first.ID, second.ID)
+	// The first deploy of the third app is where the quota bites.
+	if _, err := e.s.DeployFiles(ctx, e.user, third.Slug, staticFiles()); depCode(err) != "memory_quota_exceeded" {
+		t.Errorf("first deploy over the memory quota: %v", err)
+	}
+	// Freeing memory with update_app makes room; raising a running app past the quota fails.
 	half := int64(256)
 	if _, err := e.s.UpdateApp(ctx, e.user, second.Slug, UpdateAppInput{MemoryMB: &half}); err != nil {
 		t.Fatal(err)
@@ -194,17 +209,33 @@ func TestQuotas(t *testing.T) {
 	if _, err := e.s.UpdateApp(ctx, e.user, second.Slug, UpdateAppInput{MemoryMB: &tooMuch}); depCode(err) != "memory_quota_exceeded" {
 		t.Errorf("raise: %v", err)
 	}
+	// 512 + 256 running; the third app (512) now exceeds by 256 ...
+	if _, err := e.s.DeployFiles(ctx, e.user, third.Slug, staticFiles()); depCode(err) != "memory_quota_exceeded" {
+		t.Errorf("still too big: %v", err)
+	}
+	// ... unless it is smaller.
+	if _, err := e.s.UpdateApp(ctx, e.user, third.Slug, UpdateAppInput{MemoryMB: &half}); err != nil {
+		t.Fatal(err)
+	}
 	cpu := int64(900)
-	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{MemoryMB: &small, CPUMillis: &cpu}); depCode(err) != "cpu_quota_exceeded" {
-		t.Errorf("cpu: %v", err)
+	if _, err := e.s.UpdateApp(ctx, e.user, third.Slug, UpdateAppInput{CPUMillis: &cpu}); err != nil {
+		t.Fatal(err) // not running: only the "fits at all" check
+	}
+	if _, err := e.s.DeployFiles(ctx, e.user, third.Slug, staticFiles()); depCode(err) != "cpu_quota_exceeded" {
+		t.Errorf("cpu at first deploy: %v", err)
 	}
 	lowCPU := int64(100)
-	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{MemoryMB: &small, CPUMillis: &lowCPU}); err != nil {
-		t.Errorf("third app fits: %v", err)
+	if _, err := e.s.UpdateApp(ctx, e.user, third.Slug, UpdateAppInput{CPUMillis: &lowCPU}); err != nil {
+		t.Fatal(err)
 	}
-	// App count: 3 of 3.
-	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{MemoryMB: &small, CPUMillis: &lowCPU}); depCode(err) != "apps_quota_exceeded" {
-		t.Errorf("count: %v", err)
+	if _, err := e.s.DeployFiles(ctx, e.user, third.Slug, staticFiles()); err != nil {
+		t.Errorf("third app fits now: %v", err)
+	}
+	// A stopped app does not count: stopping the first makes room for a bigger third.
+	e.exec(t, `UPDATE apps SET desired_state = 'stopped' WHERE id = ?`, first.ID)
+	u, err := e.s.Usage(ctx, e.user.UserID)
+	if err != nil || u.MemoryReservedMB != 256 {
+		t.Errorf("reserved after stopping = %+v, %v", u, err)
 	}
 	bad := int64(10)
 	if _, err := e.s.UpdateApp(ctx, e.user, second.Slug, UpdateAppInput{MemoryMB: &bad}); depCode(err) != "memory_invalid" {

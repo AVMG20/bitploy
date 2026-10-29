@@ -7,9 +7,30 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// Defaults for the isolated BuildKit container.
+const (
+	DefaultBuilderCPUs   = "2"
+	DefaultBuilderMemory = "3g"
+)
+
+var memoryRe = regexp.MustCompile(`^[0-9]+([kKmMgG][bB]?)?$`)
+
+// ValidateBuilderLimits checks BITPLOY_BUILDER_CPUS (a positive number) and
+// BITPLOY_BUILDER_MEMORY (a size such as 3g or 2048m).
+func ValidateBuilderLimits(cpus, memory string) error {
+	if f, err := strconv.ParseFloat(cpus, 64); err != nil || f <= 0 || f > 256 {
+		return fmt.Errorf("BITPLOY_BUILDER_CPUS must be a positive number such as 2, got %q", cpus)
+	}
+	if n := strings.TrimRight(memory, "kKmMgGbB"); !memoryRe.MatchString(memory) || strings.Trim(n, "0") == "" {
+		return fmt.Errorf("BITPLOY_BUILDER_MEMORY must be a size such as 3g or 2048m, got %q", memory)
+	}
+	return nil
+}
 
 type Config struct {
 	PublicURL         string // https://bitploy.nl — dashboard, API, MCP; also the CSRF origin
@@ -24,10 +45,13 @@ type Config struct {
 	ACMEEmail         string
 	Signup            string // invite | open
 	MaxParallelBuilds int
+	MaxApps           int    // server-wide app limit (all users together)
 	Listen            string // :8080
 	TraefikContainer  string // container name of Traefik, joined to app networks
 	TraefikInternal   string // Traefik's unpublished internal entrypoint, for candidate health checks
 	InternalURL       string // how Traefik reaches bitploy (catch-all pages)
+	BuilderCPUs       string // CPU limit of the isolated BuildKit container (default 2)
+	BuilderMemory     string // memory limit of the isolated BuildKit container (default 3g)
 	Dev               bool   // relaxes Secure cookies and HTTPS-only checks for localhost
 }
 
@@ -47,8 +71,11 @@ func Load() (*Config, error) {
 		TraefikContainer:  env("BITPLOY_TRAEFIK_CONTAINER", "bitploy-traefik"),
 		TraefikInternal:   strings.TrimRight(env("BITPLOY_TRAEFIK_INTERNAL_URL", "http://bitploy-traefik:8081"), "/"),
 		InternalURL:       env("BITPLOY_INTERNAL_URL", "http://bitploy:8080"),
+		BuilderCPUs:       env("BITPLOY_BUILDER_CPUS", DefaultBuilderCPUs),
+		BuilderMemory:     env("BITPLOY_BUILDER_MEMORY", DefaultBuilderMemory),
 		Dev:               env("BITPLOY_DEV", "") == "1",
 		MaxParallelBuilds: 2,
+		MaxApps:           100,
 	}
 	if v := os.Getenv("BITPLOY_MAX_PARALLEL_BUILDS"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -56,6 +83,16 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("BITPLOY_MAX_PARALLEL_BUILDS must be a positive number, got %q", v)
 		}
 		c.MaxParallelBuilds = n
+	}
+	if err := ValidateBuilderLimits(c.BuilderCPUs, c.BuilderMemory); err != nil {
+		return nil, err
+	}
+	if v := os.Getenv("BITPLOY_MAX_APPS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("BITPLOY_MAX_APPS must be a positive number, got %q", v)
+		}
+		c.MaxApps = n
 	}
 	if c.Signup != "invite" && c.Signup != "open" {
 		return nil, fmt.Errorf("BITPLOY_SIGNUP must be invite or open, got %q", c.Signup)
@@ -93,6 +130,9 @@ func (c *Config) AppHost(slug string) string { return slug + "." + c.AppsDomain 
 func (c *Config) Path(parts ...string) string {
 	return filepath.Join(append([]string{c.DataDir}, parts...)...)
 }
+
+// BuildxDir holds the buildx state (BUILDX_CONFIG) of the isolated builder.
+func (c *Config) BuildxDir() string { return c.Path("buildx") }
 
 func (c *Config) DBPath() string               { return c.Path("bitploy.db") }
 func (c *Config) UploadsDir() string           { return c.Path("uploads") }

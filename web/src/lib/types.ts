@@ -199,6 +199,8 @@ export interface App {
   domains: Domain[] | null
   started_at?: string | null
   restart_count: number
+  /** Latest 15-second sample; null when the app is not running. */
+  live?: MetricPoint | null
   created_at: string
   updated_at: string
 }
@@ -276,6 +278,7 @@ export interface ServerStats {
   builds_queued: number
   apps_running: number
   apps_total: number
+  apps_max: number
 }
 
 export interface Page<T> {

@@ -123,6 +123,10 @@ func itSetup(t *testing.T) *itEnv {
 	}
 	crypto, _ := store.NewCrypto([]byte("0123456789abcdef0123456789abcdef"))
 	routes := &proxy.Writer{Dir: cfg.RoutesDir(), EntryPoint: "web"}
+	// Each test database has its own instance id, so these tests never touch other bitploy resources on the daemon.
+	if dk.Instance, err = st.InstanceID(ctx); err != nil {
+		t.Fatal(err)
+	}
 	s := New(cfg, st, crypto, dk, routes, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e := &itEnv{depEnv: &depEnv{s: s, dir: dir}, dk: dk, traefik: traefikName, webPort: pb(p8000), suffix: suffix}
 	e.user = e.addUser(t, "usr_it", "it@example.com", "user")
@@ -276,10 +280,10 @@ func TestIntegrationDeploy(t *testing.T) {
 	if hc.Memory != 512<<20 || hc.MemorySwap != 512<<20 || hc.NanoCPUs != 500_000_000 || hc.PidsLimit == nil || *hc.PidsLimit != 256 {
 		t.Errorf("resources: mem=%d swap=%d cpus=%d pids=%v", hc.Memory, hc.MemorySwap, hc.NanoCPUs, hc.PidsLimit)
 	}
-	if hc.Privileged || len(hc.CapAdd) != 0 || len(hc.Binds) != 0 || len(hc.Mounts) != 0 || len(hc.PortBindings) != 0 {
+	if hc.Privileged || len(hc.Binds) != 0 || len(hc.Mounts) != 0 || len(hc.PortBindings) != 0 {
 		t.Errorf("host config too open: %+v", hc)
 	}
-	if !contains(hc.SecurityOpt, "no-new-privileges") || !contains(hc.CapDrop, "CAP_NET_RAW") {
+	if !contains(hc.SecurityOpt, "no-new-privileges") || !contains(hc.CapDrop, "ALL") || (!contains(hc.CapAdd, "NET_BIND_SERVICE") && !contains(hc.CapAdd, "CAP_NET_BIND_SERVICE")) {
 		t.Errorf("security: opt=%v capdrop=%v", hc.SecurityOpt, hc.CapDrop)
 	}
 	if hc.RestartPolicy.Name != container.RestartPolicyUnlessStopped || hc.LogConfig.Type != "json-file" || hc.LogConfig.Config["max-size"] != "10m" || hc.LogConfig.Config["max-file"] != "3" {
@@ -496,7 +500,7 @@ func TestIntegrationWorker(t *testing.T) {
 	})
 	crash, _ := e.s.DeployFiles(ctx, e.user, w.Slug, []FileInput{{Path: "Dockerfile", Content: "FROM alpine:3.20\nCMD [\"sh\", \"-c\", \"echo crashing; exit 1\"]\n"}})
 	crash = e.wait(t, crash.ID)
-	if crash.State != "failed" || crash.Error == nil || crash.Error.Code != "unhealthy" || !strings.Contains(strings.Join(crash.LogTail, " "), "crashing") {
+	if crash.State != "failed" || crash.Error == nil || crash.Error.Code != "app_crashed" || !strings.Contains(strings.Join(crash.LogTail, " "), "crashing") {
 		t.Fatalf("crashing worker: %s %+v %v", crash.State, crash.Error, crash.LogTail)
 	}
 	if cur, _ := e.s.GetApp(ctx, e.user, w.Slug); cur.Current == nil || cur.Current.ID != d.ID {
@@ -524,6 +528,18 @@ func TestIntegrationVolumeRecreate(t *testing.T) {
 	c, _ := e.dk.InspectContainer(ctx, "bp-"+app.Slug+"-1")
 	if len(c.Mounts) != 1 || c.Mounts[0].Destination != "/data" {
 		t.Errorf("mounts: %+v", c.Mounts)
+	}
+	// A new volume must be writable by a non-root user (apps run with USER).
+	if out, err := exec.Command("docker", "run", "--rm", "-u", "1000:1000", "-v", dockerx.VolumeName(app.Slug)+":/data",
+		dockerx.VolumeInitImage, "sh", "-c", "touch /data/probe && ls -ld /data").CombinedOutput(); err != nil || !strings.Contains(string(out), "drwxrwxrwt") {
+		t.Errorf("volume not writable for uid 1000: %v %s", err, out)
+	}
+	if cs, _ := e.dk.ListManagedContainers(ctx); true {
+		for _, c := range cs {
+			if strings.HasPrefix(dockerx.SummaryName(c), "bp-init-") && strings.Contains(dockerx.SummaryName(c), app.Slug) {
+				t.Errorf("init container left behind: %s", dockerx.SummaryName(c))
+			}
+		}
 	}
 
 	// A failing new version: the old container is restarted automatically.

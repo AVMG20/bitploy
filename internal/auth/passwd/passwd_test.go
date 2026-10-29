@@ -1,8 +1,10 @@
 package passwd
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHashAndVerify(t *testing.T) {
@@ -65,5 +67,40 @@ func TestDummyIsVerifiable(t *testing.T) {
 	ok, err := Verify("anything", Dummy())
 	if err != nil || ok {
 		t.Fatalf("dummy hash should parse and not match: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestQueueIsCappedAndFailsFast(t *testing.T) {
+	h, err := Hash("some password here")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSem, oldMax := sem, MaxWaiting
+	sem = make(chan struct{}, 1)
+	MaxWaiting = 2
+	t.Cleanup(func() { sem, MaxWaiting = oldSem, oldMax })
+
+	sem <- struct{}{} // the one slot is busy
+	done := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { _, err := Verify("some password here", h); done <- err }()
+	}
+	for waiting.Load() < 2 {
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := Verify("x", h); !errors.Is(err, ErrBusy) {
+		t.Fatalf("third waiter: want ErrBusy, got %v", err)
+	}
+	if _, err := Hash("another password"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Hash while queue is full: want ErrBusy, got %v", err)
+	}
+	<-sem // free the slot; the two queued checks finish
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("queued check failed: %v", err)
+		}
+	}
+	if waiting.Load() != 0 {
+		t.Fatalf("waiting counter leaked: %d", waiting.Load())
 	}
 }

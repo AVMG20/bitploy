@@ -29,7 +29,9 @@ type acceptRequest struct {
 
 type profileRequest struct {
 	Name  string `json:"name,omitempty" doc:"Display name, 1 to 80 characters"`
-	Email string `json:"email,omitempty" doc:"New login email address"`
+	Email string `json:"email,omitempty" doc:"New login email address; needs current_password"`
+	// CurrentPassword is required when the email changes, not for a name-only change.
+	CurrentPassword string `json:"current_password,omitempty" doc:"Your current password; required when email changes"`
 }
 
 type passwordRequest struct {
@@ -44,7 +46,7 @@ type githubRequest struct {
 func (a *API) accountRoutes() {
 	reg(a, public, huma.Operation{
 		OperationID: "login", Method: http.MethodPost, Path: "/auth/login", Tags: []string{"Auth"},
-		Summary: "Log in", Description: "Sets the session cookie. Failed logins are limited to 5 per 15 minutes per email and IP (429 with Retry-After).",
+		Summary: "Log in", Description: "Sets the session cookie. Limits (429 with Retry-After): 5 failed tries per 15 minutes per email and IP, 30 attempts per 15 minutes per IP, 20 failures per hour per email.",
 	}, func(ctx context.Context, _ app.Actor, in *struct{ Body loginRequest }) (*sessionOut, error) {
 		m := metaFrom(ctx)
 		cookie, info, err := a.svc.Login(ctx, in.Body.Email, in.Body.Password, m.IP, m.UserAgent)
@@ -77,7 +79,7 @@ func (a *API) accountRoutes() {
 
 	reg(a, public, huma.Operation{
 		OperationID: "acceptInvite", Method: http.MethodPost, Path: "/invites/{code}/accept", Tags: []string{"Auth"},
-		Summary: "Finish signup from an invite", Description: "Creates the account and logs in. With BITPLOY_SIGNUP=open the code `open` is accepted.",
+		Summary: "Finish signup from an invite", Description: "Creates the account and logs in. With BITPLOY_SIGNUP=open the code `open` is accepted. At most 5 attempts per hour per IP. With open signup an address that is already registered gets the generic `signup_failed` (409).",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, _ app.Actor, in *struct {
 		Code string `path:"code"`
@@ -109,20 +111,21 @@ func (a *API) accountRoutes() {
 
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "updateMe", Method: http.MethodPatch, Path: "/me", Tags: []string{"Account"},
-		Summary: "Update profile",
+		Summary: "Update profile", Description: "Name and/or email. Changing the email needs current_password.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body profileRequest }) (*Out[app.User], error) {
 		if in.Body.Name == "" && in.Body.Email == "" {
 			return nil, apperr.BadRequest("nothing_to_change", "Send a name and/or an email.", "Example: {\"name\": \"Ada\"}.")
 		}
 		var u app.User
 		var err error
-		if in.Body.Name != "" {
-			if u, err = a.svc.UpdateProfile(ctx, act, in.Body.Name); err != nil {
+		// Email first: if the password is wrong nothing else is changed.
+		if in.Body.Email != "" {
+			if u, err = a.svc.UpdateEmail(ctx, act, in.Body.Email, in.Body.CurrentPassword); err != nil {
 				return nil, err
 			}
 		}
-		if in.Body.Email != "" {
-			if u, err = a.svc.UpdateEmail(ctx, act, in.Body.Email); err != nil {
+		if in.Body.Name != "" {
+			if u, err = a.svc.UpdateProfile(ctx, act, in.Body.Name); err != nil {
 				return nil, err
 			}
 		}

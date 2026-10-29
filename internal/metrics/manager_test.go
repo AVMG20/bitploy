@@ -26,10 +26,11 @@ type fakeDocker struct {
 	state     dockerx.State
 	pruned    bool
 	diskUsage dockerx.DiskUsage
+	managed   []dockerx.Managed
 }
 
 func (f *fakeDocker) ManagedContainers(context.Context, bool) ([]dockerx.Managed, error) {
-	return nil, nil
+	return f.managed, nil
 }
 func (f *fakeDocker) StreamStats(ctx context.Context, _ string, _ func(dockerx.Stats) error) error {
 	<-ctx.Done()
@@ -58,7 +59,6 @@ func (f *fakeDocker) PruneDanglingImages(context.Context) (uint64, error) {
 	f.pruned = true
 	return 1, nil
 }
-func (f *fakeDocker) PruneBuildCache(context.Context, int64) (uint64, error) { return 2, nil }
 
 type auditRow struct{ action, target string }
 

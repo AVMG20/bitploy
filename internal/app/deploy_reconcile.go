@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
@@ -118,6 +119,9 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 			}
 		}
 	}
+	s.reconcileTraefikNetworks(ctx, apps)
+	s.logForeignOnce(ctx)
+
 	// Containers: remove those without an app, or that are not the current
 	// one. The decision is re-checked under the app lock with fresh state, so
 	// a swap that happens while we list can never lose its new container.
@@ -125,6 +129,9 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 		for _, c := range cs {
 			name := dockerx.SummaryName(c)
 			appID := c.Labels[dockerx.LabelAppID]
+			if name == deploy.BuilderContainer { // the isolated builder is not an app
+				continue
+			}
 			if appID == "" || ctx.Err() != nil {
 				continue // not an app container (for example the test Traefik)
 			}
@@ -144,8 +151,8 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 	// Networks of deleted apps.
 	if ns, err := dk.ListManagedNetworks(ctx); err == nil {
 		for _, n := range ns {
-			if n.Labels[dockerx.LabelAppID] == "" {
-				continue
+			if n.Name == deploy.BuilderNetwork || n.Labels[dockerx.LabelAppID] == "" {
+				continue // the builder network and anything that is not an app network
 			}
 			if _, ok := byID[n.Labels[dockerx.LabelAppID]]; !ok {
 				_ = dk.DisconnectNetwork(ctx, n.Name, s.Cfg.TraefikContainer)
@@ -211,6 +218,69 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 				s.restoreApp(ctx, app, dead)
 			}
 		}
+	}
+}
+
+// logForeignOnce says, once per process, that managed containers of another
+// bitploy installation (or of a version before instance ids) exist on this
+// daemon. They are left alone.
+func (s *Service) logForeignOnce(ctx context.Context) {
+	r := &s.deployRT
+	r.mu.Lock()
+	done := r.foreignLogged
+	r.foreignLogged = true
+	r.mu.Unlock()
+	if done {
+		return
+	}
+	if n, err := s.Docker.CountForeign(ctx); err == nil && n > 0 {
+		s.Log.Warn("leaving bitploy containers of another installation or an older version alone (no matching nl.bitploy.instance label)",
+			"containers", n, "instance", s.Docker.Instance)
+	}
+}
+
+// reconcileTraefikNetworks joins the Traefik container to the network of every
+// web app that should run. Traefik is only connected when an app container
+// starts, so a recreated Traefik (docker compose up -d, install.sh again)
+// would otherwise lose all app networks and every app would answer 502.
+func (s *Service) reconcileTraefikNetworks(ctx context.Context, apps []db.App) {
+	dk := s.Docker
+	tr, err := dk.InspectContainer(ctx, s.Cfg.TraefikContainer)
+	if err != nil {
+		if !dockerx.IsNotFound(err) {
+			s.Log.Warn("inspect traefik", "container", s.Cfg.TraefikContainer, "err", err)
+		}
+		return // no Traefik (dev without proxy) or Docker trouble: nothing to repair
+	}
+	connected := map[string]bool{}
+	if tr.NetworkSettings != nil {
+		for name := range tr.NetworkSettings.Networks {
+			connected[name] = true
+		}
+	}
+	nets, err := dk.ListManagedNetworks(ctx)
+	if err != nil {
+		return
+	}
+	exists := map[string]bool{}
+	for _, n := range nets {
+		exists[n.Name] = true
+	}
+	for _, app := range apps {
+		if ctx.Err() != nil {
+			return
+		}
+		name := dockerx.NetworkName(app.Slug)
+		if app.Type != "web" || app.DesiredState != "running" || !app.CurrentDeploymentID.Valid || !exists[name] || connected[name] {
+			continue
+		}
+		if err := dk.ConnectNetwork(ctx, name, s.Cfg.TraefikContainer); err != nil {
+			if !dockerx.IsNotFound(err) {
+				s.Log.Warn("connect traefik to app network", "network", name, "err", err)
+			}
+			continue
+		}
+		s.Log.Info("reconnected traefik to app network", "network", name)
 	}
 }
 

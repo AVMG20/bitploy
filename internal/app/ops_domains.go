@@ -87,13 +87,20 @@ func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) 
 			"Add the domain to a web app instead.").WithNext("list_apps")
 	}
 
+	// A claim that is still waiting for DNS (or gave up) proves nothing, so it
+	// must not block the real owner of the hostname: it is replaced below.
+	// Hostnames that passed the DNS check (issuing_cert, active) stay taken.
+	var stale *db.Domain
 	if existing, err := s.Q.OpsGetDomainByHostname(ctx, host); err == nil {
 		if existing.AppID == app.ID {
 			return s.domainView(existing), nil
 		}
-		return Domain{}, apperr.Conflict("domain_taken",
-			quote(host)+" is already used by another app.",
-			"A hostname can belong to one app only. If it is yours, ask the owner to remove it, or use a different hostname.")
+		if existing.Status != "pending_dns" && existing.Status != "failed" {
+			return Domain{}, apperr.Conflict("domain_taken",
+				quote(host)+" is already used by another app.",
+				"A hostname can belong to one app only. If it is yours, ask the owner to remove it, or use a different hostname.")
+		}
+		stale = &existing
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Domain{}, apperr.Internal(err)
 	}
@@ -114,18 +121,42 @@ func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) 
 
 	now := s.Now()
 	id := ids.New(ids.Domain)
-	err = s.Q.OpsInsertDomain(ctx, db.OpsInsertDomainParams{
-		ID: id, AppID: app.ID, Hostname: host, TxtToken: "bitploy-" + ids.Hex(32),
-		CheckUntil: now.Add(domainWatchFor).Unix(), CreatedAt: now.Unix(),
+	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		if stale != nil {
+			n, err := q.OpsDeleteStaleDomain(ctx, stale.ID)
+			if err != nil {
+				return err
+			}
+			if n == 0 { // it passed DNS in the meantime
+				return apperr.Conflict("domain_taken", quote(host)+" is already used by another app.",
+					"A hostname can belong to one app only.")
+			}
+		}
+		return q.OpsInsertDomain(ctx, db.OpsInsertDomainParams{
+			ID: id, AppID: app.ID, Hostname: host, TxtToken: "bitploy-" + ids.Hex(32),
+			CheckUntil: now.Add(domainWatchFor).Unix(), CreatedAt: now.Unix(),
+		})
 	})
 	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) {
+			return Domain{}, ae
+		}
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return Domain{}, apperr.Conflict("domain_taken", quote(host)+" is already used by another app.",
 				"A hostname can belong to one app only.")
 		}
 		return Domain{}, apperr.Internal(err)
 	}
-	s.Audit(ctx, a, "domain.add", "domain", id, map[string]any{"hostname": host, "app_id": app.ID, "app": app.Slug})
+	details := map[string]any{"hostname": host, "app_id": app.ID, "app": app.Slug}
+	if stale != nil {
+		details["replaced_domain"] = stale.ID
+		details["replaced_app_id"] = stale.AppID
+		s.Audit(ctx, a, "domain.claim_replaced", "domain", stale.ID, map[string]any{
+			"hostname": host, "app_id": stale.AppID, "status": stale.Status, "claimed_by_app_id": app.ID, "claimed_by_user_id": app.UserID,
+		})
+	}
+	s.Audit(ctx, a, "domain.add", "domain", id, details)
 	row, err := s.Q.OpsGetDomainByHostname(ctx, host)
 	if err != nil {
 		return Domain{}, apperr.Internal(err)

@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -451,6 +453,8 @@ func TestSuspendedUserCannotAuthenticate(t *testing.T) {
 func TestInvites(t *testing.T) {
 	s, clk := acctTestSvc(t)
 	ctx := context.Background()
+	ipN := 0
+	nip := func() string { ipN++; return fmt.Sprintf("10.9.0.%d", ipN) } // signups are limited per IP
 	admin := mustUser(t, s, "admin@example.nl", true)
 	user := mustUser(t, s, "user@example.nl", false)
 	ac, _ := login(t, s, "admin@example.nl")
@@ -477,13 +481,13 @@ func TestInvites(t *testing.T) {
 	}
 
 	in := AcceptInviteInput{Name: "New Person", Email: "new@example.nl", Password: "password-1234"}
-	if _, _, err := s.AcceptInvite(ctx, "wrongcode", in, "1.1.1.1", "ua"); code(err) != "invite_invalid" {
+	if _, _, err := s.AcceptInvite(ctx, "wrongcode", in, nip(), "ua"); code(err) != "invite_invalid" {
 		t.Fatalf("wrong code: %v", err)
 	}
-	if _, _, err := s.AcceptInvite(ctx, invCode, AcceptInviteInput{Name: "N", Email: "new@example.nl", Password: "short"}, "1.1.1.1", "ua"); code(err) != "password_too_short" {
+	if _, _, err := s.AcceptInvite(ctx, invCode, AcceptInviteInput{Name: "N", Email: "new@example.nl", Password: "short"}, nip(), "ua"); code(err) != "password_too_short" {
 		t.Fatalf("short password: %v", err)
 	}
-	cookie, info, err := s.AcceptInvite(ctx, invCode, in, "1.1.1.1", "ua")
+	cookie, info, err := s.AcceptInvite(ctx, invCode, in, nip(), "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,10 +496,10 @@ func TestInvites(t *testing.T) {
 	}
 	// Single use.
 	in2 := AcceptInviteInput{Name: "Other", Email: "other@example.nl", Password: "password-1234"}
-	if _, _, err := s.AcceptInvite(ctx, invCode, in2, "1.1.1.1", "ua"); apperr.As(err).HTTPStatus != 410 || code(err) != "invite_invalid" {
+	if _, _, err := s.AcceptInvite(ctx, invCode, in2, nip(), "ua"); apperr.As(err).HTTPStatus != 410 || code(err) != "invite_invalid" {
 		t.Fatalf("reuse: %v", err)
 	}
-	if _, _, err := s.Login(ctx, "other@example.nl", "password-1234", "1.1.1.1", "ua"); err == nil {
+	if _, _, err := s.Login(ctx, "other@example.nl", "password-1234", nip(), "ua"); err == nil {
 		t.Fatal("second signup created a user")
 	}
 
@@ -503,17 +507,17 @@ func TestInvites(t *testing.T) {
 	inv2, _ := s.CreateInvite(ctx, adminActor, CreateInviteInput{})
 	code2 := strings.TrimPrefix(inv2.URL, "https://bitploy.test/invite/")
 	clk.Advance(7*24*time.Hour + time.Minute)
-	if _, _, err := s.AcceptInvite(ctx, code2, in2, "1.1.1.1", "ua"); apperr.As(err).HTTPStatus != 410 {
+	if _, _, err := s.AcceptInvite(ctx, code2, in2, nip(), "ua"); apperr.As(err).HTTPStatus != 410 {
 		t.Fatalf("expired: %v", err)
 	}
 
 	// Locked to an email, with an admin role.
 	inv3, _ := s.CreateInvite(ctx, adminActor, CreateInviteInput{Email: "Locked@Example.nl", Role: "admin"})
 	code3 := strings.TrimPrefix(inv3.URL, "https://bitploy.test/invite/")
-	if _, _, err := s.AcceptInvite(ctx, code3, AcceptInviteInput{Name: "X", Email: "someone-else@example.nl", Password: "password-1234"}, "1.1.1.1", "ua"); code(err) != "invite_email_mismatch" {
+	if _, _, err := s.AcceptInvite(ctx, code3, AcceptInviteInput{Name: "X", Email: "someone-else@example.nl", Password: "password-1234"}, nip(), "ua"); code(err) != "invite_email_mismatch" {
 		t.Fatalf("mismatch: %v", err)
 	}
-	_, info3, err := s.AcceptInvite(ctx, code3, AcceptInviteInput{Name: "X", Password: "password-1234"}, "1.1.1.1", "ua")
+	_, info3, err := s.AcceptInvite(ctx, code3, AcceptInviteInput{Name: "X", Password: "password-1234"}, nip(), "ua")
 	if err != nil || info3.User.Email != "locked@example.nl" || info3.User.Role != "admin" {
 		t.Fatalf("locked invite: %+v %v", info3, err)
 	}
@@ -521,10 +525,10 @@ func TestInvites(t *testing.T) {
 	// Existing email is refused and the invite stays usable.
 	inv4, _ := s.CreateInvite(ctx, adminActor, CreateInviteInput{})
 	code4 := strings.TrimPrefix(inv4.URL, "https://bitploy.test/invite/")
-	if _, _, err := s.AcceptInvite(ctx, code4, AcceptInviteInput{Name: "X", Email: "user@example.nl", Password: "password-1234"}, "1.1.1.1", "ua"); code(err) != "email_taken" {
+	if _, _, err := s.AcceptInvite(ctx, code4, AcceptInviteInput{Name: "X", Email: "user@example.nl", Password: "password-1234"}, nip(), "ua"); code(err) != "email_taken" {
 		t.Fatalf("taken: %v", err)
 	}
-	if _, _, err := s.AcceptInvite(ctx, code4, AcceptInviteInput{Name: "X", Email: "fresh@example.nl", Password: "password-1234"}, "1.1.1.1", "ua"); err != nil {
+	if _, _, err := s.AcceptInvite(ctx, code4, AcceptInviteInput{Name: "X", Email: "fresh@example.nl", Password: "password-1234"}, nip(), "ua"); err != nil {
 		t.Fatalf("invite should survive a failed attempt: %v", err)
 	}
 
@@ -533,7 +537,7 @@ func TestInvites(t *testing.T) {
 	if err := s.RevokeInvite(ctx, adminActor, inv5.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.AcceptInvite(ctx, strings.TrimPrefix(inv5.URL, "https://bitploy.test/invite/"), in2, "1.1.1.1", "ua"); code(err) != "invite_invalid" {
+	if _, _, err := s.AcceptInvite(ctx, strings.TrimPrefix(inv5.URL, "https://bitploy.test/invite/"), in2, nip(), "ua"); code(err) != "invite_invalid" {
 		t.Fatalf("revoked: %v", err)
 	}
 }
@@ -712,5 +716,156 @@ func TestAuditNeverContainsSecrets(t *testing.T) {
 		if strings.Contains(d, tc.Value) || strings.Contains(d, "password-1234") || strings.Contains(d, "totally-wrong") {
 			t.Fatalf("secret in audit details: %s", d)
 		}
+	}
+}
+
+func TestLoginLimitPerIPAcrossEmails(t *testing.T) {
+	s, clk := acctTestSvc(t)
+	ctx := context.Background()
+	for i := 0; i < 30; i++ {
+		_, _, err := s.Login(ctx, fmt.Sprintf("ghost%d@example.nl", i), "x", "198.51.100.9", "ua")
+		if code(err) != "invalid_credentials" {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	_, _, err := s.Login(ctx, "ghost-new@example.nl", "x", "198.51.100.9", "ua")
+	if e := apperr.As(err); e.Code != "too_many_attempts" || e.HTTPStatus != 429 || e.Details["retry_after_seconds"] == nil {
+		t.Fatalf("31st attempt from one IP: %v", err)
+	}
+	// Another IP is fine; after the window so is this one.
+	if code(func() error { _, _, e := s.Login(ctx, "ghost-new@example.nl", "x", "198.51.100.10", "ua"); return e }()) != "invalid_credentials" {
+		t.Fatal("other IP should not be blocked")
+	}
+	clk.Advance(16 * time.Minute)
+	if code(func() error { _, _, e := s.Login(ctx, "ghost-new@example.nl", "x", "198.51.100.9", "ua"); return e }()) != "invalid_credentials" {
+		t.Fatal("block should lift after 15 minutes")
+	}
+}
+
+func TestLoginLimitPerEmailAcrossIPs(t *testing.T) {
+	s, clk := acctTestSvc(t)
+	ctx := context.Background()
+	mustUser(t, s, "me@example.nl", false)
+	// 4 IPs x 5 failures = the 20 allowed per hour.
+	for ip := 0; ip < 4; ip++ {
+		for i := 0; i < 5; i++ {
+			_, _, err := s.Login(ctx, "me@example.nl", "wrong-password", fmt.Sprintf("198.51.100.%d", ip), "ua")
+			if code(err) != "invalid_credentials" {
+				t.Fatalf("ip %d try %d: %v", ip, i, err)
+			}
+		}
+	}
+	// A fifth IP cannot try any more, not even with the right password.
+	_, _, err := s.Login(ctx, "me@example.nl", "password-1234", "198.51.100.77", "ua")
+	if code(err) != "too_many_attempts" {
+		t.Fatalf("email cap: %v", err)
+	}
+	clk.Advance(61 * time.Minute)
+	if _, _, err := s.Login(ctx, "me@example.nl", "password-1234", "198.51.100.77", "ua"); err != nil {
+		t.Fatalf("after the hour: %v", err)
+	}
+}
+
+// Parallel guesses reserve their attempt before the (slow) password check, so a
+// burst cannot get more tries than the limit.
+func TestLoginBurstCannotExceedLimit(t *testing.T) {
+	s, _ := acctTestSvc(t)
+	ctx := context.Background()
+	mustUser(t, s, "me@example.nl", false)
+	var wrong, blocked atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := s.Login(ctx, "me@example.nl", "wrong-password", "198.51.100.1", "ua")
+			switch code(err) {
+			case "invalid_credentials":
+				wrong.Add(1)
+			case "too_many_attempts":
+				blocked.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wrong.Load() != 5 || blocked.Load() != 35 {
+		t.Fatalf("checked %d passwords, blocked %d (want 5 and 35)", wrong.Load(), blocked.Load())
+	}
+}
+
+func TestSuccessfulLoginsDoNotUseUpIPBudget(t *testing.T) {
+	s, _ := acctTestSvc(t)
+	ctx := context.Background()
+	mustUser(t, s, "me@example.nl", false)
+	for i := 0; i < 60; i++ {
+		if _, _, err := s.Login(ctx, "me@example.nl", "password-1234", "198.51.100.1", "ua"); err != nil {
+			t.Fatalf("login %d: %v", i, err)
+		}
+	}
+}
+
+func TestSignupLimitPerIP(t *testing.T) {
+	s, clk := acctTestSvc(t)
+	ctx := context.Background()
+	s.Cfg.Signup = "open"
+	for i := 0; i < 5; i++ {
+		in := AcceptInviteInput{Name: "N", Email: fmt.Sprintf("n%d@example.nl", i), Password: "password-1234"}
+		if _, _, err := s.AcceptInvite(ctx, "open", in, "198.51.100.5", "ua"); err != nil {
+			t.Fatalf("signup %d: %v", i, err)
+		}
+	}
+	in := AcceptInviteInput{Name: "N", Email: "n6@example.nl", Password: "password-1234"}
+	_, _, err := s.AcceptInvite(ctx, "open", in, "198.51.100.5", "ua")
+	if e := apperr.As(err); e.HTTPStatus != 429 || e.Details["retry_after_seconds"] == nil {
+		t.Fatalf("6th signup: %v", err)
+	}
+	// Guessing invite codes counts too.
+	s.Cfg.Signup = "invite"
+	for i := 0; i < 5; i++ {
+		s.AcceptInvite(ctx, "nope", in, "198.51.100.6", "ua")
+	}
+	if _, _, err := s.AcceptInvite(ctx, "nope", in, "198.51.100.6", "ua"); apperr.As(err).HTTPStatus != 429 {
+		t.Fatalf("invite guessing: %v", err)
+	}
+	clk.Advance(61 * time.Minute)
+	s.Cfg.Signup = "open"
+	if _, _, err := s.AcceptInvite(ctx, "open", in, "198.51.100.5", "ua"); err != nil {
+		t.Fatalf("after the hour: %v", err)
+	}
+}
+
+func TestOpenSignupDoesNotConfirmRegisteredEmail(t *testing.T) {
+	s, _ := acctTestSvc(t)
+	ctx := context.Background()
+	mustUser(t, s, "me@example.nl", false)
+	s.Cfg.Signup = "open"
+	_, _, err := s.AcceptInvite(ctx, "open", AcceptInviteInput{Name: "N", Email: "me@example.nl", Password: "password-1234"}, "198.51.100.5", "ua")
+	if e := apperr.As(err); e.Code != "signup_failed" || e.HTTPStatus != 409 {
+		t.Fatalf("open signup with a registered email: %v", err)
+	}
+}
+
+func TestEmailChangeNeedsCurrentPassword(t *testing.T) {
+	s, _ := acctTestSvc(t)
+	ctx := context.Background()
+	mustUser(t, s, "me@example.nl", false)
+	c, _ := login(t, s, "me@example.nl")
+	act := sessionActor(t, s, c)
+	if _, err := s.UpdateEmail(ctx, act, "new@example.nl", ""); code(err) != "current_password_required" {
+		t.Fatalf("no password: %v", err)
+	}
+	if _, err := s.UpdateEmail(ctx, act, "new@example.nl", "wrong-password"); code(err) != "invalid_credentials" {
+		t.Fatalf("wrong password: %v", err)
+	}
+	u, err := s.UpdateEmail(ctx, act, "New@Example.nl", "password-1234")
+	if err != nil || u.Email != "new@example.nl" {
+		t.Fatalf("right password: %+v %v", u, err)
+	}
+	// Guessing is limited like login: 5 wrong tries, then blocked even with the right one.
+	for i := 0; i < 5; i++ {
+		s.UpdateEmail(ctx, act, "x@example.nl", "wrong-password")
+	}
+	if _, err := s.UpdateEmail(ctx, act, "x@example.nl", "password-1234"); code(err) != "too_many_attempts" {
+		t.Fatalf("guess limit: %v", err)
 	}
 }

@@ -214,7 +214,7 @@ export const api = {
 
   // account
   me: () => request<Me>('GET', paths.me),
-  updateProfile: (input: { name?: string; email?: string }) => request<User>('PATCH', paths.meProfile, { body: input }),
+  updateProfile: (input: { name?: string; email?: string; current_password?: string }) => request<User>('PATCH', paths.meProfile, { body: input }),
   changePassword: (input: { current_password: string; new_password: string }) =>
     request<void>('PUT', paths.mePassword, { body: input }),
   githubStatus: () => request<GitHubStatus>('GET', paths.githubToken),

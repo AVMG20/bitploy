@@ -8,20 +8,25 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/AVMG20/bitploy/internal/deploy"
 )
 
 type deployRuntime struct {
-	mu         sync.Mutex
-	busy       map[string]string             // appID -> deployment ID whose pipeline is running
-	cancels    map[string]context.CancelFunc // deployment ID -> cancel
-	byUser     map[string]bool               // deployment IDs cancelled on purpose (stop, delete)
-	candidates map[string]string             // appID -> candidate upstream being health-checked
-	draining   map[string]bool               // container names that will be stopped after a swap
-	locks      map[string]*sync.Mutex        // per-app lifecycle lock
-	restore    map[string]int                // appID -> consecutive failed restore attempts
-	slotsOnce  sync.Once
-	slots      chan struct{} // build slots (fetch, validate, build)
-	wg         sync.WaitGroup
+	mu            sync.Mutex
+	busy          map[string]string             // appID -> deployment ID whose pipeline is running
+	cancels       map[string]context.CancelFunc // deployment ID -> cancel
+	byUser        map[string]bool               // deployment IDs cancelled on purpose (stop, delete)
+	candidates    map[string]string             // appID -> candidate upstream being health-checked
+	draining      map[string]bool               // container names that will be stopped after a swap
+	locks         map[string]*sync.Mutex        // per-app lifecycle lock
+	restore       map[string]int                // appID -> consecutive failed restore attempts
+	foreignLogged bool
+	builderOnce   sync.Once
+	builder       *deploy.Builder
+	slotsOnce     sync.Once
+	slots         chan struct{} // build slots (fetch, validate, build)
+	wg            sync.WaitGroup
 }
 
 func (r *deployRuntime) init() {
@@ -48,6 +53,15 @@ func (s *Service) appLock(appID string) *sync.Mutex {
 		r.locks[appID] = l
 	}
 	return l
+}
+
+// buildBuilder is the isolated buildx builder all builds run in.
+func (s *Service) buildBuilder() *deploy.Builder {
+	r := &s.deployRT
+	r.builderOnce.Do(func() {
+		r.builder = &deploy.Builder{ConfigDir: s.Cfg.BuildxDir(), CPUs: s.Cfg.BuilderCPUs, Memory: s.Cfg.BuilderMemory}
+	})
+	return r.builder
 }
 
 func (s *Service) buildSlots() chan struct{} {

@@ -102,7 +102,7 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 		Curl:      "curl --fail --data-binary @app.zip -H 'Content-Type: application/zip' " + url,
 		ExpiresAt: exp.UTC(), MaxBytes: deploy.MaxZipCompressed,
 		NextSteps: []string{
-			"Zip the project folder as app.zip (with the Dockerfile inside), then run the curl command within 15 minutes.",
+			"Run `zip -r app.zip . -x 'node_modules/*' '.git/*' '.env' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
 			"After curl succeeds, call deploy with app=" + row.Slug + " and upload_id=" + id + ".",
 		},
 	}, nil
@@ -192,7 +192,7 @@ func (s *Service) Deploy(ctx context.Context, a Actor, ref, uploadID string) (De
 		case "pending":
 			return Deployment{}, apperr.Conflict("upload_not_received", "Nothing was uploaded to this URL yet.", "Run the curl command from create_upload first, then call deploy again.").WithNext("create_upload")
 		case "used":
-			return Deployment{}, apperr.Conflict("upload_used", "This upload was already deployed.", "Call create_upload for a new upload, or call redeploy to rebuild the last one.").WithNext("create_upload")
+			return Deployment{}, apperr.Conflict("upload_used", "This upload was already deployed.", "Call create_upload for a new upload, or call deploy with only app= to rebuild the last source.").WithNext("create_upload")
 		case "received":
 		default:
 			return Deployment{}, apperr.New(410, "upload_expired", "This upload has expired.", "Call create_upload for a new one.").WithNext("create_upload")
@@ -413,12 +413,29 @@ func portOf(p int) sql.NullInt64 {
 	return sql.NullInt64{Int64: int64(p), Valid: true}
 }
 
+// checkDiskRoom refuses new deployments (and rollbacks) while the server's
+// disk is almost full, before anything is stored or counted.
+func (s *Service) checkDiskRoom() error {
+	if ok, err := s.DiskHasRoom(); err == nil && !ok {
+		return apperr.Unavailable("server_disk_full",
+			"The server is almost out of disk space, so new deployments are paused. Nothing was queued.",
+			"Tell the bitploy admin that the server disk is full. Your running apps are not affected. Try again once the admin has freed space.")
+	}
+	return nil
+}
+
 func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs queueSpec) (Deployment, error) {
+	if err := s.checkDiskRoom(); err != nil {
+		return Deployment{}, err
+	}
 	user, err := s.activeUser(ctx, app.UserID)
 	if err != nil {
 		return Deployment{}, err
 	}
 	if err := s.checkDeployRate(ctx, user); err != nil {
+		return Deployment{}, err
+	}
+	if err := s.checkStartQuota(ctx, app); err != nil { // first deploy of an app, or a stopped one
 		return Deployment{}, err
 	}
 	depID := ids.New(ids.Deployment)
@@ -508,7 +525,7 @@ func (s *Service) checkDeployRate(ctx context.Context, user db.User) error {
 	return apperr.TooMany("deploy_rate_limited",
 		fmt.Sprintf("You have already started %d deployments in the last hour, which is the limit for your account.", n),
 		fmt.Sprintf("Wait about %d minutes before deploying again. Fix problems locally first instead of deploying every small change.", (wait+59)/60)).
-		WithDetail("retry_after_seconds", wait)
+		WithNext("get_app").WithDetail("retry_after_seconds", wait)
 }
 
 // ---- read side ----

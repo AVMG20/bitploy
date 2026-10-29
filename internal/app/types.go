@@ -130,8 +130,10 @@ type App struct {
 	Domains        []Domain    `json:"domains"`
 	StartedAt      *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
 	RestartCount   int64       `json:"restart_count"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
+	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
+	Live      *MetricPoint `json:"live"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 type DeployError struct {
@@ -271,6 +273,7 @@ type ServerStats struct {
 	BuildsQueued    int64   `json:"builds_queued"`
 	AppsRunning     int64   `json:"apps_running"`
 	AppsTotal       int64   `json:"apps_total"`
+	AppsMax         int64   `json:"apps_max"` // BITPLOY_MAX_APPS
 }
 
 type Template struct {
