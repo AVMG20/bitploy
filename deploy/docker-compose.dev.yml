@@ -1,0 +1,18 @@
+# Local development: Traefik only, in HTTP mode, next to `go run` and `npm run dev`.
+# Started by deploy/dev.sh (make dev). Apps open at http://<slug>.localhost:8000.
+
+name: bitploy-dev
+
+services:
+  traefik:
+    image: traefik:v3.7
+    container_name: bitploy-traefik      # same name the Go server expects (BITPLOY_TRAEFIK_CONTAINER)
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:80"              # apps: http://<slug>.localhost:8000
+      - "127.0.0.1:8081:8081"            # internal entrypoint: candidate health checks from the host
+    volumes:
+      - ./traefik/traefik.dev.yml:/etc/traefik/traefik.yml:ro
+      - ../.data/traefik/dynamic:/dynamic:ro   # route files written by `go run ./cmd/bitploy serve`
+    extra_hosts:
+      - "host.docker.internal:host-gateway"    # Traefik reaches the Go server on the host (catch-all page)

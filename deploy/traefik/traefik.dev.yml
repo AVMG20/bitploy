@@ -1,0 +1,18 @@
+# Traefik static configuration for local development: HTTP only, no certificates.
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+
+entryPoints:
+  web:
+    address: ":80"          # published as localhost:8000
+  internal:
+    address: ":8081"        # published as localhost:8081, for candidate health checks
+
+providers:
+  file:
+    directory: /dynamic
+    watch: true

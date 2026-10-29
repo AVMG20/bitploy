@@ -23,14 +23,14 @@ generate:
 	$(SQLC) generate
 
 test:
-	$(GO) test ./...
+	$(GO) test ./cmd/... ./internal/... ./web
 
 test-integration:
-	$(GO) test -tags=integration -count=1 ./...
+	$(GO) test -tags=integration -count=1 ./cmd/... ./internal/... ./web
 
 lint:
-	$(GO) vet ./...
-	$(GO) run honnef.co/go/tools/cmd/staticcheck@latest ./...
+	$(GO) vet ./cmd/... ./internal/... ./web
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@latest ./cmd/... ./internal/... ./web
 	cd web && npx vue-tsc --noEmit && npx eslint .
 
 release:

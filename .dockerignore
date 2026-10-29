@@ -1,0 +1,21 @@
+# Keep the build context small and the layer cache stable.
+.git
+.github
+.data
+.claude
+bin
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+
+# The web stage builds these itself.
+web/node_modules
+web/dist
+
+# Not needed to build the image.
+deploy
+docs
+*.md
+Makefile

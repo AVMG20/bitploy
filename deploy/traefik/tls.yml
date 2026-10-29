@@ -1,0 +1,10 @@
+# Default certificate: the Cloudflare Origin CA certificate for bitploy.nl and *.bitploy.nl.
+# Every router with `tls: {}` and no certResolver (the dashboard and the app subdomains)
+# uses it. Custom domains get their own Let's Encrypt certificates instead.
+# install.sh copies this file to <data dir>/traefik/dynamic/_tls.yml.
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/origin.pem
+        keyFile: /certs/origin.key

@@ -123,6 +123,7 @@ func serve(log *slog.Logger) error {
 	go svc.RunReconciler(ctx)
 	go svc.RunWorker(ctx)
 	go svc.RunBackground(ctx)
+	go svc.RunAccountsMaintenance(ctx)
 
 	srv := &http.Server{
 		Addr:              svc.Cfg.Listen,

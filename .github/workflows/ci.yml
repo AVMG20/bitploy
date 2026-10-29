@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet, staticcheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go vet
+        run: go vet ./cmd/... ./internal/... ./web
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./cmd/... ./internal/... ./web
+      - name: go test
+        run: go test -race -count=1 ./cmd/... ./internal/... ./web
+
+  web:
+    name: Web (typecheck, lint, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npm run typecheck
+      - name: lint
+        run: npm run lint
+      - name: build
+        run: npm run build
+
+  shell:
+    name: Shell scripts and config files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: bash -n and shellcheck
+        run: |
+          set -euo pipefail
+          scripts=$(ls deploy/*.sh)
+          for f in $scripts; do bash -n "$f"; done
+          shellcheck $scripts
+      - name: daemon.json and compose files parse
+        run: |
+          set -euo pipefail
+          python3 -m json.tool deploy/daemon.json >/dev/null
+          printf 'BITPLOY_SECRET_KEY=x\n' > /tmp/bitploy.env
+          sudo mkdir -p /etc/bitploy && sudo cp /tmp/bitploy.env /etc/bitploy/bitploy.env
+          docker compose -f deploy/docker-compose.yml config --quiet
+          docker compose -f deploy/docker-compose.dev.yml config --quiet
+
+  image:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: bitploy:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  probe:
+    name: Network isolation (probe container)
+    runs-on: ubuntu-latest
+    needs: [shell]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Apply daemon.json and restart Docker
+        run: |
+          set -euo pipefail
+          sudo install -m 0644 deploy/daemon.json /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker info --format 'Docker {{.ServerVersion}}'
+      - name: Apply firewall.sh
+        run: sudo deploy/firewall.sh apply
+      - name: Probe container
+        run: sudo deploy/probe-test.sh
+      - name: Rules at the end (for the log)
+        if: always()
+        run: sudo deploy/firewall.sh status || true

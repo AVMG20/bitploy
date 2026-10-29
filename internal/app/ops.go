@@ -1,72 +1,75 @@
 package app
 
-// OWNER: ops agent. Custom domains, metrics, usage, server stats and
-// background jobs (domain checker, metrics collector, Docker events,
-// crash-loop detection, nightly prune/rollup/backup). Signatures are a
-// shared contract; implement the bodies. Split into more files freely.
+// OWNER: ops agent. Shared state and background wiring for custom domains
+// (ops_domains.go) and metrics, usage and server stats (ops_metrics.go).
 
 import (
 	"context"
+	"sync"
+	"time"
 
-	"github.com/arno/bitploy/internal/apperr"
+	"github.com/arno/bitploy/internal/dockerx"
+	"github.com/arno/bitploy/internal/domains"
+	"github.com/arno/bitploy/internal/metrics"
 )
 
-// ---- domains ----
+var _ metrics.Docker = (*dockerx.Client)(nil)
 
-func (s *Service) ListDomains(ctx context.Context, a Actor, ref string) ([]Domain, error) {
-	return []Domain{}, nil
+// opsState is the zero-value-usable state the ops code keeps on Service.
+type opsState struct {
+	once sync.Once
+	mgr  *metrics.Manager
+
+	// Tests replace these; nil means the real thing.
+	resolvers []domains.Named
+	syncRoute func(ctx context.Context, appID string) error
 }
 
-func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) (Domain, error) {
-	return Domain{}, apperr.NotImplemented("domains")
+// metricsMgr returns the metrics manager, creating it on first use.
+func (s *Service) metricsMgr() *metrics.Manager {
+	s.ops.once.Do(func() {
+		var dk metrics.Docker // stays a nil interface when Docker is unavailable
+		if s.Docker != nil {
+			dk = s.Docker
+		}
+		m := metrics.New(s.Store, dk, s.Log)
+		if s.Now != nil {
+			m.Now = s.Now
+		}
+		m.DataDir = s.Cfg.DataDir
+		m.Dev = s.Cfg.Dev
+		m.Audit = func(ctx context.Context, action, targetType, targetID string, details map[string]any) {
+			s.Audit(ctx, System, action, targetType, targetID, details)
+		}
+		m.SyncRoute = s.opsSyncRoute
+		s.ops.mgr = m
+	})
+	return s.ops.mgr
 }
 
-func (s *Service) CheckDomain(ctx context.Context, a Actor, ref, hostname string) (Domain, error) {
-	return Domain{}, apperr.NotImplemented("domains")
+func (s *Service) opsSyncRoute(ctx context.Context, appID string) error {
+	if s.ops.syncRoute != nil {
+		return s.ops.syncRoute(ctx, appID)
+	}
+	return s.SyncRoute(ctx, appID)
 }
-
-func (s *Service) RemoveDomain(ctx context.Context, a Actor, ref, hostname string) error {
-	return apperr.NotImplemented("domains")
-}
-
-// ActiveHostnames returns active custom hostnames of an app (used by SyncRoute).
-func (s *Service) ActiveHostnames(ctx context.Context, appID string) ([]string, error) {
-	return nil, nil
-}
-
-// ---- metrics & usage ----
-
-// GetMetrics returns CPU, memory and network for window 1h | 24h | 7d.
-func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (Metrics, error) {
-	return Metrics{}, apperr.NotImplemented("metrics")
-}
-
-// Usage is the per-user usage for whoami, GET /api/v1/usage and the Overview cards.
-func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
-	return Usage{}, nil
-}
-
-// LatestSample returns the newest in-memory sample for an app (nil if none),
-// used by app lists for CPU % and memory MB.
-func (s *Service) LatestSample(appID string) *MetricPoint { return nil }
-
-// AdminServerStats: host CPU, RAM, disk, Docker disk use, build queue.
-func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, error) {
-	return ServerStats{}, apperr.NotImplemented("server stats")
-}
-
-// ServerHasRoom reports whether extraMB more of app memory limits fits under
-// host RAM minus 1.5 GB. create_app/update_app fail with server_full otherwise.
-func (s *Service) ServerHasRoom(ctx context.Context, extraMB int64) (bool, error) {
-	return true, nil
-}
-
-// DiskHasRoom reports whether the disk has at least 15% free (else builds are refused).
-func (s *Service) DiskHasRoom() (bool, error) { return true, nil }
 
 // ---- background ----
 
 // RunBackground starts the domain checker, metrics collector, Docker events
 // listener (die/oom/health_status, crash-loop detection) and nightly jobs.
-// It returns when ctx ends.
-func (s *Service) RunBackground(ctx context.Context) {}
+// It returns when ctx ends. It works without Docker (s.Docker == nil): then
+// only the domain checker and the nightly database jobs run.
+func (s *Service) RunBackground(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runDomainChecker(ctx)
+	}()
+	s.metricsMgr().Run(ctx)
+	wg.Wait()
+}
+
+// domainCheckEvery is how often pending domains are re-checked.
+const domainCheckEvery = 5 * time.Minute

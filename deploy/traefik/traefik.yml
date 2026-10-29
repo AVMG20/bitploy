@@ -1,0 +1,83 @@
+# Traefik static configuration for the bitploy server.
+# Dynamic configuration comes from files in /dynamic: route files written by
+# bitploy, plus _tls.yml and _dashboard.yml written by install.sh.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+  format: json
+
+# Server errors only; an access log of every request would fill the disk.
+accessLog:
+  format: json
+  filters:
+    statusCodes: ["500-599"]
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      # Everything on port 80 goes to HTTPS. Let's Encrypt's HTTP-01 challenge is
+      # answered by Traefik's internal ACME router, which the redirect does not touch.
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    # No PROXY protocol: Cloudflare and direct visitors both speak plain HTTPS.
+    # Trust X-Forwarded-* (and so the real client IP) only from Cloudflare's published
+    # ranges (https://www.cloudflare.com/ips); direct visitors cannot fake their IP.
+    # Refresh the list with deploy/update-cloudflare-ips.sh when Cloudflare changes it.
+    forwardedHeaders:
+      trustedIPs:
+        # BEGIN cloudflare
+        - 173.245.48.0/20
+        - 103.21.244.0/22
+        - 103.22.200.0/22
+        - 103.31.4.0/22
+        - 141.101.64.0/18
+        - 108.162.192.0/18
+        - 190.93.240.0/20
+        - 188.114.96.0/20
+        - 197.234.240.0/22
+        - 198.41.128.0/17
+        - 162.158.0.0/15
+        - 104.16.0.0/13
+        - 104.24.0.0/14
+        - 172.64.0.0/13
+        - 131.0.72.0/22
+        - 2400:cb00::/32
+        - 2606:4700::/32
+        - 2803:f800::/32
+        - 2405:b500::/32
+        - 2405:8100::/32
+        - 2a06:98c0::/29
+        - 2c0f:f248::/32
+        # END cloudflare
+
+  # Not published on the host. bitploy reaches it over the "bitploy" Docker network
+  # to probe a new container through Traefik before the route swap.
+  internal:
+    address: ":8081"
+
+ping:
+  entryPoint: internal
+
+providers:
+  file:
+    directory: /dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: you@example.com        # install.sh replaces this with BITPLOY_ACME_EMAIL
+      storage: /acme/acme.json
+      httpChallenge:
+        entryPoint: web

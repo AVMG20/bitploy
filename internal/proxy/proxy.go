@@ -28,6 +28,20 @@ type Route struct {
 // container through Traefik's internal entrypoint.
 func CandidateHost(slug string) string { return "candidate." + slug + ".bitploy.internal" }
 
+// LiveHost is the Host header bitploy uses on the internal entrypoint to see
+// which upstream Traefik currently serves for an app: responses carry
+// UpstreamHeader. A swap waits for it before reporting the deploy as running.
+func LiveHost(slug string) string { return "live." + slug + ".bitploy.internal" }
+
+// UpstreamHeader names the live upstream on LiveHost responses.
+const UpstreamHeader = "X-Bitploy-Upstream"
+
+// CandidateHeader is set by Traefik on every response served through the
+// candidate router, with the app slug as value. The health check requires it,
+// so Traefik's own "404 page not found" (route not loaded yet) is never
+// mistaken for a healthy app.
+const CandidateHeader = "X-Bitploy-Candidate"
+
 type Writer struct {
 	Dir        string // BITPLOY_DATA_DIR/traefik/dynamic
 	EntryPoint string // websecure (prod) or web (local dev)
@@ -45,8 +59,9 @@ func hostRouterName(slug, host string) string {
 
 type file struct {
 	HTTP struct {
-		Routers  map[string]router  `yaml:"routers,omitempty"`
-		Services map[string]service `yaml:"services,omitempty"`
+		Routers     map[string]router     `yaml:"routers,omitempty"`
+		Services    map[string]service    `yaml:"services,omitempty"`
+		Middlewares map[string]middleware `yaml:"middlewares,omitempty"`
 	} `yaml:"http"`
 }
 
@@ -56,6 +71,13 @@ type router struct {
 	Service     string   `yaml:"service"`
 	Priority    int      `yaml:"priority,omitempty"`
 	TLS         *tlsConf `yaml:"tls,omitempty"`
+	Middlewares []string `yaml:"middlewares,omitempty"`
+}
+
+type middleware struct {
+	Headers struct {
+		CustomResponseHeaders map[string]string `yaml:"customResponseHeaders"`
+	} `yaml:"headers"`
 }
 
 type tlsConf struct {
@@ -79,11 +101,11 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 	if r.Candidate != "" {
 		cname := name + "-candidate"
 		f.HTTP.Services[cname] = newService(r.Candidate)
-		ep := w.InternalEntryPoint
-		if ep == "" {
-			ep = "internal"
-		}
-		f.HTTP.Routers[cname] = router{Rule: fmt.Sprintf("Host(`%s`)", CandidateHost(r.Slug)), EntryPoints: []string{ep}, Service: cname}
+		ep := w.internal()
+		var mw middleware
+		mw.Headers.CustomResponseHeaders = map[string]string{CandidateHeader: r.Slug}
+		f.HTTP.Middlewares = map[string]middleware{cname: mw}
+		f.HTTP.Routers[cname] = router{Rule: fmt.Sprintf("Host(`%s`)", CandidateHost(r.Slug)), EntryPoints: []string{ep}, Service: cname, Middlewares: []string{cname}}
 	}
 	if r.Upstream == "" {
 		return yaml.Marshal(&f)
@@ -95,6 +117,14 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 		rt.TLS = &tlsConf{}
 	}
 	f.HTTP.Routers[name] = rt
+	lname := name + "-live"
+	var lmw middleware
+	lmw.Headers.CustomResponseHeaders = map[string]string{UpstreamHeader: r.Upstream}
+	if f.HTTP.Middlewares == nil {
+		f.HTTP.Middlewares = map[string]middleware{}
+	}
+	f.HTTP.Middlewares[lname] = lmw
+	f.HTTP.Routers[lname] = router{Rule: fmt.Sprintf("Host(`%s`)", LiveHost(r.Slug)), EntryPoints: []string{w.internal()}, Service: name, Middlewares: []string{lname}}
 	custom := append([]string(nil), r.Custom...)
 	sort.Strings(custom)
 	for _, h := range custom {
@@ -105,6 +135,13 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 		f.HTTP.Routers[hostRouterName(r.Slug, h)] = cr
 	}
 	return yaml.Marshal(&f)
+}
+
+func (w *Writer) internal() string {
+	if w.InternalEntryPoint != "" {
+		return w.InternalEntryPoint
+	}
+	return "internal"
 }
 
 func (w *Writer) entry() string {

@@ -1,0 +1,774 @@
+package app
+
+// OWNER: deploy agent. The deployment pipeline (SPEC "Deploy model"):
+// fetching, validating, building, starting, health_check, swapping, running.
+// A failed deploy never takes the working version down: the old container is
+// only touched after the new one is healthy (or, with a volume, restarted if
+// the new one fails).
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/arno/bitploy/internal/apperr"
+	"github.com/arno/bitploy/internal/deploy"
+	"github.com/arno/bitploy/internal/dockerx"
+	"github.com/arno/bitploy/internal/proxy"
+	"github.com/arno/bitploy/internal/store/db"
+	"github.com/moby/moby/api/types/container"
+)
+
+const (
+	maxGitBytes      = 500 << 20
+	runtimeTailLines = 50
+)
+
+// Timings from SPEC "Deploy model"; variables so integration tests can shorten them.
+var (
+	healthTimeout  = 60 * time.Second // HTTP health check window
+	workerAliveFor = 30 * time.Second // a worker must still run after this long
+	oldStopDelay   = 10 * time.Second // old container keeps serving this long after a swap
+)
+
+// errCancelled is returned by pipeline steps when the deployment was
+// cancelled (stop, delete) or bitploy is shutting down.
+var errCancelled = &apperr.Error{Code: "cancelled", Message: "The deployment was cancelled."}
+
+type pipeline struct {
+	s       *Service
+	app     db.App
+	dep     db.Deployment
+	logFile *os.File
+	logMu   sync.Mutex
+	ring    *deploy.LineRing
+
+	buildDir string
+	srcRoot  string
+
+	port     int64
+	hasHC    bool
+	hcCfg    *container.HealthConfig
+	findings []deploy.Finding
+
+	image      string
+	builtHere  bool   // we built the image, so a failure removes it
+	newName    string // container created for this deployment
+	prev       *db.Deployment
+	prevName   string
+	oldStopped bool // recreate mode: the old container was stopped for us
+	failTail   []string
+	slotHeld   bool
+	slotOnce   sync.Once
+}
+
+// runPipeline runs one claimed deployment to its end. slotHeld says the
+// caller took a build slot, which is released after the build step.
+func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) {
+	p := &pipeline{s: s, slotHeld: slotHeld, ring: deploy.NewLineRing(runtimeTailLines)}
+	defer p.releaseSlot()
+
+	n, err := s.Q.ClaimDeployment(ctx, db.ClaimDeploymentParams{StartedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: depID})
+	if err != nil || n == 0 {
+		return // cancelled while queued, or claimed elsewhere
+	}
+	dep, err := s.Q.GetDeployment(ctx, depID)
+	if err != nil {
+		s.Log.Error("load deployment", "id", depID, "err", err)
+		return
+	}
+	app, err := s.Q.GetApp(ctx, dep.AppID)
+	if err != nil {
+		s.Log.Error("load app for deployment", "id", depID, "err", err)
+		return
+	}
+	p.dep, p.app = dep, app
+	s.NotifyDeployment(depID)
+
+	_ = os.MkdirAll(s.Cfg.LogsDir(), 0o750)
+	if f, err := os.OpenFile(s.Cfg.BuildLog(depID), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640); err == nil {
+		p.logFile = f
+		defer f.Close()
+	}
+	p.logf("Deployment %d of %s started (%s source).", dep.Seq, app.Slug, dep.SourceKind)
+
+	ae := p.execute(ctx)
+	p.finish(ctx, ae)
+}
+
+func (p *pipeline) releaseSlot() {
+	p.slotOnce.Do(func() {
+		if p.slotHeld {
+			<-p.s.buildSlots()
+		}
+	})
+}
+
+// logf writes a bitploy line into the build log.
+func (p *pipeline) logf(format string, args ...any) {
+	p.writeLog("==> " + fmt.Sprintf(format, args...))
+}
+
+func (p *pipeline) writeLog(line string) {
+	line = apperr.Redact(line)
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+	p.ring.Add(line)
+	if p.logFile != nil {
+		_, _ = p.logFile.WriteString(line + "\n")
+	}
+}
+
+func (p *pipeline) setState(ctx context.Context, state string) *apperr.Error {
+	if ctx.Err() != nil {
+		return errCancelled
+	}
+	if err := p.s.Q.SetDeploymentState(ctx, db.SetDeploymentStateParams{State: state, ID: p.dep.ID}); err != nil {
+		return apperr.Internal(err)
+	}
+	p.dep.State = state
+	p.s.NotifyDeployment(p.dep.ID)
+	return nil
+}
+
+func (p *pipeline) execute(ctx context.Context) *apperr.Error {
+	if p.dep.SourceKind == "rollback" {
+		p.releaseSlot()
+		p.image = p.dep.Image.String
+		p.port = p.dep.Port.Int64
+		if p.app.Port.Valid {
+			p.port = p.app.Port.Int64
+		}
+		p.hasHC = p.dep.HasHealthcheck != 0
+		if info, err := p.s.Docker.InspectImage(ctx, p.image); err == nil {
+			p.hcCfg = info.Healthcheck
+		}
+		p.logf("Rolling back to the image of deployment %s (%s).", p.dep.SourceRef, p.image)
+	} else {
+		if ae := p.setState(ctx, "fetching"); ae != nil {
+			return ae
+		}
+		if ae := p.fetch(ctx); ae != nil {
+			return ae
+		}
+		if ae := p.setState(ctx, "validating"); ae != nil {
+			return ae
+		}
+		if ae := p.validate(ctx); ae != nil {
+			return ae
+		}
+		if ae := p.setState(ctx, "building"); ae != nil {
+			return ae
+		}
+		ae := p.build(ctx)
+		p.releaseSlot()
+		if ae != nil {
+			return ae
+		}
+		_ = os.RemoveAll(p.buildDir) // the context is no longer needed
+	}
+
+	if ae := p.setState(ctx, "starting"); ae != nil {
+		return ae
+	}
+	if ae := p.start(ctx); ae != nil {
+		return ae
+	}
+	if ae := p.setState(ctx, "health_check"); ae != nil {
+		return ae
+	}
+	if ae := p.healthCheck(ctx); ae != nil {
+		return ae
+	}
+	if ae := p.setState(ctx, "swapping"); ae != nil {
+		return ae
+	}
+	return p.swap(ctx)
+}
+
+// ---- fetching ----
+
+func (p *pipeline) fetch(ctx context.Context) *apperr.Error {
+	s := p.s
+	p.buildDir = s.Cfg.BuildDir(p.dep.ID)
+	_ = os.RemoveAll(p.buildDir)
+	if err := os.MkdirAll(p.buildDir, 0o750); err != nil {
+		return apperr.Internal(err)
+	}
+	switch p.dep.SourceKind {
+	case "files", "upload":
+		p.logf("Unpacking the %s source.", p.dep.SourceKind)
+		if _, err := os.Stat(s.sourceZip(p.dep.ID)); err != nil {
+			return apperr.Conflict("source_gone", "The stored source for this deployment is gone.", "Send the files again with deploy_files, or upload a zip.").WithNext("deploy_files")
+		}
+		res, err := deploy.ExtractZip(s.sourceZip(p.dep.ID), p.buildDir, deploy.DefaultZipLimits, p.dep.SourceKind == "upload")
+		if err != nil {
+			return asApperr(err, "source_fetch_failed")
+		}
+		if res.Stripped != "" {
+			p.logf("Removed the top-level folder %q from the zip.", res.Stripped)
+		}
+		p.logf("%d files, %d KB.", len(res.Files), res.Bytes/1024)
+		p.srcRoot = p.buildDir
+	case "git":
+		repo := p.app.GitRepoUrl.String
+		if repo == "" {
+			return noSourceErr()
+		}
+		p.logf("Cloning %s (branch %s).", redactURL(repo), p.app.GitBranch.String)
+		token := ""
+		if isGitHub(repo) {
+			t, err := s.GitHubTokenFor(ctx, p.app.UserID)
+			if err != nil {
+				return asApperr(err, "source_fetch_failed")
+			}
+			token = t
+		}
+		cr, err := deploy.Clone(ctx, deploy.GitSource{URL: repo, Branch: p.app.GitBranch.String, Subdir: p.app.GitSubdir.String, Token: token, SettingsURL: s.Cfg.PublicURL + "/settings"}, p.buildDir, maxGitBytes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return errCancelled
+			}
+			return asApperr(err, "source_fetch_failed")
+		}
+		p.srcRoot = cr.ContextDir
+		if p.srcRoot == "" {
+			p.srcRoot = p.buildDir
+		}
+		_ = s.Q.SetDeploymentCommit(ctx, db.SetDeploymentCommitParams{
+			CommitSha: nullStr(cr.CommitSHA), CommitMessage: nullStr(firstLine(cr.CommitMessage)), ID: p.dep.ID,
+		})
+		p.logf("Commit %s.", shortSHA(cr.CommitSHA))
+	default:
+		return apperr.Internal(fmt.Errorf("unknown source kind %q", p.dep.SourceKind))
+	}
+	return nil
+}
+
+// ---- validating ----
+
+func (p *pipeline) validate(ctx context.Context) *apperr.Error {
+	root, err := os.OpenRoot(p.srcRoot)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	defer root.Close()
+	files, err := deploy.ListFiles(p.srcRoot, deploy.MaxZipFiles*2)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	read := func(rel string) []byte {
+		b, err := root.ReadFile(rel) // os.Root refuses to follow symlinks out of the tree
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+	res, ctxFiles := p.s.runChecks(p.app, files, read)
+	for _, f := range res.Findings {
+		p.logf("check %s (%s): %s", f.Code, f.Severity, f.Message)
+	}
+	if cerr := checkError(res, ctxFiles); cerr != nil {
+		return apperr.As(cerr)
+	}
+	p.port = int64(res.Port)
+	p.hasHC = res.HasHealthcheck
+	p.findings = res.Findings
+	if p.app.Type == "web" && p.port == 0 {
+		return apperr.Unprocessable("port_unknown", "Bitploy cannot tell which port the app listens on.",
+			"Add EXPOSE <port> to the final stage of the Dockerfile, or set the port with update_app.").WithNext("update_app")
+	}
+	var nonErr []deploy.Finding
+	for _, f := range res.Findings {
+		if f.Severity != "error" {
+			nonErr = append(nonErr, f)
+		}
+	}
+	warn := sql.NullString{}
+	if len(nonErr) > 0 {
+		warn = nullStr(mustJSON(nonErr))
+	}
+	if err := p.s.Q.SetDeploymentValidated(ctx, db.SetDeploymentValidatedParams{
+		Port: portOf(int(p.port)), HasHealthcheck: b2i(p.hasHC), Warnings: warn, ID: p.dep.ID,
+	}); err != nil {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+// ---- building ----
+
+func (p *pipeline) build(ctx context.Context) *apperr.Error {
+	s := p.s
+	if ok, err := s.DiskHasRoom(); err == nil && !ok {
+		return apperr.Unavailable("disk_full", "The server is almost out of disk space, so new builds are paused.",
+			"Tell the bitploy admin; your running apps are not affected. Try again later.")
+	}
+	ctxDir := filepath.Join(p.srcRoot, filepath.FromSlash(p.app.ContextDir))
+	dockerfile := filepath.Join(p.srcRoot, filepath.FromSlash(p.app.DockerfilePath))
+	if !filepath.IsLocal(filepath.FromSlash(p.app.ContextDir)) && p.app.ContextDir != "." {
+		return apperr.Unprocessable("context_dir_invalid", "The build context folder is outside the project.", "Use update_app to set context_dir to a folder inside the project.")
+	}
+	p.image = dockerx.ImageName(p.app.Slug, p.dep.Seq)
+	labels := dockerx.ManagedLabels(p.app.ID, p.app.Slug)
+	labels[dockerx.LabelDeployment] = p.dep.ID
+	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
+	p.builtHere = true
+	p.logf("Building %s with docker buildx.", p.image)
+	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels}, p.writeLog)
+	if err != nil {
+		if ctx.Err() != nil {
+			return errCancelled
+		}
+		p.failTail = p.ring.Lines()
+		var ae *apperr.Error
+		switch {
+		case errors.Is(err, deploy.ErrBuildTimeout):
+			return apperr.Unprocessable("build_failed", "The build took longer than 15 minutes and was stopped.",
+				"Make the build faster: use a smaller base image, order the Dockerfile so dependency installs are cached, and leave big files out with .dockerignore.")
+		case errors.As(err, &ae):
+			return ae
+		}
+		summary := deploy.BuildFailureSummary(p.failTail)
+		msg := "The build failed."
+		if summary != "" {
+			msg = "The build failed: " + summary
+		}
+		return apperr.Unprocessable("build_failed", msg,
+			"Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again.")
+	}
+	info, err := s.Docker.InspectImage(ctx, p.image)
+	if err != nil {
+		return apperr.Unprocessable("build_failed", "The build finished but Docker has no image for it.", "Deploy again. If this repeats, tell the bitploy admin.")
+	}
+	p.hcCfg = info.Healthcheck
+	if info.SizeBytes > deploy.MaxImageBytes {
+		f := deploy.ImageTooLargeFinding(info.SizeBytes)
+		return apperr.Unprocessable(f.Code, f.Message, f.Hint)
+	}
+	if err := s.Q.SetDeploymentBuilt(ctx, db.SetDeploymentBuiltParams{
+		Image: nullStr(p.image), ImageSizeBytes: sql.NullInt64{Int64: info.SizeBytes, Valid: true},
+		BuiltAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+	}); err != nil {
+		return apperr.Internal(err)
+	}
+	p.logf("Built %s (%d MB).", p.image, info.SizeBytes>>20)
+	return nil
+}
+
+// ---- starting ----
+
+func (p *pipeline) start(ctx context.Context) *apperr.Error {
+	s := p.s
+	if app, err := s.Q.GetApp(ctx, p.app.ID); err == nil {
+		p.app = app // settings may have changed during the build
+	} else {
+		return errCancelled // app deleted
+	}
+	if p.app.CurrentDeploymentID.Valid && p.app.CurrentDeploymentID.String != p.dep.ID {
+		if d, err := s.Q.GetDeployment(ctx, p.app.CurrentDeploymentID.String); err == nil && d.ContainerName.Valid {
+			p.prev = &d
+			p.prevName = d.ContainerName.String
+		}
+	}
+	// Recreate mode: with a volume, never two writers at once.
+	if p.app.VolumeEnabled != 0 && p.prevName != "" {
+		if exists, _ := s.Docker.ContainerExists(ctx, p.prevName); exists {
+			p.logf("Volume attached: stopping the old container before starting the new one.")
+			if err := s.Docker.StopContainerGrace(ctx, p.prevName, 10); err != nil {
+				return startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute.")
+			}
+			p.oldStopped = true
+		}
+	}
+	p.newName = dockerx.ContainerName(p.app.Slug, p.dep.Seq)
+	p.logf("Starting container %s.", p.newName)
+	if ae := s.startContainer(ctx, startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: p.image, Port: p.port}); ae != nil {
+		if ctx.Err() != nil {
+			return errCancelled
+		}
+		return ae
+	}
+	if err := s.Q.SetDeploymentContainer(ctx, db.SetDeploymentContainerParams{
+		ContainerName: nullStr(p.newName), Port: portOf(int(p.port)), HasHealthcheck: b2i(p.hasHC), ID: p.dep.ID,
+	}); err != nil {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+// ---- health check ----
+
+func (p *pipeline) healthCheck(ctx context.Context) *apperr.Error {
+	s := p.s
+	app := p.app
+	start := time.Now()
+
+	// Workers: still running after 30 s.
+	if app.Type == "worker" {
+		p.logf("Worker: waiting %s to see that it keeps running.", workerAliveFor)
+		last, ok := deploy.Poll(ctx, workerAliveFor+10*time.Second, time.Second, func(c context.Context) deploy.PollResult {
+			if r := p.aliveCheck(c); r.Fail {
+				return r
+			}
+			if time.Since(start) >= workerAliveFor {
+				return deploy.PollResult{Done: true}
+			}
+			return deploy.PollResult{}
+		})
+		if ctx.Err() != nil {
+			return errCancelled
+		}
+		if !ok {
+			return p.unhealthy(last.Detail, "worker")
+		}
+		return nil
+	}
+
+	// Dockerfile HEALTHCHECK replaces the HTTP check.
+	if p.hcCfg != nil {
+		window := dockerx.HealthWindow(p.hcCfg)
+		p.logf("Waiting for the Docker HEALTHCHECK to report healthy (up to %s).", window)
+		last, ok := deploy.Poll(ctx, window, time.Second, func(c context.Context) deploy.PollResult {
+			info, err := s.Docker.InspectContainer(c, p.newName)
+			if err != nil {
+				return deploy.PollResult{Detail: "inspect failed"}
+			}
+			if r := stateProblem(info); r.Fail {
+				return r
+			}
+			if info.State != nil && info.State.Health != nil {
+				switch info.State.Health.Status {
+				case container.Healthy:
+					return deploy.PollResult{Done: true}
+				case container.Unhealthy:
+					return deploy.PollResult{Fail: true, Detail: "the HEALTHCHECK reported unhealthy"}
+				}
+			}
+			return deploy.PollResult{Detail: "HEALTHCHECK still starting"}
+		})
+		if ctx.Err() != nil {
+			return errCancelled
+		}
+		if !ok {
+			return p.unhealthy(last.Detail, "healthcheck")
+		}
+		return nil
+	}
+
+	// Plain HTTP check through Traefik's internal entrypoint.
+	upstream := fmt.Sprintf("http://%s:%d", p.newName, p.port)
+	s.setCandidate(app.ID, upstream)
+	if err := s.SyncRoute(ctx, app.ID); err != nil {
+		return startFailed("bitploy could not write the route for the new container: "+apperr.Redact(err.Error()), "This is a server problem. Tell the bitploy admin.")
+	}
+	probe := deploy.Prober{
+		Client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		Base:   s.Cfg.TraefikInternal, Host: proxy.CandidateHost(app.Slug), Header: proxy.CandidateHeader, Marker: app.Slug,
+	}
+	p.logf("Waiting for GET %s to answer below 500 (up to %s).", app.HealthPath, healthTimeout)
+	last, ok := deploy.Poll(ctx, healthTimeout, time.Second, func(c context.Context) deploy.PollResult {
+		if r := p.aliveCheck(c); r.Fail {
+			return r
+		}
+		res := probe.Probe(c, app.HealthPath)
+		switch {
+		case res.OK():
+			return deploy.PollResult{Done: true}
+		case res.Err != nil:
+			return deploy.PollResult{Detail: "no answer"}
+		case !res.Marked:
+			return deploy.PollResult{Detail: "route not loaded"}
+		default:
+			return deploy.PollResult{Detail: fmt.Sprintf("status %d", res.Status)}
+		}
+	})
+	if ctx.Err() != nil {
+		return errCancelled
+	}
+	if !ok {
+		if last.Detail == "route not loaded" {
+			return apperr.Unavailable("proxy_unavailable",
+				"bitploy's proxy did not pick up the route for the new container within a minute.",
+				"This is a server problem, not your app. Deploy again; if it repeats, tell the bitploy admin.")
+		}
+		return p.unhealthy(last.Detail, "http")
+	}
+	p.logf("Healthy.")
+	return nil
+}
+
+func (p *pipeline) aliveCheck(ctx context.Context) deploy.PollResult {
+	info, err := p.s.Docker.InspectContainer(ctx, p.newName)
+	if err != nil {
+		return deploy.PollResult{Detail: "inspect failed"}
+	}
+	return stateProblem(info)
+}
+
+// stateProblem reports a container that exited or keeps restarting.
+func stateProblem(info container.InspectResponse) deploy.PollResult {
+	st := info.State
+	if st == nil {
+		return deploy.PollResult{}
+	}
+	if st.OOMKilled {
+		return deploy.PollResult{Fail: true, Detail: "oom"}
+	}
+	if !st.Running || st.Restarting || info.RestartCount > 0 {
+		if st.ExitCode != 0 || !st.Running {
+			return deploy.PollResult{Fail: true, Detail: fmt.Sprintf("exited with code %d", st.ExitCode)}
+		}
+		return deploy.PollResult{Fail: true, Detail: "keeps restarting"}
+	}
+	return deploy.PollResult{}
+}
+
+func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
+	s := p.s
+	// Runtime log tail for the error, with a fresh context: the pipeline's may be done.
+	lc, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var lines []string
+	if entries, err := s.Docker.TailLogs(lc, p.newName, runtimeTailLines, time.Time{}); err == nil {
+		for _, e := range entries {
+			lines = append(lines, e.Text)
+		}
+	}
+	for _, l := range lines {
+		p.writeLog("[runtime] " + l)
+	}
+	p.failTail = lines
+
+	var msg, hint string
+	switch {
+	case detail == "oom":
+		msg = "Your app ran out of memory and was killed."
+		hint = fmt.Sprintf("Give it more memory with update_app (it has %d MB now) or make it use less.", p.app.MemoryMb)
+	case strings.HasPrefix(detail, "exited") || detail == "keeps restarting":
+		if kind == "worker" {
+			msg = "Your worker stopped before it ran for 30 seconds (" + detail + ")."
+		} else {
+			msg = "Your app stopped right after starting (" + detail + ")."
+		}
+		hint = "Read log_tail for the error. A worker or server must keep running in the foreground."
+	case kind == "healthcheck":
+		msg = "The Docker HEALTHCHECK in your Dockerfile never reported healthy (" + detail + ")."
+		hint = "Check that the HEALTHCHECK command works inside the container and that the app starts in time."
+	default:
+		msg = fmt.Sprintf("Your app did not answer GET %s with a status below 500 within %d seconds (%s).", p.app.HealthPath, int(healthTimeout.Seconds()), detail)
+		hint = fmt.Sprintf("Make sure the app listens on 0.0.0.0:%d (the PORT variable), starts within a minute and does not fail on %s. Use update_app to set another health_path if needed.", p.port, p.app.HealthPath)
+	}
+	if deploy.MentionsLocalhost(lines) && detail != "oom" {
+		hint = deploy.LocalhostHint
+	}
+	return apperr.Unprocessable("unhealthy", msg, hint).WithNext("get_logs")
+}
+
+// ---- swapping ----
+
+func (p *pipeline) swap(ctx context.Context) *apperr.Error {
+	s := p.s
+	l := s.appLock(p.app.ID)
+	l.Lock()
+	defer l.Unlock()
+	if ctx.Err() != nil {
+		return errCancelled
+	}
+	if _, err := s.Q.GetApp(ctx, p.app.ID); err != nil {
+		return errCancelled // app deleted
+	}
+	if p.app.Type == "web" {
+		s.waitForLiveRoute(ctx, p)
+	}
+	now := s.now()
+	err := s.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.SupersedeDeployments(ctx, db.SupersedeDeploymentsParams{AppID: p.app.ID, ID: p.dep.ID}); err != nil {
+			return err
+		}
+		if err := q.FinishDeployment(ctx, db.FinishDeploymentParams{State: "running", FinishedAt: sql.NullInt64{Int64: now, Valid: true}, ID: p.dep.ID}); err != nil {
+			return err
+		}
+		return q.SetAppCurrentDeployment(ctx, db.SetAppCurrentDeploymentParams{
+			CurrentDeploymentID: nullStr(p.dep.ID), UpdatedAt: now, ID: p.app.ID,
+		})
+	})
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	p.dep.State = "running"
+	s.deployRT.mu.Lock()
+	s.deployRT.init()
+	delete(s.deployRT.restore, p.app.ID)
+	s.deployRT.mu.Unlock()
+	s.setCandidate(p.app.ID, "")
+	if err := s.syncRouteLocked(context.WithoutCancel(ctx), p.app.ID); err != nil {
+		s.Log.Error("write route after swap; the reconciler will retry", "app", p.app.Slug, "err", err)
+	}
+	// Retire the previous container: after a drain delay for web apps.
+	if p.prevName != "" && p.prevName != p.newName {
+		delay := oldStopDelay
+		if p.app.Type == "worker" || p.oldStopped {
+			delay = 0
+		}
+		s.retireContainer(p.prevName, delay)
+	}
+	p.logf("Live: %s", s.Cfg.AppURL(p.app.Slug))
+	s.NotifyDeployment(p.dep.ID)
+	s.Audit(ctx, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.running", "deployment", p.dep.ID, map[string]any{"app": p.app.Slug, "seq": p.dep.Seq})
+	return nil
+}
+
+// waitForLiveRoute points the route at the new container and waits (up to
+// 10 s) until Traefik serves it, so "running" means the URL works. A timeout
+// is only logged: the route file is correct and Traefik will catch up.
+func (s *Service) waitForLiveRoute(ctx context.Context, p *pipeline) {
+	app, err := s.Q.GetApp(ctx, p.app.ID)
+	if err != nil {
+		return
+	}
+	r := s.desiredRoute(ctx, app)
+	r.Candidate = ""
+	r.Upstream = fmt.Sprintf("http://%s:%d", p.newName, p.port)
+	if app.DesiredState != "running" {
+		return
+	}
+	if err := s.Routes.Write(r); err != nil {
+		s.Log.Error("write route before swap", "app", app.Slug, "err", err)
+		return
+	}
+	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodHead, s.Cfg.TraefikInternal+"/", nil)
+		req.Host = proxy.LiveHost(app.Slug)
+		if resp, err := client.Do(req); err == nil {
+			resp.Body.Close()
+			if resp.Header.Get(proxy.UpstreamHeader) == r.Upstream {
+				return
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	s.Log.Warn("proxy did not confirm the new route within 10 s", "app", app.Slug)
+}
+
+// ---- finishing ----
+
+func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
+	s := p.s
+	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	defer func() {
+		if p.buildDir != "" {
+			_ = os.RemoveAll(p.buildDir)
+		}
+		s.NotifyDeployment(p.dep.ID)
+	}()
+
+	if ae == nil {
+		s.pruneApp(bg, p.app.ID)
+		return
+	}
+	if ae == errCancelled || ae.Code == "cancelled" {
+		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
+			return // bitploy is shutting down: the reconciler cleans up after restart
+		}
+		p.cleanupFailed(bg)
+		_ = s.Q.FinishDeployment(bg, db.FinishDeploymentParams{State: "cancelled", FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID})
+		p.logf("Cancelled.")
+		return
+	}
+
+	p.logf("FAILED: %s", ae.Message)
+	if ae.Hint != "" {
+		p.logf("Hint: %s", ae.Hint)
+	}
+	tail := p.failTail
+	if len(tail) == 0 {
+		tail = p.ring.Lines()
+	}
+	p.cleanupFailed(bg)
+	if err := s.Q.FailDeployment(bg, db.FailDeploymentParams{
+		ErrorCode: nullStr(ae.Code), ErrorMessage: nullStr(apperr.Redact(ae.Message)), ErrorHint: nullStr(apperr.Redact(ae.Hint)),
+		ErrorNext: nullStr(ae.Next), LogTail: nullStr(apperr.Redact(strings.Join(tail, "\n"))),
+		FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+	}); err != nil {
+		s.Log.Error("store deployment failure", "id", p.dep.ID, "err", err)
+	}
+	if app, err := s.Q.GetApp(bg, p.app.ID); err == nil && (!app.CurrentDeploymentID.Valid || app.Status == "new" || app.Status == "deploying") && app.DesiredState == "running" {
+		_ = s.Q.SetAppStatus(bg, db.SetAppStatusParams{Status: "failed", StatusMessage: apperr.Redact(ae.Message), UpdatedAt: s.now(), ID: p.app.ID})
+	}
+	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
+		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
+	s.pruneApp(bg, p.app.ID)
+}
+
+// cleanupFailed removes what a failed or cancelled deployment created and
+// restores the previous version (candidate route, volume recreate).
+func (p *pipeline) cleanupFailed(ctx context.Context) {
+	s := p.s
+	dk := s.Docker
+	l := s.appLock(p.app.ID)
+	l.Lock()
+	defer l.Unlock()
+	s.setCandidate(p.app.ID, "")
+	if dk != nil && p.newName != "" {
+		_ = dk.RemoveContainer(ctx, p.newName)
+	}
+	if dk != nil && p.oldStopped && p.prevName != "" {
+		p.logf("Restarting the previous version.")
+		if err := dk.StartContainer(ctx, p.prevName); err != nil {
+			s.Log.Error("restart previous container after failed recreate", "container", p.prevName, "err", err)
+		}
+	}
+	_ = s.syncRouteLocked(ctx, p.app.ID)
+	if dk != nil && p.builtHere && p.image != "" {
+		_ = dk.RemoveImage(ctx, p.image)
+	}
+}
+
+// ---- helpers ----
+
+func asApperr(err error, fallbackCode string) *apperr.Error {
+	var ae *apperr.Error
+	if errors.As(err, &ae) {
+		return ae
+	}
+	return apperr.Unprocessable(fallbackCode, "Fetching the source failed: "+apperr.Redact(err.Error()), "Check the source and deploy again.")
+}
+
+func isGitHub(repo string) bool {
+	u, err := url.Parse(repo)
+	return err == nil && strings.EqualFold(u.Hostname(), "github.com")
+}
+
+// redactURL drops credentials from a URL before it is logged.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return apperr.Redact(raw)
+	}
+	u.User = nil
+	return u.String()
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	return s
+}
+
+func shortSHA(s string) string {
+	if len(s) > 10 {
+		return s[:10]
+	}
+	return s
+}

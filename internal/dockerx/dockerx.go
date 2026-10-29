@@ -17,7 +17,7 @@ type Client struct {
 
 // New connects to the Docker daemon from DOCKER_HOST (or the default socket).
 func New(ctx context.Context) (*Client, error) {
-	api, err := client.New(client.FromEnv, client.WithAPIVersionNegotiation())
+	api, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}

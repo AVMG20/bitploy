@@ -1,0 +1,70 @@
+# bitploy production stack: Traefik (TLS, routing) and bitploy (the control plane).
+#
+# install.sh copies this folder to /opt/bitploy and runs
+#   docker compose --env-file /etc/bitploy/bitploy.env up -d
+# Use the same --env-file for every compose command, or the variables below
+# fall back to their defaults.
+
+name: bitploy
+
+services:
+  traefik:
+    # Pinned to a minor version. Bump it on purpose, after reading the Traefik release notes.
+    image: traefik:v3.7
+    container_name: bitploy-traefik      # bitploy joins this container to every app network by name
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # No port 8081: the "internal" entrypoint is only for bitploy's health checks, over the shared network.
+    volumes:
+      - ./traefik:/etc/traefik:ro                          # static config (traefik.yml)
+      - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/traefik/dynamic:/dynamic:ro   # route files written by bitploy
+      - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/acme:/acme   # Let's Encrypt account and certificates
+      - /etc/bitploy/origin:/certs:ro                      # Cloudflare Origin CA certificate (origin.pem, origin.key)
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [bitploy]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  bitploy:
+    image: ${BITPLOY_IMAGE:-ghcr.io/arno/bitploy:latest}
+    container_name: bitploy
+    restart: unless-stopped
+    env_file: /etc/bitploy/bitploy.env
+    environment:
+      BITPLOY_DATA_DIR: /var/lib/bitploy
+      BITPLOY_LISTEN: ":8080"
+      BITPLOY_TRAEFIK_CONTAINER: bitploy-traefik
+      # Traefik's unpublished "internal" entrypoint, used to probe a new container before the swap.
+      BITPLOY_TRAEFIK_INTERNAL_URL: http://bitploy-traefik:8081
+      # How Traefik reaches bitploy (dashboard route and the "No app here" catch-all).
+      BITPLOY_INTERNAL_URL: http://bitploy:8080
+    volumes:
+      # docker.sock is root-equivalent on the host. See "Security" in the README.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}:/var/lib/bitploy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [bitploy]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  bitploy:
+    name: bitploy                        # fixed name: Docker picks the default route from the lowest name, so Traefik's internet traffic uses this network
+    driver: bridge
+    ipam:
+      config:
+        # Outside the 10.200.0.0/16 pool that app networks use. firewall.sh blocks apps from
+        # reaching private ranges, so apps cannot reach bitploy or Traefik's published side.
+        - subnet: 10.201.0.0/24

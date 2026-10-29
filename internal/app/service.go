@@ -66,6 +66,9 @@ type Service struct {
 	Now    func() time.Time
 	wakeCh chan struct{} // nudges the deploy worker when a deployment is queued
 	hub    *hub          // deployment state change notifications for long-polls
+
+	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
+	ops      opsState      // metrics manager and domain-check settings (ops.go)
 }
 
 func New(cfg *config.Config, st *store.Store, crypto *store.Crypto, dk *dockerx.Client, routes *proxy.Writer, log *slog.Logger) *Service {
@@ -155,16 +158,14 @@ func RequireAdmin(a Actor) error {
 // (admins may still stop any app — callers that allow that pass write=false
 // and check themselves).
 func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) (db.App, error) {
-	ref = strings.TrimSpace(strings.ToLower(ref))
+	ref = strings.TrimSpace(ref)
 	var row db.App
 	var err error
 	if strings.HasPrefix(ref, "app_") {
+		// IDs are case-sensitive base62; slugs are lowercase.
 		row, err = s.Q.GetApp(ctx, ref)
-		if errors.Is(err, sql.ErrNoRows) {
-			// IDs are case-sensitive; retry without lowercasing.
-			row, err = s.Q.GetApp(ctx, strings.TrimSpace(ref))
-		}
 	} else {
+		ref = strings.ToLower(ref)
 		row, err = s.Q.GetAppBySlug(ctx, ref)
 	}
 	if errors.Is(err, sql.ErrNoRows) {

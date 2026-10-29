@@ -1,0 +1,9 @@
+vendor
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+Dockerfile
+.dockerignore
+README.md

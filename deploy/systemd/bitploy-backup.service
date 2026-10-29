@@ -1,0 +1,10 @@
+[Unit]
+Description=bitploy: back up the database and app volumes with restic
+After=docker.service
+ConditionPathExists=/etc/bitploy/backup.env
+
+[Service]
+Type=oneshot
+ExecStart=/opt/bitploy/backup.sh
+Nice=10
+IOSchedulingClass=idle

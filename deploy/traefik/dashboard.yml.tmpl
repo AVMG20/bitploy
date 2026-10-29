@@ -1,0 +1,23 @@
+# Route for the bitploy dashboard, API and MCP endpoint (BITPLOY_PUBLIC_URL).
+# install.sh renders this to <data dir>/traefik/dynamic/_dashboard.yml.
+# Route files for apps are written by bitploy itself, one per app.
+http:
+  routers:
+    bitploy-dashboard:
+      rule: Host(`__PUBLIC_HOST__`)
+      entryPoints: [websecure]
+      service: bitploy-dashboard
+      middlewares: [bitploy-strip-real-ip]
+      tls: {}
+  middlewares:
+    # Traefik does not touch X-Real-IP, so a visitor could set it to any address.
+    # An empty value deletes the header; bitploy then falls back to X-Forwarded-For.
+    bitploy-strip-real-ip:
+      headers:
+        customRequestHeaders:
+          X-Real-IP: ""
+  services:
+    bitploy-dashboard:
+      loadBalancer:
+        servers:
+          - url: http://bitploy:8080
