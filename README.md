@@ -52,7 +52,7 @@ Apps live on subdomains of your domain (the examples use `bitploy.nl`). Create t
 | `edge.bitploy.nl` | A (and AAAA) | server IP | **DNS only** (grey cloud) |
 
 - Set SSL/TLS mode to **Full (strict)**.
-- Create an **Origin CA certificate** (SSL/TLS, Origin Server, Create Certificate) for `bitploy.nl` and `*.bitploy.nl`, format PEM. `install.sh` asks you to paste it; Traefik serves it as the default certificate.
+- Create an **Origin CA certificate** (SSL/TLS, Origin Server, Create Certificate) for `bitploy.nl` and `*.bitploy.nl`, format PEM. `install.sh` offers to paste it (or uses a self-signed one until you do); Traefik serves it as the default certificate.
 - Custom domains of your users do not go through Cloudflare. They point at `edge.bitploy.nl` (DNS only) and get their own Let's Encrypt certificate from Traefik.
 
 ### 2. Hetzner Cloud Firewall
@@ -64,16 +64,16 @@ Apps live on subdomains of your domain (the examples use `bitploy.nl`). Create t
 
 ### 3. Install
 
-Use a fresh Ubuntu 24.04 or 26.04 LTS server, log in with an SSH key and run:
+Use a fresh Ubuntu 24.04 or 26.04 LTS server, log in as root with an SSH key, copy [`install.sh`](install.sh) to it and run:
 
 ```bash
-git clone <this repo> && cd bitploy
-sudo deploy/install.sh
+sudo bash install.sh
+# private repository: sudo GITHUB_TOKEN=<token that can read the repo> bash install.sh
 ```
 
-If the image `ghcr.io/avmg20/bitploy` is not published yet, build it on the server: `sudo BITPLOY_BUILD_LOCAL=1 deploy/install.sh`.
+It installs git and Docker if they are missing, downloads the source to `/opt/bitploy/src`, builds the bitploy image on the server, asks for your domain, Let's Encrypt email and the first admin account, starts everything and checks the network isolation. From a checkout, `sudo ./install.sh` does the same with that checkout. To skip the questions, pass the answers as environment variables (`BITPLOY_APPS_DOMAIN`, `BITPLOY_ACME_EMAIL`, `BITPLOY_ADMIN_EMAIL`, `BITPLOY_ADMIN_PASSWORD`; see the top of `deploy/install.sh`). Without a Cloudflare Origin CA certificate it makes a self-signed one, which works with Cloudflare's SSL mode **Full**; add the Origin CA certificate later for **Full (strict)**.
 
-The script is safe to run twice. It does five things:
+The script is safe to run twice; running it again is also how you upgrade. Under the hood `deploy/install.sh` does five things:
 
 1. Installs Docker Engine and the buildx plugin from Docker's apt repository.
 2. Writes `/etc/docker/daemon.json` (app networks from `10.200.0.0/16` in `/24` blocks, log rotation 10 MB x 3, `live-restore` so apps survive a Docker restart).
@@ -223,15 +223,10 @@ Apps that keep SQLite files in `/data` are backed up as a live copy of the files
 ### Upgrades
 
 1. Take a Hetzner snapshot.
-2. Set `BITPLOY_IMAGE` in `/etc/bitploy/bitploy.env` to the new version (or leave `latest`), then:
-   ```bash
-   cd /opt/bitploy
-   docker compose --env-file /etc/bitploy/bitploy.env pull
-   docker compose --env-file /etc/bitploy/bitploy.env up -d
-   ```
+2. Run the installer again: `sudo bash /opt/bitploy/src/install.sh` (add `GITHUB_TOKEN=…` for a private repository). It pulls the latest code, rebuilds the image and restarts bitploy and Traefik. If you use a published image instead (`BITPLOY_IMAGE` in `/etc/bitploy/bitploy.env`), it pulls that.
 3. Migrations run when bitploy starts. Apps keep serving while it restarts, because Traefik routes straight to them.
 
-To update `deploy/` itself (compose file, Traefik config), pull the repository and run `sudo deploy/install.sh` again; it keeps your settings. Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips.sh` in your checkout of the repository (it edits `deploy/traefik/traefik.yml`), copy the same ranges into `internal/auth/cloudflare.go`, commit, and run `install.sh` again.
+Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips.sh` in your checkout of the repository (it edits `deploy/traefik/traefik.yml`), copy the same ranges into `internal/auth/cloudflare.go`, commit, and run `install.sh` again.
 
 ### Operating notes
 
