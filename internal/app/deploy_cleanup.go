@@ -33,10 +33,14 @@ func (s *Service) pruneApp(ctx context.Context, appID string) {
 		}
 	}
 
-	// Source snapshots: keep the current deployment's and the newest files/upload one.
+	// Source snapshots: keep the live version's (for a rollback, the snapshot of
+	// the version it rolled back to) and the newest files/upload one.
 	keepSrc := map[string]bool{}
 	if appErr == nil && app.CurrentDeploymentID.Valid {
 		keepSrc[app.CurrentDeploymentID.String] = true
+		if src := sourceDeployment(deps, app.CurrentDeploymentID.String); src != nil {
+			keepSrc[src.ID] = true
+		}
 	}
 	for _, d := range deps {
 		if (d.SourceKind == "files" || d.SourceKind == "upload") && d.State != "cancelled" {

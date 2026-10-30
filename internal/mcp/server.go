@@ -331,8 +331,28 @@ func parseArgs(tool string, schema *jsonschema.Schema, resolved *jsonschema.Reso
 			return bad("the arguments must be a JSON object.")
 		}
 	}
+	// Models often send null (or "" for a choice) for an optional argument they
+	// mean to leave out. Treat it as left out instead of failing the schema.
+	required := map[string]bool{}
+	for _, r := range schema.Required {
+		required[r] = true
+	}
+	dropped := false
+	for k, val := range v {
+		p := schema.Properties[k]
+		if required[k] || p == nil {
+			continue
+		}
+		if val == nil || (val == "" && len(p.Enum) > 0) {
+			delete(v, k)
+			dropped = true
+		}
+	}
 	if err := resolved.Validate(v); err != nil {
 		return bad(friendlySchemaError(oneLine(err.Error())))
+	}
+	if dropped {
+		raw, _ = json.Marshal(v)
 	}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, in); err != nil {

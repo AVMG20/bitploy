@@ -612,7 +612,7 @@ func TestUploadFlow(t *testing.T) {
 	if !strings.HasPrefix(up.ID, "upl_") || up.URL != "https://bitploy.test/u/"+up.ID {
 		t.Fatalf("%+v", up)
 	}
-	if up.Curl != "curl --fail --data-binary @app.zip -H 'Content-Type: application/zip' "+up.URL {
+	if up.Curl != "curl -sS --fail-with-body --data-binary @app.zip -H 'Content-Type: application/zip' "+up.URL {
 		t.Errorf("curl: %s", up.Curl)
 	}
 	if d := time.Until(up.ExpiresAt); d < 14*time.Minute || d > 15*time.Minute+time.Second {

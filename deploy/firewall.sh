@@ -56,7 +56,7 @@ BLOCKED_RANGES=(
 
 die() { echo "firewall.sh: $*" >&2; exit 1; }
 
-need_root() { [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0 $*)"; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0)"; }
 
 pool_prefix() {
   # 10.200.0.0/16 -> "10.200"

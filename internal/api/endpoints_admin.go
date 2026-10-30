@@ -130,12 +130,12 @@ func (a *API) adminRoutes() {
 			before = n
 		}
 		limit := pageLimit(in.Limit)
-		items, err := a.svc.AdminListAuditPage(ctx, act, limit, before)
+		items, more, err := a.svc.AdminListAuditPage(ctx, act, limit, before)
 		if err != nil {
 			return nil, err
 		}
 		pg := app.Page[app.AuditEntry]{Items: items}
-		if len(items) == limit {
+		if more && len(items) > 0 {
 			pg.NextCursor = "a:" + strconv.FormatInt(items[len(items)-1].ID, 10)
 		}
 		return &Out[app.Page[app.AuditEntry]]{Body: pg}, nil

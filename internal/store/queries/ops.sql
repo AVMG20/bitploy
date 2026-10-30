@@ -115,7 +115,8 @@ WHERE a.user_id = ? AND d.queued_at >= ?;
 SELECT CAST(COALESCE(SUM(COALESCE(d.built_at, d.finished_at) - d.started_at), 0) AS INTEGER) AS seconds
 FROM deployments d JOIN apps a ON a.id = d.app_id
 WHERE a.user_id = ? AND d.queued_at >= ? AND d.started_at IS NOT NULL
-  AND COALESCE(d.built_at, d.finished_at) IS NOT NULL;
+  AND COALESCE(d.built_at, d.finished_at) IS NOT NULL
+  AND d.source_kind != 'rollback'; -- a rollback reuses an image and builds nothing
 
 -- name: OpsUserDiskBytes :one
 SELECT CAST(COALESCE(SUM(x.image_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes

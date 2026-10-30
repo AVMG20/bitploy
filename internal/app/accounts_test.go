@@ -673,8 +673,8 @@ func TestAdminQuotaUsersAndAudit(t *testing.T) {
 		t.Fatalf("unknown user: %v", err)
 	}
 
-	entries, err := s.AdminListAuditPage(ctx, admin, 100, 0)
-	if err != nil || len(entries) == 0 {
+	entries, more, err := s.AdminListAuditPage(ctx, admin, 100, 0)
+	if err != nil || len(entries) == 0 || more {
 		t.Fatalf("audit: %v %v", entries, err)
 	}
 	actions := map[string]bool{}
@@ -687,10 +687,16 @@ func TestAdminQuotaUsersAndAudit(t *testing.T) {
 		}
 	}
 	// Paging by id.
-	page1, _ := s.AdminListAuditPage(ctx, admin, 2, 0)
-	page2, _ := s.AdminListAuditPage(ctx, admin, 2, page1[len(page1)-1].ID)
-	if len(page1) != 2 || len(page2) == 0 || page2[0].ID >= page1[1].ID {
+	page1, more1, _ := s.AdminListAuditPage(ctx, admin, 2, 0)
+	page2, _, _ := s.AdminListAuditPage(ctx, admin, 2, page1[len(page1)-1].ID)
+	if len(page1) != 2 || !more1 || len(page2) == 0 || page2[0].ID >= page1[1].ID {
 		t.Fatalf("paging: %v / %v", page1, page2)
+	}
+	// A page that ends exactly at the oldest entry says there is nothing more.
+	all, _, _ := s.AdminListAuditPage(ctx, admin, 100, 0)
+	last, moreLast, _ := s.AdminListAuditPage(ctx, admin, 2, all[len(all)-3].ID)
+	if len(last) != 2 || moreLast {
+		t.Fatalf("last page: %d entries, more=%v", len(last), moreLast)
 	}
 	if _, err := s.AdminListAudit(ctx, user, 10, time.Time{}); code(err) != "admin_only" {
 		t.Fatalf("audit non admin: %v", err)

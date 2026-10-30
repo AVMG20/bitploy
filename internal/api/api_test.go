@@ -533,6 +533,10 @@ func TestIdempotencyStoresRedactedBody(t *testing.T) {
 }
 
 func TestRateLimitPerToken(t *testing.T) {
+	// A frozen clock: no refill while the loop runs, however slow the machine (-race).
+	frozen := time.Now()
+	rateClock = func() time.Time { return frozen }
+	t.Cleanup(func() { rateClock = time.Now })
 	e := newEnv(t)
 	e.login("me@example.nl", false)
 	other := decode[app.TokenCreated](t, e.asSession("POST", "/api/v1/tokens", map[string]any{"name": "other", "scope": "read"}))
@@ -861,5 +865,29 @@ func TestProfilePasswordAndGitHubStatusEndpoints(t *testing.T) {
 	w = e.asSession("GET", "/api/v1/me", nil)
 	if me := decode[app.Me](t, w); w.Code != 200 || me.Scope != app.ScopeSession || me.PublicURL != pub {
 		t.Fatalf("me: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestGitSourceBranchIsOptional(t *testing.T) {
+	e := newEnv(t)
+	w := e.req("GET", "/api/v1/openapi.json", nil, nil)
+	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Required []string `json:"required"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := spec.Components.Schemas["GitSource"]
+	if !ok {
+		t.Fatal("no GitSource schema")
+	}
+	for _, r := range s.Required {
+		if r == "branch" {
+			t.Errorf("branch is required: %v", s.Required)
+		}
 	}
 }

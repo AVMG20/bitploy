@@ -92,9 +92,11 @@ func (s *Service) reconcileDeployments(ctx context.Context) {
 		}
 		_ = os.RemoveAll(s.Cfg.BuildDir(d.ID))
 		if aerr == nil {
-			if !app.CurrentDeploymentID.Valid && app.DesiredState == "running" {
-				_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "failed", StatusMessage: "The first deployment was interrupted by a bitploy restart.", UpdatedAt: s.now(), ID: app.ID})
+			msg := "The last deployment was interrupted by a bitploy restart."
+			if !app.CurrentDeploymentID.Valid {
+				msg = "The first deployment was interrupted by a bitploy restart."
 			}
+			s.settleStatusAfterFailure(ctx, app.ID, msg)
 			s.setCandidate(app.ID, "")
 			_ = s.SyncRoute(ctx, app.ID)
 			s.Audit(ctx, System, "deployment.interrupted", "deployment", d.ID, map[string]any{"app": app.Slug, "state": d.State})
@@ -214,7 +216,12 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 				continue // crash-loop detection stopped it on purpose
 			}
 			dead := ierr == nil && info.State != nil && info.State.Dead
-			if missing || dead {
+			// Exited or never started: bitploy itself stops a current container only
+			// when the app is meant to stop, so this one was left behind (for example
+			// a recreate-mode deploy interrupted by a restart). Docker's restart policy
+			// does not revive a container that was stopped on purpose.
+			idle := ierr == nil && info.State != nil && !info.State.Running && !info.State.Restarting && !info.State.Paused
+			if missing || dead || idle {
 				s.restoreApp(ctx, app, dead)
 			}
 		}

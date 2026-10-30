@@ -245,8 +245,11 @@ type rateLimiter struct {
 	now     func() time.Time
 }
 
+// rateClock is the limiter's clock; tests freeze it.
+var rateClock = time.Now
+
 func newRateLimiter() *rateLimiter {
-	return &rateLimiter{buckets: map[string]*bucket{}, now: time.Now}
+	return &rateLimiter{buckets: map[string]*bucket{}, now: func() time.Time { return rateClock() }}
 }
 
 // allow takes one token from the bucket; otherwise it says how many seconds to wait.

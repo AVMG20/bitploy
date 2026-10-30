@@ -3,7 +3,9 @@ package ids
 
 import (
 	"crypto/rand"
+	"math"
 	"math/big"
+	"strings"
 )
 
 const base62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -36,14 +38,16 @@ func Base62(n int) string {
 	return string(b)
 }
 
-// Base62Bytes encodes nbytes of randomness as base62 (used for bp_ tokens:
-// 32 bytes → 43 characters).
+// Base62Bytes encodes nbytes of randomness as base62, left-padded with '0' to
+// a fixed width (used for bp_ tokens: 32 bytes → always 43 characters).
 func Base62Bytes(nbytes int) string {
 	buf := make([]byte, nbytes)
 	if _, err := rand.Read(buf); err != nil {
 		panic(err)
 	}
-	return new(big.Int).SetBytes(append([]byte{1}, buf...)).Text(62)[1:]
+	width := int(math.Ceil(float64(nbytes*8) / math.Log2(62)))
+	s := new(big.Int).SetBytes(buf).Text(62)
+	return strings.Repeat("0", width-len(s)) + s
 }
 
 // Hex returns n random lowercase hex characters.

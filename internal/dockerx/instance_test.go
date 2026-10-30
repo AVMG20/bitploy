@@ -20,7 +20,6 @@ import (
 type fakeDaemon struct {
 	mu      sync.Mutex
 	filters []string // "path: decoded filters"
-	removed []string
 }
 
 func (f *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {

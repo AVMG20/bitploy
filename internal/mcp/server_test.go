@@ -500,3 +500,24 @@ func mustTime(t *testing.T, s string) time.Time {
 	}
 	return v
 }
+
+func TestOptionalNullOrEmptyChoiceMeansLeftOut(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, e.deployToken)
+	for _, args := range []map[string]any{
+		{"name": "nulls", "type": nil},
+		{"name": "empty choice", "type": ""},
+	} {
+		res := call(t, cs, "create_app", args)
+		if res.IsError {
+			t.Errorf("create_app %v: %s", args, text(res))
+		}
+	}
+	// A wrong choice is still refused, and so is null for a required argument.
+	if res := call(t, cs, "create_app", map[string]any{"name": "bad", "type": "cron"}); !res.IsError {
+		t.Error("type=cron must be refused")
+	}
+	if res := call(t, cs, "get_app", map[string]any{"app": nil}); !res.IsError {
+		t.Error("app=null must be refused")
+	}
+}

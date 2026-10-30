@@ -143,8 +143,10 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if p.dep.SourceKind == "rollback" {
 		p.releaseSlot()
 		p.image = p.dep.Image.String
+		// The port the target ran on: the app's port setting may have changed
+		// since, for newer code.
 		p.port = p.dep.Port.Int64
-		if p.app.Port.Valid {
+		if !p.dep.Port.Valid && p.app.Port.Valid {
 			p.port = p.app.Port.Int64
 		}
 		p.hasHC = p.dep.HasHealthcheck != 0
@@ -398,12 +400,15 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	}
 	// Recreate mode: with a volume, never two writers at once.
 	if p.app.VolumeEnabled != 0 && p.prevName != "" {
-		if exists, _ := s.Docker.ContainerExists(ctx, p.prevName); exists {
+		if info, err := s.Docker.InspectContainer(ctx, p.prevName); err == nil {
+			wasRunning := info.State != nil && (info.State.Running || info.State.Restarting)
 			p.logf("Volume attached: stopping the old container before starting the new one.")
 			if err := s.Docker.StopContainerGrace(ctx, p.prevName, 10); err != nil {
 				return startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute.")
 			}
-			p.oldStopped = true
+			// A failed deploy restarts it only if it was running: a stopped or
+			// crash-looping app stays as it was.
+			p.oldStopped = wasRunning
 		}
 	}
 	p.newName = dockerx.ContainerName(p.app.Slug, p.dep.Seq)
@@ -724,9 +729,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}); err != nil {
 		s.Log.Error("store deployment failure", "id", p.dep.ID, "err", err)
 	}
-	if app, err := s.Q.GetApp(bg, p.app.ID); err == nil && (!app.CurrentDeploymentID.Valid || app.Status == "new" || app.Status == "deploying") && app.DesiredState == "running" {
-		_ = s.Q.SetAppStatus(bg, db.SetAppStatusParams{Status: "failed", StatusMessage: apperr.Redact(ae.Message), UpdatedAt: s.now(), ID: p.app.ID})
-	}
+	s.settleStatusAfterFailure(bg, p.app.ID, apperr.Redact(ae.Message))
 	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
 		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
 	s.pruneApp(bg, p.app.ID)
@@ -791,4 +794,24 @@ func shortSHA(s string) string {
 		return s[:10]
 	}
 	return s
+}
+
+// settleStatusAfterFailure sets the app status after a deployment failed or
+// was interrupted. Queueing moves a new or failed app to "deploying"; without
+// this it could stay there. A running app with a live version keeps its status.
+func (s *Service) settleStatusAfterFailure(ctx context.Context, appID, msg string) {
+	app, err := s.Q.GetApp(ctx, appID)
+	if err != nil {
+		return
+	}
+	unsettled := app.Status == "new" || app.Status == "deploying"
+	switch {
+	case app.DesiredState == "running" && (unsettled || !app.CurrentDeploymentID.Valid):
+		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "failed", StatusMessage: msg, UpdatedAt: s.now(), ID: appID})
+	case unsettled && app.CurrentDeploymentID.Valid:
+		// Meant to be stopped and a version exists: nothing runs, as before.
+		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "stopped", StatusMessage: "", UpdatedAt: s.now(), ID: appID})
+	case unsettled:
+		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "failed", StatusMessage: msg, UpdatedAt: s.now(), ID: appID})
+	}
 }

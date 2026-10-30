@@ -376,6 +376,7 @@ type SumAppResourcesByUserRow struct {
 	CpuMillis int64
 }
 
+// Only apps that are meant to run and have a deployment reserve memory and CPU.
 func (q *Queries) SumAppResourcesByUser(ctx context.Context, arg SumAppResourcesByUserParams) (SumAppResourcesByUserRow, error) {
 	row := q.db.QueryRowContext(ctx, sumAppResourcesByUser, arg.UserID, arg.ID)
 	var i SumAppResourcesByUserRow

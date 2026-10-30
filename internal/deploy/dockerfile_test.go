@@ -394,6 +394,38 @@ func TestCheckDockerfile(t *testing.T) {
 			wantOK:   true,
 			wantPort: 80,
 		},
+		{
+			name:     "port from a variable default",
+			in:       CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nEXPOSE ${PORT:-8080}\n")},
+			wantOK:   true,
+			notWant:  []string{"port_unknown"},
+			wantPort: 8080,
+		},
+		{
+			name:     "ENV with a default, then EXPOSE $PORT",
+			in:       CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nENV PORT=${P:-3000}\nEXPOSE $PORT\n")},
+			wantOK:   true,
+			notWant:  []string{"port_unknown"},
+			wantPort: 3000,
+		},
+		{
+			name:    "unknown variable without default stays unknown",
+			in:      CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nEXPOSE $NOPE\n")},
+			want:    []string{"port_unknown"},
+			wantOK:  false,
+		},
+		{
+			name:   "forbidden base hidden in a variable default",
+			in:     CheckInput{Dockerfile: []byte("FROM ${B:-bitploy/other:1}\nEXPOSE 80\n")},
+			want:   []string{"base_image_forbidden"},
+			wantOK: false,
+		},
+		{
+			name:   "forbidden COPY --from hidden in a variable default",
+			in:     CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nCOPY --from=${S:-bitploy/other:1} /x /y\nEXPOSE 80\n")},
+			want:   []string{"base_image_forbidden"},
+			wantOK: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

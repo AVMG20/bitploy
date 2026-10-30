@@ -139,18 +139,25 @@ func (s *Service) AdminListAudit(ctx context.Context, a Actor, limit int, before
 
 // AdminListAuditPage lists audit rows newest first, older than beforeID
 // (0 = from the newest). The API uses it for cursor pagination.
-func (s *Service) AdminListAuditPage(ctx context.Context, a Actor, limit int, beforeID int64) ([]AuditEntry, error) {
+// AdminListAuditPage returns up to limit entries older than beforeID, newest
+// first, and whether more entries exist after them.
+func (s *Service) AdminListAuditPage(ctx context.Context, a Actor, limit int, beforeID int64) ([]AuditEntry, bool, error) {
 	if err := RequireAdmin(a); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if beforeID <= 0 {
 		beforeID = math.MaxInt64
 	}
-	rows, err := s.Q.ListAuditPage(ctx, db.ListAuditPageParams{ID: beforeID, Limit: int64(acctClampLimit(limit))})
+	limit = acctClampLimit(limit)
+	rows, err := s.Q.ListAuditPage(ctx, db.ListAuditPageParams{ID: beforeID, Limit: int64(limit) + 1})
 	if err != nil {
-		return nil, apperr.Internal(err)
+		return nil, false, apperr.Internal(err)
 	}
-	return acctAuditEntries(rows), nil
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	return acctAuditEntries(rows), more, nil
 }
 
 func acctClampLimit(n int) int {

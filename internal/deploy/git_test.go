@@ -411,3 +411,25 @@ var (
 	errTransportAuthRequired = transport.ErrAuthenticationRequired
 	errTransportAuthzFailed  = transport.ErrAuthorizationFailed
 )
+
+func TestDirSizeIgnoresTheGitPack(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "objects", "pack"), make([]byte, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sub", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sub", ".git", "keep"), make([]byte, 30), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index.html"), make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := dirSize(root, 0); n != 130 {
+		t.Errorf("dirSize = %d, want 130 (worktree only, nested .git counts)", n)
+	}
+}

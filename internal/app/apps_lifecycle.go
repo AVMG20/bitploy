@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"os"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -59,6 +60,11 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 	}); err != nil {
 		return App{}, apperr.Internal(err)
 	}
+	// startCurrentLocked synced the route while a stopped app was still marked
+	// stopped (no upstream); sync again now that it is running.
+	if err := s.syncRouteLocked(ctx, row.ID); err != nil {
+		return App{}, err
+	}
 	s.deployRT.mu.Lock()
 	delete(s.deployRT.restore, row.ID)
 	s.deployRT.mu.Unlock()
@@ -97,13 +103,8 @@ func (s *Service) StopApp(ctx context.Context, a Actor, ref string) (App, error)
 }
 
 func (s *Service) stopApp(ctx context.Context, a Actor, row db.App) error {
-	s.cancelInflight(row.ID, 30*time.Second)
+	s.cancelAllDeployments(ctx, row.ID)
 	now := s.now()
-	if ids, err := s.Q.CancelQueuedDeployments(ctx, db.CancelQueuedDeploymentsParams{FinishedAt: sql.NullInt64{Int64: now, Valid: true}, AppID: row.ID}); err == nil {
-		for _, id := range ids {
-			s.NotifyDeployment(id)
-		}
-	}
 	l := s.appLock(row.ID)
 	l.Lock()
 	defer l.Unlock()
@@ -113,8 +114,9 @@ func (s *Service) stopApp(ctx context.Context, a Actor, row db.App) error {
 		return apperr.Internal(err)
 	}
 	// Take the route away first so the catch-all answers "This app is stopped".
+	// If that fails, still stop the containers: the reconciler rewrites routes.
 	if err := s.syncRouteLocked(ctx, row.ID); err != nil {
-		return err
+		s.Log.Warn("remove route of stopped app", "app", row.Slug, "err", err)
 	}
 	if s.Docker != nil {
 		bg := context.WithoutCancel(ctx)
@@ -139,6 +141,7 @@ func (s *Service) StopAllForUser(ctx context.Context, userID string) error {
 	var first error
 	for _, r := range rows {
 		if r.DesiredState == "stopped" {
+			s.cancelAllDeployments(ctx, r.ID) // a queued deploy would start it again
 			continue
 		}
 		if err := s.stopApp(ctx, System, r); err != nil && first == nil {
@@ -146,4 +149,23 @@ func (s *Service) StopAllForUser(ctx context.Context, userID string) error {
 		}
 	}
 	return first
+}
+
+// cancelAllDeployments cancels an app's queued deployments and its running
+// pipeline. Queued ones go first: when the running pipeline exits it wakes the
+// dispatcher, which would otherwise claim the next queued deployment.
+func (s *Service) cancelAllDeployments(ctx context.Context, appID string) {
+	cancelQueued := func() {
+		ids, err := s.Q.CancelQueuedDeployments(ctx, db.CancelQueuedDeploymentsParams{FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, AppID: appID})
+		if err != nil {
+			return
+		}
+		for _, id := range ids {
+			_ = os.Remove(s.sourceZip(id))
+			s.NotifyDeployment(id)
+		}
+	}
+	cancelQueued()
+	s.cancelInflight(appID, 30*time.Second)
+	cancelQueued() // anything queued while we waited
 }

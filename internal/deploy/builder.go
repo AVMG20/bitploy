@@ -150,11 +150,11 @@ func (b *Builder) Ensure(parent context.Context) error {
 	want := b.optsHash(opts)
 
 	// 1. The network.
-	if out, err := b.run(ctx, "network", "inspect", BuilderNetwork); err != nil {
+	if _, err := b.run(ctx, "network", "inspect", BuilderNetwork); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return unavailable("", err)
 		}
-		if out, err = b.run(ctx, "network", "create", "--driver", "bridge", "--label", BuilderLabel+"=1", BuilderNetwork); err != nil &&
+		if out, err := b.run(ctx, "network", "create", "--driver", "bridge", "--label", BuilderLabel+"=1", BuilderNetwork); err != nil &&
 			!strings.Contains(out, "already exists") {
 			return unavailable("creating the network "+BuilderNetwork+" failed: "+lastLine(out), err)
 		}

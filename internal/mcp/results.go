@@ -128,6 +128,9 @@ func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	switch ap.Status {
 	case "failed":
 		b.Problem = "the last deploy failed and nothing is live"
+		if runtimeFailure(ap) {
+			b.Problem = "the live version stopped working"
+		}
 	case "crashed":
 		b.Problem = "the app stopped on its own"
 	case "running":
@@ -222,12 +225,26 @@ func bitployFileStep(ap app.App) string {
 	return "Save " + content + " as the file .bitploy in the project folder (do not send it with the deploy) so a later session updates this app instead of creating a new one."
 }
 
+// runtimeFailure reports a failed status that came after the deploy: the
+// current deployment went live and then ran out of memory, died, failed its
+// health check or filled its volume.
+func runtimeFailure(ap app.App) bool {
+	return ap.Status == "failed" && ap.Current != nil && ap.Current.State == "running"
+}
+
 func appNext(ap app.App) []string {
 	slug := ap.Slug
 	switch ap.Status {
 	case "new":
 		return []string{"Nothing is deployed yet. Send the code with deploy_files (up to 2 MB and 200 files), create_upload (zip) or set_git_source then deploy."}
 	case "failed":
+		if runtimeFailure(ap) {
+			return []string{
+				"The deploy worked, but the live version stopped working afterwards; status_message says why.",
+				"Out of memory: update_app with a higher memory_mb (whoami shows the quota), then restart_app. The /data volume over its limit: ask the user to delete files from /data, then start_app.",
+				"Otherwise call get_logs with app=" + slug + " and kind=runtime; fix a code bug, then " + appUpdateHow(ap) + ", or restart_app for a one-off failure.",
+			}
+		}
 		return []string{
 			"The last deploy failed and nothing is live. Call get_deployment with app=" + slug + " for the error, hint and log tail.",
 			"Fix the cause, then " + appUpdateHow(ap) + ".",

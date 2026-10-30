@@ -360,17 +360,16 @@ func newGraph(stages []instructions.Stage, metaArgs []instructions.ArgCommand, e
 }
 
 type envMap struct {
-	vars   map[string]string
-	missed bool
+	vars map[string]string
 }
 
 func (e *envMap) Get(k string) (string, bool) {
 	v, ok := e.vars[k]
-	if !ok {
-		e.missed = true
-	}
 	return v, ok
 }
+
+// plainVarRef matches $VAR and ${VAR}: references without a default.
+var plainVarRef = regexp.MustCompile(`\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))`)
 
 func (e *envMap) Keys() []string {
 	keys := make([]string, 0, len(e.vars))
@@ -382,15 +381,23 @@ func (e *envMap) Keys() []string {
 
 var _ shell.EnvGetter = (*envMap)(nil)
 
-// expand resolves $VAR with the given values. ok is false when a variable is unknown.
+// expand resolves $VAR with the given values. ok is false when a variable is
+// unknown and has no default: ${VAR:-x} and ${VAR-x} resolve to x, as in Docker.
 func (g *graph) expand(word string, vars map[string]string) (string, bool) {
 	if !strings.Contains(word, "$") {
 		return word, true
 	}
-	env := &envMap{vars: vars}
-	out, _, err := shell.NewLex(g.escape).ProcessWord(word, env)
-	if err != nil || env.missed {
+	out, unmatched, err := shell.NewLex(g.escape).ProcessWord(word, &envMap{vars: vars})
+	if err != nil {
 		return word, false
+	}
+	// The lexer also reports variables whose default was used; only a plain
+	// reference to an unknown variable leaves the value open.
+	for _, m := range plainVarRef.FindAllStringSubmatch(word, -1) {
+		name := m[1] + m[2]
+		if _, missing := unmatched[name]; missing {
+			return word, false
+		}
 	}
 	return out, true
 }

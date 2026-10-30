@@ -79,6 +79,7 @@ SELECT CAST(COALESCE(SUM(COALESCE(d.built_at, d.finished_at) - d.started_at), 0)
 FROM deployments d JOIN apps a ON a.id = d.app_id
 WHERE a.user_id = ? AND d.queued_at >= ? AND d.started_at IS NOT NULL
   AND COALESCE(d.built_at, d.finished_at) IS NOT NULL
+  AND d.source_kind != 'rollback'
 `
 
 type OpsBuildSecondsSinceParams struct {
@@ -866,10 +867,12 @@ func (q *Queries) OpsUsageAppTotals(ctx context.Context, userID string) (OpsUsag
 }
 
 const opsUserDiskBytes = `-- name: OpsUserDiskBytes :one
+
 SELECT CAST(COALESCE(SUM(x.image_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes
 FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?
 `
 
+// a rollback reuses an image and builds nothing
 func (q *Queries) OpsUserDiskBytes(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, opsUserDiskBytes, userID)
 	var bytes int64

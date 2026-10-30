@@ -104,7 +104,7 @@ type GitHubStatus struct {
 
 type GitSource struct {
 	RepoURL string `json:"repo_url"`
-	Branch  string `json:"branch"`
+	Branch  string `json:"branch" required:"false" doc:"Leave empty for the repository's default branch."`
 	Subdir  string `json:"subdir,omitempty"`
 }
 

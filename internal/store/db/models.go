@@ -127,6 +127,11 @@ type IdempotencyKey struct {
 	CreatedAt int64
 }
 
+type Instance struct {
+	ID        string
+	CreatedAt int64
+}
+
 type Invite struct {
 	ID        string
 	CodeHash  string

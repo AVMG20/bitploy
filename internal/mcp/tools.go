@@ -340,8 +340,8 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			next := []string{
-				"In the project folder run: zip -r app.zip . -x 'node_modules/*' '.git/*' '.env' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git .). Keep the Dockerfile inside.",
-				"In that same folder run the curl command from the curl field (it uploads ./app.zip). It must print no error; then delete app.zip.",
+				"In the project folder run: zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '.env' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git .). Keep the Dockerfile inside.",
+				"In that same folder run the curl command from the curl field (it uploads ./app.zip). On success it prints the upload as JSON; on an error it prints an error object with code, message and hint: follow the hint. Then delete app.zip.",
 				"Then call deploy with app=" + in.App + " and upload_id=" + u.ID + ". If more than 15 minutes pass first, call create_upload again.",
 			}
 			return &result{
@@ -378,7 +378,7 @@ func (s *srv) registerTools() {
 			if err != nil && in.UploadID == "" && apperr.As(err).Code == "no_source" {
 				// No git source: rebuild the last stored files or upload.
 				if page, lerr := svc.ListDeployments(ctx, a, in.App, 1, ""); lerr == nil && len(page.Items) > 0 {
-					d, err = svc.Redeploy(ctx, a, in.App)
+					d, err = svc.RetryLatest(ctx, a, in.App)
 				}
 			}
 			if err != nil {
@@ -555,12 +555,7 @@ func (s *srv) registerTools() {
 				if err != nil {
 					return nil, err
 				}
-				for _, it := range page.Items {
-					if it.State == "superseded" {
-						target = it.ID
-						break
-					}
-				}
+				target = rollbackTarget(page.Items)
 				if target == "" {
 					return nil, apperr.Conflict("rollback_unavailable", "There is no older deployment of "+in.App+" that ran, so there is nothing to roll back to.",
 						"Call list_deployments to see the history. If every earlier deploy failed, fix the code and deploy again.").WithNext("list_deployments")
@@ -708,4 +703,42 @@ func parseSince(v string, now time.Time) (time.Time, error) {
 	}
 	return time.Time{}, apperr.BadRequest("since_invalid", fmt.Sprintf("%q is not a time or an age.", v),
 		"Use a time like 2026-10-29T12:00:00Z or an age like 10m, 2h or 1d.")
+}
+
+// rollbackTarget picks the newest deployment that ran a version older than
+// the live one (items are newest first). Versions are told apart by image: a
+// rollback runs its target's image, so after rolling back from #5 to #4 the
+// next rollback goes to #3, not back to #5.
+func rollbackTarget(items []app.Deployment) string {
+	built := map[string]int64{} // image -> seq of the deployment that built it
+	for _, it := range items {
+		if it.Image != nil && it.SourceKind != "rollback" {
+			built[*it.Image] = it.Seq
+		}
+	}
+	version := func(it app.Deployment) int64 {
+		if it.Image != nil {
+			if seq, ok := built[*it.Image]; ok {
+				return seq
+			}
+		}
+		return it.Seq
+	}
+	var live *app.Deployment
+	for i := range items {
+		if items[i].State == "running" {
+			live = &items[i]
+			break
+		}
+	}
+	for _, it := range items {
+		if it.State != "superseded" {
+			continue
+		}
+		if live != nil && (it.Image != nil && live.Image != nil && *it.Image == *live.Image || version(it) >= version(*live)) {
+			continue
+		}
+		return it.ID
+	}
+	return ""
 }

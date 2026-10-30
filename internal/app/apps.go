@@ -432,7 +432,7 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 			"The confirmation does not match this app's subdomain, so nothing was deleted.",
 			"Call delete_app again with confirm_slug set to exactly "+quote(row.Slug)+".").WithNext("delete_app")
 	}
-	s.cancelInflight(row.ID, 30*time.Second)
+	s.cancelAllDeployments(ctx, row.ID)
 	lock := s.appLock(row.ID)
 	lock.Lock()
 	defer lock.Unlock()

@@ -484,9 +484,15 @@ func tooLarge(max int64) *apperr.Error {
 // dirSize adds up file sizes, stopping early once past limit.
 func dirSize(root string, limit int64) (int64, error) {
 	var total int64
-	err := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+	gitDir := filepath.Join(root, ".git")
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+		// The pack in .git is limited by the download counter; counting it here
+		// too would halve the limit for repositories that compress badly.
+		if d.IsDir() && path == gitDir {
+			return filepath.SkipDir
 		}
 		if d.Type().IsRegular() {
 			if info, ierr := d.Info(); ierr == nil {

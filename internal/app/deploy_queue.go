@@ -100,10 +100,10 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 	s.Audit(ctx, a, "upload.create", "app", row.ID, map[string]any{"upload_id": id})
 	return Upload{
 		ID: id, URL: url,
-		Curl:      "curl --fail --data-binary @app.zip -H 'Content-Type: application/zip' " + url,
+		Curl:      "curl -sS --fail-with-body --data-binary @app.zip -H 'Content-Type: application/zip' " + url,
 		ExpiresAt: exp.UTC(), MaxBytes: deploy.MaxZipCompressed,
 		NextSteps: []string{
-			"Run `zip -r app.zip . -x 'node_modules/*' '.git/*' '.env' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
+			"Run `zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '.env' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
 			"After curl succeeds, call deploy with app=" + row.Slug + " and upload_id=" + id + ".",
 		},
 	}, nil
@@ -240,44 +240,75 @@ func (s *Service) Deploy(ctx context.Context, a Actor, ref, uploadID string) (De
 	return Deployment{}, noSourceErr()
 }
 
+// sourceDeployment returns the deployment whose source built id: id itself,
+// or for a rollback the deployment it rolled back to (following chains).
+// deps is every deployment of the app. Nil when id is unknown.
+func sourceDeployment(deps []db.Deployment, id string) *db.Deployment {
+	byID := make(map[string]*db.Deployment, len(deps))
+	for i := range deps {
+		byID[deps[i].ID] = &deps[i]
+	}
+	d := byID[id]
+	for hops := 0; d != nil && d.SourceKind == "rollback" && hops < len(deps); hops++ {
+		d = byID[d.SourceRef]
+	}
+	if d != nil && d.SourceKind == "rollback" {
+		return nil
+	}
+	return d
+}
+
 func noSourceErr() *apperr.Error {
 	return apperr.BadRequest("no_source", "This app has no source to deploy yet.",
 		"Send the files with deploy_files, upload a zip (create_upload, then deploy with upload_id), or set a git repository with set_git_source.").WithNext("deploy_files")
 }
 
-// Redeploy queues a deployment that rebuilds the current deployment's source
-// (git: latest commit; files/upload: the stored snapshot if still present).
+// Redeploy queues a deployment that rebuilds the live version's source (git:
+// latest commit; files/upload: the stored snapshot). After a rollback that is
+// the source of the version rolled back to. Used by the dashboard and REST.
 func (s *Service) Redeploy(ctx context.Context, a Actor, ref string) (Deployment, error) {
+	return s.redeploy(ctx, a, ref, false)
+}
+
+// RetryLatest rebuilds the newest attempt's source, even when that deployment
+// failed: "fix a setting with update_app, then deploy with only app=" must
+// retry the new files, not rebuild the older version that is still live.
+func (s *Service) RetryLatest(ctx context.Context, a Actor, ref string) (Deployment, error) {
+	return s.redeploy(ctx, a, ref, true)
+}
+
+func (s *Service) redeploy(ctx context.Context, a Actor, ref string, latest bool) (Deployment, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return Deployment{}, err
 	}
-	deps, err := s.Q.ListAllDeploymentsByApp(ctx, row.ID)
+	deps, err := s.Q.ListAllDeploymentsByApp(ctx, row.ID) // newest first
 	if err != nil {
 		return Deployment{}, apperr.Internal(err)
 	}
-	var order []db.Deployment
-	for _, d := range deps { // current deployment first, then newest first
-		if row.CurrentDeploymentID.Valid && d.ID == row.CurrentDeploymentID.String {
-			order = append([]db.Deployment{d}, order...)
-		} else {
-			order = append(order, d)
+	var pick *db.Deployment
+	if !latest && row.CurrentDeploymentID.Valid {
+		pick = sourceDeployment(deps, row.CurrentDeploymentID.String)
+	}
+	if pick == nil { // newest attempt, or no live version yet
+		for _, d := range deps {
+			if d.State != "cancelled" {
+				pick = sourceDeployment(deps, d.ID)
+				break
+			}
 		}
 	}
-	for _, d := range order {
-		switch d.SourceKind {
+	if pick != nil {
+		switch pick.SourceKind {
 		case "git":
 			if row.GitRepoUrl.Valid && row.GitRepoUrl.String != "" {
 				return s.queueDeployment(ctx, a, row, queueSpec{kind: "git", ref: row.GitBranch.String})
 			}
 		case "files", "upload":
-			if d.State == "cancelled" {
-				continue
-			}
-			if _, err := os.Stat(s.sourceZip(d.ID)); err == nil {
-				src := s.sourceZip(d.ID)
+			if _, err := os.Stat(s.sourceZip(pick.ID)); err == nil {
+				src := s.sourceZip(pick.ID)
 				return s.queueDeployment(ctx, a, row, queueSpec{
-					kind: d.SourceKind, ref: d.SourceRef,
+					kind: pick.SourceKind, ref: pick.SourceRef,
 					prepare: func(depID string) error { return linkOrCopy(src, s.sourceZip(depID)) },
 				})
 			}
