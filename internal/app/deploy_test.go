@@ -720,8 +720,23 @@ func TestDeployWithoutSource(t *testing.T) {
 	if _, err := e.s.Deploy(context.Background(), e.user, app.Slug, ""); depCode(err) != "no_source" {
 		t.Errorf("%v", err)
 	}
+	// Never deployed: say so, do not claim a stored source went missing.
+	_, err := e.s.Redeploy(context.Background(), e.user, app.Slug)
+	var ae *apperr.Error
+	if !errors.As(err, &ae) || ae.Code != "app_not_deployed" || ae.HTTPStatus != 409 || ae.Next != "deploy_files" ||
+		!strings.Contains(ae.Message, "never been deployed") {
+		t.Errorf("redeploy of a new app: %v", err)
+	}
+	// A deployment exists but its stored source is gone: that is source_gone.
+	d0, err := e.s.DeployFiles(context.Background(), e.user, app.Slug, staticFiles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(e.s.sourceZip(d0.ID)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := e.s.Redeploy(context.Background(), e.user, app.Slug); depCode(err) != "source_gone" {
-		t.Errorf("%v", err)
+		t.Errorf("redeploy without a stored source: %v", err)
 	}
 	// With a git source set, deploy queues a git deployment.
 	e.exec(t, `UPDATE apps SET git_repo_url = 'https://github.com/o/r', git_branch = 'main' WHERE id = ?`, app.ID)

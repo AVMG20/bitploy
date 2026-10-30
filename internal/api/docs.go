@@ -42,8 +42,8 @@ var docsTmpl = template.Must(template.New("docs").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#18181b;--muted:#52525b;--line:#e4e4e7;--card:#fafafa;--accent:#2563eb}
-@media (prefers-color-scheme:dark){:root{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--line:#27272a;--card:#18181b;--accent:#93c5fd}}
+:root{color-scheme:light dark;--bg:#fff;--fg:#1f1f1f;--muted:#5c5c5c;--line:#e6e6e6;--card:#f6f6f6;--accent:#d9541e}
+@media (prefers-color-scheme:dark){:root{--bg:#131313;--fg:#ececec;--muted:#9a9a9a;--line:#2a2a2a;--card:#1b1b1b;--accent:#f4804f}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
 .wrap{display:flex;max-width:1200px;margin:0 auto}
 nav{width:15rem;flex:none;position:sticky;top:0;align-self:flex-start;height:100vh;overflow:auto;padding:1.5rem 1rem;border-right:1px solid var(--line)}

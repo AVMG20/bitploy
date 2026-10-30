@@ -10,8 +10,11 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/auth"
@@ -368,6 +371,74 @@ func TestIdempotencyKeyReplays(t *testing.T) {
 	}
 	if w := post("key-2", "fixed"); w.Code != 201 {
 		t.Fatalf("retry after failure: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestRedeployOfNeverDeployedAppExplainsItself(t *testing.T) {
+	e := newEnv(t)
+	e.login("me@example.nl", false)
+	app := decode[app.App](t, e.asSession("POST", "/api/v1/apps", map[string]any{"name": "fresh"}))
+	w := e.asSession("POST", "/api/v1/apps/"+app.Slug+"/redeploy", nil)
+	er := decode[errResp](t, w)
+	if w.Code != 409 || er.Error.Code != "app_not_deployed" || er.Error.Next != "deploy_files" ||
+		!strings.Contains(er.Error.Message, "never been deployed") || er.Error.Hint == "" {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+// A retry that arrives while the first request with the same key is still
+// running must wait for it and replay its answer, not do the work again.
+func TestIdempotencyKeyConcurrentRetries(t *testing.T) {
+	e := newEnv(t)
+	var calls atomic.Int32
+	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"ok":true}`))
+	})
+	h := idempotency(e.svc, slow)
+	const n = 6
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := httptest.NewRequest("POST", "/api/v1/apps", strings.NewReader(`{}`))
+			r.Header.Set("Idempotency-Key", "burst-1")
+			r = r.WithContext(auth.WithActor(r.Context(), app.Actor{UserID: "usr_1", Scope: app.ScopeDeploy}))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			codes[i] = w.Code
+		}()
+	}
+	wg.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("%d concurrent requests with one key ran the handler %d times, want 1", n, got)
+	}
+	for i, c := range codes {
+		if c != 201 {
+			t.Fatalf("request %d: status %d", i, c)
+		}
+	}
+}
+
+func TestKeyLocksReleaseTheirEntries(t *testing.T) {
+	var k keyLocks
+	unlock := k.lock("a")
+	done := make(chan struct{})
+	go func() { k.lock("a")(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("second lock on the same key did not wait")
+	case <-time.After(20 * time.Millisecond):
+	}
+	k.lock("b")() // other keys do not wait
+	unlock()
+	<-done
+	if len(k.m) != 0 {
+		t.Fatalf("%d lock entries leaked", len(k.m))
 	}
 }
 

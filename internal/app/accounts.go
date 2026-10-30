@@ -47,6 +47,15 @@ func (s *Service) Login(ctx context.Context, email, password, ip, userAgent stri
 		return "", SessionInfo{}, apperr.BadRequest("credentials_missing",
 			"Email and password are both required.", "Send both fields: {\"email\": \"...\", \"password\": \"...\"}.")
 	}
+	// No stored email is longer than 254 bytes and no accepted password longer
+	// than passwd.MaxLength, so such a login can only fail. Answer at once:
+	// the email goes into limiter keys and the audit log, and a request body
+	// of a megabyte per attempt would otherwise pile up in memory and the database.
+	if len(email) > 254 || len(password) > passwd.MaxLength {
+		return "", SessionInfo{}, apperr.Unauthorized("invalid_credentials",
+			"The email or password is wrong.",
+			"Check both and try again. After 5 failed tries you have to wait 15 minutes.")
+	}
 	lim := s.limiter()
 	now := s.now()
 	keyEmailIP, keyIP, keyEmail := "login|"+email+"|"+ip, "loginip|"+ip, "loginemail|"+email

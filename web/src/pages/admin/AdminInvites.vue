@@ -69,7 +69,7 @@ const revoke = useMutation({
 function state(i: Invite): { label: string; tone: string } {
   if (i.used_at) return { label: 'Used', tone: 'text-muted-foreground' }
   if (new Date(i.expires_at).getTime() < Date.now()) return { label: 'Expired', tone: 'text-muted-foreground' }
-  return { label: 'Waiting', tone: 'text-emerald-700 dark:text-emerald-400' }
+  return { label: 'Waiting', tone: 'text-success' }
 }
 </script>
 
@@ -117,7 +117,7 @@ function state(i: Invite): { label: string; tone: string } {
     <QueryError v-if="invites.isError.value" :error="invites.error.value" @retry="invites.refetch()" />
     <Skeleton v-else-if="invites.isPending.value" class="h-24 w-full" />
     <EmptyState v-else-if="!invites.data.value?.length" title="No invites yet." description="Create one above to bring a colleague in." />
-    <div v-else class="overflow-x-auto rounded-xl border">
+    <div v-else class="overflow-x-auto rounded-xl border bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>
@@ -138,7 +138,7 @@ function state(i: Invite): { label: string; tone: string } {
             <TableCell class="hidden sm:table-cell"><RelativeTime :date="i.created_at" /></TableCell>
             <TableCell class="hidden sm:table-cell"><RelativeTime :date="i.expires_at" /></TableCell>
             <TableCell>
-              <Button v-if="!i.used_at" size="sm" variant="ghost" class="text-destructive" @click="toRevoke = i">Revoke</Button>
+              <Button v-if="!i.used_at" size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke invite for ${i.email || 'anyone with the link'}`" @click="toRevoke = i">Revoke</Button>
             </TableCell>
           </TableRow>
         </TableBody>

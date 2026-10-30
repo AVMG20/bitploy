@@ -36,7 +36,7 @@ function details(d: Record<string, unknown> | null): string {
     <div v-else-if="audit.isPending.value" class="grid gap-2"><Skeleton v-for="i in 5" :key="i" class="h-9 w-full" /></div>
     <EmptyState v-else-if="!entries.length" title="Nothing logged yet." description="Every change made in bitploy shows up here for 90 days." />
     <template v-else>
-      <div class="overflow-x-auto rounded-xl border">
+      <div class="overflow-x-auto rounded-xl border bg-card shadow-card">
         <Table>
           <TableHeader>
             <TableRow>

@@ -2,11 +2,16 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Box, KeyRound, Settings, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import BrandMark from './BrandMark.vue'
+import ThemeToggle from './ThemeToggle.vue'
+import UserMenu from './UserMenu.vue'
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -35,16 +40,14 @@ const items = computed(() => {
 </script>
 
 <template>
-  <Sidebar collapsible="icon">
+  <Sidebar collapsible="icon" variant="inset">
     <SidebarHeader>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton size="lg" as-child tooltip="bitploy">
+          <SidebarMenuButton size="lg" as-child tooltip="bitploy" class="hover:bg-transparent active:bg-transparent">
             <RouterLink to="/" @click="setOpenMobile(false)">
-              <div class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Box class="size-4" />
-              </div>
-              <span class="text-base font-semibold">bitploy</span>
+              <BrandMark class="size-8!" />
+              <span class="text-[15px] font-semibold tracking-tight text-sidebar-accent-foreground">bitploy</span>
             </RouterLink>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -52,6 +55,7 @@ const items = computed(() => {
     </SidebarHeader>
     <SidebarContent>
       <SidebarGroup>
+        <SidebarGroupLabel>Workspace</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.to">
@@ -66,6 +70,12 @@ const items = computed(() => {
         </SidebarGroupContent>
       </SidebarGroup>
     </SidebarContent>
+    <SidebarFooter>
+      <div class="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+        <UserMenu class="min-w-0 flex-1" />
+        <ThemeToggle />
+      </div>
+    </SidebarFooter>
     <SidebarRail />
   </Sidebar>
 </template>

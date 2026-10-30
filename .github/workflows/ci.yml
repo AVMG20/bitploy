@@ -57,7 +57,7 @@ jobs:
       - name: bash -n and shellcheck
         run: |
           set -euo pipefail
-          scripts=$(ls deploy/*.sh)
+          scripts="install.sh $(ls deploy/*.sh)"
           for f in $scripts; do bash -n "$f"; done
           shellcheck $scripts
       - name: daemon.json and compose files parse

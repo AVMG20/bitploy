@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
@@ -61,9 +61,10 @@ const saveEnv = useMutation({
 })
 const submitEnv = envForm.handleSubmit((v) => saveEnv.mutate({ name: v.name.trim(), value: v.value }))
 
-function editEnv(name: string) {
+async function editEnv(name: string) {
   envForm.resetForm({ values: { name, value: '' } })
-  document.getElementById('env-value')?.focus()
+  await nextTick()
+  document.querySelector<HTMLElement>('#env-form textarea')?.focus()
 }
 
 const envToRemove = ref<string | null>(null)
@@ -104,12 +105,13 @@ const resForm = useForm({
   initialValues: { volume: false, memory_mb: 512, cpus: 0.5 },
 })
 
-let resLoaded = false
+let resLoadedFor = ''
 watch(
   () => app.data.value,
   (a) => {
-    if (a && !resLoaded) {
-      resLoaded = true
+    // Fill the form once per app (not on every poll, which would wipe unsaved edits).
+    if (a && resLoadedFor !== a.id) {
+      resLoadedFor = a.id
       resForm.resetForm({ values: { volume: a.volume, memory_mb: a.memory_mb, cpus: a.cpu_millis / 1000 } })
     }
   },
@@ -133,12 +135,17 @@ const deleteOpen = ref(false)
 const del = useMutation({
   mutationFn: () => api.deleteApp(props.slug),
   onSuccess: async () => {
+    const slug = props.slug
     toastOk('App deleted')
     deleteOpen.value = false
-    queryClient.removeQueries({ queryKey: keys.app(props.slug) })
+    // Leave first: removing the cache while this page still polls the app would flash a 404.
+    await router.replace('/')
+    for (const key of [keys.app(slug), keys.deployments(slug), keys.env(slug), keys.domains(slug)]) {
+      queryClient.removeQueries({ queryKey: key })
+    }
+    queryClient.removeQueries({ queryKey: ['metrics', slug] })
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.me })
-    await router.replace('/')
   },
   onError: (e) => toastError(e),
 })
@@ -163,13 +170,13 @@ const del = useMutation({
             <span class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
             <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
             <div class="ml-auto flex gap-1">
-              <Button size="sm" variant="ghost" @click="editEnv(v.name)"><Pencil /> Change</Button>
-              <Button size="sm" variant="ghost" class="text-destructive" @click="envToRemove = v.name"><Trash2 /> Remove</Button>
+              <Button size="sm" variant="ghost" :aria-label="`Change ${v.name}`" @click="editEnv(v.name)"><Pencil /> Change</Button>
+              <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Remove ${v.name}`" @click="envToRemove = v.name"><Trash2 /> Remove</Button>
             </div>
           </li>
         </ul>
 
-        <form class="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-start" novalidate @submit.prevent="submitEnv">
+        <form id="env-form" class="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-start" novalidate @submit.prevent="submitEnv">
           <FormField v-slot="{ componentField }" name="name">
             <FormItem>
               <FormLabel>Name</FormLabel>
@@ -180,7 +187,7 @@ const del = useMutation({
           <FormField v-slot="{ componentField }" name="value">
             <FormItem>
               <FormLabel>Value</FormLabel>
-              <FormControl><Textarea id="env-value" rows="1" placeholder="Paste the secret value" autocomplete="off" spellcheck="false" class="min-h-8 font-mono" v-bind="componentField" /></FormControl>
+              <FormControl><Textarea rows="1" placeholder="Paste the secret value" autocomplete="off" spellcheck="false" class="min-h-8 font-mono" v-bind="componentField" /></FormControl>
               <FormMessage />
             </FormItem>
           </FormField>

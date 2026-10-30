@@ -5,7 +5,6 @@ import { ExternalLink } from 'lucide-vue-next'
 import { TableCell, TableRow } from '@/components/ui/table'
 import AppStatusBadge from './AppStatusBadge.vue'
 import RelativeTime from './RelativeTime.vue'
-import { useAppMetrics } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { formatMB, formatPercent, hostOf, uptime } from '@/lib/format'
 import type { App } from '@/lib/types'
@@ -14,15 +13,11 @@ const props = defineProps<{ app: App }>()
 const router = useRouter()
 
 const running = computed(() => props.app.status === 'running')
-const metrics = useAppMetrics(
-  () => props.app.slug,
-  () => '1h',
-  running,
-)
-const latest = computed(() => (running.value ? metrics.data.value?.latest : null))
+// The list already carries the latest 15-second sample; no per-row metrics query.
+const latest = computed(() => (running.value ? props.app.live : null))
 const lastDeploy = computed(() => {
   const d = props.app.current_deployment
-  return d?.finished_at ?? d?.queued_at ?? props.app.updated_at
+  return d?.finished_at ?? d?.queued_at ?? null
 })
 </script>
 
@@ -37,7 +32,7 @@ const lastDeploy = computed(() => {
         :href="app.url"
         target="_blank"
         rel="noopener noreferrer"
-        class="inline-flex max-w-full items-center gap-1 truncate text-xs text-muted-foreground hover:underline"
+        class="inline-flex max-w-full items-center gap-1 truncate font-mono text-[11px] text-muted-foreground hover:text-foreground"
         @click.stop
       >
         <span class="truncate">{{ hostOf(app.url) }}</span>

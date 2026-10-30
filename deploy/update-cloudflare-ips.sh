@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refresh the Cloudflare ranges in traefik/traefik.yml (forwardedHeaders.trustedIPs)
-# from https://www.cloudflare.com/ips. Run it, review the diff, then
-#   docker compose --env-file /etc/bitploy/bitploy.env up -d --force-recreate traefik
+# from https://www.cloudflare.com/ips. Run it, review the diff, commit, then run
+# install.sh on the server: it copies the file to /opt/bitploy and restarts Traefik.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

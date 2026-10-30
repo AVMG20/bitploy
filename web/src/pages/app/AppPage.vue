@@ -51,9 +51,9 @@ const notFound = computed(() => app.error.value instanceof ApiError && app.error
         <Skeleton v-else class="h-8 w-64" />
       </div>
 
-      <Tabs :model-value="current">
-        <div class="-mx-1 overflow-x-auto px-1">
-          <TabsList>
+      <Tabs :model-value="current" class="min-w-0">
+        <div class="overflow-x-auto overflow-y-hidden border-b">
+          <TabsList variant="line" class="-ml-1.5">
             <TabsTrigger v-for="t in tabs" :key="t.name" :value="t.name" as-child>
               <RouterLink :to="{ name: t.name, params: { slug } }">{{ t.label }}</RouterLink>
             </TabsTrigger>

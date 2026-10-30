@@ -6,6 +6,7 @@ import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import MetricChart from '@/components/MetricChart.vue'
+import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -89,10 +90,10 @@ function stop() {
             </div>
           </dl>
           <div class="flex flex-wrap gap-2">
-            <Button :disabled="busy" @click="actions.redeploy.mutate()">
+            <Button :disabled="busy || !dep" @click="actions.redeploy.mutate()">
               <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Redeploy
             </Button>
-            <Button variant="outline" :disabled="busy || data.status === 'new'" @click="actions.restart.mutate()">
+            <Button variant="outline" :disabled="busy || !dep" @click="actions.restart.mutate()">
               <RotateCw /> Restart
             </Button>
             <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
@@ -141,7 +142,8 @@ function stop() {
         </Tabs>
       </CardHeader>
       <CardContent>
-        <Skeleton v-if="metrics.isPending.value" class="h-48 w-full" />
+        <QueryError v-if="metrics.isError.value && !metrics.data.value" :error="metrics.error.value" @retry="metrics.refetch()" />
+        <Skeleton v-else-if="metrics.isPending.value" class="h-48 w-full" />
         <p v-else-if="points.length < 2" class="py-12 text-center text-sm text-muted-foreground">
           No data yet. Charts fill in about a minute after the app starts running.
         </p>

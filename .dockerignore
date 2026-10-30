@@ -14,7 +14,8 @@ bin
 web/node_modules
 web/dist
 
-# Not needed to build the image.
+# Not needed to build the image. /bitploy is a stray local build of the binary.
+/bitploy
 deploy
 docs
 *.md

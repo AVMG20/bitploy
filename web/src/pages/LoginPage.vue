@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api, ApiError } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { SESSION_KEY } from '@/composables/useSession'
+import { safeNext } from '@/lib/utils'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,20 +22,20 @@ const busy = ref(false)
 const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
     z.object({
-      email: z.string().min(1, 'Enter your email address.').email('That does not look like an email address.'),
+      email: z.string().trim().min(1, 'Enter your email address.').email('That does not look like an email address.'),
       password: z.string().min(1, 'Enter your password.'),
     }),
   ),
 })
 
 const submit = handleSubmit(async (values) => {
+  if (busy.value) return
   busy.value = true
   failure.value = null
   try {
     await api.login(values.email.trim(), values.password)
     await queryClient.fetchQuery({ queryKey: SESSION_KEY, queryFn: api.session, staleTime: 0 })
-    const next = typeof route.query.next === 'string' && route.query.next.startsWith('/') ? route.query.next : '/'
-    await router.replace(next)
+    await router.replace(safeNext(route.query.next))
   } catch (e) {
     failure.value = e instanceof ApiError ? e : new ApiError(0, { message: 'Could not log in.' })
   } finally {

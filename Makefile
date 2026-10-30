@@ -31,7 +31,7 @@ test-integration:
 lint:
 	$(GO) vet ./cmd/... ./internal/... ./web
 	$(GO) run honnef.co/go/tools/cmd/staticcheck@latest ./cmd/... ./internal/... ./web
-	cd web && npx vue-tsc --noEmit && npx eslint .
+	cd web && npm run typecheck && npm run lint
 
 release:
 	docker buildx build --build-arg VERSION=$(VERSION) --platform linux/amd64,linux/arm64 -t $(IMAGE):$(VERSION) -t $(IMAGE):latest --push .

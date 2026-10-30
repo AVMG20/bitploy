@@ -40,6 +40,7 @@ const rollback = useMutation({
     target.value = null
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+    void qc.invalidateQueries({ queryKey: keys.apps })
   },
   onError: (e) => toastError(e),
 })
@@ -64,11 +65,11 @@ function canRollback(d: Deployment): boolean {
       <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
     </EmptyState>
     <template v-else>
-      <article v-for="d in list.data.value" :key="d.id" class="grid gap-2 rounded-xl border p-4">
+      <article v-for="d in list.data.value" :key="d.id" class="grid gap-2 rounded-xl border bg-card p-4 shadow-card">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span class="font-semibold">#{{ d.seq }}</span>
           <StatusBadge v-bind="deploymentStateInfo(d.state)" />
-          <span v-if="d.id === app.data.value?.current_deployment?.id" class="text-xs font-medium text-emerald-700 dark:text-emerald-400">Current version</span>
+          <span v-if="d.id === app.data.value?.current_deployment?.id" class="text-xs font-medium text-success">Current version</span>
           <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /></span>
           <span class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
           <Button v-if="canRollback(d)" class="ml-auto" size="sm" variant="outline" @click="target = d">
@@ -83,7 +84,7 @@ function canRollback(d: Deployment): boolean {
             <template v-if="d.commit_message"> {{ d.commit_message }}</template>
           </span>
         </div>
-        <div v-if="d.error" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-800 dark:text-red-300">
+        <div v-if="d.error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           <p class="font-medium">{{ d.error.message }}</p>
           <p v-if="d.error.hint" class="mt-1">{{ d.error.hint }}</p>
           <details v-if="d.log_tail?.length" class="mt-2">
@@ -95,7 +96,7 @@ function canRollback(d: Deployment): boolean {
           <li
             v-for="(w, i) in d.warnings"
             :key="i"
-            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'"
+            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]'"
           >
             {{ w.message }}<template v-if="w.hint">&nbsp;{{ w.hint }}</template>
           </li>

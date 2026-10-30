@@ -97,7 +97,7 @@ const saveQuota = useMutation({
   onError: (e) => toastError(e),
 })
 const submit = form.handleSubmit((values) => {
-  if (editing.value) saveQuota.mutate({ id: editing.value.id, values })
+  if (editing.value && !saveQuota.isPending.value) saveQuota.mutate({ id: editing.value.id, values })
 })
 
 const toggling = ref<AdminUser | null>(null)
@@ -113,6 +113,7 @@ const setStatus = useMutation({
     toastOk(u.status === 'suspended' ? `${u.name} can log in again` : `${u.name} is suspended`)
     toggling.value = null
     void qc.invalidateQueries({ queryKey: keys.adminUsers })
+    void qc.invalidateQueries({ queryKey: keys.adminApps }) // suspending stops the person's apps
   },
   onError: (e) => toastError(e),
 })
@@ -122,7 +123,7 @@ const setStatus = useMutation({
   <div class="grid gap-3">
     <QueryError v-if="users.isError.value" :error="users.error.value" @retry="users.refetch()" />
     <div v-else-if="users.isPending.value" class="grid gap-2"><Skeleton v-for="i in 3" :key="i" class="h-12 w-full" /></div>
-    <div v-else class="overflow-x-auto rounded-xl border">
+    <div v-else class="overflow-x-auto rounded-xl border bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>
@@ -152,8 +153,8 @@ const setStatus = useMutation({
             </TableCell>
             <TableCell>
               <div class="flex gap-1">
-                <Button size="sm" variant="outline" @click="edit(u)">Limits</Button>
-                <Button size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" @click="toggling = u">
+                <Button size="sm" variant="outline" :aria-label="`Limits for ${u.name}`" @click="edit(u)">Limits</Button>
+                <Button size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" :aria-label="`${u.status === 'suspended' ? 'Reactivate' : 'Suspend'} ${u.name}`" @click="toggling = u">
                   {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}
                 </Button>
               </div>

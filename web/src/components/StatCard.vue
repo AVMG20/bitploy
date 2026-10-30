@@ -9,7 +9,7 @@ defineProps<{ title: string; value?: string; sub?: string; progress?: number; lo
 <template>
   <Card>
     <CardHeader class="pb-1">
-      <CardTitle class="text-sm font-medium text-muted-foreground">{{ title }}</CardTitle>
+      <CardTitle class="text-xs font-medium tracking-wide text-muted-foreground uppercase">{{ title }}</CardTitle>
     </CardHeader>
     <CardContent class="grid gap-2">
       <template v-if="loading">
@@ -17,7 +17,7 @@ defineProps<{ title: string; value?: string; sub?: string; progress?: number; lo
         <Skeleton class="h-3 w-32" />
       </template>
       <template v-else>
-        <div class="text-2xl font-semibold tabular-nums">{{ value }}</div>
+        <div class="text-[1.65rem] leading-tight font-semibold tracking-tight tabular-nums">{{ value }}</div>
         <Progress v-if="progress !== undefined" :model-value="progress" />
         <p v-if="sub" class="text-xs text-muted-foreground">{{ sub }}</p>
       </template>

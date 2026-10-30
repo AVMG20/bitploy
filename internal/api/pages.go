@@ -16,12 +16,12 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <title>{{.Title}} - bitploy</title>
 <style>
 :root{color-scheme:light dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:#fafafa;color:#18181b}
-@media (prefers-color-scheme:dark){body{background:#09090b;color:#fafafa}.card p{color:#a1a1aa}a{color:#93c5fd}}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:#f6f6f6;color:#1f1f1f}a{color:#d9541e}
+@media (prefers-color-scheme:dark){body{background:#131313;color:#ececec}.card p{color:#9a9a9a}a{color:#f4804f}}
 .card{max-width:28rem;padding:2rem;text-align:center}
 .mark{font-weight:700;letter-spacing:-.02em;font-size:1.1rem;margin-bottom:1.5rem}
 h1{font-size:1.6rem;margin:0 0 .5rem}
-.card p{margin:.4rem 0;color:#52525b}
+.card p{margin:.4rem 0;color:#5c5c5c}
 code{font-family:ui-monospace,monospace}
 </style></head><body><main class="card">
 <div class="mark">bitploy</div>

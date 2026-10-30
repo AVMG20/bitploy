@@ -22,6 +22,7 @@ import { api } from '@/lib/api'
 import { exactTime } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
+import type { SessionInfo } from '@/lib/types'
 
 const router = useRouter()
 const qc = useQueryClient()
@@ -69,6 +70,8 @@ const saveProfile = useMutation({
   onSuccess: (u) => {
     toastOk('Profile saved')
     profile.resetForm({ values: { name: u.name, email: u.email, password: '' } })
+    // Update the cached user at once, or the form would see the old email until the refetch lands.
+    qc.setQueryData<SessionInfo>(SESSION_KEY, (old) => (old ? { ...old, user: u } : old))
     void qc.invalidateQueries({ queryKey: SESSION_KEY })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -116,10 +119,12 @@ const saveGh = useMutation({
   onError: (e) => toastError(e),
 })
 const submitGh = gh.handleSubmit((v) => saveGh.mutate(v.token))
+const ghRemoveOpen = ref(false)
 const removeGh = useMutation({
   mutationFn: api.removeGithubToken,
   onSuccess: () => {
     toastOk('GitHub token removed')
+    ghRemoveOpen.value = false
     void qc.invalidateQueries({ queryKey: keys.github })
   },
   onError: (e) => toastError(e),
@@ -226,7 +231,7 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
           <span v-if="github.data.value.expires_at" class="text-xs text-muted-foreground" :title="exactTime(github.data.value.expires_at)">
             expires <RelativeTime :date="github.data.value.expires_at" />
           </span>
-          <Button class="ml-auto" size="sm" variant="outline" :disabled="removeGh.isPending.value" @click="removeGh.mutate()">Disconnect</Button>
+          <Button class="ml-auto" size="sm" variant="outline" @click="ghRemoveOpen = true">Disconnect</Button>
         </div>
         <p v-else class="text-sm text-muted-foreground">Not connected.</p>
 
@@ -265,12 +270,20 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
               </p>
               <p class="text-xs text-muted-foreground">{{ s.ip }} &middot; last active <RelativeTime :date="s.last_seen_at" /> &middot; signed in <RelativeTime :date="s.created_at" /></p>
             </div>
-            <Button v-if="!s.current" class="ml-auto" size="sm" variant="ghost" :disabled="revokeOne.isPending.value" @click="revokeOne.mutate(s.id)">Sign out</Button>
+            <Button v-if="!s.current" class="ml-auto" size="sm" variant="ghost" :disabled="revokeOne.isPending.value" :aria-label="`Sign out ${deviceName(s.user_agent)}`" @click="revokeOne.mutate(s.id)">Sign out</Button>
           </li>
         </ul>
       </CardContent>
     </Card>
 
+    <ConfirmDialog
+      v-model:open="ghRemoveOpen"
+      title="Disconnect GitHub?"
+      description="Bitploy forgets the token. Deploys from private repositories stop working until you add a token again."
+      confirm-label="Disconnect"
+      :loading="removeGh.isPending.value"
+      @confirm="removeGh.mutate()"
+    />
     <ConfirmDialog
       v-model:open="everywhereOpen"
       title="Sign out everywhere?"

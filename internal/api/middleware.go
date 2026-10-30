@@ -320,7 +320,45 @@ func idempotentPath(p string) bool {
 	return false
 }
 
+// keyLocks serialises requests that carry the same Idempotency-Key, so a retry
+// that arrives while the first request is still running waits for it and then
+// replays its answer instead of doing the work a second time.
+type keyLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyLock
+}
+
+type keyLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock blocks until the caller holds key; the returned func releases it.
+func (k *keyLocks) lock(key string) func() {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]*keyLock{}
+	}
+	l := k.m[key]
+	if l == nil {
+		l = &keyLock{}
+		k.m[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
+}
+
 func idempotency(svc *app.Service, next http.Handler) http.Handler {
+	var inflight keyLocks
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("Idempotency-Key")
 		if r.Method != http.MethodPost || key == "" || !idempotentPath(r.URL.Path) {
@@ -336,6 +374,7 @@ func idempotency(svc *app.Service, next http.Handler) http.Handler {
 			auth.WriteError(w, apperr.BadRequest("idempotency_key_invalid", "The Idempotency-Key is too long.", "Use at most 200 characters."))
 			return
 		}
+		defer inflight.lock(actor.UserID + "\x00" + key)()
 		ctx := r.Context()
 		now := svc.Now().Unix()
 		row, err := svc.Q.GetIdempotencyKey(ctx, db.GetIdempotencyKeyParams{UserID: actor.UserID, Key: key})

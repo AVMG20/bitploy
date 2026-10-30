@@ -69,7 +69,7 @@ const quota = computed(() => me.data.value?.quota)
       <Button as-child><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
     </EmptyState>
 
-    <div v-else class="rounded-xl border">
+    <div v-else class="overflow-hidden rounded-xl border bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>

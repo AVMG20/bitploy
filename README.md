@@ -30,7 +30,7 @@ On the first run it creates a dev admin: `dev@bitploy.localhost` / `devpassword1
 Other commands:
 
 ```bash
-make test               # go test ./...
+make test               # go test ./cmd/... ./internal/... ./web
 make test-integration   # also tests that need a Docker daemon (-tags=integration)
 make lint               # go vet, staticcheck, vue-tsc, eslint
 make generate           # sqlc generate, after changing internal/store/queries/*.sql
@@ -225,7 +225,7 @@ Apps that keep SQLite files in `/data` are backed up as a live copy of the files
 ### Upgrades
 
 1. Take a Hetzner snapshot.
-2. Run the installer again: `sudo bash /opt/bitploy/src/install.sh` (add `GITHUB_TOKEN=…` for a private repository). It pulls the latest code, rebuilds the image and restarts bitploy and Traefik. If you use a published image instead (`BITPLOY_IMAGE` in `/etc/bitploy/bitploy.env`), it pulls that.
+2. Run the installer again: `sudo bash /opt/bitploy/src/install.sh` (add `GITHUB_TOKEN=…` for a private repository). It pulls the latest code, rebuilds the image and recreates bitploy when the image changed; Traefik is restarted only when its static config (`traefik.yml`) changed. If you use a published image instead (`BITPLOY_IMAGE` in `/etc/bitploy/bitploy.env`), it pulls that.
 3. Migrations run when bitploy starts. Apps keep serving while it restarts, because Traefik routes straight to them.
 
 Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips.sh` in your checkout of the repository (it edits `deploy/traefik/traefik.yml`), copy the same ranges into `internal/auth/cloudflare.go`, commit, and run `install.sh` again.

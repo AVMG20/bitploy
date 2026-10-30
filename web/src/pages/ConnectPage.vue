@@ -49,7 +49,7 @@ function usePasted() {
       </CardHeader>
       <CardContent class="grid gap-3">
         <div v-if="connectToken" class="flex flex-wrap items-center gap-2 text-sm">
-          <KeyRound class="size-4 text-emerald-600" />
+          <KeyRound class="size-4 text-success" />
           <span>Your token is filled in below.</span>
           <Button size="sm" variant="ghost" @click="rememberToken('')">Forget it</Button>
         </div>

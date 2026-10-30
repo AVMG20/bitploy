@@ -82,6 +82,8 @@ const stop = useMutation({
     toastOk(`Stopped ${slug}`);
     target.value = null;
     void qc.invalidateQueries({ queryKey: keys.adminApps });
+    void qc.invalidateQueries({ queryKey: keys.apps });
+    void qc.invalidateQueries({ queryKey: keys.app(slug) });
   },
   onError: (e) => toastError(e),
 });
@@ -128,7 +130,7 @@ const stop = useMutation({
           "
         />
       </div>
-      <div class="overflow-x-auto rounded-xl border">
+      <div class="overflow-x-auto rounded-xl border bg-card shadow-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -176,6 +178,7 @@ const stop = useMutation({
                   v-if="a.status === 'running' || a.status === 'deploying'"
                   size="sm"
                   variant="outline"
+                  :aria-label="`Stop ${a.name}`"
                   @click="target = a"
                   >
 <Square /> Stop

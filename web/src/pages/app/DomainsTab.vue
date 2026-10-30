@@ -141,10 +141,10 @@ const remove = useMutation({
           <CardTitle class="font-mono text-base break-all">{{ d.hostname }}</CardTitle>
           <StatusBadge v-bind="domainStatusInfo(d.status)" />
           <div class="ml-auto flex gap-2">
-            <Button size="sm" variant="outline" :disabled="check.isPending.value" @click="check.mutate(d.hostname)">
+            <Button size="sm" variant="outline" :disabled="check.isPending.value" :aria-label="`Check ${d.hostname} now`" @click="check.mutate(d.hostname)">
               <RefreshCw :class="checking === d.hostname && 'animate-spin'" /> Check now
             </Button>
-            <Button size="sm" variant="destructive" @click="toRemove = d"><Trash2 /> Remove</Button>
+            <Button size="sm" variant="destructive" :aria-label="`Remove ${d.hostname}`" @click="toRemove = d"><Trash2 /> Remove</Button>
           </div>
         </div>
         <CardDescription>
@@ -152,10 +152,10 @@ const remove = useMutation({
         </CardDescription>
       </CardHeader>
       <CardContent class="grid gap-3">
-        <p v-if="d.last_error" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-800 dark:text-red-300">{{ d.last_error }}</p>
+        <p v-if="d.last_error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{{ d.last_error }}</p>
         <template v-if="d.status !== 'active' && d.records?.length">
           <p class="text-sm">Add these records at your domain provider:</p>
-          <div class="overflow-x-auto rounded-lg border">
+          <div class="overflow-x-auto rounded-lg border bg-card">
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
                 <tr><th class="px-3 py-2">Type</th><th class="px-3 py-2">Name</th><th class="px-3 py-2">Value</th></tr>

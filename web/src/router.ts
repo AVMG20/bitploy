@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { api, ApiError } from './lib/api'
 import { queryClient } from './lib/queryClient'
+import { rememberToken } from './lib/mcp'
+import { safeNext } from './lib/utils'
 import { SESSION_KEY } from './composables/useSession'
 import type { SessionInfo } from './lib/types'
 
@@ -60,6 +62,9 @@ async function loadSession(): Promise<SessionInfo | null> {
     return await queryClient.fetchQuery({ queryKey: SESSION_KEY, queryFn: api.session, staleTime: 5 * 60_000 })
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) return null
+    // A hiccup (network, 5xx) must not log out someone whose session we already know.
+    const cached = queryClient.getQueryData<SessionInfo>(SESSION_KEY)
+    if (cached) return cached
     throw e
   }
 }
@@ -72,9 +77,10 @@ router.beforeEach(async (to) => {
     // Backend unreachable: public pages still render, the rest goes to login.
     return to.meta.public ? true : { name: 'login', query: { next: to.fullPath } }
   }
+  // A token kept for the Connect page must not outlive the login that made it.
+  if (!session) rememberToken('')
   if (to.name === 'login' && session) {
-    const next = typeof to.query.next === 'string' && to.query.next.startsWith('/') ? to.query.next : '/'
-    return { path: next }
+    return { path: safeNext(to.query.next) }
   }
   if (to.meta.public) return true
   if (!session) return { name: 'login', query: { next: to.fullPath } }
@@ -83,5 +89,7 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta.title ? `${to.meta.title} - bitploy` : 'bitploy'
+  const slug = typeof to.params.slug === 'string' ? to.params.slug : ''
+  const title = to.meta.title || slug
+  document.title = title ? `${title} - bitploy` : 'bitploy'
 })

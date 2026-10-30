@@ -248,8 +248,13 @@ install -d -m 0700 "$data_dir/acme"
 
 install -d -m 0755 "$INSTALL_DIR/traefik"
 install -m 0644 "$HERE/docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
-install -m 0644 "$HERE/traefik/traefik.yml" "$INSTALL_DIR/traefik/traefik.yml"
-sed -i -E "s|^(\s*email:).*|\1 $(env_get BITPLOY_ACME_EMAIL)|" "$INSTALL_DIR/traefik/traefik.yml"
+# Traefik reads its static config (traefik.yml) only at startup, and compose does not recreate
+# a container when a mounted file changes, so Traefik is restarted below if the file changed.
+traefik_static="$(sed -E "s|^(\s*email:).*|\1 $(env_get BITPLOY_ACME_EMAIL)|" "$HERE/traefik/traefik.yml")"
+traefik_changed=0
+if [ "$traefik_static" != "$(cat "$INSTALL_DIR/traefik/traefik.yml" 2>/dev/null || true)" ]; then traefik_changed=1; fi
+printf '%s\n' "$traefik_static" >"$INSTALL_DIR/traefik/traefik.yml"
+chmod 0644 "$INSTALL_DIR/traefik/traefik.yml"
 install -m 0755 "$HERE/backup.sh" "$INSTALL_DIR/backup.sh"
 install -m 0755 "$HERE/update-cloudflare-ips.sh" "$INSTALL_DIR/update-cloudflare-ips.sh"
 
@@ -292,6 +297,9 @@ fi
 compose() { docker compose --env-file "$ENV_FILE" -f "$INSTALL_DIR/docker-compose.yml" "$@"; }
 if [ "$build_local" -eq 0 ]; then compose pull; fi
 compose up -d
+if [ "$traefik_changed" -eq 1 ]; then
+  docker restart bitploy-traefik >/dev/null || warn "could not restart Traefik; run: docker restart bitploy-traefik"
+fi
 
 printf 'Waiting for bitploy to answer on /healthz '
 ok=0

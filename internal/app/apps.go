@@ -72,25 +72,33 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		return App{}, err
 	}
 
-	n, err := s.Q.CountAppsByUser(ctx, user.ID)
-	if err != nil {
-		return App{}, apperr.Internal(err)
-	}
-	if n >= user.QuotaApps {
-		return App{}, apperr.Forbidden("apps_quota_exceeded",
-			fmt.Sprintf("You already have %d apps, which is the maximum for your account.", n),
-			"Delete an app you no longer need with delete_app, or ask a bitploy admin to raise your quota.").WithNext("list_apps")
-	}
-	if s.Cfg.MaxApps > 0 {
-		total, err := s.Q.CountAllApps(ctx)
+	// The app-count limits are checked here for a quick answer and again inside
+	// the insert transaction, so parallel create_app calls cannot all pass.
+	checkAppCaps := func(q *db.Queries) error {
+		n, err := q.CountAppsByUser(ctx, user.ID)
 		if err != nil {
-			return App{}, apperr.Internal(err)
+			return apperr.Internal(err)
 		}
-		if total >= int64(s.Cfg.MaxApps) {
-			return App{}, apperr.Forbidden("server_app_limit",
-				fmt.Sprintf("This bitploy server already runs %d apps, which is its maximum.", total),
-				"Delete an app you no longer need with delete_app, or ask the bitploy admin to raise BITPLOY_MAX_APPS.").WithNext("list_apps")
+		if n >= user.QuotaApps {
+			return apperr.Forbidden("apps_quota_exceeded",
+				fmt.Sprintf("You already have %d apps, which is the maximum for your account.", n),
+				"Delete an app you no longer need with delete_app, or ask a bitploy admin to raise your quota.").WithNext("list_apps")
 		}
+		if s.Cfg.MaxApps > 0 {
+			total, err := q.CountAllApps(ctx)
+			if err != nil {
+				return apperr.Internal(err)
+			}
+			if total >= int64(s.Cfg.MaxApps) {
+				return apperr.Forbidden("server_app_limit",
+					fmt.Sprintf("This bitploy server already runs %d apps, which is its maximum.", total),
+					"Delete an app you no longer need with delete_app, or ask the bitploy admin to raise BITPLOY_MAX_APPS.").WithNext("list_apps")
+			}
+		}
+		return nil
+	}
+	if err := checkAppCaps(s.Q); err != nil {
+		return App{}, err
 	}
 	// A new app reserves nothing until it runs (first deploy, start_app): the
 	// memory and CPU quota is checked then. Here only reject what can never fit.
@@ -126,6 +134,9 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	now := s.now()
 	id := ids.New(ids.App)
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := checkAppCaps(q); err != nil {
+			return err
+		}
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), MemoryMb: mem, CpuMillis: cpu, CreatedAt: now, UpdatedAt: now,
@@ -136,6 +147,10 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		return q.DeleteSlugReservation(ctx, slug)
 	})
 	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) {
+			return App{}, ae
+		}
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: apps.slug") {
 			return App{}, slugTaken(slug)
 		}
@@ -612,6 +627,15 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 func (s *Service) checkSlugFree(ctx context.Context, slug, userID string) error {
 	if e := deploy.ValidateSlug(slug); e != nil {
 		return e
+	}
+	// The dashboard and the edge host may live below the apps domain
+	// (BITPLOY_PUBLIC_URL, BITPLOY_EDGE_HOST). An app with that label would get
+	// a router for the same hostname and could serve a fake login page there.
+	rules := s.domainRules()
+	if host := slug + "." + rules.AppsDomain; host == rules.PublicHost || (rules.EdgeHost != "" && host == rules.EdgeHost) {
+		return apperr.Unprocessable("slug_reserved",
+			"The subdomain "+quote(slug)+" is reserved by bitploy.",
+			"Pick another name. bitploy uses "+host+" itself.")
 	}
 	n, err := s.Q.AppSlugExists(ctx, slug)
 	if err != nil {

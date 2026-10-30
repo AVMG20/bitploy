@@ -166,7 +166,9 @@ async function send(method: string, path: string, opts: RequestOptions = {}, acc
     }
     if (!body.message) body.message = fallbackMessage(res.status)
     if (!body.code) body.code = `http_${res.status}`
-    if (res.status === 401 && !opts.noRedirect) unauthorizedHandler?.()
+    // A wrong current password is also a 401 (invalid_credentials), but the session is fine.
+    const sessionGone = (res.status === 401 && body.code !== 'invalid_credentials') || body.code === 'account_suspended'
+    if (sessionGone && !opts.noRedirect) unauthorizedHandler?.()
     throw new ApiError(res.status, body)
   }
   return res
@@ -177,7 +179,11 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
   if (res.status === 204) return undefined as T
   const text = await res.text()
   if (!text) return undefined as T
-  return JSON.parse(text) as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError(res.status, { code: 'bad_response', message: 'The server sent an answer the dashboard could not read.' })
+  }
 }
 
 /** Accepts `[...]`, `{items:[...]}` or `{<key>:[...]}` and always returns an array. */
@@ -189,6 +195,20 @@ function listOf<T>(data: unknown, key?: string): T[] {
     if (key && Array.isArray(o[key])) return o[key] as T[]
   }
   return []
+}
+
+/** Follows next_cursor so lists are not silently cut off at one page. */
+async function listAll<T>(path: string, query: RequestOptions['query'] = {}, key?: string): Promise<T[]> {
+  const out: T[] = []
+  let cursor: string | undefined
+  for (let i = 0; i < 20; i++) {
+    const data = await request<unknown>('GET', path, { query: { ...query, limit: 100, cursor } })
+    out.push(...listOf<T>(data, key))
+    const next = data && typeof data === 'object' ? (data as { next_cursor?: unknown }).next_cursor : undefined
+    if (typeof next !== 'string' || !next) break
+    cursor = next
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -221,21 +241,21 @@ export const api = {
   saveGithubToken: (token: string) => request<GitHubStatus>('PUT', paths.githubToken, { body: { token } }),
   removeGithubToken: () => request<void>('DELETE', paths.githubToken),
   async sessions(): Promise<Session[]> {
-    return listOf<Session>(await request<unknown>('GET', paths.sessions))
+    return listAll<Session>(paths.sessions)
   },
   revokeSession: (id: string) => request<void>('DELETE', paths.sessionById(id)),
   revokeOtherSessions: () => request<void>('POST', paths.sessionsRevokeOthers),
 
   // tokens
   async tokens(): Promise<Token[]> {
-    return listOf<Token>(await request<unknown>('GET', paths.tokens, { query: { limit: 100 } }))
+    return listAll<Token>(paths.tokens)
   },
   createToken: (input: CreateTokenInput) => request<TokenCreated>('POST', paths.tokens, { body: input }),
   revokeToken: (id: string) => request<void>('DELETE', paths.tokenById(id)),
 
   // apps
   async apps(): Promise<App[]> {
-    return listOf<App>(await request<unknown>('GET', paths.apps, { query: { limit: 100 } }))
+    return listAll<App>(paths.apps)
   },
   app: (slug: string) => request<App>('GET', paths.app(slug)),
   updateApp: (slug: string, input: UpdateAppInput) => request<App>('PATCH', paths.app(slug), { body: input }),
@@ -251,7 +271,7 @@ export const api = {
     return listOf<Deployment>(await request<unknown>('GET', paths.appDeployments(slug), { query: { limit: 50 } }))
   },
   async env(slug: string): Promise<EnvVar[]> {
-    return listOf<EnvVar>(await request<unknown>('GET', paths.appEnv(slug)), 'env')
+    return listAll<EnvVar>(paths.appEnv(slug), {}, 'env')
   },
   setEnv: (slug: string, set: Record<string, string>, unset: string[]) =>
     request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset } }),
@@ -260,7 +280,7 @@ export const api = {
 
   // domains
   async domains(slug: string): Promise<Domain[]> {
-    return listOf<Domain>(await request<unknown>('GET', paths.appDomains(slug)), 'domains')
+    return listAll<Domain>(paths.appDomains(slug), {}, 'domains')
   },
   addDomain: (slug: string, hostname: string) =>
     request<Domain>('POST', paths.appDomains(slug), { body: { hostname } }),
@@ -269,18 +289,18 @@ export const api = {
 
   // admin
   async adminUsers(): Promise<AdminUser[]> {
-    return listOf<AdminUser>(await request<unknown>('GET', paths.adminUsers, { query: { limit: 100 } }))
+    return listAll<AdminUser>(paths.adminUsers)
   },
   updateUser: (id: string, input: { status?: 'active' | 'suspended'; quota?: Partial<AdminUser['quota']> }) =>
     request<AdminUser>('PATCH', paths.adminUser(id), { body: input }),
   async invites(): Promise<Invite[]> {
-    return listOf<Invite>(await request<unknown>('GET', paths.adminInvites, { query: { limit: 100 } }))
+    return listAll<Invite>(paths.adminInvites)
   },
   createInvite: (input: { email?: string; role?: string }) => request<Invite>('POST', paths.adminInvites, { body: input }),
   revokeInvite: (id: string) => request<void>('DELETE', paths.adminInvite(id)),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
   async adminApps(): Promise<App[]> {
-    return listOf<App>(await request<unknown>('GET', paths.adminApps, { query: { limit: 100 } }))
+    return listAll<App>(paths.adminApps)
   },
   adminStopApp: (slug: string) => request<unknown>('POST', paths.adminAppStop(slug)),
   audit: (cursor?: string) =>

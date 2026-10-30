@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -9,7 +10,19 @@ const backend = 'http://localhost:8080'
 const proxied = ['/api', '/mcp', '/u', '/healthz', '/docs']
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    // emptyOutDir wipes dist/.gitkeep, which web/embed.go needs so `go build`
+    // works in a clean checkout; put it back after every build.
+    {
+      name: 'keep-dist-gitkeep',
+      apply: 'build',
+      closeBundle() {
+        writeFileSync(fileURLToPath(new URL('./dist/.gitkeep', import.meta.url)), '')
+      },
+    },
+  ],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

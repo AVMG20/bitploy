@@ -20,7 +20,8 @@ const live = ref(true)
 const filter = ref('')
 const chosenDeployment = ref<string | undefined>(undefined)
 const lines = shallowRef<string[]>([])
-const status = ref<'idle' | 'connecting' | 'live' | 'reconnecting' | 'ended' | 'snapshot'>('idle')
+const status = ref<'idle' | 'connecting' | 'live' | 'reconnecting' | 'ended' | 'snapshot' | 'failed'>('idle')
+const streamError = ref('')
 const scroller = ref<HTMLElement | null>(null)
 
 const deployments = useQuery({
@@ -37,7 +38,7 @@ const inProgress = computed(() => {
 })
 
 const target = computed<LogTarget>(() => ({ slug: props.slug, kind: kind.value, deploymentId: deploymentId.value }))
-const noBuildYet = computed(() => kind.value === 'build' && !deploymentId.value)
+const noBuildYet = computed(() => kind.value === 'build' && !deploymentId.value && !deployments.isPending.value)
 // Finished build logs are static, so there is nothing to follow.
 const canFollow = computed(() => kind.value === 'runtime' || inProgress.value)
 
@@ -104,6 +105,7 @@ async function snapshot() {
 async function start() {
   stop()
   lines.value = []
+  streamError.value = ''
   if (noBuildYet.value) {
     status.value = 'idle'
     return
@@ -128,7 +130,20 @@ async function start() {
     es.close()
     status.value = 'ended'
   })
-  es.onerror = () => {
+  es.onerror = (e: Event) => {
+    // The server reports a failed stream with `event: error` and a JSON body, then hangs up.
+    // Without this the browser would reconnect (and clear the log) forever.
+    if (e instanceof MessageEvent && typeof e.data === 'string') {
+      es.close()
+      source = null
+      try {
+        streamError.value = (JSON.parse(e.data) as { error?: { message?: string } }).error?.message ?? ''
+      } catch {
+        streamError.value = ''
+      }
+      status.value = 'failed'
+      return
+    }
     if (!opened) {
       // Could not start streaming at all: show what is there instead.
       es.close()
@@ -143,7 +158,8 @@ async function start() {
 }
 
 watch(
-  () => [props.slug, kind.value, deploymentId.value, live.value, canFollow.value] as const,
+  // Only build logs depend on the chosen deployment; the runtime stream must not restart when the list loads.
+  () => [props.slug, kind.value, kind.value === 'build' ? deploymentId.value : '', live.value, canFollow.value] as const,
   () => void start(),
   { immediate: true },
 )
@@ -161,6 +177,8 @@ const statusText = computed(() => {
       return 'Stream ended'
     case 'snapshot':
       return 'Paused'
+    case 'failed':
+      return streamError.value || 'The live stream stopped.'
     default:
       return ''
   }
@@ -203,7 +221,7 @@ function download() {
 
       <div class="ml-auto flex items-center gap-2">
         <span class="text-xs text-muted-foreground" aria-live="polite">
-          <span v-if="status === 'live'" class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-emerald-500 align-middle" />{{ statusText }}
+          <span v-if="status === 'live'" class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-success align-middle" />{{ statusText }}
         </span>
         <Button v-if="canFollow" variant="outline" size="sm" @click="live = !live">
           <component :is="live ? Pause : Play" /> {{ live ? 'Pause' : 'Follow live' }}
@@ -214,11 +232,13 @@ function download() {
 
     <div
       ref="scroller"
-      class="h-[60vh] min-h-64 overflow-auto rounded-xl border bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-100"
+      class="h-[60vh] min-h-64 overflow-auto rounded-xl border bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-100"
       role="log"
+      tabindex="0"
+      :aria-label="kind === 'build' ? 'Build log' : 'App log'"
     >
-      <p v-if="noBuildYet" class="text-zinc-400">There is no build log yet. It appears after the first deploy.</p>
-      <p v-else-if="!visible.length" class="text-zinc-400">
+      <p v-if="noBuildYet" class="text-neutral-400">There is no build log yet. It appears after the first deploy.</p>
+      <p v-else-if="!visible.length" class="text-neutral-400">
         {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : 'Nothing logged yet. New lines show up here as they happen.' }}
       </p>
       <div v-for="(l, i) in visible" :key="i" class="break-words whitespace-pre-wrap">{{ l }}</div>

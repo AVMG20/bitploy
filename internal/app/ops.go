@@ -21,8 +21,9 @@ type opsState struct {
 	mgr  *metrics.Manager
 
 	// Tests replace these; nil means the real thing.
-	resolvers []domains.Named
-	syncRoute func(ctx context.Context, appID string) error
+	resolvers   []domains.Named
+	syncRoute   func(ctx context.Context, appID string) error
+	diskHasRoom func() (bool, error)
 }
 
 // metricsMgr returns the metrics manager, creating it on first use.

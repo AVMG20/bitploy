@@ -171,4 +171,9 @@ func (s *Service) ServerHasRoom(ctx context.Context, extraMB int64) (bool, error
 }
 
 // DiskHasRoom reports whether the disk has at least 15% free (else builds are refused).
-func (s *Service) DiskHasRoom() (bool, error) { return s.metricsMgr().DiskHasRoom() }
+func (s *Service) DiskHasRoom() (bool, error) {
+	if s.ops.diskHasRoom != nil {
+		return s.ops.diskHasRoom()
+	}
+	return s.metricsMgr().DiskHasRoom()
+}

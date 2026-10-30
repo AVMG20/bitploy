@@ -114,7 +114,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
       <Button @click="createOpen = true"><Plus /> New token</Button>
       <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
     </EmptyState>
-    <div v-else class="rounded-xl border">
+    <div v-else class="overflow-hidden rounded-xl border bg-card shadow-card">
       <Table>
         <TableHeader>
           <TableRow>
@@ -144,7 +144,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
               <RelativeTime v-else :date="t.expires_at" />
             </TableCell>
             <TableCell>
-              <Button v-if="!t.revoked_at" size="sm" variant="ghost" class="text-destructive" @click="toRevoke = t"><Trash2 /> Revoke</Button>
+              <Button v-if="!t.revoked_at" size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke token ${t.name}`" @click="toRevoke = t"><Trash2 /> Revoke</Button>
             </TableCell>
           </TableRow>
         </TableBody>

@@ -5,7 +5,7 @@ defineProps<{ code: string; what?: string; wrap?: boolean }>()
 </script>
 
 <template>
-  <div class="relative rounded-lg border bg-muted/50">
+  <div class="relative rounded-lg border bg-muted/60">
     <div class="absolute top-1.5 right-1.5">
       <CopyButton :value="code" :what="what" variant="secondary" label="Copy" />
     </div>

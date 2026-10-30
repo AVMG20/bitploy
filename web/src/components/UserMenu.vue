@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronDown, LogOut, Settings } from 'lucide-vue-next'
+import { ChevronsUpDown, LogOut, Settings } from 'lucide-vue-next'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -44,15 +44,22 @@ async function logout() {
 <template>
   <DropdownMenu>
     <DropdownMenuTrigger as-child>
-      <Button variant="ghost" class="gap-2 px-1.5" aria-label="Account menu">
-        <Avatar class="size-6">
-          <AvatarFallback class="text-[10px]">{{ initials }}</AvatarFallback>
+      <Button
+        variant="ghost"
+        class="h-10 justify-start gap-2.5 px-1.5 text-left hover:bg-sidebar-accent group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center"
+        aria-label="Account menu"
+      >
+        <Avatar class="size-7">
+          <AvatarFallback class="bg-primary text-[11px] font-semibold text-primary-foreground">{{ initials }}</AvatarFallback>
         </Avatar>
-        <span class="hidden max-w-40 truncate sm:inline">{{ user?.name || user?.email }}</span>
-        <ChevronDown class="size-3.5 opacity-60" />
+        <span class="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
+          <span class="truncate text-sm font-medium text-sidebar-accent-foreground">{{ user?.name || user?.email }}</span>
+          <span v-if="user?.name" class="truncate text-xs font-normal text-muted-foreground">{{ user?.email }}</span>
+        </span>
+        <ChevronsUpDown class="size-3.5 opacity-50 group-data-[collapsible=icon]:hidden" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" class="w-56">
+    <DropdownMenuContent side="top" align="start" class="w-56">
       <DropdownMenuLabel class="font-normal">
         <p class="truncate font-medium">{{ user?.name }}</p>
         <p class="truncate text-xs text-muted-foreground">{{ user?.email }}</p>

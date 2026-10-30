@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -124,6 +125,12 @@ func (s *Service) ReceiveUpload(ctx context.Context, uploadID string, body io.Re
 	if u.ExpiresAt < s.now() {
 		return nil, apperr.New(410, "upload_expired", "This upload URL has expired (they last 15 minutes).", "Call create_upload to get a new one.").WithNext("create_upload")
 	}
+	// An upload is the first step of a deployment: with the disk almost full
+	// (the same 15% rule) refuse it before anything is written, otherwise a
+	// stream of 95 MB uploads could fill the disk that every app depends on.
+	if err := s.checkDiskRoom(); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(s.Cfg.UploadsDir(), 0o750); err != nil {
 		return nil, apperr.Internal(err)
 	}
@@ -136,6 +143,10 @@ func (s *Service) ReceiveUpload(ctx context.Context, uploadID string, body io.Re
 	f.Close()
 	if cerr != nil {
 		os.Remove(tmp)
+		var tooBig *http.MaxBytesError // the HTTP layer's own size cap fired before ours
+		if errors.As(cerr, &tooBig) {
+			return nil, apperr.New(413, "upload_too_large", "The zip is bigger than 95 MB.", "Leave out node_modules, .git, build output and videos, zip again and upload again.")
+		}
 		return nil, apperr.BadRequest("upload_interrupted", "The upload was cut off before it finished.", "Run the curl command again.")
 	}
 	if n > deploy.MaxZipCompressed {
@@ -274,6 +285,11 @@ func (s *Service) Redeploy(ctx context.Context, a Actor, ref string) (Deployment
 	}
 	if row.GitRepoUrl.Valid && row.GitRepoUrl.String != "" {
 		return s.queueDeployment(ctx, a, row, queueSpec{kind: "git", ref: row.GitBranch.String})
+	}
+	if len(deps) == 0 {
+		return Deployment{}, apperr.Conflict("app_not_deployed",
+			"This app has never been deployed, so there is nothing to redeploy.",
+			"Send the code first: deploy_files with all project files, create_upload and deploy for a zip, or set_git_source and deploy for a git repository.").WithNext("deploy_files")
 	}
 	return Deployment{}, apperr.Conflict("source_gone",
 		"The source of the last deployment is no longer stored, so there is nothing to rebuild.",
@@ -432,7 +448,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	if err != nil {
 		return Deployment{}, err
 	}
-	if err := s.checkDeployRate(ctx, user); err != nil {
+	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
 		return Deployment{}, err
 	}
 	if err := s.checkStartQuota(ctx, app); err != nil { // first deploy of an app, or a stopped one
@@ -462,6 +478,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	var seq int64
 	now := s.now()
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		// Checked again inside the transaction: parallel deploy calls would
+		// otherwise all pass the check above before any of them is stored.
+		if err := s.checkDeployRate(ctx, q, user); err != nil {
+			return err
+		}
 		if qs.inTx != nil {
 			if err := qs.inTx(q); err != nil {
 				return err
@@ -506,9 +527,9 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	return s.deploymentView(d, app.Slug, app.Type), nil
 }
 
-func (s *Service) checkDeployRate(ctx context.Context, user db.User) error {
+func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.User) error {
 	since := s.now() - 3600
-	n, err := s.Q.CountUserDeploymentsSince(ctx, db.CountUserDeploymentsSinceParams{UserID: user.ID, QueuedAt: since})
+	n, err := q.CountUserDeploymentsSince(ctx, db.CountUserDeploymentsSinceParams{UserID: user.ID, QueuedAt: since})
 	if err != nil {
 		return apperr.Internal(err)
 	}
@@ -516,7 +537,7 @@ func (s *Service) checkDeployRate(ctx context.Context, user db.User) error {
 		return nil
 	}
 	wait := int64(60)
-	if oldest, err := s.Q.OldestUserDeploymentSince(ctx, db.OldestUserDeploymentSinceParams{UserID: user.ID, QueuedAt: since}); err == nil && oldest > 0 {
+	if oldest, err := q.OldestUserDeploymentSince(ctx, db.OldestUserDeploymentSinceParams{UserID: user.ID, QueuedAt: since}); err == nil && oldest > 0 {
 		wait = oldest + 3600 - s.now()
 		if wait < 1 {
 			wait = 1

@@ -24,7 +24,7 @@ const { handleSubmit } = useForm({
     z
       .object({
         name: z.string().trim().min(1, 'Tell us your name.'),
-        email: z.string().min(1, 'Enter your email address.').email('That does not look like an email address.'),
+        email: z.string().trim().min(1, 'Enter your email address.').email('That does not look like an email address.'),
         password: z.string().min(10, 'Use at least 10 characters.'),
         confirm: z.string(),
       })
@@ -33,6 +33,7 @@ const { handleSubmit } = useForm({
 })
 
 const submit = handleSubmit(async (values) => {
+  if (busy.value) return
   busy.value = true
   failure.value = null
   try {
