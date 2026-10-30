@@ -43,7 +43,7 @@ const quota = computed(() => me.data.value?.quota)
         title="Storage"
         :loading="me.isPending.value"
         :value="usage ? formatMB(usage.files_mb + usage.volume_used_mb) : ''"
-        :sub="usage && quota ? `${formatMB(usage.files_mb + usage.volume_reserved_mb)} reserved of ${formatMB(quota.volume_mb)}` : ''"
+        :sub="usage && quota ? `${formatMB(usage.files_mb + usage.volume_used_mb)} used of ${formatMB(quota.volume_mb)}${usage.volume_reserved_mb ? `, ${formatMB(usage.volume_reserved_mb)} set aside for /data` : ''}` : ''"
         :progress="usage && quota ? pct(usage.files_mb + usage.volume_reserved_mb, quota.volume_mb) : undefined"
       />
       <StatCard
