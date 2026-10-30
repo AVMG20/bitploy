@@ -82,6 +82,22 @@ func (q *Queries) DeleteUpload(ctx context.Context, id string) error {
 	return err
 }
 
+const getAppDisk = `-- name: GetAppDisk :one
+SELECT app_id, image_bytes, volume_bytes, measured_at FROM app_disk WHERE app_id = ?
+`
+
+func (q *Queries) GetAppDisk(ctx context.Context, appID string) (AppDisk, error) {
+	row := q.db.QueryRowContext(ctx, getAppDisk, appID)
+	var i AppDisk
+	err := row.Scan(
+		&i.AppID,
+		&i.ImageBytes,
+		&i.VolumeBytes,
+		&i.MeasuredAt,
+	)
+	return i, err
+}
+
 const getSlugReservation = `-- name: GetSlugReservation :one
 SELECT slug, user_id, expires_at FROM slug_reservations WHERE slug = ?
 `
@@ -116,9 +132,9 @@ func (q *Queries) GetUpload(ctx context.Context, id string) (Upload, error) {
 
 const insertApp = `-- name: InsertApp :exec
 
-INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, memory_mb, cpu_millis,
+INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
                   desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
 `
 
 type InsertAppParams struct {
@@ -129,6 +145,8 @@ type InsertAppParams struct {
 	Type          string
 	Port          sql.NullInt64
 	VolumeEnabled int64
+	VolumeMb      int64
+	VolumeName    string
 	MemoryMb      int64
 	CpuMillis     int64
 	CreatedAt     int64
@@ -145,6 +163,8 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) error {
 		arg.Type,
 		arg.Port,
 		arg.VolumeEnabled,
+		arg.VolumeMb,
+		arg.VolumeName,
 		arg.MemoryMb,
 		arg.CpuMillis,
 		arg.CreatedAt,
@@ -384,10 +404,28 @@ func (q *Queries) SumAppResourcesByUser(ctx context.Context, arg SumAppResources
 	return i, err
 }
 
+const sumVolumeMBByUser = `-- name: SumVolumeMBByUser :one
+SELECT CAST(COALESCE(SUM(volume_mb), 0) AS INTEGER) FROM apps
+WHERE user_id = ? AND id != ? AND volume_enabled = 1
+`
+
+type SumVolumeMBByUserParams struct {
+	UserID string
+	ID     string
+}
+
+// Every app with a volume reserves its storage limit, running or not: the files stay.
+func (q *Queries) SumVolumeMBByUser(ctx context.Context, arg SumVolumeMBByUserParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, sumVolumeMBByUser, arg.UserID, arg.ID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const updateAppSettings = `-- name: UpdateAppSettings :exec
 UPDATE apps
 SET slug = ?, name = ?, type = ?, port = ?, health_path = ?, dockerfile_path = ?, context_dir = ?,
-    volume_enabled = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
+    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
 WHERE id = ?
 `
 
@@ -400,6 +438,7 @@ type UpdateAppSettingsParams struct {
 	DockerfilePath string
 	ContextDir     string
 	VolumeEnabled  int64
+	VolumeMb       int64
 	MemoryMb       int64
 	CpuMillis      int64
 	UpdatedAt      int64
@@ -416,6 +455,7 @@ func (q *Queries) UpdateAppSettings(ctx context.Context, arg UpdateAppSettingsPa
 		arg.DockerfilePath,
 		arg.ContextDir,
 		arg.VolumeEnabled,
+		arg.VolumeMb,
 		arg.MemoryMb,
 		arg.CpuMillis,
 		arg.UpdatedAt,
@@ -460,4 +500,15 @@ type UpsertSlugReservationParams struct {
 func (q *Queries) UpsertSlugReservation(ctx context.Context, arg UpsertSlugReservationParams) error {
 	_, err := q.db.ExecContext(ctx, upsertSlugReservation, arg.Slug, arg.UserID, arg.ExpiresAt)
 	return err
+}
+
+const volumeNameExists = `-- name: VolumeNameExists :one
+SELECT COUNT(*) FROM apps WHERE volume_name = ?
+`
+
+func (q *Queries) VolumeNameExists(ctx context.Context, volumeName string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, volumeNameExists, volumeName)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }

@@ -40,7 +40,8 @@ func changeRules() map[string]string {
 		"env_vars":                "set_env, then restart_app (app is running) or deploy with only app= (app is failed or never ran)",
 		"volume_memory_cpu":       "update_app, then restart_app",
 		"port_health_path_etc":    "update_app, then deploy with only app= (rebuilds the last source, no files needed)",
-		"slug_rename":             "update_app slug: applies at once, the URL changes, a few seconds of downtime, not allowed with a volume",
+		"slug_rename":             "update_app slug: applies at once, the URL changes, a few seconds of downtime; files in /data are kept",
+		"storage_limit":           "update_app volume_mb: applies at once, within the account's storage allowance",
 		"persistent_files":        "update_app volume=true, restart_app; the app writes to /data and its user must own /data",
 		"back_to_working_version": "rollback (only when the user asks)",
 	}
@@ -59,9 +60,9 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	fmt.Fprintf(&b, "- Dashboard (API tokens, the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
-		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB volume.\n",
+		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage shared by the /data volumes of all apps (each app reserves its volume_mb, default 5120).\n",
 			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DeploysPerHour, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
-		fmt.Fprintf(&b, "- You use %d apps and %d MB memory right now.\n", me.Usage.Apps, me.Usage.MemoryReservedMB)
+		fmt.Fprintf(&b, "- You use %d apps, %d MB memory and %d MB of storage right now.\n", me.Usage.Apps, me.Usage.MemoryReservedMB, me.Usage.VolumeReservedMB)
 	}
 	return b.String(), nil
 }
@@ -95,6 +96,8 @@ type appBrief struct {
 	Problem           string           `json:"problem,omitempty"`
 	Source            string           `json:"source,omitempty"`
 	Volume            bool             `json:"volume"`
+	VolumeMB          int64            `json:"volume_limit_mb,omitempty"`
+	VolumeUsedMB      *float64         `json:"volume_used_mb,omitempty"`
 	CurrentDeployment *deploymentBrief `json:"current_deployment"`
 	LatestDeployment  *deploymentBrief `json:"latest_deployment"`
 	Domains           []string         `json:"domains"`
@@ -107,7 +110,10 @@ type appBrief struct {
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	b := appBrief{
 		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage,
-		Volume: ap.Volume, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
+		Volume: ap.Volume, VolumeUsedMB: ap.VolumeUsedMB, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
+	}
+	if ap.Volume {
+		b.VolumeMB = ap.VolumeMB
 	}
 	if ap.Current != nil {
 		b.CurrentDeployment = briefOf(*ap.Current)

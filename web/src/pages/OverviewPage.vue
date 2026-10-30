@@ -24,7 +24,7 @@ const quota = computed(() => me.data.value?.quota)
   <div class="grid gap-6">
     <PageHeader title="Your apps" description="Everything you have put online, and how it is doing." />
 
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <StatCard
         title="Apps running"
         :loading="me.isPending.value"
@@ -45,6 +45,13 @@ const quota = computed(() => me.data.value?.quota)
         :value="usage ? formatPercent(usage.cpu_now_percent) : ''"
         :sub="usage && quota ? `${formatCPUMillis(usage.cpu_reserved_millis)} reserved of ${formatCPUMillis(quota.cpu_millis)}` : ''"
         :progress="usage && quota ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
+      />
+      <StatCard
+        title="Stored files"
+        :loading="me.isPending.value"
+        :value="usage ? formatMB(usage.volume_used_mb) : ''"
+        :sub="usage && quota ? `${formatMB(usage.volume_reserved_mb)} reserved of ${formatMB(quota.volume_mb)}` : ''"
+        :progress="usage && quota ? pct(usage.volume_reserved_mb, quota.volume_mb) : undefined"
       />
       <StatCard
         title="Deploys this week"

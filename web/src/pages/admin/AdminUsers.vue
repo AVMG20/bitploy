@@ -51,7 +51,7 @@ const form = useForm({
       volume_mb: whole('Storage', 0),
     }),
   ),
-  initialValues: { apps: 10, memory_mb: 2048, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 5120 },
+  initialValues: { apps: 10, memory_mb: 2048, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
 })
 
 const fields = [
@@ -60,7 +60,7 @@ const fields = [
   { name: 'cpus', label: 'CPUs in total' },
   { name: 'deploys_per_hour', label: 'Deploys per hour' },
   { name: 'domains_per_app', label: 'Custom domains per app' },
-  { name: 'volume_mb', label: 'Storage per app (MB)' },
+  { name: 'volume_mb', label: 'Storage in total (MB)' },
 ] as const
 
 function edit(u: AdminUser) {

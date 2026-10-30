@@ -13,9 +13,8 @@ func TestEnforceVolumeQuota(t *testing.T) {
 	ctx := context.Background()
 	for _, id := range []string{"app_over", "app_warn", "app_ok"} {
 		e.addApp(t, id, "bp-"+id+"-1", "running")
-		e.exec(t, `UPDATE apps SET volume_enabled = 1, desired_state = 'running' WHERE id = ?`, id)
+		e.exec(t, `UPDATE apps SET volume_enabled = 1, volume_mb = 1024, desired_state = 'running' WHERE id = ?`, id)
 	}
-	e.exec(t, `UPDATE users SET quota_volume_mb = 1024 WHERE id = 'usr_1'`)
 	e.dk.diskUsage = dockerx.DiskUsage{Volumes: []dockerx.DiskVolume{
 		{AppID: "app_over", Name: "v1", Size: 1500 << 20},
 		{AppID: "app_warn", Name: "v2", Size: 900 << 20},

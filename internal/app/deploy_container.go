@@ -88,7 +88,7 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 	}
 	volume := ""
 	if app.VolumeEnabled != 0 {
-		volume = dockerx.VolumeName(app.Slug)
+		volume = appVolumeName(app)
 		created, err := dk.EnsureVolume(ctx, volume, labels)
 		if err == nil && created {
 			// A new volume is root:root 755; make /data writable for the app's own user.

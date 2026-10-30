@@ -374,8 +374,8 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) error 
 
 const insertUser = `-- name: InsertUser :exec
 
-INSERT INTO users (id, email, name, password_hash, role, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+INSERT INTO users (id, email, name, password_hash, role, status, quota_volume_mb, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', 25600, ?, ?)
 `
 
 type InsertUserParams struct {
@@ -389,6 +389,7 @@ type InsertUserParams struct {
 }
 
 // Users, sessions, invites, API tokens, GitHub token, audit reads. OWNER: auth-api agent.
+// quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
 func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 	_, err := q.db.ExecContext(ctx, insertUser,
 		arg.ID,

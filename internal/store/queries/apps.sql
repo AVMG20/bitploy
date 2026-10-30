@@ -1,14 +1,14 @@
 -- Owned by the deploy agent: apps, slugs, env vars, uploads.
 
 -- name: InsertApp :exec
-INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, memory_mb, cpu_millis,
+INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
                   desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
 
 -- name: UpdateAppSettings :exec
 UPDATE apps
 SET slug = ?, name = ?, type = ?, port = ?, health_path = ?, dockerfile_path = ?, context_dir = ?,
-    volume_enabled = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
+    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
 WHERE id = ?;
 
 -- name: DeleteAppRow :exec
@@ -23,6 +23,17 @@ SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
 FROM apps WHERE user_id = ? AND id != ?
   AND desired_state = 'running' AND current_deployment_id IS NOT NULL;
+
+-- name: SumVolumeMBByUser :one
+-- Every app with a volume reserves its storage limit, running or not: the files stay.
+SELECT CAST(COALESCE(SUM(volume_mb), 0) AS INTEGER) FROM apps
+WHERE user_id = ? AND id != ? AND volume_enabled = 1;
+
+-- name: VolumeNameExists :one
+SELECT COUNT(*) FROM apps WHERE volume_name = ?;
+
+-- name: GetAppDisk :one
+SELECT * FROM app_disk WHERE app_id = ?;
 
 -- name: AppSlugExists :one
 SELECT COUNT(*) FROM apps WHERE slug = ?;

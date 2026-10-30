@@ -1,8 +1,9 @@
 -- Users, sessions, invites, API tokens, GitHub token, audit reads. OWNER: auth-api agent.
 
 -- name: InsertUser :exec
-INSERT INTO users (id, email, name, password_hash, role, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?);
+-- quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
+INSERT INTO users (id, email, name, password_hash, role, status, quota_volume_mb, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', 25600, ?, ?);
 
 -- name: ListUsers :many
 SELECT * FROM users ORDER BY created_at ASC;

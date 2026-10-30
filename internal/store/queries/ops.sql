@@ -104,8 +104,13 @@ SELECT
     COUNT(*) AS apps,
     CAST(COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
     CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
+    CAST(COALESCE(SUM(CASE WHEN volume_enabled = 1 THEN volume_mb ELSE 0 END), 0) AS INTEGER) AS volume_mb
 FROM apps WHERE user_id = ?;
+
+-- name: OpsUserVolumeBytes :one
+SELECT CAST(COALESCE(SUM(x.volume_bytes), 0) AS INTEGER) AS bytes
+FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ? AND a.volume_enabled = 1;
 
 -- name: OpsCountDeploymentsSince :one
 SELECT COUNT(*) FROM deployments d JOIN apps a ON a.id = d.app_id
@@ -137,9 +142,8 @@ DELETE FROM usage_daily WHERE day < ? AND app_id NOT IN (SELECT id FROM apps);
 SELECT id, slug, volume_enabled FROM apps;
 
 -- name: OpsListVolumeUsage :many
-SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, u.quota_volume_mb, d.volume_bytes
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, a.volume_mb, d.volume_bytes
 FROM apps a
-JOIN users u ON u.id = a.user_id
 JOIN app_disk d ON d.app_id = a.id
 WHERE a.volume_enabled = 1;
 

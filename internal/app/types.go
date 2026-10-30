@@ -26,7 +26,7 @@ type Quota struct {
 	CPUMillis      int64 `json:"cpu_millis"` // 1000 = 1 CPU
 	DeploysPerHour int64 `json:"deploys_per_hour"`
 	DomainsPerApp  int64 `json:"domains_per_app"`
-	VolumeMB       int64 `json:"volume_mb"`
+	VolumeMB       int64 `json:"volume_mb"` // storage allowance, shared by the /data volumes of all apps
 }
 
 type Usage struct {
@@ -41,6 +41,8 @@ type Usage struct {
 	DeploysMonth      int64   `json:"deploys_month"`
 	DeploysWeek       int64   `json:"deploys_week"`
 	DiskUsedMB        float64 `json:"disk_used_mb"`
+	VolumeReservedMB  int64   `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
+	VolumeUsedMB      float64 `json:"volume_used_mb"`     // measured hourly
 }
 
 // Me is returned by whoami / GET /api/v1/me.
@@ -109,27 +111,32 @@ type GitSource struct {
 }
 
 type App struct {
-	ID             string      `json:"id"`
-	Slug           string      `json:"slug"`
-	Name           string      `json:"name"`
-	Type           string      `json:"type"` // web | worker
-	URL            string      `json:"url"`
-	OwnerID        string      `json:"owner_id"`
-	Status         string      `json:"status"` // new | deploying | running | stopped | failed | crashed
-	StatusMessage  string      `json:"status_message,omitempty"`
-	DesiredState   string      `json:"desired_state"`
-	Port           *int64      `json:"port"`
-	HealthPath     string      `json:"health_path"`
-	DockerfilePath string      `json:"dockerfile_path"`
-	ContextDir     string      `json:"context_dir"`
-	Volume         bool        `json:"volume"`
-	MemoryMB       int64       `json:"memory_mb"`
-	CPUMillis      int64       `json:"cpu_millis"`
-	GitSource      *GitSource  `json:"git_source"`
-	Current        *Deployment `json:"current_deployment"`
-	Domains        []Domain    `json:"domains"`
-	StartedAt      *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
-	RestartCount   int64       `json:"restart_count"`
+	ID             string `json:"id"`
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	Type           string `json:"type"` // web | worker
+	URL            string `json:"url"`
+	OwnerID        string `json:"owner_id"`
+	Status         string `json:"status"` // new | deploying | running | stopped | failed | crashed
+	StatusMessage  string `json:"status_message,omitempty"`
+	DesiredState   string `json:"desired_state"`
+	Port           *int64 `json:"port"`
+	HealthPath     string `json:"health_path"`
+	DockerfilePath string `json:"dockerfile_path"`
+	ContextDir     string `json:"context_dir"`
+	Volume         bool   `json:"volume"`
+	VolumeMB       int64  `json:"volume_mb"` // storage limit of /data
+	// VolumeUsedMB is what /data holds, measured hourly; nil when the volume is
+	// off or not measured yet.
+	VolumeUsedMB     *float64    `json:"volume_used_mb"`
+	VolumeMeasuredAt *time.Time  `json:"volume_measured_at,omitempty"`
+	MemoryMB         int64       `json:"memory_mb"`
+	CPUMillis        int64       `json:"cpu_millis"`
+	GitSource        *GitSource  `json:"git_source"`
+	Current          *Deployment `json:"current_deployment"`
+	Domains          []Domain    `json:"domains"`
+	StartedAt        *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
+	RestartCount     int64       `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
 	Live      *MetricPoint `json:"live"`
 	CreatedAt time.Time    `json:"created_at"`
@@ -306,6 +313,7 @@ type CreateAppInput struct {
 	Slug      string `json:"slug,omitempty"`
 	Port      *int64 `json:"port,omitempty"`
 	Volume    bool   `json:"volume,omitempty"`
+	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
 	MemoryMB  *int64 `json:"memory_mb,omitempty"`
 	CPUMillis *int64 `json:"cpu_millis,omitempty"`
 }
@@ -320,6 +328,7 @@ type UpdateAppInput struct {
 	DockerfilePath *string `json:"dockerfile_path,omitempty"`
 	ContextDir     *string `json:"context_dir,omitempty"`
 	Volume         *bool   `json:"volume,omitempty"`
+	VolumeMB       *int64  `json:"volume_mb,omitempty"`
 	MemoryMB       *int64  `json:"memory_mb,omitempty"`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty"`
 }

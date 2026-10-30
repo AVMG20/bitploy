@@ -12,12 +12,13 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useAppMetrics } from '@/composables/queries'
 import { useAppActions } from '@/composables/useAppActions'
 import { nowMs } from '@/composables/useNow'
-import { channelLabel, deploymentStateInfo, describeSource, formatCPUMillis, formatDuration, formatMB, shortSha, uptime } from '@/lib/format'
+import { channelLabel, deploymentStateInfo, describeSource, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
@@ -89,6 +90,21 @@ function stop() {
               <dd class="mt-1 font-medium">{{ formatMB(data.memory_mb) }}, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </div>
           </dl>
+          <div v-if="data.volume" class="grid gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <span class="text-muted-foreground">Stored files (/data)</span>
+              <span v-if="data.volume_used_mb !== null" class="font-medium tabular-nums">
+                {{ formatMB(data.volume_used_mb) }} of {{ formatMB(data.volume_mb) }}
+              </span>
+              <span v-else class="font-medium">Limit {{ formatMB(data.volume_mb) }}</span>
+            </div>
+            <Progress :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
+            <p class="text-xs text-muted-foreground">
+              <template v-if="data.volume_measured_at">Measured <RelativeTime :date="data.volume_measured_at" />. </template>
+              <template v-else>Not measured yet. </template>
+              Bitploy checks every hour and stops the app when it goes over the limit.
+            </p>
+          </div>
           <div class="flex flex-wrap gap-2">
             <Button :disabled="busy || !dep" @click="actions.redeploy.mutate()">
               <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Redeploy

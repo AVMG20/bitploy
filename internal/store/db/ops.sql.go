@@ -661,9 +661,8 @@ func (q *Queries) OpsListUploadsBefore(ctx context.Context, createdAt int64) ([]
 }
 
 const opsListVolumeUsage = `-- name: OpsListVolumeUsage :many
-SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, u.quota_volume_mb, d.volume_bytes
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, a.volume_mb, d.volume_bytes
 FROM apps a
-JOIN users u ON u.id = a.user_id
 JOIN app_disk d ON d.app_id = a.id
 WHERE a.volume_enabled = 1
 `
@@ -674,7 +673,7 @@ type OpsListVolumeUsageRow struct {
 	Status        string
 	StatusMessage string
 	DesiredState  string
-	QuotaVolumeMb int64
+	VolumeMb      int64
 	VolumeBytes   int64
 }
 
@@ -693,7 +692,7 @@ func (q *Queries) OpsListVolumeUsage(ctx context.Context) ([]OpsListVolumeUsageR
 			&i.Status,
 			&i.StatusMessage,
 			&i.DesiredState,
-			&i.QuotaVolumeMb,
+			&i.VolumeMb,
 			&i.VolumeBytes,
 		); err != nil {
 			return nil, err
@@ -843,7 +842,8 @@ SELECT
     COUNT(*) AS apps,
     CAST(COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
     CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis
+    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
+    CAST(COALESCE(SUM(CASE WHEN volume_enabled = 1 THEN volume_mb ELSE 0 END), 0) AS INTEGER) AS volume_mb
 FROM apps WHERE user_id = ?
 `
 
@@ -852,6 +852,7 @@ type OpsUsageAppTotalsRow struct {
 	AppsRunning int64
 	MemoryMb    int64
 	CpuMillis   int64
+	VolumeMb    int64
 }
 
 func (q *Queries) OpsUsageAppTotals(ctx context.Context, userID string) (OpsUsageAppTotalsRow, error) {
@@ -862,6 +863,7 @@ func (q *Queries) OpsUsageAppTotals(ctx context.Context, userID string) (OpsUsag
 		&i.AppsRunning,
 		&i.MemoryMb,
 		&i.CpuMillis,
+		&i.VolumeMb,
 	)
 	return i, err
 }
@@ -875,6 +877,18 @@ FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?
 // a rollback reuses an image and builds nothing
 func (q *Queries) OpsUserDiskBytes(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, opsUserDiskBytes, userID)
+	var bytes int64
+	err := row.Scan(&bytes)
+	return bytes, err
+}
+
+const opsUserVolumeBytes = `-- name: OpsUserVolumeBytes :one
+SELECT CAST(COALESCE(SUM(x.volume_bytes), 0) AS INTEGER) AS bytes
+FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ? AND a.volume_enabled = 1
+`
+
+func (q *Queries) OpsUserVolumeBytes(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, opsUserVolumeBytes, userID)
 	var bytes int64
 	err := row.Scan(&bytes)
 	return bytes, err

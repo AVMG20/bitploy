@@ -326,6 +326,59 @@ func TestUpdateAppFields(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
+func TestStorageAllowance(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	e.exec(t, `UPDATE users SET quota_volume_mb = 10240 WHERE id = ?`, e.user.UserID)
+
+	a := e.mustApp(t, CreateAppInput{Slug: "vol-a", Volume: true})
+	if a.VolumeMB != 5120 {
+		t.Fatalf("default volume_mb = %d", a.VolumeMB)
+	}
+	// A second 5 GB volume fits exactly; a third does not.
+	e.mustApp(t, CreateAppInput{Slug: "vol-b", Volume: true})
+	if _, err := e.s.CreateApp(ctx, e.user, CreateAppInput{Slug: "vol-c", Volume: true, VolumeMB: ptr(int64(100))}); depCode(err) != "storage_quota_exceeded" {
+		t.Errorf("third volume: %v", err)
+	}
+	// Without a volume, nothing is reserved; turning it on is checked.
+	c := e.mustApp(t, CreateAppInput{Slug: "vol-c"})
+	if _, err := e.s.UpdateApp(ctx, e.user, c.Slug, UpdateAppInput{Volume: ptr(true)}); depCode(err) != "storage_quota_exceeded" {
+		t.Errorf("turn on volume: %v", err)
+	}
+	// Lowering one limit frees room for the other.
+	if _, err := e.s.UpdateApp(ctx, e.user, a.Slug, UpdateAppInput{VolumeMB: ptr(int64(1024))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, c.Slug, UpdateAppInput{Volume: ptr(true), VolumeMB: ptr(int64(4096))}); err != nil {
+		t.Errorf("fits now: %v", err)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, a.Slug, UpdateAppInput{VolumeMB: ptr(int64(2048))}); depCode(err) != "storage_quota_exceeded" {
+		t.Errorf("raise over allowance: %v", err)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, a.Slug, UpdateAppInput{VolumeMB: ptr(int64(10))}); depCode(err) != "volume_mb_invalid" {
+		t.Errorf("too small: %v", err)
+	}
+	// The limit cannot go below what /data already holds.
+	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, 0, ?, 1)`, a.ID, int64(900)<<20)
+	if _, err := e.s.UpdateApp(ctx, e.user, a.Slug, UpdateAppInput{VolumeMB: ptr(int64(512))}); depCode(err) != "volume_limit_below_usage" {
+		t.Errorf("below usage: %v", err)
+	}
+	got, err := e.s.GetApp(ctx, e.user, a.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.VolumeUsedMB == nil || *got.VolumeUsedMB != 900 {
+		t.Errorf("volume_used_mb = %v", got.VolumeUsedMB)
+	}
+	u, err := e.s.Usage(ctx, e.user.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.VolumeReservedMB != 1024+5120+4096 || u.VolumeUsedMB != 900 {
+		t.Errorf("usage = %d MB reserved, %v MB used", u.VolumeReservedMB, u.VolumeUsedMB)
+	}
+}
+
 func TestRenameApp(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()
@@ -371,10 +424,22 @@ func TestRenameApp(t *testing.T) {
 			t.Errorf("rename to %q: %v", slug, err)
 		}
 	}
-	// Volumes cannot be renamed.
+	// An app with a volume can be renamed; its volume keeps its name, and a new
+	// app on the old slug gets a volume name of its own.
 	vol := e.mustApp(t, CreateAppInput{Slug: "has-volume", Volume: true})
-	if _, err := e.s.UpdateApp(ctx, e.user, vol.Slug, UpdateAppInput{Slug: ptr("other-name")}); depCode(err) != "rename_with_volume" {
-		t.Errorf("volume rename: %v", err)
+	if _, err := e.s.UpdateApp(ctx, e.user, vol.Slug, UpdateAppInput{Slug: ptr("other-name")}); err != nil {
+		t.Fatalf("volume rename: %v", err)
+	}
+	volName := func(id string) (n string) {
+		_ = e.s.Store.DB.QueryRow(`SELECT volume_name FROM apps WHERE id = ?`, id).Scan(&n)
+		return n
+	}
+	if n := volName(vol.ID); n != "bp-has-volume-data" {
+		t.Errorf("renamed app volume = %q", n)
+	}
+	again := e.mustApp(t, CreateAppInput{Slug: "has-volume"})
+	if n := volName(again.ID); n != "bp-"+again.ID+"-data" {
+		t.Errorf("new app on old slug got volume %q", n)
 	}
 	// Busy apps cannot be renamed.
 	busy := e.mustApp(t, CreateAppInput{Slug: "busy-app"})

@@ -36,23 +36,25 @@ type validateIn struct {
 }
 
 type createAppIn struct {
-	Name   string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
-	Type   string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
-	Slug   string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
-	Port   *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
-	Volume bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys (SQLite, uploads). The app must then write its files to /data."`
+	Name     string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
+	Type     string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
+	Slug     string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
+	Port     *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
+	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys (SQLite, uploads). The app must then write its files to /data."`
+	VolumeMB *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
 }
 
 type updateAppIn struct {
 	App            string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Name           *string `json:"name,omitempty" jsonschema:"New display name, 1-80 characters."`
-	Slug           *string `json:"slug,omitempty" jsonschema:"Rename the subdomain (the URL changes, old URL stops working, a few seconds of downtime). 3-40 characters of a-z, 0-9 and -. Refused while the app has a volume."`
+	Slug           *string `json:"slug,omitempty" jsonschema:"Rename the subdomain (the URL changes, old URL stops working, a few seconds of downtime). 3-40 characters of a-z, 0-9 and -. Files in /data are kept."`
 	Type           *string `json:"type,omitempty" jsonschema:"web or worker."`
 	Port           *int64  `json:"port,omitempty" jsonschema:"The port the app listens on, like 3000. 0 clears it so the Dockerfile EXPOSE is used. Applies on the next deploy."`
 	HealthPath     *string `json:"health_path,omitempty" jsonschema:"Path bitploy requests to see the app is healthy, like /healthz. Starts with /. Default /. Any status below 500 passes. Applies on the next deploy."`
 	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile inside the project, default Dockerfile. Example: docker/Dockerfile.prod."`
 	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the project root). Example: backend."`
 	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume, false turns it off. Call restart_app afterwards."`
+	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
 }
@@ -277,7 +279,7 @@ func (s *srv) registerTools() {
 		write(), true,
 		enums(map[string][]string{"type": {"web", "worker"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
-			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Port: in.Port, Volume: in.Volume})
+			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB})
 			if err != nil {
 				return nil, err
 			}
@@ -297,13 +299,13 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume, memory_mb, cpu_millis apply on restart_app; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
+		"Changes settings of an existing app; only the fields you pass change. volume, memory_mb, cpu_millis apply on restart_app; volume_mb applies at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
 				Name: in.Name, Slug: in.Slug, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume,
-				MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis,
+				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis,
 			})
 			if err != nil {
 				return nil, err

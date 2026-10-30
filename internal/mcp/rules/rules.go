@@ -28,7 +28,7 @@ const RuntimeContract = `## Runtime contract
 
 - Listen on 0.0.0.0:$PORT. Bitploy sets PORT, BITPLOY_APP and BITPLOY_URL. The port is the app's port setting, otherwise the single EXPOSE of the last stage of the Dockerfile.
 - Log to stdout and stderr; build and runtime logs come from get_deployment and get_logs.
-- Write persistent data only to /data, and only after turning the volume on with update_app (volume=true) and then restart_app. Everything else in the container is lost on redeploy. The app user must be able to write there: in the Dockerfile run mkdir /data and chown it to the app user before USER (for example RUN mkdir /data && chown node /data). Docker copies that ownership into the new volume.
+- Write persistent data only to /data, and only after turning the volume on with update_app (volume=true) and then restart_app. Everything else in the container is lost on redeploy. The app user must be able to write there: in the Dockerfile run mkdir /data and chown it to the app user before USER (for example RUN mkdir /data && chown node /data). Docker copies that ownership into the new volume. Each volume has a storage limit (volume_mb, default 5 GB) taken from the account's storage allowance; bitploy measures /data hourly, warns at 80% and stops the app above 100%.
 - Apps run as one locked-down container: 512 MB memory and 0.5 CPU by default, no root privileges, no access to the Docker socket or the host.
 - A worker (type=worker: bot, queue consumer) has no route and no port check; it counts as healthy when it is still running after 30 seconds. Its process must keep running in the foreground.
 - A web app is healthy when its port is open and GET health_path (default /) answers with a status below 500 within 60 seconds. A Dockerfile HEALTHCHECK replaces this check.
@@ -42,7 +42,7 @@ const RuntimeContract = `## Runtime contract
 - Zip upload: at most 95 MB compressed, 500 MB unpacked, 20,000 files. If everything sits in one top-level folder, that folder is stripped. Leave out node_modules, .git, .env and build output.
 - Git: shallow clone of one branch, at most 500 MB, HTTPS only. Private GitHub repositories use the token the user saved in the dashboard under Settings; you cannot set it yourself, ask the user to do it.
 - A build takes at most 15 minutes. The built image must be under 2 GB.
-- Deployments per hour, number of apps, memory, CPU and custom domains per app are limited per account: whoami shows the numbers.
+- Deployments per hour, number of apps, memory, CPU, storage and custom domains per app are limited per account: whoami shows the numbers.
 
 ## Updating an app later (also from a new session)
 
@@ -54,7 +54,7 @@ const RuntimeContract = `## Runtime contract
 ## Applying changes
 
 - set_env: new values reach a running app only after restart_app (it recreates the container; no rebuild, a few seconds). If the app is failed, new or stopped-by-crash, call deploy (with only app=) instead, because restart_app needs a deployment that already ran.
-- update_app volume, memory_mb, cpu_millis: apply on restart_app. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, refused for apps with a volume.
+- update_app volume, memory_mb, cpu_millis: apply on restart_app. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
 - Code or Dockerfile changes: always a new deploy_files or deploy.
 - rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last 3 images exist). Roll back only when the user asks.
 

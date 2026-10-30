@@ -33,6 +33,9 @@ const (
 	defaultCPUMillis = 500
 	minMemoryMB      = 64
 	minCPUMillis     = 50
+	defaultVolumeMB  = 5120
+	minVolumeMB      = 100
+	maxVolumeMB      = 1 << 20 // 1 TB
 	slugReserveDays  = 30
 )
 
@@ -71,6 +74,13 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if err := validResources(mem, cpu); err != nil {
 		return App{}, err
 	}
+	volMB := int64(defaultVolumeMB)
+	if in.VolumeMB != nil {
+		volMB = *in.VolumeMB
+	}
+	if err := validVolumeMB(volMB); err != nil {
+		return App{}, err
+	}
 
 	// The app-count limits are checked here for a quick answer and again inside
 	// the insert transaction, so parallel create_app calls cannot all pass.
@@ -105,6 +115,12 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if err := checkFitsQuota(user, mem, cpu); err != nil {
 		return App{}, err
 	}
+	// Storage is reserved as soon as the volume is on, running or not.
+	if in.Volume {
+		if err := s.checkVolumeQuota(ctx, user, "", volMB); err != nil {
+			return App{}, err
+		}
+	}
 
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	generated := slug == ""
@@ -137,9 +153,18 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := checkAppCaps(q); err != nil {
 			return err
 		}
+		// The volume is named after the slug, unless a renamed app still uses that
+		// name for its own volume (volumes keep their name across renames).
+		volName := dockerx.VolumeName(slug)
+		if n, err := q.VolumeNameExists(ctx, volName); err != nil {
+			return err
+		} else if n > 0 {
+			volName = dockerx.VolumeName(id)
+		}
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
-			VolumeEnabled: b2i(in.Volume), MemoryMb: mem, CpuMillis: cpu, CreatedAt: now, UpdatedAt: now,
+			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
+			MemoryMb: mem, CpuMillis: cpu, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -207,7 +232,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	p := db.UpdateAppSettingsParams{
 		ID: row.ID, Slug: row.Slug, Name: row.Name, Type: row.Type, Port: row.Port,
 		HealthPath: row.HealthPath, DockerfilePath: row.DockerfilePath, ContextDir: row.ContextDir,
-		VolumeEnabled: row.VolumeEnabled, MemoryMb: row.MemoryMb, CpuMillis: row.CpuMillis, UpdatedAt: s.now(),
+		VolumeEnabled: row.VolumeEnabled, VolumeMb: row.VolumeMb, MemoryMb: row.MemoryMb, CpuMillis: row.CpuMillis, UpdatedAt: s.now(),
 	}
 	changed := map[string]any{}
 
@@ -268,6 +293,26 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if in.Volume != nil {
 		p.VolumeEnabled = b2i(*in.Volume)
 		changed["volume"] = *in.Volume
+	}
+	if in.VolumeMB != nil {
+		if err := validVolumeMB(*in.VolumeMB); err != nil {
+			return App{}, err
+		}
+		if *in.VolumeMB < row.VolumeMb {
+			if d, err := s.Q.GetAppDisk(ctx, row.ID); err == nil && d.VolumeBytes > *in.VolumeMB<<20 {
+				return App{}, apperr.BadRequest("volume_limit_below_usage",
+					fmt.Sprintf("The /data folder of this app already holds %d MB, more than the new limit of %d MB.", d.VolumeBytes>>20, *in.VolumeMB),
+					"Delete files you no longer need from /data first, or pick a limit above what the app already stores.")
+			}
+		}
+		p.VolumeMb = *in.VolumeMB
+		changed["volume_mb"] = *in.VolumeMB
+	}
+	// Turning the volume on, or raising its limit, takes storage from the allowance.
+	if p.VolumeEnabled != 0 && (row.VolumeEnabled == 0 || p.VolumeMb > row.VolumeMb) {
+		if err := s.checkVolumeQuota(ctx, owner, row.ID, p.VolumeMb); err != nil {
+			return App{}, err
+		}
 	}
 	if in.MemoryMB != nil || in.CPUMillis != nil {
 		if in.MemoryMB != nil {
@@ -333,8 +378,8 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 // the old container and network are replaced, not renamed. Images are
 // re-tagged to the new name first, then the database changes, then the old
 // container, network and route go and the current image starts again under
-// the new names. The app is down for a few seconds. Apps with a volume are
-// refused because Docker cannot rename a volume.
+// the new names. The app is down for a few seconds. The data volume keeps its
+// name (apps.volume_name), because Docker cannot rename a volume.
 func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSettingsParams) error {
 	oldSlug, newSlug := row.Slug, p.Slug
 	if !s.settled(row.ID) {
@@ -342,11 +387,6 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 	}
 	if n, err := s.Q.CountPendingDeploymentsByApp(ctx, row.ID); err == nil && n > 0 {
 		return busyErr()
-	}
-	if row.VolumeEnabled != 0 {
-		return apperr.Conflict("rename_with_volume",
-			"This app has a volume, and Docker cannot rename volumes, so the subdomain cannot change.",
-			"Create a new app with the new name, deploy there, and delete this one when you no longer need its data.")
 	}
 	lock := s.appLock(row.ID)
 	lock.Lock()
@@ -455,11 +495,11 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 				_ = s.Docker.RemoveImage(bg, t)
 			}
 		}
-		if err := s.Docker.RemoveVolume(bg, dockerx.VolumeName(row.Slug)); err != nil {
+		if err := s.Docker.RemoveVolume(bg, appVolumeName(row)); err != nil {
 			s.Log.Error("remove volume", "app", row.Slug, "err", err)
 			return apperr.Unavailable("volume_remove_failed",
 				"The app's containers are gone, but Docker could not remove its data volume, so the app was not deleted.",
-				"Call delete_app again in a minute. If it keeps failing, tell the bitploy admin to check the Docker volume "+quote(dockerx.VolumeName(row.Slug))+".").WithNext("delete_app")
+				"Call delete_app again in a minute. If it keeps failing, tell the bitploy admin to check the Docker volume "+quote(appVolumeName(row))+".").WithNext("delete_app")
 		}
 	}
 	for _, d := range deps {
@@ -525,6 +565,42 @@ func validResources(memMB, cpuMillis int64) *apperr.Error {
 	}
 	if cpuMillis < minCPUMillis || cpuMillis > 64*1000 {
 		return apperr.BadRequest("cpu_invalid", fmt.Sprintf("%d CPU millis is not a valid amount.", cpuMillis), "cpu_millis is thousandths of a CPU: 500 is half a CPU, 1000 is one. Use at least 50.")
+	}
+	return nil
+}
+
+func validVolumeMB(mb int64) *apperr.Error {
+	if mb < minVolumeMB || mb > maxVolumeMB {
+		return apperr.BadRequest("volume_mb_invalid", fmt.Sprintf("%d MB is not a valid storage limit.", mb),
+			fmt.Sprintf("Use at least %d MB, for example 5120 for 5 GB.", minVolumeMB))
+	}
+	return nil
+}
+
+// appVolumeName is the Docker volume mounted at /data. Rows from before
+// apps.volume_name existed (only in tests) fall back to the slug.
+func appVolumeName(a db.App) string {
+	if a.VolumeName != "" {
+		return a.VolumeName
+	}
+	return dockerx.VolumeName(a.Slug)
+}
+
+// checkVolumeQuota verifies that the storage limits of the user's other apps
+// with a volume, plus this app (excludeID, may be "") at volMB, fit the
+// user's storage allowance. An allowance of 0 or less means no limit.
+func (s *Service) checkVolumeQuota(ctx context.Context, u db.User, excludeID string, volMB int64) error {
+	if u.QuotaVolumeMb <= 0 {
+		return nil
+	}
+	used, err := s.Q.SumVolumeMBByUser(ctx, db.SumVolumeMBByUserParams{UserID: u.ID, ID: excludeID})
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	if used+volMB > u.QuotaVolumeMb {
+		return apperr.Forbidden("storage_quota_exceeded",
+			fmt.Sprintf("This needs %d MB of storage, but your other apps already reserve %d MB of your %d MB storage allowance.", volMB, used, u.QuotaVolumeMb),
+			"Use a smaller volume_mb for this app, lower it on another app, turn off a volume you no longer need, or ask a bitploy admin for more storage.").WithNext("update_app")
 	}
 	return nil
 }
@@ -669,8 +745,15 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
 		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir,
-		Volume: r.VolumeEnabled != 0, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
+		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
+	}
+	if r.VolumeEnabled != 0 {
+		if d, err := s.Q.GetAppDisk(ctx, r.ID); err == nil {
+			used := round1(float64(d.VolumeBytes) / mib)
+			at := ts(d.MeasuredAt)
+			v.VolumeUsedMB, v.VolumeMeasuredAt = &used, &at
+		}
 	}
 	if r.Type == "web" {
 		v.URL = s.Cfg.AppURL(r.Slug)

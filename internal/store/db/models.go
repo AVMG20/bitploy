@@ -45,6 +45,8 @@ type App struct {
 	DeploySeq           int64
 	CreatedAt           int64
 	UpdatedAt           int64
+	VolumeMb            int64
+	VolumeName          string
 }
 
 type AppDisk struct {

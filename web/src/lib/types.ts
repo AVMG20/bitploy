@@ -20,6 +20,7 @@ export interface Quota {
   cpu_millis: number
   deploys_per_hour: number
   domains_per_app: number
+  /** Storage allowance, shared by the /data volumes of all apps. */
   volume_mb: number
 }
 
@@ -35,6 +36,8 @@ export interface Usage {
   deploys_month: number
   deploys_week: number
   disk_used_mb: number
+  volume_reserved_mb: number
+  volume_used_mb: number
 }
 
 export interface Me {
@@ -192,6 +195,11 @@ export interface App {
   dockerfile_path: string
   context_dir: string
   volume: boolean
+  /** Storage limit of /data. */
+  volume_mb: number
+  /** What /data holds, measured hourly; null when the volume is off or not measured yet. */
+  volume_used_mb: number | null
+  volume_measured_at?: string
   memory_mb: number
   cpu_millis: number
   git_source: GitSource | null
@@ -214,6 +222,7 @@ export interface UpdateAppInput {
   dockerfile_path?: string
   context_dir?: string
   volume?: boolean
+  volume_mb?: number
   memory_mb?: number
   cpu_millis?: number
 }

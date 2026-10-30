@@ -77,7 +77,7 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 	}
 	u := Usage{
 		Apps: tot.Apps, AppsRunning: tot.AppsRunning,
-		MemoryReservedMB: tot.MemoryMb, CPUReservedMillis: tot.CpuMillis,
+		MemoryReservedMB: tot.MemoryMb, CPUReservedMillis: tot.CpuMillis, VolumeReservedMB: tot.VolumeMb,
 	}
 	if u.DeploysMonth, err = q.OpsCountDeploymentsSince(ctx, db.OpsCountDeploymentsSinceParams{UserID: userID, QueuedAt: monthStart.Unix()}); err != nil {
 		return Usage{}, apperr.Internal(err)
@@ -100,6 +100,11 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 		return Usage{}, apperr.Internal(err)
 	}
 	u.DiskUsedMB = round1(float64(disk) / mib)
+	vol, err := q.OpsUserVolumeBytes(ctx, userID)
+	if err != nil {
+		return Usage{}, apperr.Internal(err)
+	}
+	u.VolumeUsedMB = round1(float64(vol) / mib)
 
 	apps, err := q.ListAppsByUser(ctx, userID)
 	if err != nil {

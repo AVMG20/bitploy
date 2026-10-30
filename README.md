@@ -213,7 +213,7 @@ Do this once a quarter, and once right after setting up backups.
    ```
 3. **Restore an app volume.** Redeploy or start the app once so its volume exists, stop it, then:
    ```bash
-   V=bp-quiet-otter-3f9a-data
+   V=bp-quiet-otter-3f9a-data   # a renamed app keeps its first name: docker volume ls --filter label=nl.bitploy.app_id=<app id>
    MP=$(docker volume inspect -f '{{.Mountpoint}}' $V)
    sudo /opt/bitploy/backup.sh restic dump latest --tag vol:$V /volumes/$V.tar | sudo tar -xf - -C "$MP"
    ```

@@ -9,8 +9,9 @@ import (
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
-// Volume quota: users.quota_volume_mb is the size limit of each app's /data
-// volume. EnforceVolumeQuota measures the volumes (the same measurement the
+// Volume quota: apps.volume_mb is the size limit of each app's /data volume
+// (users.quota_volume_mb is the total the user hands out to their apps).
+// EnforceVolumeQuota measures the volumes (the same measurement the
 // nightly job does, so app_disk stays current) and then:
 //   - over the limit: stops the app, sets status failed with a plain message,
 //     and writes an audit row;
@@ -40,17 +41,17 @@ func sizeText(b int64) string {
 }
 
 // VolumeOverMessage is the status message of an app stopped for exceeding its volume limit.
-func VolumeOverMessage(quotaMB, usedBytes int64) string {
+func VolumeOverMessage(limitMB, usedBytes int64) string {
 	return fmt.Sprintf("%s %s limit (it holds %s), so bitploy stopped the app. "+
-		"Delete files you no longer need from /data (from inside the app), or ask a bitploy admin for a bigger volume quota, then start the app again.",
-		msgVolumeOver, quotaText(quotaMB), sizeText(usedBytes))
+		"Delete files you no longer need from /data (from inside the app), or give the app a bigger storage limit (Settings in the dashboard, or update_app volume_mb), then start the app again.",
+		msgVolumeOver, quotaText(limitMB), sizeText(usedBytes))
 }
 
 // VolumeWarnMessage is the warning for a volume at 80% of its limit or more.
-func VolumeWarnMessage(quotaMB, usedBytes int64) string {
+func VolumeWarnMessage(limitMB, usedBytes int64) string {
 	return fmt.Sprintf("%s: it holds %s of its %s limit. At 100%% bitploy stops the app. "+
-		"Delete files you no longer need from /data, or ask a bitploy admin for a bigger volume quota.",
-		msgVolumeWarn, sizeText(usedBytes), quotaText(quotaMB))
+		"Delete files you no longer need from /data, or give the app a bigger storage limit (Settings in the dashboard, or update_app volume_mb).",
+		msgVolumeWarn, sizeText(usedBytes), quotaText(limitMB))
 }
 
 func (m *Manager) runVolumeQuota(ctx context.Context) {
@@ -83,10 +84,10 @@ func (m *Manager) EnforceVolumeQuota(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if r.QuotaVolumeMb <= 0 {
+		if r.VolumeMb <= 0 {
 			continue
 		}
-		limit := r.QuotaVolumeMb << 20
+		limit := r.VolumeMb << 20
 		switch {
 		case r.VolumeBytes > limit:
 			if r.DesiredState == "running" {
@@ -94,7 +95,7 @@ func (m *Manager) EnforceVolumeQuota(ctx context.Context) error {
 			}
 		case float64(r.VolumeBytes) >= volumeWarnFraction*float64(limit):
 			if r.Status == "running" && (r.StatusMessage == "" || strings.HasPrefix(r.StatusMessage, msgVolumeWarn)) {
-				m.setVolumeStatus(ctx, r, "running", VolumeWarnMessage(r.QuotaVolumeMb, r.VolumeBytes))
+				m.setVolumeStatus(ctx, r, "running", VolumeWarnMessage(r.VolumeMb, r.VolumeBytes))
 			}
 		default:
 			if strings.HasPrefix(r.StatusMessage, msgVolumeWarn) {
@@ -122,7 +123,7 @@ func (m *Manager) stopForVolume(ctx context.Context, r db.OpsListVolumeUsageRow)
 		m.Log.Error("stopping app over volume quota failed", "app", r.ID, "err", err)
 		return
 	}
-	m.setVolumeStatus(ctx, r, "failed", VolumeOverMessage(r.QuotaVolumeMb, r.VolumeBytes))
+	m.setVolumeStatus(ctx, r, "failed", VolumeOverMessage(r.VolumeMb, r.VolumeBytes))
 	if cs, err := m.Docker.ManagedContainers(ctx, false); err == nil {
 		for _, c := range cs {
 			if c.AppID == r.ID {
@@ -131,7 +132,7 @@ func (m *Manager) stopForVolume(ctx context.Context, r db.OpsListVolumeUsageRow)
 		}
 	}
 	m.audit(ctx, "app.volume_quota_exceeded", "app", r.ID, map[string]any{
-		"slug": r.Slug, "volume_bytes": r.VolumeBytes, "quota_mb": r.QuotaVolumeMb,
+		"slug": r.Slug, "volume_bytes": r.VolumeBytes, "limit_mb": r.VolumeMb,
 	})
 	if m.SyncRoute != nil {
 		if err := m.SyncRoute(ctx, r.ID); err != nil {
