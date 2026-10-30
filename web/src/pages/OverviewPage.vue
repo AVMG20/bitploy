@@ -24,14 +24,7 @@ const quota = computed(() => me.data.value?.quota)
   <div class="grid gap-6">
     <PageHeader title="Your apps" description="Everything you have put online, and how it is doing." />
 
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      <StatCard
-        title="Apps running"
-        :loading="me.isPending.value"
-        :value="usage ? `${usage.apps_running} of ${usage.apps}` : ''"
-        :sub="quota ? `You can have up to ${quota.apps} apps` : ''"
-        :progress="usage && quota ? pct(usage.apps, quota.apps) : undefined"
-      />
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         title="Memory in use"
         :loading="me.isPending.value"
@@ -47,10 +40,10 @@ const quota = computed(() => me.data.value?.quota)
         :progress="usage && quota ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
       />
       <StatCard
-        title="Stored files"
+        title="Saved data (/data)"
         :loading="me.isPending.value"
         :value="usage ? formatMB(usage.volume_used_mb) : ''"
-        :sub="usage && quota ? `${formatMB(usage.volume_reserved_mb)} reserved of ${formatMB(quota.volume_mb)}` : ''"
+        :sub="usage && quota ? `${formatMB(usage.volume_reserved_mb)} reserved of ${formatMB(quota.volume_mb)} for apps that keep files` : ''"
         :progress="usage && quota ? pct(usage.volume_reserved_mb, quota.volume_mb) : undefined"
       />
       <StatCard
