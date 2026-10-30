@@ -43,6 +43,7 @@ type Usage struct {
 	DiskUsedMB        float64 `json:"disk_used_mb"`
 	VolumeReservedMB  int64   `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
 	VolumeUsedMB      float64 `json:"volume_used_mb"`     // measured hourly
+	FilesMB           float64 `json:"files_mb"`           // images and stored source of all apps, measured hourly
 }
 
 // Me is returned by whoami / GET /api/v1/me.
@@ -128,15 +129,18 @@ type App struct {
 	VolumeMB       int64  `json:"volume_mb"` // storage limit of /data
 	// VolumeUsedMB is what /data holds, measured hourly; nil when the volume is
 	// off or not measured yet.
-	VolumeUsedMB     *float64    `json:"volume_used_mb"`
-	VolumeMeasuredAt *time.Time  `json:"volume_measured_at,omitempty"`
-	MemoryMB         int64       `json:"memory_mb"`
-	CPUMillis        int64       `json:"cpu_millis"`
-	GitSource        *GitSource  `json:"git_source"`
-	Current          *Deployment `json:"current_deployment"`
-	Domains          []Domain    `json:"domains"`
-	StartedAt        *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
-	RestartCount     int64       `json:"restart_count"`
+	VolumeUsedMB *float64 `json:"volume_used_mb"`
+	// FilesMB is the app's own files: its kept images (versions for rollback)
+	// and stored source, measured hourly and after each deploy; nil until measured.
+	FilesMB        *float64    `json:"files_mb"`
+	DiskMeasuredAt *time.Time  `json:"disk_measured_at,omitempty"`
+	MemoryMB       int64       `json:"memory_mb"`
+	CPUMillis      int64       `json:"cpu_millis"`
+	GitSource      *GitSource  `json:"git_source"`
+	Current        *Deployment `json:"current_deployment"`
+	Domains        []Domain    `json:"domains"`
+	StartedAt      *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
+	RestartCount   int64       `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
 	Live      *MetricPoint `json:"live"`
 	CreatedAt time.Time    `json:"created_at"`

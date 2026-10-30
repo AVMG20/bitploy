@@ -3,6 +3,9 @@ import type { App, AppStatus, Deployment, DeploymentState, DomainStatus } from '
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 
 export function appStatusInfo(status: string): { label: string; tone: Tone } {
+  // Shown while a restart or start request runs.
+  if (status === 'restarting') return { label: 'Restarting', tone: 'info' }
+  if (status === 'starting') return { label: 'Starting', tone: 'info' }
   switch (status as AppStatus) {
     case 'running':
       return { label: 'Running', tone: 'success' }
@@ -132,6 +135,7 @@ export function uptime(startedAt: string | null | undefined, now: number = Date.
 
 export function formatMB(mb: number | null | undefined): string {
   if (mb === null || mb === undefined || Number.isNaN(mb)) return '-'
+  if (mb > 0 && mb < 1) return '<1 MB'
   if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
   return `${Math.round(mb)} MB`
 }

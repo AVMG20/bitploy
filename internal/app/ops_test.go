@@ -419,7 +419,7 @@ func TestUsage(t *testing.T) {
 	dep("dep_x", "app_x", 1, now-100, now-100, now-50, now-40)                           // someone else
 	e.exec(t, `INSERT INTO usage_daily VALUES ('app_1','usr_owner','2026-10-28', 86400), ('app_1','usr_owner','2026-10-29', 3600),
 		('app_1','usr_owner','2026-09-30', 86400), ('app_x','usr_other','2026-10-29', 999999)`)
-	e.exec(t, `INSERT INTO app_disk VALUES ('app_1', ?, ?, 1), ('app_2', ?, 0, 1)`, 100<<20, 20<<20, 50<<20)
+	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES ('app_1', ?, ?, 1), ('app_2', ?, 0, 1)`, 100<<20, 20<<20, 50<<20)
 
 	// A live sample for app_1 only.
 	e.svc.metricsMgr().SetLatestForTest("app_1", metrics.Point{TS: e.now, CPU: 12.34, MemBytes: 64 << 20})
@@ -431,7 +431,7 @@ func TestUsage(t *testing.T) {
 	want := Usage{
 		Apps: 2, AppsRunning: 1, MemoryReservedMB: 1024, CPUReservedMillis: 1000,
 		MemoryUsedMB: 64, CPUNowPercent: 12.3, BuildMinutesMonth: 3, RunningHoursMonth: 25,
-		DeploysMonth: 2, DeploysWeek: 2, DiskUsedMB: 170,
+		DeploysMonth: 2, DeploysWeek: 2, DiskUsedMB: 170, FilesMB: 150,
 	}
 	if u != want {
 		t.Errorf("usage =\n%+v\nwant\n%+v", u, want)

@@ -70,7 +70,7 @@ func (e *depEnv) exec(t *testing.T, q string, args ...any) {
 func (e *depEnv) addUser(t *testing.T, id, email, role string) Actor {
 	t.Helper()
 	now := time.Now().Unix()
-	e.exec(t, `INSERT INTO users (id, email, name, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, 'x', ?, ?, ?)`, id, email, id, role, now, now)
+	e.exec(t, `INSERT INTO users (id, email, name, password_hash, role, quota_volume_mb, created_at, updated_at) VALUES (?, ?, ?, 'x', ?, 25600, ?, ?)`, id, email, id, role, now, now)
 	return Actor{UserID: id, Role: role, Channel: ChannelAPI, Scope: ScopeDeploy}
 }
 
@@ -376,6 +376,22 @@ func TestStorageAllowance(t *testing.T) {
 	}
 	if u.VolumeReservedMB != 1024+5120+4096 || u.VolumeUsedMB != 900 {
 		t.Errorf("usage = %d MB reserved, %v MB used", u.VolumeReservedMB, u.VolumeUsedMB)
+	}
+
+	// The allowance is full (10 GB of /data limits): no new builds, until the
+	// limits shrink. App files count too.
+	if _, err := e.s.DeployFiles(ctx, e.user, a.Slug, staticFiles()); depCode(err) != "storage_full" {
+		t.Errorf("deploy with full storage: %v", err)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, c.Slug, UpdateAppInput{VolumeMB: ptr(int64(2048))}); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE app_disk SET image_bytes = ? WHERE app_id = ?`, int64(1500)<<20, a.ID)
+	if _, err := e.s.UpdateApp(ctx, e.user, c.Slug, UpdateAppInput{VolumeMB: ptr(int64(3072))}); depCode(err) != "storage_quota_exceeded" {
+		t.Errorf("raise with app files counted: %v", err)
+	}
+	if _, err := e.s.DeployFiles(ctx, e.user, a.Slug, staticFiles()); err != nil {
+		t.Errorf("deploy with room: %v", err)
 	}
 }
 

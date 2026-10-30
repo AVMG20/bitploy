@@ -167,6 +167,9 @@ type DiskImage struct {
 	AppID string
 	Tags  []string
 	Size  int64
+	// SharedSize is the part of Size in layers other images use too; -1 when
+	// Docker did not compute it.
+	SharedSize int64
 }
 
 type DiskVolume struct {
@@ -199,7 +202,7 @@ func (c *Client) DiskUsage(ctx context.Context, verbose bool) (DiskUsage, error)
 		VolumesBytes:    res.Volumes.TotalSize,
 	}
 	for _, im := range res.Images.Items {
-		out.Images = append(out.Images, DiskImage{AppID: im.Labels[LabelAppID], Tags: im.RepoTags, Size: im.Size})
+		out.Images = append(out.Images, DiskImage{AppID: im.Labels[LabelAppID], Tags: im.RepoTags, Size: im.Size, SharedSize: im.SharedSize})
 	}
 	for _, v := range res.Volumes.Items {
 		if v.UsageData != nil && v.UsageData.Size >= 0 {

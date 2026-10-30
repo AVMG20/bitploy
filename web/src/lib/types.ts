@@ -38,6 +38,8 @@ export interface Usage {
   disk_used_mb: number
   volume_reserved_mb: number
   volume_used_mb: number
+  /** Images and stored source of all apps. */
+  files_mb: number
 }
 
 export interface Me {
@@ -199,7 +201,9 @@ export interface App {
   volume_mb: number
   /** What /data holds, measured hourly; null when the volume is off or not measured yet. */
   volume_used_mb: number | null
-  volume_measured_at?: string
+  /** The app's own files: kept images and stored source; null until measured. */
+  files_mb: number | null
+  disk_measured_at?: string
   memory_mb: number
   cpu_millis: number
   git_source: GitSource | null

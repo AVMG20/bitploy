@@ -24,6 +24,10 @@ const (
 	msgVolumeOver = "The /data volume is over its"
 
 	volumeQuotaEvery = time.Hour
+	// After MeasureSoon: wait a little for the deploy cleanup, and measure at
+	// most once per measureMinGap (Docker's verbose disk usage is slow).
+	measureSettle = 5 * time.Second
+	measureMinGap = time.Minute
 )
 
 func quotaText(mb int64) string {
@@ -54,8 +58,19 @@ func VolumeWarnMessage(limitMB, usedBytes int64) string {
 		msgVolumeWarn, sizeText(usedBytes), quotaText(limitMB))
 }
 
+// MeasureSoon asks for a disk measurement shortly, so storage numbers are
+// current after a deploy or delete instead of after the next hourly run.
+func (m *Manager) MeasureSoon() {
+	select {
+	case m.measureReq <- struct{}{}:
+	default: // one is already pending
+	}
+}
+
 func (m *Manager) runVolumeQuota(ctx context.Context) {
-	m.logErr("volume quota", m.EnforceVolumeQuota(ctx))
+	run := func() { m.logErr("volume quota", m.EnforceVolumeQuota(ctx)) }
+	run()
+	last := time.Now()
 	t := time.NewTicker(volumeQuotaEvery)
 	defer t.Stop()
 	for {
@@ -63,8 +78,16 @@ func (m *Manager) runVolumeQuota(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			m.logErr("volume quota", m.EnforceVolumeQuota(ctx))
+		case <-m.measureReq:
+			wait := max(measureSettle, time.Until(last.Add(measureMinGap)))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
 		}
+		run()
+		last = time.Now()
 	}
 }
 

@@ -521,6 +521,7 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 		s.NotifyDeployment(d.ID)
 	}
 	s.Audit(ctx, a, "app.delete", "app", row.ID, map[string]any{"slug": row.Slug})
+	s.metricsMgr().MeasureSoon()
 	return nil
 }
 
@@ -586,21 +587,55 @@ func appVolumeName(a db.App) string {
 	return dockerx.VolumeName(a.Slug)
 }
 
-// checkVolumeQuota verifies that the storage limits of the user's other apps
-// with a volume, plus this app (excludeID, may be "") at volMB, fit the
-// user's storage allowance. An allowance of 0 or less means no limit.
+// storageTaken is what the user's storage allowance already holds, in MB:
+// the /data limits of their apps with a volume (except excludeID, may be "")
+// and the measured app files (kept images and stored source) of all apps.
+func (s *Service) storageTaken(ctx context.Context, userID, excludeID string) (int64, error) {
+	reserved, err := s.Q.SumVolumeMBByUser(ctx, db.SumVolumeMBByUserParams{UserID: userID, ID: excludeID})
+	if err != nil {
+		return 0, err
+	}
+	files, err := s.Q.OpsUserFilesBytes(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return reserved + (files+mib-1)/mib, nil
+}
+
+// checkVolumeQuota verifies that this app's volume (excludeID, may be "") at
+// volMB fits next to everything else in the user's storage allowance. An
+// allowance of 0 or less means no limit.
 func (s *Service) checkVolumeQuota(ctx context.Context, u db.User, excludeID string, volMB int64) error {
 	if u.QuotaVolumeMb <= 0 {
 		return nil
 	}
-	used, err := s.Q.SumVolumeMBByUser(ctx, db.SumVolumeMBByUserParams{UserID: u.ID, ID: excludeID})
+	taken, err := s.storageTaken(ctx, u.ID, excludeID)
 	if err != nil {
 		return apperr.Internal(err)
 	}
-	if used+volMB > u.QuotaVolumeMb {
+	if taken+volMB > u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_quota_exceeded",
-			fmt.Sprintf("This needs %d MB of storage, but your other apps already reserve %d MB of your %d MB storage allowance.", volMB, used, u.QuotaVolumeMb),
-			"Use a smaller volume_mb for this app, lower it on another app, turn off a volume you no longer need, or ask a bitploy admin for more storage.").WithNext("update_app")
+			fmt.Sprintf("This needs %d MB of storage, but your apps already take %d MB of your %d MB storage (app files plus the space kept for /data).", volMB, taken, u.QuotaVolumeMb),
+			"Use a smaller volume_mb for this app, lower it on another app, turn off a volume or delete an app you no longer need, or ask a bitploy admin for more storage.").WithNext("update_app")
+	}
+	return nil
+}
+
+// checkStorageRoom refuses a new build while the user's storage allowance is
+// full. Usage is measured after each deploy, so one build can go a little
+// over; the next one is refused.
+func (s *Service) checkStorageRoom(ctx context.Context, u db.User) error {
+	if u.QuotaVolumeMb <= 0 {
+		return nil
+	}
+	taken, err := s.storageTaken(ctx, u.ID, "")
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	if taken >= u.QuotaVolumeMb {
+		return apperr.Forbidden("storage_full",
+			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files plus the space kept for /data), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
+			"Make room: delete an app you no longer need, lower the /data limit (volume_mb) of an app, or slim the image (smaller base image, no big files in the source). Or ask a bitploy admin for more storage.").WithNext("list_apps")
 	}
 	return nil
 }
@@ -748,11 +783,13 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}
-	if r.VolumeEnabled != 0 {
-		if d, err := s.Q.GetAppDisk(ctx, r.ID); err == nil {
+	if d, err := s.Q.GetAppDisk(ctx, r.ID); err == nil {
+		files := round1(float64(d.ImageBytes+d.SourceBytes) / mib)
+		at := ts(d.MeasuredAt)
+		v.FilesMB, v.DiskMeasuredAt = &files, &at
+		if r.VolumeEnabled != 0 {
 			used := round1(float64(d.VolumeBytes) / mib)
-			at := ts(d.MeasuredAt)
-			v.VolumeUsedMB, v.VolumeMeasuredAt = &used, &at
+			v.VolumeUsedMB = &used
 		}
 	}
 	if r.Type == "web" {

@@ -75,14 +75,14 @@ function stop() {
           <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
             <div>
               <dt class="text-muted-foreground">Status</dt>
-              <dd class="mt-1"><AppStatusBadge :status="data.status" /></dd>
+              <dd class="mt-1"><AppStatusBadge :status="actions.restart.isPending.value ? 'restarting' : actions.start.isPending.value ? 'starting' : data.status" /></dd>
             </div>
             <div>
               <dt class="text-muted-foreground">Running for</dt>
               <dd class="mt-1 font-medium">{{ data.status === 'running' ? uptime(data.started_at, nowMs) : '-' }}</dd>
             </div>
             <div>
-              <dt class="text-muted-foreground">Restarts</dt>
+              <dt class="text-muted-foreground">Automatic restarts</dt>
               <dd class="mt-1 font-medium">{{ data.restart_count }}</dd>
             </div>
             <div>
@@ -90,19 +90,24 @@ function stop() {
               <dd class="mt-1 font-medium">{{ formatMB(data.memory_mb) }}, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </div>
           </dl>
-          <div v-if="data.volume" class="grid gap-2 text-sm">
+          <div class="grid gap-2 text-sm">
             <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <span class="text-muted-foreground">Stored files (/data)</span>
-              <span v-if="data.volume_used_mb !== null" class="font-medium tabular-nums">
-                {{ formatMB(data.volume_used_mb) }} of {{ formatMB(data.volume_mb) }}
-              </span>
-              <span v-else class="font-medium">Limit {{ formatMB(data.volume_mb) }}</span>
+              <span class="text-muted-foreground">App files (code, image and saved versions)</span>
+              <span class="font-medium tabular-nums">{{ data.files_mb !== null ? formatMB(data.files_mb) : 'Not measured yet' }}</span>
             </div>
-            <Progress :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
+            <template v-if="data.volume">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <span class="text-muted-foreground">Saved data (/data)</span>
+                <span v-if="data.volume_used_mb !== null" class="font-medium tabular-nums">
+                  {{ formatMB(data.volume_used_mb) }} of {{ formatMB(data.volume_mb) }}
+                </span>
+                <span v-else class="font-medium">Limit {{ formatMB(data.volume_mb) }}</span>
+              </div>
+              <Progress :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
+            </template>
             <p class="text-xs text-muted-foreground">
-              <template v-if="data.volume_measured_at">Measured <RelativeTime :date="data.volume_measured_at" />. </template>
-              <template v-else>Not measured yet. </template>
-              Bitploy checks every hour and stops the app when it goes over the limit.
+              <template v-if="data.disk_measured_at">Measured <RelativeTime :date="data.disk_measured_at" />. </template>
+              Both count towards your storage. Bitploy measures every hour and after each deploy<template v-if="data.volume">, and stops the app when /data goes over its limit</template>.
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
@@ -110,10 +115,10 @@ function stop() {
               <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Redeploy
             </Button>
             <Button variant="outline" :disabled="busy || !dep" @click="actions.restart.mutate()">
-              <RotateCw /> Restart
+              <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
             </Button>
             <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
-              <Play /> Start
+              <Play /> {{ actions.start.isPending.value ? 'Starting...' : 'Start' }}
             </Button>
             <Button v-if="canStop" variant="outline" :disabled="busy" @click="confirmStop = true">
               <Square /> Stop

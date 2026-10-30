@@ -60,9 +60,10 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	fmt.Fprintf(&b, "- Dashboard (API tokens, the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
-		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage shared by the /data volumes of all apps (each app reserves its volume_mb, default 5120).\n",
+		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",
 			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DeploysPerHour, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
-		fmt.Fprintf(&b, "- You use %d apps, %d MB memory and %d MB of storage right now.\n", me.Usage.Apps, me.Usage.MemoryReservedMB, me.Usage.VolumeReservedMB)
+		fmt.Fprintf(&b, "- You use %d apps, %d MB memory and %.0f MB of storage right now (%.0f MB app files, %d MB kept for /data).\n",
+			me.Usage.Apps, me.Usage.MemoryReservedMB, me.Usage.FilesMB+float64(me.Usage.VolumeReservedMB), me.Usage.FilesMB, me.Usage.VolumeReservedMB)
 	}
 	return b.String(), nil
 }
@@ -98,6 +99,7 @@ type appBrief struct {
 	Volume            bool             `json:"volume"`
 	VolumeMB          int64            `json:"volume_limit_mb,omitempty"`
 	VolumeUsedMB      *float64         `json:"volume_used_mb,omitempty"`
+	FilesMB           *float64         `json:"files_mb,omitempty"`
 	CurrentDeployment *deploymentBrief `json:"current_deployment"`
 	LatestDeployment  *deploymentBrief `json:"latest_deployment"`
 	Domains           []string         `json:"domains"`
@@ -110,7 +112,7 @@ type appBrief struct {
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	b := appBrief{
 		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage,
-		Volume: ap.Volume, VolumeUsedMB: ap.VolumeUsedMB, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
+		Volume: ap.Volume, VolumeUsedMB: ap.VolumeUsedMB, FilesMB: ap.FilesMB, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
 	}
 	if ap.Volume {
 		b.VolumeMB = ap.VolumeMB

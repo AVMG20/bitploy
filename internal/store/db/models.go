@@ -54,6 +54,7 @@ type AppDisk struct {
 	ImageBytes  int64
 	VolumeBytes int64
 	MeasuredAt  int64
+	SourceBytes int64
 }
 
 type AuditLog struct {

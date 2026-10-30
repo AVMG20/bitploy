@@ -701,6 +701,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 
 	if ae == nil {
 		s.pruneApp(bg, p.app.ID)
+		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
 	if ae == errCancelled || ae.Code == "cancelled" {
@@ -733,6 +734,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
 		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
 	s.pruneApp(bg, p.app.ID)
+	s.metricsMgr().MeasureSoon()
 }
 
 // cleanupFailed removes what a failed or cancelled deployment created and

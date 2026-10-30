@@ -2,13 +2,16 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
@@ -156,9 +159,8 @@ func (m *Manager) PruneMetrics(ctx context.Context) error {
 	return m.Store.Q.OpsDeleteOrphanUsage(ctx, now.Add(-usageRetention).Format("2006-01-02"))
 }
 
-// MeasureDisk records image and volume sizes per app in app_disk. An app's
-// image size is its largest image (its current one); volumes are attributed
-// by label.
+// MeasureDisk records per app in app_disk what counts towards the storage
+// allowance: its images, its stored source snapshots and its volume.
 func (m *Manager) MeasureDisk(ctx context.Context) error {
 	if m.Docker == nil {
 		return nil
@@ -167,11 +169,10 @@ func (m *Manager) MeasureDisk(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	images := map[string]int64{}
-	for _, im := range du.Images {
-		if im.AppID != "" && im.Size > images[im.AppID] {
-			images[im.AppID] = im.Size
-		}
+	images := imageBytesByApp(du.Images)
+	sources, err := m.sourceBytesByApp(ctx)
+	if err != nil {
+		return err
 	}
 	volumes := map[string]int64{}
 	for _, v := range du.Volumes {
@@ -189,20 +190,94 @@ func (m *Manager) MeasureDisk(ctx context.Context) error {
 			vol := volumes[a.ID]
 			if vol == 0 {
 				// Fall back to the volume name when the label is missing.
+				name := a.VolumeName
+				if name == "" {
+					name = "bp-" + a.Slug + "-data"
+				}
 				for _, v := range du.Volumes {
-					if v.Name == "bp-"+a.Slug+"-data" {
+					if v.Name == name {
 						vol = v.Size
 					}
 				}
 			}
 			if err := q.OpsUpsertAppDisk(ctx, db.OpsUpsertAppDiskParams{
-				AppID: a.ID, ImageBytes: images[a.ID], VolumeBytes: vol, MeasuredAt: now,
+				AppID: a.ID, ImageBytes: images[a.ID], SourceBytes: sources[a.ID], VolumeBytes: vol, MeasuredAt: now,
 			}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// imageBytesByApp is the disk an app's images take: its largest image (the
+// current one) in full, base image included, plus what each older kept
+// version adds on top (Size - SharedSize). Layers shared between versions
+// count once, so a rollback copy of an unchanged base costs nothing.
+func imageBytesByApp(images []dockerx.DiskImage) map[string]int64 {
+	byApp := map[string][]dockerx.DiskImage{}
+	for _, im := range images {
+		if im.AppID != "" {
+			byApp[im.AppID] = append(byApp[im.AppID], im)
+		}
+	}
+	out := map[string]int64{}
+	for id, ims := range byApp {
+		largest := 0
+		for i, im := range ims {
+			if im.Size > ims[largest].Size {
+				largest = i
+			}
+		}
+		total := ims[largest].Size
+		for i, im := range ims {
+			if i == largest {
+				continue
+			}
+			if im.SharedSize < 0 {
+				total += im.Size // not computed: count it in full
+			} else if own := im.Size - im.SharedSize; own > 0 {
+				total += own
+			}
+		}
+		out[id] = total
+	}
+	return out
+}
+
+// sourceBytesByApp adds up the stored source snapshots (sources/<deployment
+// id>.zip, see app.Service.sourceZip) per app.
+func (m *Manager) sourceBytesByApp(ctx context.Context) (map[string]int64, error) {
+	out := map[string]int64{}
+	if m.DataDir == "" {
+		return out, nil
+	}
+	entries, err := os.ReadDir(filepath.Join(m.DataDir, "sources"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sizes := map[string]int64{}
+	for _, e := range entries {
+		if id, ok := strings.CutSuffix(e.Name(), ".zip"); ok && e.Type().IsRegular() {
+			if info, err := e.Info(); err == nil {
+				sizes[id] = info.Size()
+			}
+		}
+	}
+	if len(sizes) == 0 {
+		return out, nil
+	}
+	deps, err := m.Store.Q.OpsListDeploymentApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range deps {
+		out[d.AppID] += sizes[d.ID]
+	}
+	return out, nil
 }
 
 // PruneDocker removes dangling bitploy images and trims the build cache.

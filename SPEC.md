@@ -457,7 +457,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 - Set `default-address-pools` in `daemon.json` to `10.200.0.0/16` in `/24` blocks. Docker's default pools run out after about 30 networks, and every app needs one.
 - In `deploy/firewall.sh`, block app subnets from the host itself (INPUT), from the Hetzner metadata address `169.254.169.254` and from private ranges (DOCKER-USER chain). Outbound internet stays open. A CI test runs a probe container and asserts each rule.
 
-**Quotas** (per user, editable by admins): 10 apps, 2 GB memory and 2 CPUs in total, 20 deployments per hour, 5 custom domains per app, 25 GB of storage in total, handed out per app volume (5 GB by default, warning at 80%).
+**Quotas** (per user, editable by admins): 10 apps, 2 GB memory and 2 CPUs in total, 20 deployments per hour, 5 custom domains per app, 25 GB of storage in total for app files (kept images, stored source) and the /data volumes, each volume with its own limit (5 GB by default, warning at 80%).
 
 **Protecting the one server**
 

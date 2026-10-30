@@ -124,13 +124,19 @@ WHERE a.user_id = ? AND d.queued_at >= ? AND d.started_at IS NOT NULL
   AND d.source_kind != 'rollback'; -- a rollback reuses an image and builds nothing
 
 -- name: OpsUserDiskBytes :one
-SELECT CAST(COALESCE(SUM(x.image_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes
+SELECT CAST(COALESCE(SUM(x.image_bytes + x.source_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes
+FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?;
+
+-- name: OpsUserFilesBytes :one
+-- App files: kept images and stored source snapshots, measured hourly.
+SELECT CAST(COALESCE(SUM(x.image_bytes + x.source_bytes), 0) AS INTEGER) AS bytes
 FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?;
 
 -- name: OpsUpsertAppDisk :exec
-INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, ?, ?, ?)
+INSERT INTO app_disk (app_id, image_bytes, source_bytes, volume_bytes, measured_at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (app_id) DO UPDATE SET
-    image_bytes = excluded.image_bytes, volume_bytes = excluded.volume_bytes, measured_at = excluded.measured_at;
+    image_bytes = excluded.image_bytes, source_bytes = excluded.source_bytes,
+    volume_bytes = excluded.volume_bytes, measured_at = excluded.measured_at;
 
 -- name: OpsDeleteOrphanAppDisk :exec
 DELETE FROM app_disk WHERE app_id NOT IN (SELECT id FROM apps);
@@ -139,7 +145,10 @@ DELETE FROM app_disk WHERE app_id NOT IN (SELECT id FROM apps);
 DELETE FROM usage_daily WHERE day < ? AND app_id NOT IN (SELECT id FROM apps);
 
 -- name: OpsListAppVolumes :many
-SELECT id, slug, volume_enabled FROM apps;
+SELECT id, slug, volume_name, volume_enabled FROM apps;
+
+-- name: OpsListDeploymentApps :many
+SELECT id, app_id FROM deployments;
 
 -- name: OpsListVolumeUsage :many
 SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, a.volume_mb, d.volume_bytes

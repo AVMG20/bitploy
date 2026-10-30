@@ -338,7 +338,7 @@ const del = useMutation({
               <FormLabel>Storage limit (GB)</FormLabel>
               <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
               <FormDescription v-if="quota && me.data.value">
-                {{ formatMB(me.data.value.usage.volume_reserved_mb) }} of your {{ formatMB(quota.volume_mb) }} is handed out to apps with stored files.
+                {{ formatMB(me.data.value.usage.files_mb + me.data.value.usage.volume_reserved_mb) }} of your {{ formatMB(quota.volume_mb) }} storage is taken by app files and /data limits.
               </FormDescription>
               <FormMessage />
             </FormItem>

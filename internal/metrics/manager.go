@@ -55,6 +55,8 @@ type Manager struct {
 	crashes *crashTracker
 	oomAt   map[string]time.Time
 	oomMu   sync.Mutex
+
+	measureReq chan struct{} // MeasureSoon -> runVolumeQuota
 }
 
 // New returns a Manager with defaults filled in.
@@ -68,6 +70,7 @@ func New(st *store.Store, dk Docker, log *slog.Logger) *Manager {
 		tracked:             map[string]*tracked{},
 		appUser:             map[string]string{},
 		crashes:             newCrashTracker(5, 5*time.Minute),
+		measureReq:          make(chan struct{}, 1),
 		oomAt:               map[string]time.Time{},
 	}
 }

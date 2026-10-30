@@ -320,12 +320,13 @@ func (q *Queries) OpsLastRollupTS(ctx context.Context, appID string) (int64, err
 }
 
 const opsListAppVolumes = `-- name: OpsListAppVolumes :many
-SELECT id, slug, volume_enabled FROM apps
+SELECT id, slug, volume_name, volume_enabled FROM apps
 `
 
 type OpsListAppVolumesRow struct {
 	ID            string
 	Slug          string
+	VolumeName    string
 	VolumeEnabled int64
 }
 
@@ -338,7 +339,44 @@ func (q *Queries) OpsListAppVolumes(ctx context.Context) ([]OpsListAppVolumesRow
 	items := []OpsListAppVolumesRow{}
 	for rows.Next() {
 		var i OpsListAppVolumesRow
-		if err := rows.Scan(&i.ID, &i.Slug, &i.VolumeEnabled); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.VolumeName,
+			&i.VolumeEnabled,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const opsListDeploymentApps = `-- name: OpsListDeploymentApps :many
+SELECT id, app_id FROM deployments
+`
+
+type OpsListDeploymentAppsRow struct {
+	ID    string
+	AppID string
+}
+
+func (q *Queries) OpsListDeploymentApps(ctx context.Context) ([]OpsListDeploymentAppsRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListDeploymentApps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsListDeploymentAppsRow{}
+	for rows.Next() {
+		var i OpsListDeploymentAppsRow
+		if err := rows.Scan(&i.ID, &i.AppID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -782,14 +820,16 @@ func (q *Queries) OpsSumMemoryLimitsMB(ctx context.Context) (int64, error) {
 }
 
 const opsUpsertAppDisk = `-- name: OpsUpsertAppDisk :exec
-INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, ?, ?, ?)
+INSERT INTO app_disk (app_id, image_bytes, source_bytes, volume_bytes, measured_at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (app_id) DO UPDATE SET
-    image_bytes = excluded.image_bytes, volume_bytes = excluded.volume_bytes, measured_at = excluded.measured_at
+    image_bytes = excluded.image_bytes, source_bytes = excluded.source_bytes,
+    volume_bytes = excluded.volume_bytes, measured_at = excluded.measured_at
 `
 
 type OpsUpsertAppDiskParams struct {
 	AppID       string
 	ImageBytes  int64
+	SourceBytes int64
 	VolumeBytes int64
 	MeasuredAt  int64
 }
@@ -798,6 +838,7 @@ func (q *Queries) OpsUpsertAppDisk(ctx context.Context, arg OpsUpsertAppDiskPara
 	_, err := q.db.ExecContext(ctx, opsUpsertAppDisk,
 		arg.AppID,
 		arg.ImageBytes,
+		arg.SourceBytes,
 		arg.VolumeBytes,
 		arg.MeasuredAt,
 	)
@@ -870,13 +911,26 @@ func (q *Queries) OpsUsageAppTotals(ctx context.Context, userID string) (OpsUsag
 
 const opsUserDiskBytes = `-- name: OpsUserDiskBytes :one
 
-SELECT CAST(COALESCE(SUM(x.image_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes
+SELECT CAST(COALESCE(SUM(x.image_bytes + x.source_bytes + x.volume_bytes), 0) AS INTEGER) AS bytes
 FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?
 `
 
 // a rollback reuses an image and builds nothing
 func (q *Queries) OpsUserDiskBytes(ctx context.Context, userID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, opsUserDiskBytes, userID)
+	var bytes int64
+	err := row.Scan(&bytes)
+	return bytes, err
+}
+
+const opsUserFilesBytes = `-- name: OpsUserFilesBytes :one
+SELECT CAST(COALESCE(SUM(x.image_bytes + x.source_bytes), 0) AS INTEGER) AS bytes
+FROM app_disk x JOIN apps a ON a.id = x.app_id WHERE a.user_id = ?
+`
+
+// App files: kept images and stored source snapshots, measured hourly.
+func (q *Queries) OpsUserFilesBytes(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, opsUserFilesBytes, userID)
 	var bytes int64
 	err := row.Scan(&bytes)
 	return bytes, err

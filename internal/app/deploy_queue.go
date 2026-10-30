@@ -482,6 +482,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
 		return Deployment{}, err
 	}
+	if qs.kind != "rollback" { // a rollback reuses an image that is already counted
+		if err := s.checkStorageRoom(ctx, user); err != nil {
+			return Deployment{}, err
+		}
+	}
 	if err := s.checkStartQuota(ctx, app); err != nil { // first deploy of an app, or a stopped one
 		return Deployment{}, err
 	}

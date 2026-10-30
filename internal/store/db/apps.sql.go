@@ -83,7 +83,7 @@ func (q *Queries) DeleteUpload(ctx context.Context, id string) error {
 }
 
 const getAppDisk = `-- name: GetAppDisk :one
-SELECT app_id, image_bytes, volume_bytes, measured_at FROM app_disk WHERE app_id = ?
+SELECT app_id, image_bytes, volume_bytes, measured_at, source_bytes FROM app_disk WHERE app_id = ?
 `
 
 func (q *Queries) GetAppDisk(ctx context.Context, appID string) (AppDisk, error) {
@@ -94,6 +94,7 @@ func (q *Queries) GetAppDisk(ctx context.Context, appID string) (AppDisk, error)
 		&i.ImageBytes,
 		&i.VolumeBytes,
 		&i.MeasuredAt,
+		&i.SourceBytes,
 	)
 	return i, err
 }

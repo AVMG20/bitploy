@@ -105,6 +105,11 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 		return Usage{}, apperr.Internal(err)
 	}
 	u.VolumeUsedMB = round1(float64(vol) / mib)
+	files, err := q.OpsUserFilesBytes(ctx, userID)
+	if err != nil {
+		return Usage{}, apperr.Internal(err)
+	}
+	u.FilesMB = round1(float64(files) / mib)
 
 	apps, err := q.ListAppsByUser(ctx, userID)
 	if err != nil {

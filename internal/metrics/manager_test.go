@@ -304,7 +304,7 @@ func TestPruneMetrics(t *testing.T) {
 		t0.Add(-25*time.Hour).Unix(), t0.Add(-23*time.Hour).Unix(), t0.Unix())
 	e.exec(t, `INSERT INTO metric_rollups VALUES ('app_1', ?, 1, 1, 1, 1, 1, 1), ('app_1', ?, 1, 1, 1, 1, 1, 1)`,
 		t0.Add(-31*24*time.Hour).Unix(), t0.Add(-29*24*time.Hour).Unix())
-	e.exec(t, `INSERT INTO app_disk VALUES ('app_gone', 1, 1, 1)`)
+	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES ('app_gone', 1, 1, 1)`)
 	if err := e.m.PruneMetrics(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -405,9 +405,21 @@ func TestMeasureDiskAndDockerPrune(t *testing.T) {
 	e.addApp(t, "app_2", "bp-b-1", "running")
 	e.dk.diskUsage = dockerx.DiskUsage{
 		Images: []dockerx.DiskImage{
-			{AppID: "app_1", Size: 100 << 20}, {AppID: "app_1", Size: 150 << 20}, {AppID: "", Size: 9 << 30},
+			// Two versions of app_1 sharing an 80 MB base: 150 MB + the older one's own 20 MB.
+			{AppID: "app_1", Size: 100 << 20, SharedSize: 80 << 20}, {AppID: "app_1", Size: 150 << 20, SharedSize: 80 << 20},
+			{AppID: "", Size: 9 << 30},
 		},
 		Volumes: []dockerx.DiskVolume{{AppID: "app_1", Name: "bp-slug-app_1-data", Size: 7 << 20}, {Name: "bp-slug-app_2-data", Size: 3 << 20}},
+	}
+	// Stored source snapshots count for the app of their deployment.
+	src := filepath.Join(e.m.DataDir, "sources")
+	if err := os.MkdirAll(src, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, size := range map[string]int{"dep_app_1.zip": 2 << 20, "dep_gone.zip": 5 << 20} {
+		if err := os.WriteFile(filepath.Join(src, name), make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := e.m.MeasureDisk(ctx); err != nil {
 		t.Fatal(err)
@@ -416,8 +428,13 @@ func TestMeasureDiskAndDockerPrune(t *testing.T) {
 		e.m.Store.DB.QueryRow(`SELECT image_bytes, volume_bytes FROM app_disk WHERE app_id=?`, id).Scan(&img, &vol)
 		return
 	}
-	if img, vol := get("app_1"); img != 150<<20 || vol != 7<<20 {
+	if img, vol := get("app_1"); img != 170<<20 || vol != 7<<20 {
 		t.Errorf("app_1 disk = %d / %d", img, vol)
+	}
+	var srcBytes int64
+	e.m.Store.DB.QueryRow(`SELECT source_bytes FROM app_disk WHERE app_id='app_1'`).Scan(&srcBytes)
+	if srcBytes != 2<<20 {
+		t.Errorf("app_1 source bytes = %d", srcBytes)
 	}
 	if img, vol := get("app_2"); img != 0 || vol != 3<<20 {
 		t.Errorf("app_2 disk = %d / %d (volume found by name)", img, vol)

@@ -40,11 +40,11 @@ const quota = computed(() => me.data.value?.quota)
         :progress="usage && quota ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
       />
       <StatCard
-        title="Saved data (/data)"
+        title="Storage"
         :loading="me.isPending.value"
-        :value="usage ? formatMB(usage.volume_used_mb) : ''"
-        :sub="usage && quota ? `${formatMB(usage.volume_reserved_mb)} reserved of ${formatMB(quota.volume_mb)} for apps that keep files` : ''"
-        :progress="usage && quota ? pct(usage.volume_reserved_mb, quota.volume_mb) : undefined"
+        :value="usage ? formatMB(usage.files_mb + usage.volume_used_mb) : ''"
+        :sub="usage && quota ? `${formatMB(usage.files_mb + usage.volume_reserved_mb)} of ${formatMB(quota.volume_mb)} taken, incl. space kept for /data` : ''"
+        :progress="usage && quota ? pct(usage.files_mb + usage.volume_reserved_mb, quota.volume_mb) : undefined"
       />
       <StatCard
         title="Deploys this week"
