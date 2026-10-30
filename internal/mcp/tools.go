@@ -147,7 +147,7 @@ func enums(vals map[string][]string) func(*jsonschema.Schema) {
 
 func (s *srv) registerTools() {
 	svc := s.svc
-	settingsURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/settings"
+	settingsURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/settings/github"
 
 	addTool(s, "whoami", "Who am I",
 		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>), quotas, current usage and hard limits (inline 2 MB/200 files, zip 95 MB). Next: list_apps.",
@@ -354,7 +354,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_git_source", "Set a git source",
-		"Uses a git repository as the app's source: saves repo_url, branch and subdir and checks the repo can be read. Then call deploy. Public repos work as is. A private GitHub repo needs a read-only token the USER saves in the dashboard under Settings ("+settingsURL+"); you cannot set it, so when this fails with github_token_missing tell the user to do that. The repo must contain the Dockerfile (inside subdir if set).",
+		"Uses a git repository as the app's source: saves repo_url, branch and subdir and checks the repo can be read. Then call deploy. Public repos work as is. A private GitHub repo needs a read-only token the USER saves in the dashboard under Settings > GitHub ("+settingsURL+"); you cannot set it, so when this fails with github_token_missing tell the user to do that. The repo must contain the Dockerfile (inside subdir if set).",
 		openWorld(idempotent()), true, nil,
 		func(ctx context.Context, a app.Actor, in gitSourceIn) (*result, error) {
 			ap, err := svc.SetGitSource(ctx, a, in.App, app.GitSource{RepoURL: in.RepoURL, Branch: in.Branch, Subdir: in.Subdir})

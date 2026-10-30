@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Box, KeyRound, Settings, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { Box, Settings, ShieldCheck, Sparkles } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
-import ThemeToggle from './ThemeToggle.vue'
 import UserMenu from './UserMenu.vue'
 import {
   Sidebar,
@@ -28,7 +27,6 @@ const { setOpenMobile } = useSidebar()
 const items = computed(() => {
   const list = [
     { title: 'Apps', to: '/', icon: Box, active: route.path === '/' || route.path.startsWith('/apps/') },
-    { title: 'Tokens', to: '/tokens', icon: KeyRound, active: route.path.startsWith('/tokens') },
     { title: 'Connect AI', to: '/connect', icon: Sparkles, active: route.path.startsWith('/connect') },
     { title: 'Settings', to: '/settings', icon: Settings, active: route.path.startsWith('/settings') },
   ]
@@ -71,10 +69,7 @@ const items = computed(() => {
       </SidebarGroup>
     </SidebarContent>
     <SidebarFooter>
-      <div class="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
-        <UserMenu class="min-w-0 flex-1" />
-        <ThemeToggle />
-      </div>
+      <UserMenu />
     </SidebarFooter>
     <SidebarRail />
   </Sidebar>

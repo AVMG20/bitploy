@@ -19,7 +19,7 @@ var acctGithubAPI = "https://api.github.com"
 
 var acctGithubClient = &http.Client{Timeout: 10 * time.Second}
 
-const acctGithubSettings = "Create a fine-grained token at https://github.com/settings/personal-access-tokens/new with read-only Contents and Metadata on the repos you want to deploy, then paste it in bitploy under Settings."
+const acctGithubSettings = "Create a fine-grained token at https://github.com/settings/personal-access-tokens/new with read-only Contents and Metadata on the repos you want to deploy, then paste it in bitploy under Settings > GitHub."
 
 // SetGitHubToken validates with GitHub GET /user, stores it encrypted.
 func (s *Service) SetGitHubToken(ctx context.Context, a Actor, token string) (GitHubStatus, error) {

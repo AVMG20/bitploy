@@ -138,7 +138,7 @@ func (s *Service) SetGitSource(ctx context.Context, a Actor, ref string, src Git
 		URL:         repo,
 		Branch:      strings.TrimSpace(src.Branch),
 		Subdir:      subdir,
-		SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings",
+		SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings/github",
 	}
 	if deploy.IsGitHubURL(repo) {
 		tok, err := s.GitHubTokenFor(ctx, row.UserID)

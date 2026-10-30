@@ -57,7 +57,7 @@ function usePasted() {
           <Button :disabled="create.isPending.value" @click="create.mutate()">
             {{ create.isPending.value ? 'Creating...' : connectToken ? 'Make another token' : 'Create a token for me' }}
           </Button>
-          <Button as-child variant="outline"><RouterLink to="/tokens">Manage tokens</RouterLink></Button>
+          <Button as-child variant="outline"><RouterLink :to="{ name: 'settings-tokens' }">Manage tokens</RouterLink></Button>
         </div>
         <form class="flex max-w-lg gap-2" @submit.prevent="usePasted">
           <Input v-model="pasted" placeholder="Or paste a token you already have" autocomplete="off" spellcheck="false" aria-label="Existing token" />

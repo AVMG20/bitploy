@@ -40,7 +40,7 @@ const RuntimeContract = `## Runtime contract
 
 - deploy_files: at most 2 MB in total and 200 files. Anything bigger: zip + create_upload.
 - Zip upload: at most 95 MB compressed, 500 MB unpacked, 20,000 files. If everything sits in one top-level folder, that folder is stripped. Leave out node_modules, .git, .env and build output.
-- Git: shallow clone of one branch, at most 500 MB, HTTPS only. Private GitHub repositories use the token the user saved in the dashboard under Settings; you cannot set it yourself, ask the user to do it.
+- Git: shallow clone of one branch, at most 500 MB, HTTPS only. Private GitHub repositories use the token the user saved in the dashboard under Settings > GitHub; you cannot set it yourself, ask the user to do it.
 - A build takes at most 15 minutes. The built image must be under 2 GB. Images (3 kept per app) and stored source count towards the account's storage; when it is full, new builds are refused with storage_full. Keep images small: a slim base image, and no big files (videos, datasets) in the source.
 - Deployments per hour, number of apps, memory, CPU, storage and custom domains per app are limited per account: whoami shows the numbers.
 
@@ -69,7 +69,7 @@ const RuntimeContract = `## Runtime contract
 - unhealthy and "did not answer GET /...": the app is too slow to start or returns 500 on that path. Point health_path at a cheap path that answers below 500 (for example /healthz) with update_app, then deploy. Or fix the route.
 - deploy_rate_limited: wait the minutes the hint names; tell the user. Do not retry in a loop.
 - token_read_only: the token cannot change anything. Ask the user for a token with the deploy scope (dashboard, Tokens).
-- github_token_missing / github_repo_forbidden: ask the user to save a GitHub token in the dashboard under Settings, or to make the repository public. Then call set_git_source again.
+- github_token_missing / github_repo_forbidden: ask the user to save a GitHub token in the dashboard under Settings > GitHub, or to make the repository public. Then call set_git_source again.
 - After 3 failures with the same code, stop and explain the problem to the user in plain words.
 
 ## Custom domains

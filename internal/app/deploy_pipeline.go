@@ -241,7 +241,7 @@ func (p *pipeline) fetch(ctx context.Context) *apperr.Error {
 			}
 			token = t
 		}
-		cr, err := deploy.Clone(ctx, deploy.GitSource{URL: repo, Branch: p.app.GitBranch.String, Subdir: p.app.GitSubdir.String, Token: token, SettingsURL: s.Cfg.PublicURL + "/settings"}, p.buildDir, maxGitBytes)
+		cr, err := deploy.Clone(ctx, deploy.GitSource{URL: repo, Branch: p.app.GitBranch.String, Subdir: p.app.GitSubdir.String, Token: token, SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings/github"}, p.buildDir, maxGitBytes)
 		if err != nil {
 			if ctx.Err() != nil {
 				return errCancelled

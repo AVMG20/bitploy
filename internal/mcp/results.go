@@ -57,7 +57,7 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	b.WriteString(md)
 	b.WriteString("\n## This server\n\n")
 	fmt.Fprintf(&b, "- Apps are served at %s (base domain %s).\n", s.svc.Cfg.AppURL("<slug>"), s.svc.Cfg.AppsDomain)
-	fmt.Fprintf(&b, "- Dashboard (API tokens, the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
+	fmt.Fprintf(&b, "- Dashboard (API tokens and the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
 		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",

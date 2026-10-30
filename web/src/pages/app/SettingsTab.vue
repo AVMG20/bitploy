@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
+import FormScope from '@/components/FormScope.vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { KeyRound, Pencil, Trash2 } from 'lucide-vue-next'
@@ -246,29 +247,31 @@ const del = useMutation({
         <CardDescription>The name is only shown in bitploy. The subdomain is the address people open.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form class="grid gap-4" novalidate @submit.prevent="submitGeneral">
-          <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
-            <FormField v-slot="{ componentField }" name="name">
-              <FormItem>
-                <FormLabel>Name</FormLabel>
-                <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-            <FormField v-slot="{ componentField }" name="slug">
-              <FormItem>
-                <FormLabel>Subdomain</FormLabel>
-                <div class="flex min-w-0 items-center gap-2">
-                  <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
-                  <span v-if="me.data.value" class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">.{{ me.data.value.apps_domain }}</span>
-                </div>
-                <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-          </div>
-          <div><Button type="submit" :disabled="saveGeneral.isPending.value">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-        </form>
+        <FormScope :form="generalForm">
+          <form class="grid gap-4" novalidate @submit.prevent="submitGeneral">
+            <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+              <FormField v-slot="{ componentField }" name="name">
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+              <FormField v-slot="{ componentField }" name="slug">
+                <FormItem>
+                  <FormLabel>Subdomain</FormLabel>
+                  <div class="flex min-w-0 items-center gap-2">
+                    <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
+                    <span v-if="me.data.value" class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">.{{ me.data.value.apps_domain }}</span>
+                  </div>
+                  <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+            </div>
+            <div><Button type="submit" :disabled="saveGeneral.isPending.value">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+          </form>
+        </FormScope>
       </CardContent>
     </Card>
 
@@ -295,23 +298,25 @@ const del = useMutation({
           </li>
         </ul>
 
-        <form id="env-form" class="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-start" novalidate @submit.prevent="submitEnv">
-          <FormField v-slot="{ componentField }" name="name">
-            <FormItem>
-              <FormLabel>Name</FormLabel>
-              <FormControl><Input placeholder="API_KEY" autocapitalize="off" spellcheck="false" class="font-mono" v-bind="componentField" /></FormControl>
-              <FormMessage />
-            </FormItem>
-          </FormField>
-          <FormField v-slot="{ componentField }" name="value">
-            <FormItem>
-              <FormLabel>Value</FormLabel>
-              <FormControl><Textarea rows="1" placeholder="Paste the secret value" autocomplete="off" spellcheck="false" class="min-h-8 font-mono" v-bind="componentField" /></FormControl>
-              <FormMessage />
-            </FormItem>
-          </FormField>
-          <Button type="submit" class="sm:mt-[1.625rem]" :disabled="saveEnv.isPending.value">{{ saveEnv.isPending.value ? 'Saving...' : 'Save variable' }}</Button>
-        </form>
+        <FormScope :form="envForm">
+          <form id="env-form" class="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-start" novalidate @submit.prevent="submitEnv">
+            <FormField v-slot="{ componentField }" name="name">
+              <FormItem>
+                <FormLabel>Name</FormLabel>
+                <FormControl><Input placeholder="API_KEY" autocapitalize="off" spellcheck="false" class="font-mono" v-bind="componentField" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+            <FormField v-slot="{ componentField }" name="value">
+              <FormItem>
+                <FormLabel>Value</FormLabel>
+                <FormControl><Textarea rows="1" placeholder="Paste the secret value" autocomplete="off" spellcheck="false" class="min-h-8 resize-y py-[5px] leading-5 font-mono" v-bind="componentField" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+            <Button type="submit" class="sm:mt-[1.375rem]" :disabled="saveEnv.isPending.value">{{ saveEnv.isPending.value ? 'Saving...' : 'Save variable' }}</Button>
+          </form>
+        </FormScope>
       </CardContent>
     </Card>
 
@@ -321,48 +326,50 @@ const del = useMutation({
         <CardDescription>Decide how much computer power this app gets, and whether it can keep files.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form class="grid gap-4" novalidate @submit.prevent="submitRes">
-          <FormField v-slot="{ value, handleChange }" name="volume">
-            <FormItem class="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
-              <div class="grid gap-1">
-                <FormLabel>Keep files between deploys</FormLabel>
-                <FormDescription>
-                  Turns on a storage folder at /data that survives new versions. While it is on, deploys restart the app for a few seconds instead of switching over smoothly.
+        <FormScope :form="resForm">
+          <form class="grid gap-4" novalidate @submit.prevent="submitRes">
+            <FormField v-slot="{ value, handleChange }" name="volume">
+              <FormItem class="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
+                <div class="grid gap-1">
+                  <FormLabel>Keep files between deploys</FormLabel>
+                  <FormDescription>
+                    Turns on a storage folder at /data that survives new versions. While it is on, deploys restart the app for a few seconds instead of switching over smoothly.
+                  </FormDescription>
+                </div>
+                <FormControl><Switch :model-value="value" @update:model-value="handleChange" /></FormControl>
+              </FormItem>
+            </FormField>
+            <FormField v-if="resForm.values.volume" v-slot="{ componentField }" name="volume_gb">
+              <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
+                <FormLabel>Storage limit (GB)</FormLabel>
+                <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
+                <FormDescription v-if="quota && me.data.value">
+                  {{ formatMB(me.data.value.usage.files_mb + me.data.value.usage.volume_reserved_mb) }} of your {{ formatMB(quota.volume_mb) }} storage is taken by app files and /data limits.
                 </FormDescription>
-              </div>
-              <FormControl><Switch :model-value="value" @update:model-value="handleChange" /></FormControl>
-            </FormItem>
-          </FormField>
-          <FormField v-if="resForm.values.volume" v-slot="{ componentField }" name="volume_gb">
-            <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
-              <FormLabel>Storage limit (GB)</FormLabel>
-              <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
-              <FormDescription v-if="quota && me.data.value">
-                {{ formatMB(me.data.value.usage.files_mb + me.data.value.usage.volume_reserved_mb) }} of your {{ formatMB(quota.volume_mb) }} storage is taken by app files and /data limits.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          </FormField>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <FormField v-slot="{ componentField }" name="memory_mb">
-              <FormItem>
-                <FormLabel>Memory (MB)</FormLabel>
-                <FormControl><Input type="number" min="64" step="64" inputmode="numeric" v-bind="componentField" /></FormControl>
-                <FormDescription v-if="quota">Up to {{ formatMB(quota.memory_mb) }} in total across your apps.</FormDescription>
                 <FormMessage />
               </FormItem>
             </FormField>
-            <FormField v-slot="{ componentField }" name="cpus">
-              <FormItem>
-                <FormLabel>Processor (CPUs)</FormLabel>
-                <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" v-bind="componentField" /></FormControl>
-                <FormDescription v-if="quota">Up to {{ quota.cpu_millis / 1000 }} CPUs in total across your apps.</FormDescription>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-          </div>
-          <div><Button type="submit" :disabled="saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save changes' }}</Button></div>
-        </form>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <FormField v-slot="{ componentField }" name="memory_mb">
+                <FormItem>
+                  <FormLabel>Memory (MB)</FormLabel>
+                  <FormControl><Input type="number" min="64" step="64" inputmode="numeric" v-bind="componentField" /></FormControl>
+                  <FormDescription v-if="quota">Up to {{ formatMB(quota.memory_mb) }} in total across your apps.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+              <FormField v-slot="{ componentField }" name="cpus">
+                <FormItem>
+                  <FormLabel>Processor (CPUs)</FormLabel>
+                  <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" v-bind="componentField" /></FormControl>
+                  <FormDescription v-if="quota">Up to {{ quota.cpu_millis / 1000 }} CPUs in total across your apps.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+            </div>
+            <div><Button type="submit" :disabled="saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save changes' }}</Button></div>
+          </form>
+        </FormScope>
       </CardContent>
     </Card>
 

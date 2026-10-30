@@ -46,9 +46,19 @@ export const router = createRouter({
             { path: 'settings', name: 'app-settings', component: () => import('./pages/app/SettingsTab.vue'), props: true },
           ],
         },
-        { path: 'tokens', name: 'tokens', component: () => import('./pages/TokensPage.vue'), meta: { title: 'Tokens' } },
         { path: 'connect', name: 'connect', component: () => import('./pages/ConnectPage.vue'), meta: { title: 'Connect AI' } },
-        { path: 'settings', name: 'settings', component: () => import('./pages/SettingsPage.vue'), meta: { title: 'Settings' } },
+        {
+          path: 'settings',
+          component: () => import('./pages/settings/SettingsLayout.vue'),
+          children: [
+            { path: '', name: 'settings', component: () => import('./pages/settings/AccountTab.vue'), meta: { title: 'Settings' } },
+            { path: 'tokens', name: 'settings-tokens', component: () => import('./pages/settings/TokensTab.vue'), meta: { title: 'API tokens' } },
+            { path: 'github', name: 'settings-github', component: () => import('./pages/settings/GithubTab.vue'), meta: { title: 'GitHub' } },
+            { path: 'sessions', name: 'settings-sessions', component: () => import('./pages/settings/SessionsTab.vue'), meta: { title: 'Sessions' } },
+          ],
+        },
+        // Tokens used to have their own page; old links and bookmarks still work.
+        { path: 'tokens', redirect: { name: 'settings-tokens' } },
         { path: 'admin', name: 'admin', component: () => import('./pages/AdminPage.vue'), meta: { title: 'Admin', admin: true } },
       ],
     },

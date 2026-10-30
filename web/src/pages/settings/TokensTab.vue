@@ -10,9 +10,9 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import McpSnippets from '@/components/McpSnippets.vue'
-import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
+import SettingsSection from '@/components/SettingsSection.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -98,10 +98,10 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
 </script>
 
 <template>
-  <div class="grid gap-6">
-    <PageHeader title="Tokens" description="A token is a password for your AI assistant. It lets the assistant put apps online for you.">
-      <Button @click="createOpen = true"><Plus /> New token</Button>
-    </PageHeader>
+  <SettingsSection title="API tokens" description="A token is a password for your AI assistant. It lets the assistant put apps online for you. You usually need one per assistant.">
+    <template v-if="tokens.data.value?.length" #aside>
+      <Button size="sm" @click="createOpen = true"><Plus /> New token</Button>
+    </template>
 
     <QueryError v-if="tokens.isError.value" :error="tokens.error.value" @retry="tokens.refetch()" />
     <div v-else-if="tokens.isPending.value" class="grid gap-2"><Skeleton v-for="i in 2" :key="i" class="h-12 w-full" /></div>
@@ -133,7 +133,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
               <p class="font-mono text-xs text-muted-foreground">{{ t.prefix }}...</p>
             </TableCell>
             <TableCell>
-              <Badge :variant="t.scope === 'deploy' ? 'default' : 'secondary'">{{ t.scope === 'deploy' ? 'Deploy' : 'Read only' }}</Badge>
+              <Badge :variant="t.scope === 'deploy' ? 'outline' : 'secondary'">{{ t.scope === 'deploy' ? 'Deploy' : 'Read only' }}</Badge>
             </TableCell>
             <TableCell class="hidden md:table-cell"><RelativeTime :date="t.created_at" /></TableCell>
             <TableCell class="hidden sm:table-cell"><RelativeTime :date="t.last_used_at" empty="Never used" /></TableCell>
@@ -233,5 +233,5 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
       :loading="revoke.isPending.value"
       @confirm="toRevoke && revoke.mutate(toRevoke.id)"
     />
-  </div>
+  </SettingsSection>
 </template>

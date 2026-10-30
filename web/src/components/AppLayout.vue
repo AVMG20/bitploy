@@ -11,6 +11,7 @@ const route = useRoute()
 const crumbs = computed(() => {
   const slug = route.params.slug
   if (typeof slug === 'string' && slug) return [{ label: 'Apps', to: '/' }, { label: slug }]
+  if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
 

@@ -102,7 +102,7 @@ function state(i: Invite): { label: string; tone: string } {
               </Select>
             </FormItem>
           </FormField>
-          <Button type="submit" class="sm:mt-[1.625rem]" :disabled="create.isPending.value"><Plus /> Create invite</Button>
+          <Button type="submit" class="sm:mt-[1.375rem]" :disabled="create.isPending.value"><Plus /> Create invite</Button>
         </form>
         <div v-if="fresh?.url" class="mt-4 grid gap-2 rounded-lg border bg-muted/40 p-3">
           <p class="text-sm font-medium">Invite link (shown only now)</p>

@@ -129,7 +129,7 @@ func deployPrompt(app, instructions string) string {
 3. Call validate_dockerfile with the Dockerfile text and the list of project files. Fix every error. Read the warnings.
 4. ` + target + `
 5. Secrets (API keys, passwords, bot tokens) never go into files. Set them with set_env. They reach the app after restart_app, or with the first deploy.
-6. Send the code. Up to 2 MB and 200 files: deploy_files with ALL files. Bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. A git repository: set_git_source, then deploy. A private GitHub repository needs a token the user saves in the dashboard under Settings; ask the user.
+6. Send the code. Up to 2 MB and 200 files: deploy_files with ALL files. Bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. A git repository: set_git_source, then deploy. A private GitHub repository needs a token the user saves in the dashboard under Settings > GitHub; ask the user.
 7. deploy and deploy_files return at once. Call get_deployment with wait_seconds=30 until the state is running or failed. If it failed, read error.hint and the log tail, fix the cause and deploy again. After 3 failures with the same error code, stop and explain the problem to the user in plain words.
 8. When it runs, give the user the URL and one or two plain sentences on what you did. Assume the user is not technical.
 
