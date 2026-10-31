@@ -131,7 +131,7 @@ Redact anything matching `bp_[A-Za-z0-9]{20,}` from logs, build logs and error m
 **GitHub (private repos and push to deploy)**
 
 - One GitHub App per instance, created by an admin from the dashboard with GitHub's manifest flow (read-only contents and metadata, push events). Its private key, client secret and webhook secret are stored AES-256-GCM encrypted and never returned.
-- Each user installs the app on their own account or organizations from Settings, GitHub. Bitploy links an installation only after exchanging the OAuth code and finding the installation in `GET /user/installations`; an `installation_id` in a URL is never trusted alone.
+- Each user installs the app on their own account or organizations from Settings, GitHub. Bitploy links an installation only after exchanging the OAuth code and finding the installation in `GET /user/installations`; an `installation_id` in a URL is never trusted alone. Unless the installation is on the user's own GitHub account, bitploy uses only the repositories GitHub says that user can open.
 - Cloning a `github.com` repository uses a short-lived, read-only token for that one repository, minted from the app owner's own installation. It reaches git only as HTTP basic auth (username `x-access-token`) and must never reach `.git/config`, a log line, the build context or an image. With no covering installation the clone is anonymous.
 - A private repo bitploy cannot read fails with `github_access_missing`, with a hint pointing to Settings, GitHub: "Connect GitHub and give bitploy access to this repo".
 - `POST /api/v1/github/webhook` receives push events: signature checked first (HMAC-SHA256, constant time), 5 MB cap, deduped by delivery id, answered with `202`. A push to the linked branch of an app whose owner linked that installation queues a deployment on channel `github` (commit sha and message recorded); quick pushes collapse into one build of the newest commit.
@@ -203,15 +203,14 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.
 4. Never put secrets in the Dockerfile or the source. Use set_env.
-5. Send the code. If the project already has a GitHub remote, prefer git:
-   set_git_source with its HTTPS URL, then deploy once. After that every push
-   to the branch deploys by itself: update by committing and pushing, and
-   follow it with get_deployment (app=<slug>, wait_seconds=30). Otherwise
-   upload, which is fully supported: up to 2 MB and 200 files deploy_files;
-   bigger folders zip them, call create_upload and run the curl command it
-   returns. Never ask the user to create a repository or install git just to
-   deploy; at most mention once that connecting GitHub makes updates automatic.
-   An app linked to a repository refuses uploads (git_source_linked): push.
+5. Send the code. If the project has a GitHub remote, prefer git: commit and
+   push, then set_git_source with the remote's HTTPS URL and deploy once. After
+   that every push to the branch deploys by itself. No GitHub remote, or the
+   repository cannot be read and the user cannot connect GitHub? Upload
+   instead: deploy_files for up to 2 MB and 200 files, else zip the folder,
+   call create_upload and run the curl command it returns. Never ask the user
+   to create a repository or install git just to deploy. An app linked to a
+   repository refuses uploads (git_source_linked): push instead.
 6. A deployment (deploy, deploy_files, or a push to a linked repository) builds
    in the background. Call get_deployment with wait_seconds=30 until the state
    is running or failed. On failure, read error.hint and the log tail, fix, and

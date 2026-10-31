@@ -62,7 +62,7 @@ type ghApp struct {
 	OwnerType     string
 	ClientID      string
 	ClientSecret  string
-	WebhookSecret []byte
+	WebhookSecret []byte // empty when the app was created without a webhook
 	PEM           string
 	CreatedAt     time.Time
 }
@@ -94,9 +94,11 @@ func (s *Service) githubApp(ctx context.Context) (*ghApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	hook, err := open(row.WebhookSecretEnc, "webhook_secret")
-	if err != nil {
-		return nil, err
+	var hook []byte
+	if len(row.WebhookSecretEnc) > 0 {
+		if hook, err = open(row.WebhookSecretEnc, "webhook_secret"); err != nil {
+			return nil, err
+		}
 	}
 	pem, err := open(row.PrivateKeyEnc, "private_key")
 	if err != nil {
@@ -143,8 +145,8 @@ func (s *Service) signGitHubState(purpose, userID string, ttl time.Duration) str
 
 func (s *Service) verifyGitHubState(token, purpose, userID string) error {
 	bad := apperr.BadRequest("github_state_invalid",
-		"This GitHub sign-in link is not valid any more.",
-		"Start again from the beginning; the link only works for a few minutes and only in the browser that started it.")
+		"This link back from GitHub has expired, or it was started by another bitploy account.",
+		"Start again. The link works for a few minutes, only for the account that started it.")
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(token))
 	if err != nil || len(raw) == 0 || len(raw) > 1024 {
 		return bad
@@ -255,7 +257,7 @@ func publicURLProblem(rawURL string) string {
 		host = strings.ToLower(u.Hostname())
 	}
 	msg := func() string {
-		return "GitHub cannot reach " + host + " from the internet, so it cannot tell bitploy about pushes. Set BITPLOY_PUBLIC_URL to the public address of this server to deploy on every push."
+		return "GitHub cannot reach " + host + " over the internet, so pushes will not deploy apps by themselves. Private repositories still work. For deploy on push, set BITPLOY_PUBLIC_URL to the public address of this server and restart bitploy."
 	}
 	switch {
 	case host == "":
@@ -292,6 +294,7 @@ func (s *Service) installationView(l db.GithubInstallation) GitHubInstallation {
 		ID: l.InstallationID, AccountLogin: l.AccountLogin, AccountType: l.AccountType,
 		RepositorySelection: l.RepositorySelection, Status: l.Status,
 		ManageURL: s.installationManageURL(l.AccountLogin, l.AccountType, l.InstallationID), ConnectedAt: ts(l.CreatedAt),
+		Limited: l.Limited != 0,
 	}
 	return v
 }

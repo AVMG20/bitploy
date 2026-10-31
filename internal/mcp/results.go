@@ -258,6 +258,8 @@ func gitStatusNext(ap app.App, settingsURL, adminURL string) []string {
 		return []string{"Auto-deploy is off: after each push call deploy with app=" + ap.Slug + ". The user can turn it on in the app's Settings, or you can call set_git_source again with auto_deploy=true."}
 	case "other_host":
 		return []string{"This git host cannot tell bitploy about pushes: after each push call deploy with app=" + ap.Slug + "."}
+	case "no_webhook":
+		return []string{"GitHub cannot reach this bitploy, so pushes do not deploy by themselves: after each push call deploy with app=" + ap.Slug + "."}
 	case "app_missing":
 		return []string{"Pushes do not deploy by themselves because GitHub is not set up on this bitploy. Tell the user: an admin sets it up on the Admin page (" + adminURL + "), then each person connects GitHub in Settings > GitHub. Until then call deploy with app=" + ap.Slug + " after each push."}
 	}

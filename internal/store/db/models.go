@@ -169,11 +169,19 @@ type GithubInstallation struct {
 	RepositorySelection string
 	Status              string
 	ReposSyncedAt       sql.NullInt64
+	GithubLogin         string
+	Limited             int64
 	CreatedAt           int64
 	UpdatedAt           int64
 }
 
 type GithubInstallationRepo struct {
+	InstallationID int64
+	Repo           string
+}
+
+type GithubUserRepo struct {
+	UserID         string
 	InstallationID int64
 	Repo           string
 }

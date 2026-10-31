@@ -24,6 +24,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/github"
 	"github.com/AVMG20/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // ---- a fake GitHub ----
@@ -60,7 +61,8 @@ type fakeGitHub struct {
 	reqs          []tokenReq            // access token requests
 	branches      map[string][]string   // "owner/name" -> branches
 	defaultBranch map[string]string     // "owner/name" -> default branch
-	manifestCodes map[string]bool       // manifest codes that convert
+	userRepos     map[string]map[int64][]string // user token -> installation -> repositories that user can open (default: all)
+	manifestCodes map[string]bool               // manifest codes that convert
 	hits          map[string]int        // method + path -> count
 }
 
@@ -74,7 +76,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		t: t, key: key, now: time.Now, webhookSecret: "whsec_fake_secret",
 		pem:   string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
 		codes: map[string]string{}, visible: map[string][]fakeInst{}, repos: map[int64][]string{}, tokens: map[string]int64{},
-		branches: map[string][]string{}, defaultBranch: map[string]string{}, manifestCodes: map[string]bool{"goodcode": true}, hits: map[string]int{},
+		branches: map[string][]string{}, defaultBranch: map[string]string{}, userRepos: map[string]map[int64][]string{}, manifestCodes: map[string]bool{"goodcode": true}, hits: map[string]int{},
 	}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
@@ -147,6 +149,33 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.codes, r.Form.Get("code"))
 		js(200, map[string]string{"access_token": tok, "token_type": "bearer"})
+	case r.URL.Path == "/user":
+		// The GitHub login of token ghu_usr_alice is alice.
+		if _, ok := f.visible[f.bearer(r)]; !ok {
+			js(401, map[string]string{"message": "Bad credentials"})
+			return
+		}
+		js(200, map[string]any{"login": strings.TrimPrefix(f.bearer(r), "ghu_usr_")})
+	case strings.HasPrefix(r.URL.Path, "/user/installations/") && strings.HasSuffix(r.URL.Path, "/repositories"):
+		tok := f.bearer(r)
+		id, _ := strconv.ParseInt(strings.Split(r.URL.Path, "/")[3], 10, 64)
+		seen := false
+		for _, i := range f.visible[tok] {
+			seen = seen || i.ID == id
+		}
+		if !seen {
+			notFound()
+			return
+		}
+		list := f.repos[id]
+		if mine, ok := f.userRepos[tok][id]; ok {
+			list = mine
+		}
+		out := []map[string]any{}
+		for _, full := range list {
+			out = append(out, map[string]any{"full_name": full})
+		}
+		js(200, map[string]any{"total_count": len(out), "repositories": out})
 	case r.URL.Path == "/user/installations":
 		list, ok := f.visible[f.bearer(r)]
 		if !ok {
@@ -338,6 +367,7 @@ func TestGitHubManifestFlow(t *testing.T) {
 	e := depTestSvc(t)
 	f := newFakeGitHub(t)
 	e.s.Cfg.GitHubAPIURL, e.s.Cfg.GitHubWebURL = f.srv.URL, f.srv.URL
+	e.s.Cfg.PublicURL = "https://bitploy.example.com" // reachable for GitHub, so the app gets a webhook
 	ctx := context.Background()
 	admin := sessionOf(e.addUser(t, "usr_admin", "admin@example.com", "admin"))
 	other := sessionOf(e.addUser(t, "usr_admin2", "admin2@example.com", "admin"))
@@ -372,9 +402,9 @@ func TestGitHubManifestFlow(t *testing.T) {
 	if err := json.Unmarshal([]byte(m.Manifest), &man); err != nil {
 		t.Fatal(err)
 	}
-	if man.Name != "bitploy bitploy.test" || man.URL != "https://bitploy.test" ||
-		man.HookAttrs.URL != "https://bitploy.test/api/v1/github/webhook" || !man.HookAttrs.Active ||
-		man.RedirectURL != "https://bitploy.test/admin" || man.SetupURL != "https://bitploy.test/settings/github" ||
+	if man.Name != "bitploy bitploy.example.com" || man.URL != "https://bitploy.example.com" ||
+		man.HookAttrs.URL != "https://bitploy.example.com/api/v1/github/webhook" || !man.HookAttrs.Active ||
+		man.RedirectURL != "https://bitploy.example.com/admin" || man.SetupURL != "https://bitploy.example.com/settings/github" ||
 		len(man.CallbackURLs) != 1 || man.CallbackURLs[0] != man.SetupURL || !man.RequestOAuth || !man.Public ||
 		man.Permissions["contents"] != "read" || man.Permissions["metadata"] != "read" || len(man.Permissions) != 2 ||
 		len(man.Events) != 1 || man.Events[0] != "push" {
@@ -433,7 +463,7 @@ func TestGitHubManifestFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Configured || info.Slug != "bitploy-test" || info.Owner != "acme" || info.WebhookURL != "https://bitploy.test/api/v1/github/webhook" ||
+	if !info.Configured || info.Slug != "bitploy-test" || info.Owner != "acme" || info.WebhookURL != "https://bitploy.example.com/api/v1/github/webhook" || !info.PushEvents ||
 		info.ManageURL != f.srv.URL+"/organizations/acme/settings/apps/bitploy-test" {
 		t.Fatalf("info: %+v", info)
 	}
@@ -1366,5 +1396,147 @@ func TestMigrationDroppedTheToken(t *testing.T) {
 	var n int
 	if err := e.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('users') WHERE name LIKE 'github%'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("users still has GitHub token columns: %d %v", n, err)
+	}
+}
+
+// ---- links to accounts the user does not own ----
+
+// Carol is a collaborator on alice/site only. GitHub shows her alice's
+// installation, which also covers alice/private. Linking it must give her
+// alice/site and nothing else; the acme organization works the same way.
+func TestGitHubLimitedLink(t *testing.T) {
+	g := ghTestEnv(t)
+	ctx := context.Background()
+	carol := g.addUser(t, "usr_carol", "carol@example.com", "user")
+	g.f.repos[101] = []string{"alice/site", "alice/private"}
+	g.f.repos[202] = []string{"acme/web", "acme/payroll"}
+	g.f.branches["alice/site"] = []string{"main"}
+	g.f.branches["alice/private"] = []string{"main"}
+	g.f.userRepos["ghu_usr_carol"] = map[int64][]string{101: {"alice/site"}, 202: {"acme/web"}}
+	ov, err := g.connect(t, carol, 0,
+		fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"},
+		fakeInst{ID: 202, Login: "acme", Type: "Organization", Selection: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range ov.Installations {
+		if !i.Limited || i.RepoCount == nil || *i.RepoCount != 1 {
+			t.Fatalf("limited link: %+v", i)
+		}
+	}
+	// Alice links her own account: not limited.
+	ova, err := g.connect(t, g.user, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"})
+	if err != nil || ova.Installations[0].Limited || *ova.Installations[0].RepoCount != 2 {
+		t.Fatalf("owner link: %+v %v", ova, err)
+	}
+
+	sess := sessionOf(carol)
+	repos, err := g.s.GitHubRepositories(ctx, sess, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range repos {
+		names = append(names, r.FullName)
+	}
+	if len(names) != 2 || strings.Contains(strings.Join(names, ","), "private") || strings.Contains(strings.Join(names, ","), "payroll") {
+		t.Fatalf("carol's picker: %v", names)
+	}
+	if _, err := g.s.GitHubBranches(ctx, sess, "alice/private"); depCode(err) != "github_repo_not_connected" {
+		t.Fatalf("branches of a repository carol cannot open: %v", err)
+	}
+	if _, err := g.s.GitHubBranches(ctx, sess, "alice/site"); err != nil {
+		t.Fatalf("branches of her repository: %v", err)
+	}
+	for _, repo := range []string{"https://github.com/alice/private", "https://github.com/acme/payroll"} {
+		if tok := g.s.gitCloneToken(ctx, carol.UserID, repo); tok != "" {
+			t.Fatalf("carol got a clone token for %s", repo)
+		}
+	}
+	if tok := g.s.gitCloneToken(ctx, carol.UserID, "https://github.com/acme/web"); tok == "" {
+		t.Fatal("carol has no token for acme/web")
+	}
+
+	// A push to a repository she may not use does not deploy her app, and its status says so.
+	app, err := g.s.CreateApp(ctx, carol, CreateAppInput{Slug: "carol-site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.linkApp(t, app, "https://github.com/alice/private", "main", true)
+	if _, err := g.deliver("push", "l1", pushBody("alice/private", "refs/heads/main", sha1a, 101)); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(g.deployments(t, app)); n != 0 {
+		t.Fatalf("a push to a repository carol cannot open deployed her app")
+	}
+	if got, _ := g.s.GetApp(ctx, carol, "carol-site"); got.GitSource.PushStatus != "no_access" {
+		t.Fatalf("status: %+v", got.GitSource)
+	}
+	g.linkApp(t, app, "https://github.com/alice/site", "main", true)
+	if _, err := g.deliver("push", "l2", pushBody("alice/site", "refs/heads/main", sha1a, 101)); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(g.deployments(t, app)); n != 1 {
+		t.Fatalf("her own repository: %v", g.deployments(t, app))
+	}
+
+	// Syncing again picks up new access; disconnecting forgets the list.
+	g.f.userRepos["ghu_usr_carol"][101] = []string{"alice/site", "alice/private"}
+	if _, err := g.connect(t, carol, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"}); err != nil {
+		t.Fatal(err)
+	}
+	if tok := g.s.gitCloneToken(ctx, carol.UserID, "https://github.com/alice/private"); tok == "" {
+		t.Fatal("access granted later was not picked up")
+	}
+	if err := g.s.GitHubUnlink(ctx, sess, 101); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := g.s.Q.CountGitHubUserRepos(ctx, db.CountGitHubUserReposParams{UserID: carol.UserID, InstallationID: 101}); n != 0 {
+		t.Fatalf("%d repositories kept after disconnect", n)
+	}
+}
+
+// ---- an app created without a webhook ----
+
+func TestGitHubAppWithoutWebhook(t *testing.T) {
+	e := depTestSvc(t)
+	f := newFakeGitHub(t)
+	e.s.Cfg.GitHubAPIURL, e.s.Cfg.GitHubWebURL = f.srv.URL, f.srv.URL
+	e.s.Cfg.PublicURL = "http://localhost:5173"
+	ctx := context.Background()
+	admin := sessionOf(e.addUser(t, "usr_admin", "admin@example.com", "admin"))
+	m, err := e.s.GitHubStartManifest(ctx, admin, GitHubManifestInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(m.Manifest, "hook_attributes") || strings.Contains(m.Manifest, "default_events") {
+		t.Fatalf("GitHub refuses a webhook on localhost: %s", m.Manifest)
+	}
+	f.webhookSecret = "" // GitHub sends none for an app without a webhook
+	info, err := e.s.GitHubFinishManifest(ctx, admin, GitHubManifestResult{Code: "goodcode", State: m.State})
+	if err != nil || !info.Configured || info.PushEvents || info.WebhookURL != "" || info.PublicURLProblem == "" {
+		t.Fatalf("info: %+v %v", info, err)
+	}
+	app, err := e.s.CreateApp(ctx, e.user, CreateAppInput{Slug: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE apps SET git_repo_url = 'https://github.com/alice/site', git_branch = 'main' WHERE id = ?`, app.ID)
+	if got, _ := e.s.GetApp(ctx, e.user, "site"); got.GitSource.PushStatus != "not_connected" {
+		t.Fatalf("access problems come first: %+v", got.GitSource)
+	}
+	g := &ghEnv{depEnv: e, f: f, admin: admin}
+	f.mu.Lock()
+	f.repos[101] = []string{"alice/site"}
+	f.mu.Unlock()
+	if _, err := g.connect(t, e.user, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.s.GetApp(ctx, e.user, "site"); got.GitSource.PushStatus != "no_webhook" || got.GitSource.PushReady {
+		t.Fatalf("status: %+v", got.GitSource)
+	}
+	body := []byte(`{"zen":"hi"}`)
+	if _, err := e.s.HandleGitHubWebhook(ctx, "ping", "d-1", github.Sign(nil, body), body); depCode(err) != "github_signature_invalid" {
+		t.Fatalf("a delivery without a secret must not verify: %v", err)
 	}
 }

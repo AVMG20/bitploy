@@ -24,12 +24,50 @@ func (q *Queries) AddGitHubInstallationRepo(ctx context.Context, arg AddGitHubIn
 	return err
 }
 
+const addGitHubUserRepo = `-- name: AddGitHubUserRepo :exec
+INSERT OR IGNORE INTO github_user_repos (user_id, installation_id, repo) VALUES (?, ?, ?)
+`
+
+type AddGitHubUserRepoParams struct {
+	UserID         string
+	InstallationID int64
+	Repo           string
+}
+
+func (q *Queries) AddGitHubUserRepo(ctx context.Context, arg AddGitHubUserRepoParams) error {
+	_, err := q.db.ExecContext(ctx, addGitHubUserRepo, arg.UserID, arg.InstallationID, arg.Repo)
+	return err
+}
+
 const clearGitHubInstallationRepos = `-- name: ClearGitHubInstallationRepos :exec
 DELETE FROM github_installation_repos WHERE installation_id = ?
 `
 
 func (q *Queries) ClearGitHubInstallationRepos(ctx context.Context, installationID int64) error {
 	_, err := q.db.ExecContext(ctx, clearGitHubInstallationRepos, installationID)
+	return err
+}
+
+const clearGitHubUserRepos = `-- name: ClearGitHubUserRepos :exec
+DELETE FROM github_user_repos WHERE user_id = ? AND installation_id = ?
+`
+
+type ClearGitHubUserReposParams struct {
+	UserID         string
+	InstallationID int64
+}
+
+func (q *Queries) ClearGitHubUserRepos(ctx context.Context, arg ClearGitHubUserReposParams) error {
+	_, err := q.db.ExecContext(ctx, clearGitHubUserRepos, arg.UserID, arg.InstallationID)
+	return err
+}
+
+const clearGitHubUserReposOfInstallation = `-- name: ClearGitHubUserReposOfInstallation :exec
+DELETE FROM github_user_repos WHERE installation_id = ?
+`
+
+func (q *Queries) ClearGitHubUserReposOfInstallation(ctx context.Context, installationID int64) error {
+	_, err := q.db.ExecContext(ctx, clearGitHubUserReposOfInstallation, installationID)
 	return err
 }
 
@@ -55,6 +93,22 @@ func (q *Queries) CountGitHubInstallationRepos(ctx context.Context, installation
 	return count, err
 }
 
+const countGitHubUserRepos = `-- name: CountGitHubUserRepos :one
+SELECT COUNT(*) FROM github_user_repos WHERE user_id = ? AND installation_id = ?
+`
+
+type CountGitHubUserReposParams struct {
+	UserID         string
+	InstallationID int64
+}
+
+func (q *Queries) CountGitHubUserRepos(ctx context.Context, arg CountGitHubUserReposParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countGitHubUserRepos, arg.UserID, arg.InstallationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteAllGitHubInstallationRepos = `-- name: DeleteAllGitHubInstallationRepos :exec
 DELETE FROM github_installation_repos
 `
@@ -70,6 +124,15 @@ DELETE FROM github_installations
 
 func (q *Queries) DeleteAllGitHubInstallations(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteAllGitHubInstallations)
+	return err
+}
+
+const deleteAllGitHubUserRepos = `-- name: DeleteAllGitHubUserRepos :exec
+DELETE FROM github_user_repos
+`
+
+func (q *Queries) DeleteAllGitHubUserRepos(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllGitHubUserRepos)
 	return err
 }
 
@@ -109,7 +172,7 @@ func (q *Queries) DeleteGitHubInstallationLink(ctx context.Context, arg DeleteGi
 }
 
 const getAnyGitHubInstallationLink = `-- name: GetAnyGitHubInstallationLink :one
-SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, created_at, updated_at FROM github_installations WHERE installation_id = ? LIMIT 1
+SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, github_login, limited, created_at, updated_at FROM github_installations WHERE installation_id = ? LIMIT 1
 `
 
 func (q *Queries) GetAnyGitHubInstallationLink(ctx context.Context, installationID int64) (GithubInstallation, error) {
@@ -123,6 +186,8 @@ func (q *Queries) GetAnyGitHubInstallationLink(ctx context.Context, installation
 		&i.RepositorySelection,
 		&i.Status,
 		&i.ReposSyncedAt,
+		&i.GithubLogin,
+		&i.Limited,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -157,7 +222,7 @@ func (q *Queries) GetGitHubApp(ctx context.Context) (GithubApp, error) {
 }
 
 const getGitHubInstallationLink = `-- name: GetGitHubInstallationLink :one
-SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, created_at, updated_at FROM github_installations WHERE user_id = ? AND installation_id = ?
+SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, github_login, limited, created_at, updated_at FROM github_installations WHERE user_id = ? AND installation_id = ?
 `
 
 type GetGitHubInstallationLinkParams struct {
@@ -176,6 +241,8 @@ func (q *Queries) GetGitHubInstallationLink(ctx context.Context, arg GetGitHubIn
 		&i.RepositorySelection,
 		&i.Status,
 		&i.ReposSyncedAt,
+		&i.GithubLogin,
+		&i.Limited,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -193,6 +260,23 @@ type GitHubInstallationHasRepoParams struct {
 
 func (q *Queries) GitHubInstallationHasRepo(ctx context.Context, arg GitHubInstallationHasRepoParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, gitHubInstallationHasRepo, arg.InstallationID, arg.Repo)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const gitHubUserHasRepo = `-- name: GitHubUserHasRepo :one
+SELECT COUNT(*) FROM github_user_repos WHERE user_id = ? AND installation_id = ? AND repo = ?
+`
+
+type GitHubUserHasRepoParams struct {
+	UserID         string
+	InstallationID int64
+	Repo           string
+}
+
+func (q *Queries) GitHubUserHasRepo(ctx context.Context, arg GitHubUserHasRepoParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, gitHubUserHasRepo, arg.UserID, arg.InstallationID, arg.Repo)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -216,7 +300,7 @@ func (q *Queries) InsertGitHubDelivery(ctx context.Context, arg InsertGitHubDeli
 }
 
 const listGitHubInstallationsByUser = `-- name: ListGitHubInstallationsByUser :many
-SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, created_at, updated_at FROM github_installations WHERE user_id = ? ORDER BY account_login COLLATE NOCASE, installation_id
+SELECT user_id, installation_id, account_login, account_type, repository_selection, status, repos_synced_at, github_login, limited, created_at, updated_at FROM github_installations WHERE user_id = ? ORDER BY account_login COLLATE NOCASE, installation_id
 `
 
 func (q *Queries) ListGitHubInstallationsByUser(ctx context.Context, userID string) ([]GithubInstallation, error) {
@@ -236,12 +320,46 @@ func (q *Queries) ListGitHubInstallationsByUser(ctx context.Context, userID stri
 			&i.RepositorySelection,
 			&i.Status,
 			&i.ReposSyncedAt,
+			&i.GithubLogin,
+			&i.Limited,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGitHubUserRepos = `-- name: ListGitHubUserRepos :many
+SELECT repo FROM github_user_repos WHERE user_id = ? AND installation_id = ?
+`
+
+type ListGitHubUserReposParams struct {
+	UserID         string
+	InstallationID int64
+}
+
+func (q *Queries) ListGitHubUserRepos(ctx context.Context, arg ListGitHubUserReposParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listGitHubUserRepos, arg.UserID, arg.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, err
+		}
+		items = append(items, repo)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -369,12 +487,13 @@ func (q *Queries) UpsertGitHubApp(ctx context.Context, arg UpsertGitHubAppParams
 
 const upsertGitHubInstallation = `-- name: UpsertGitHubInstallation :exec
 INSERT INTO github_installations (user_id, installation_id, account_login, account_type, repository_selection,
-                                  status, repos_synced_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                                  status, repos_synced_at, github_login, limited, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
 ON CONFLICT(user_id, installation_id) DO UPDATE SET
     account_login = excluded.account_login, account_type = excluded.account_type,
     repository_selection = excluded.repository_selection, status = 'active',
-    repos_synced_at = excluded.repos_synced_at, updated_at = excluded.updated_at
+    repos_synced_at = excluded.repos_synced_at, github_login = excluded.github_login,
+    limited = excluded.limited, updated_at = excluded.updated_at
 `
 
 type UpsertGitHubInstallationParams struct {
@@ -384,6 +503,8 @@ type UpsertGitHubInstallationParams struct {
 	AccountType         string
 	RepositorySelection string
 	ReposSyncedAt       sql.NullInt64
+	GithubLogin         string
+	Limited             int64
 	CreatedAt           int64
 	UpdatedAt           int64
 }
@@ -396,6 +517,8 @@ func (q *Queries) UpsertGitHubInstallation(ctx context.Context, arg UpsertGitHub
 		arg.AccountType,
 		arg.RepositorySelection,
 		arg.ReposSyncedAt,
+		arg.GithubLogin,
+		arg.Limited,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)

@@ -13,6 +13,7 @@ type GitHubAppInfo struct {
 	ManageURL  string `json:"manage_url,omitempty" doc:"Where the owner changes or deletes the app on GitHub"`
 	Owner      string `json:"owner,omitempty" doc:"GitHub account that owns the app"`
 	WebhookURL string `json:"webhook_url,omitempty" doc:"Where GitHub sends push events"`
+	PushEvents bool   `json:"push_events,omitempty" doc:"GitHub sends push events to bitploy. false when the app was created while BITPLOY_PUBLIC_URL was not reachable from the internet."`
 	// DefaultName is the app name offered when creating the app.
 	DefaultName string     `json:"default_name,omitempty"`
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
@@ -29,7 +30,8 @@ type GitHubInstallation struct {
 	RepositorySelection string    `json:"repository_selection" enum:"all,selected" doc:"all: every repository of the account. selected: only the ones chosen on GitHub."`
 	Status              string    `json:"status" enum:"active,suspended,deleted" doc:"deleted means the app was uninstalled on GitHub"`
 	ManageURL           string    `json:"manage_url" doc:"Where to choose repositories or uninstall, on GitHub"`
-	RepoCount           *int      `json:"repo_count,omitempty" doc:"Number of repositories, when only selected ones are shared"`
+	RepoCount           *int      `json:"repo_count,omitempty" doc:"Number of repositories you can use, when that is not all of the account's"`
+	Limited             bool      `json:"limited" doc:"true when the account is not yours (an organization, or another person's account): you get only the repositories you could open on GitHub when you connected. Sync from GitHub to update."`
 	ConnectedAt         time.Time `json:"connected_at"`
 }
 

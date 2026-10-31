@@ -30,7 +30,12 @@ func (s *Service) GitHubOverview(ctx context.Context, a Actor) (GitHubOverview, 
 	out := GitHubOverview{App: info, Installations: make([]GitHubInstallation, 0, len(rows))}
 	for _, r := range rows {
 		v := s.installationView(r)
-		if r.RepositorySelection == "selected" && r.Status == "active" {
+		if r.Limited != 0 && r.Status == "active" {
+			if n, err := s.Q.CountGitHubUserRepos(ctx, db.CountGitHubUserReposParams{UserID: r.UserID, InstallationID: r.InstallationID}); err == nil {
+				c := int(n)
+				v.RepoCount = &c
+			}
+		} else if r.RepositorySelection == "selected" && r.Status == "active" {
 			// A count is shown only when the list was read at least once.
 			if r.ReposSyncedAt.Valid {
 				if n, err := s.countInstallationRepos(ctx, r.InstallationID); err == nil {
@@ -105,6 +110,10 @@ func (s *Service) GitHubLink(ctx context.Context, a Actor, in GitHubLinkInput) (
 			"GitHub did not accept the sign-in. The code works once and only for a few minutes.",
 			"Press Connect GitHub again.").WithCause(err)
 	}
+	login, err := s.ghc().AuthenticatedUser(ctx, userToken)
+	if err != nil {
+		return GitHubOverview{}, githubError(err)
+	}
 	visible, err := s.ghc().UserInstallations(ctx, userToken)
 	if err != nil {
 		return GitHubOverview{}, githubError(err)
@@ -134,23 +143,35 @@ func (s *Service) GitHubLink(ctx context.Context, a Actor, in GitHubLinkInput) (
 		have[e.InstallationID] = true
 	}
 	for _, inst := range chosen {
-		if !have[inst.ID] {
-			if len(have) >= githubMaxLinks {
-				return GitHubOverview{}, apperr.Conflict("github_too_many_accounts",
-					"You connected the maximum of 10 GitHub accounts.", "Disconnect one you no longer use.")
+		have[inst.ID] = true
+	}
+	if len(have) > githubMaxLinks {
+		return GitHubOverview{}, apperr.Conflict("github_too_many_accounts",
+			"You can connect at most 10 GitHub accounts.", "Disconnect one you no longer use.")
+	}
+	for _, inst := range chosen {
+		// Only the person who owns a GitHub account gets everything its
+		// installation covers. Anyone else (an organization member, a
+		// collaborator on someone's repository) gets the repositories GitHub
+		// says they can open themselves, read now.
+		limited := !(inst.Account.Type == "User" && strings.EqualFold(inst.Account.Login, login))
+		var mine []github.Repo
+		if limited {
+			mine, err = s.ghc().UserInstallationRepos(ctx, userToken, inst.ID)
+			if err != nil && inst.SuspendedAt == nil {
+				return GitHubOverview{}, githubError(err)
 			}
-			have[inst.ID] = true
 		}
-		if err := s.linkInstallation(ctx, a, app, inst); err != nil {
+		if err := s.linkInstallation(ctx, a, app, inst, login, limited, mine); err != nil {
 			return GitHubOverview{}, err
 		}
 	}
 	return s.GitHubOverview(ctx, a)
 }
 
-func (s *Service) linkInstallation(ctx context.Context, a Actor, app *ghApp, inst github.Installation) error {
-	login := inst.Account.Login
-	if !github.ValidName(login) || inst.ID <= 0 {
+func (s *Service) linkInstallation(ctx context.Context, a Actor, app *ghApp, inst github.Installation, login string, limited bool, mine []github.Repo) error {
+	account := inst.Account.Login
+	if !github.ValidName(account) || inst.ID <= 0 {
 		return apperr.Unavailable("github_error", "GitHub's answer about the installation was not complete.", "Try again in a minute.")
 	}
 	accountType := "User"
@@ -162,9 +183,25 @@ func (s *Service) linkInstallation(ctx context.Context, a Actor, app *ghApp, ins
 		selection = "all"
 	}
 	now := s.now()
-	err := s.Q.UpsertGitHubInstallation(ctx, db.UpsertGitHubInstallationParams{
-		UserID: a.UserID, InstallationID: inst.ID, AccountLogin: login, AccountType: accountType,
-		RepositorySelection: selection, ReposSyncedAt: sql.NullInt64{}, CreatedAt: now, UpdatedAt: now,
+	err := s.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.UpsertGitHubInstallation(ctx, db.UpsertGitHubInstallationParams{
+			UserID: a.UserID, InstallationID: inst.ID, AccountLogin: account, AccountType: accountType,
+			RepositorySelection: selection, ReposSyncedAt: sql.NullInt64{}, GithubLogin: login, Limited: b2i(limited),
+			CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+		if err := q.ClearGitHubUserRepos(ctx, db.ClearGitHubUserReposParams{UserID: a.UserID, InstallationID: inst.ID}); err != nil {
+			return err
+		}
+		for _, r := range mine {
+			if key, ok := github.RepoKey(r.FullName); ok {
+				if err := q.AddGitHubUserRepo(ctx, db.AddGitHubUserRepoParams{UserID: a.UserID, InstallationID: inst.ID, Repo: key}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return apperr.Internal(err)
@@ -181,7 +218,9 @@ func (s *Service) linkInstallation(ctx context.Context, a Actor, app *ghApp, ins
 			s.Log.Warn("github: could not read the repositories of an installation", "installation", inst.ID, "err", err)
 		}
 	}
-	s.Audit(ctx, a, "github.installation_link", "github_installation", itoa64(inst.ID), map[string]any{"account": login, "type": accountType, "selection": selection})
+	s.Audit(ctx, a, "github.installation_link", "github_installation", itoa64(inst.ID), map[string]any{
+		"account": account, "type": accountType, "selection": selection, "github_login": login, "limited": limited, "repos": len(mine),
+	})
 	return nil
 }
 
@@ -232,6 +271,7 @@ func (s *Service) GitHubUnlink(ctx context.Context, a Actor, installationID int6
 	if n == 0 {
 		return apperr.NotFound("github_account_not_found", "That GitHub account is not connected.", "Open Settings > GitHub to see the connected accounts.")
 	}
+	_ = s.Q.ClearGitHubUserRepos(ctx, db.ClearGitHubUserReposParams{UserID: a.UserID, InstallationID: installationID})
 	if left, err := s.Q.CountGitHubInstallationLinks(ctx, installationID); err == nil && left == 0 {
 		_ = s.Q.ClearGitHubInstallationRepos(ctx, installationID)
 	}
@@ -286,10 +326,28 @@ func (s *Service) installationRepos(ctx context.Context, app *ghApp, l db.Github
 	return repos, nil
 }
 
+// userRepoSet is nil for a link that may use everything its installation
+// covers, else the repositories (owner/name, lower case) its user may use.
+func (s *Service) userRepoSet(ctx context.Context, l db.GithubInstallation) (map[string]bool, error) {
+	if l.Limited == 0 {
+		return nil, nil
+	}
+	rows, err := s.Q.ListGitHubUserRepos(ctx, db.ListGitHubUserReposParams{UserID: l.UserID, InstallationID: l.InstallationID})
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	set := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		set[r] = true
+	}
+	return set, nil
+}
+
 // markInstallationGone records that GitHub no longer knows an installation.
 func (s *Service) markInstallationGone(ctx context.Context, id int64) {
 	_, _ = s.Q.SetGitHubInstallationStatus(ctx, db.SetGitHubInstallationStatusParams{Status: "deleted", UpdatedAt: s.now(), InstallationID: id})
 	_ = s.Q.ClearGitHubInstallationRepos(ctx, id)
+	_ = s.Q.ClearGitHubUserReposOfInstallation(ctx, id)
 	s.forgetInstallationCaches(id)
 }
 
@@ -328,8 +386,15 @@ func (s *Service) GitHubRepositories(ctx context.Context, a Actor, query string)
 			}
 			continue
 		}
+		allowed, err := s.userRepoSet(ctx, l)
+		if err != nil {
+			return nil, err
+		}
 		for _, r := range repos {
 			if query != "" && !strings.Contains(strings.ToLower(r.FullName), query) {
+				continue
+			}
+			if key, _ := github.RepoKey(r.FullName); allowed != nil && !allowed[key] {
 				continue
 			}
 			v := GitHubRepo{FullName: r.FullName, Private: r.Private, HTMLURL: r.HTMLURL, DefaultBranch: r.DefaultBranch, InstallationID: l.InstallationID}

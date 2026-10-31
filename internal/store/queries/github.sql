@@ -24,12 +24,13 @@ DELETE FROM github_installation_repos;
 
 -- name: UpsertGitHubInstallation :exec
 INSERT INTO github_installations (user_id, installation_id, account_login, account_type, repository_selection,
-                                  status, repos_synced_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                                  status, repos_synced_at, github_login, limited, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
 ON CONFLICT(user_id, installation_id) DO UPDATE SET
     account_login = excluded.account_login, account_type = excluded.account_type,
     repository_selection = excluded.repository_selection, status = 'active',
-    repos_synced_at = excluded.repos_synced_at, updated_at = excluded.updated_at;
+    repos_synced_at = excluded.repos_synced_at, github_login = excluded.github_login,
+    limited = excluded.limited, updated_at = excluded.updated_at;
 
 -- name: ListGitHubInstallationsByUser :many
 SELECT * FROM github_installations WHERE user_id = ? ORDER BY account_login COLLATE NOCASE, installation_id;
@@ -78,3 +79,24 @@ SELECT * FROM github_installations WHERE installation_id = ? LIMIT 1;
 
 -- name: CountGitHubInstallationRepos :one
 SELECT COUNT(*) FROM github_installation_repos WHERE installation_id = ?;
+
+-- name: ClearGitHubUserRepos :exec
+DELETE FROM github_user_repos WHERE user_id = ? AND installation_id = ?;
+
+-- name: ClearGitHubUserReposOfInstallation :exec
+DELETE FROM github_user_repos WHERE installation_id = ?;
+
+-- name: DeleteAllGitHubUserRepos :exec
+DELETE FROM github_user_repos;
+
+-- name: AddGitHubUserRepo :exec
+INSERT OR IGNORE INTO github_user_repos (user_id, installation_id, repo) VALUES (?, ?, ?);
+
+-- name: GitHubUserHasRepo :one
+SELECT COUNT(*) FROM github_user_repos WHERE user_id = ? AND installation_id = ? AND repo = ?;
+
+-- name: ListGitHubUserRepos :many
+SELECT repo FROM github_user_repos WHERE user_id = ? AND installation_id = ?;
+
+-- name: CountGitHubUserRepos :one
+SELECT COUNT(*) FROM github_user_repos WHERE user_id = ? AND installation_id = ?;

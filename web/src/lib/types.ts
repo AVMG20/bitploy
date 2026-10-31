@@ -101,6 +101,8 @@ export interface GitHubAppInfo {
   manage_url?: string
   owner?: string
   webhook_url?: string
+  /** GitHub sends push events here (false when the app was created without a public address). */
+  push_events?: boolean
   default_name?: string
   created_at?: string
   /** Why GitHub cannot reach this server; empty when it can. */
@@ -115,6 +117,8 @@ export interface GitHubInstallation {
   status: 'active' | 'suspended' | 'deleted'
   manage_url: string
   repo_count?: number
+  /** Not your own account: only the repositories you could open on GitHub when you connected. */
+  limited: boolean
   connected_at: string
 }
 
@@ -152,7 +156,7 @@ export interface GitSourceInput {
   auto_deploy?: boolean
 }
 
-export type PushStatus = 'ready' | 'off' | 'other_host' | 'app_missing' | 'not_connected' | 'no_access' | 'reconnect'
+export type PushStatus = 'ready' | 'off' | 'other_host' | 'app_missing' | 'no_webhook' | 'not_connected' | 'no_access' | 'reconnect'
 
 /** The repository linked to an app, and whether a push will deploy it. */
 export interface GitSource {

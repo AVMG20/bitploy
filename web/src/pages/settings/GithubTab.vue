@@ -82,17 +82,21 @@ const remove = useMutation({
 function describe(i: GitHubInstallation): string {
   if (i.status === 'deleted') return 'Bitploy was removed on GitHub'
   if (i.status === 'suspended') return 'Paused on GitHub'
+  const n = i.repo_count
+  if (i.limited) return n === 1 ? '1 repository you have access to' : `${n ?? 0} repositories you have access to`
   if (i.repository_selection === 'all') return 'All repositories'
-  if (i.repo_count === undefined) return 'Selected repositories'
-  return i.repo_count === 1 ? '1 repository' : `${i.repo_count} repositories`
+  if (n === undefined) return 'Selected repositories'
+  return n === 1 ? '1 repository' : `${n} repositories`
 }
+// Someone else's personal account: only its owner can change the installation.
+const canManage = (i: GitHubInstallation) => i.status !== 'deleted' && !(i.limited && i.account_type === 'User')
 
 const linkErrorText = computed(() => (linkError.value instanceof ApiError ? linkError.value.message : 'GitHub could not be connected.'))
 const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? linkError.value.hint : 'Try again.'))
 </script>
 
 <template>
-  <SettingsSection title="GitHub" description="Connect GitHub to deploy private repositories, and to deploy again on every push.">
+  <SettingsSection title="GitHub" description="Connect GitHub to deploy private repositories and to deploy on every push.">
     <div class="grid gap-4">
       <QueryError v-if="github.isError.value" :error="github.error.value" @retry="github.refetch()" />
       <Skeleton v-else-if="github.isPending.value" class="h-40 w-full" />
@@ -145,7 +149,7 @@ const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? link
                 <StatusBadge v-if="i.status === 'suspended'" label="Paused" tone="warning" />
                 <StatusBadge v-else-if="i.status === 'deleted'" label="Removed" tone="danger" />
                 <div class="ml-auto flex flex-wrap gap-1">
-                  <Button v-if="i.status !== 'deleted'" as-child size="sm" variant="outline">
+                  <Button v-if="canManage(i)" as-child size="sm" variant="outline">
                     <a :href="i.manage_url" target="_blank" rel="noopener noreferrer">Choose repos on GitHub <ExternalLink /></a>
                   </Button>
                   <Button size="sm" variant="ghost" @click="toRemove = i">Disconnect</Button>
@@ -156,22 +160,25 @@ const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? link
             <p v-if="installations.some((i) => i.status === 'deleted')" class="text-xs text-muted-foreground">
               Bitploy was removed on GitHub for some accounts. Connect them again, or disconnect them here.
             </p>
+            <p v-if="installations.some((i) => i.limited && i.status === 'active')" class="text-xs text-muted-foreground">
+              For accounts that are not yours, bitploy only uses the repositories you can open on GitHub. Got access to more? Press Sync from GitHub.
+            </p>
           </CardContent>
           <CardFooter class="flex-wrap justify-between gap-x-4 gap-y-2">
             <p class="text-xs text-muted-foreground">
-              Already installed on GitHub?
+              Installed bitploy on GitHub before, or changed access?
               <button type="button" class="font-medium text-foreground underline-offset-2 hover:underline" :disabled="connect.isPending.value" @click="connect.mutate('authorize')">
-                Link existing accounts
+                Sync from GitHub
               </button>
             </p>
-            <Button :variant="installations.length ? 'outline' : 'default'" :disabled="connect.isPending.value" @click="connect.mutate('install')">
+            <Button class="ml-auto" :variant="installations.length ? 'outline' : 'default'" :disabled="connect.isPending.value" @click="connect.mutate('install')">
               <Github /> {{ installations.length ? 'Connect another account' : 'Connect GitHub' }}
             </Button>
           </CardFooter>
         </Card>
 
         <p class="text-xs text-muted-foreground">
-          Public repositories need no connection. Pushes to a connected repository deploy the app by themselves; turn that off per app in its Settings.
+          Public repositories work without connecting. Deploy on push can be turned off per app, in its Settings.
         </p>
       </template>
     </div>

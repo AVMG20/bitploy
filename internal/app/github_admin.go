@@ -30,15 +30,21 @@ func (s *Service) githubAppInfo(ctx context.Context, admin bool) (GitHubAppInfo,
 	}
 	info := GitHubAppInfo{}
 	if admin {
-		info.WebhookURL = s.githubWebhookURL()
 		info.DefaultName = s.defaultGitHubAppName()
 		info.PublicURLProblem = publicURLProblem(s.Cfg.PublicURL)
+		if app == nil && info.PublicURLProblem == "" {
+			info.WebhookURL = s.githubWebhookURL()
+		}
 	}
 	if app == nil {
 		return info, nil
 	}
 	info.Configured, info.Name, info.Slug = true, app.Name, app.Slug
 	if admin {
+		info.PushEvents = len(app.WebhookSecret) > 0
+		if info.PushEvents {
+			info.WebhookURL = s.githubWebhookURL()
+		}
 		created := app.CreatedAt
 		info.HTMLURL, info.Owner, info.CreatedAt = app.HTMLURL, app.Owner, &created
 		info.ManageURL = s.githubWebURL() + "/settings/apps/" + app.Slug
@@ -80,14 +86,19 @@ func (s *Service) GitHubStartManifest(ctx context.Context, a Actor, in GitHubMan
 	manifest := map[string]any{
 		"name":                     name,
 		"url":                      public,
-		"hook_attributes":          map[string]any{"url": s.githubWebhookURL(), "active": true},
 		"redirect_url":             public + "/admin",
 		"callback_urls":            []string{public + "/settings/github"},
 		"setup_url":                public + "/settings/github",
 		"request_oauth_on_install": true,
 		"public":                   true,
 		"default_permissions":      map[string]string{"contents": "read", "metadata": "read"},
-		"default_events":           []string{"push"},
+	}
+	// GitHub refuses a webhook address it cannot reach (localhost, a private
+	// address). Without one the app still gives access to private
+	// repositories; only deploy-on-push is missing.
+	if publicURLProblem(s.Cfg.PublicURL) == "" {
+		manifest["hook_attributes"] = map[string]any{"url": s.githubWebhookURL(), "active": true}
+		manifest["default_events"] = []string{"push"}
 	}
 	mb, err := json.Marshal(manifest)
 	if err != nil {
@@ -139,7 +150,7 @@ func (s *Service) GitHubFinishManifest(ctx context.Context, a Actor, in GitHubMa
 	}
 	webPrefix := s.githubWebURL() + "/"
 	if cred.ID <= 0 || !github.ValidSlug(cred.Slug) || cred.ClientID == "" || cred.ClientSecret == "" ||
-		cred.WebhookSecret == "" || cred.PEM == "" || !strings.HasPrefix(cred.HTMLURL, webPrefix) {
+		cred.PEM == "" || !strings.HasPrefix(cred.HTMLURL, webPrefix) {
 		return GitHubAppInfo{}, apperr.Unavailable("github_error", "GitHub's answer for the new app was incomplete.", "Press Create GitHub App again.")
 	}
 	if _, err := github.ParsePrivateKey(cred.PEM); err != nil {
@@ -153,11 +164,15 @@ func (s *Service) GitHubFinishManifest(ctx context.Context, a Actor, in GitHubMa
 		ownerType = "Organization"
 	}
 	seal := func(v, field string) []byte { return s.Crypto.Seal([]byte(v), "github_app:"+field) }
+	hookSecret := []byte{} // an app created without a webhook has no secret
+	if cred.WebhookSecret != "" {
+		hookSecret = seal(cred.WebhookSecret, "webhook_secret")
+	}
 	err = s.Q.UpsertGitHubApp(ctx, db.UpsertGitHubAppParams{
 		GithubAppID: cred.ID, Slug: cred.Slug, Name: cred.Name, HtmlUrl: cred.HTMLURL, OwnerLogin: owner, OwnerType: ownerType,
 		ClientID:         cred.ClientID,
 		ClientSecretEnc:  seal(cred.ClientSecret, "client_secret"),
-		WebhookSecretEnc: seal(cred.WebhookSecret, "webhook_secret"),
+		WebhookSecretEnc: hookSecret,
 		PrivateKeyEnc:    seal(cred.PEM, "private_key"),
 		CreatedBy:        nullStr(a.UserID), CreatedAt: s.now(),
 	})
@@ -184,6 +199,9 @@ func (s *Service) GitHubDisconnectApp(ctx context.Context, a Actor) error {
 	}
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.DeleteAllGitHubInstallationRepos(ctx); err != nil {
+			return err
+		}
+		if err := q.DeleteAllGitHubUserRepos(ctx); err != nil {
 			return err
 		}
 		if err := q.DeleteAllGitHubInstallations(ctx); err != nil {

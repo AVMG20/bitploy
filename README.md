@@ -102,19 +102,19 @@ With GitHub connected, people pick a repository in an app's Settings and every p
 
 **Admin, once.** Bitploy uses one GitHub App for the whole server, and you create it from the dashboard:
 
-1. Make sure `BITPLOY_PUBLIC_URL` is an address GitHub can reach over the internet. GitHub posts push events to `<public url>/api/v1/github/webhook`. On `localhost`, a private address or a name without a dot the push events never arrive, and the Admin page warns about it.
+1. Make sure `BITPLOY_PUBLIC_URL` is an address GitHub can reach over the internet. GitHub posts push events to `<public url>/api/v1/github/webhook`. On `localhost`, a private address or a name without a dot, the Admin page warns you, and the app is created without push events: private repositories work, but every deploy is by hand. To add push events later, fix the address, disconnect GitHub on the Admin page and create the app again.
 2. Open Admin, GitHub, choose a name (and an organization if the app should belong to one) and press Create GitHub App. GitHub shows what will be created. Confirm there, and you land back in bitploy.
 
-The app asks for read-only access to repository contents and metadata, and for push events. Bitploy keeps its private key, client secret and webhook secret encrypted with `BITPLOY_SECRET_KEY`. Disconnect on the same page removes them from bitploy; delete the app on GitHub too if you want it gone there.
+The app asks for read-only access to repository contents and metadata, and for push events when GitHub can reach the server. Bitploy keeps its private key, client secret and webhook secret encrypted with `BITPLOY_SECRET_KEY`. Disconnect on the same page removes them from bitploy; delete the app on GitHub too if you want it gone there.
 
-**Everyone, once.** Settings, GitHub, Connect GitHub. GitHub asks which account and which repositories bitploy may read; pick the ones you want. If you have already installed the app, use Link existing accounts. Then, in an app's Settings, under Source, pick a repository, a branch and optionally a folder. Press Redeploy for the first build; after that every push to that branch deploys by itself. A few quick pushes in a row end in one build of the newest commit.
+**Everyone, once.** Settings, GitHub, Connect GitHub. GitHub asks which account and which repositories bitploy may read; pick the ones you want. If the app is already installed on GitHub, or you changed its access there, press Sync from GitHub. Then, in an app's Settings, under Source, pick a repository, a branch and optionally a folder. Press Redeploy for the first build; after that every push to that branch deploys by itself. A few quick pushes in a row end in one build of the newest commit.
 
 **What to know**
 
 - An app built from a repository does not accept uploaded files (the error says `git_source_linked`). Disconnect the repository in the app's Settings, or call `set_git_source` with `remove: true`, to upload again. The running app is not touched.
 - Private repositories need the app installed with access to that repository. Public repositories on any git host also work through a plain address, but only GitHub repositories deploy on push.
 - Bitploy clones with a short-lived token for that one repository, read-only, and never writes it to disk, a log or an image.
-- Anyone who can see an organization's installation can connect it to their own bitploy account, and then deploy any repository that installation covers. Install the app on an organization only when you are fine with that.
+- For an organization, or someone else's account, bitploy only uses the repositories that you can open on GitHub yourself, and only those show up in the picker. This list is taken when you connect. Press Sync from GitHub after your access changes; someone who leaves the organization keeps the repositories they had until they disconnect, so remove them from bitploy too.
 - Bitploy does not poll GitHub. If a push is missed (the server was down for a long time, or the public URL was wrong), redeliver it from the GitHub App's Advanced tab, or press Redeploy.
 
 ### Configuration

@@ -142,13 +142,15 @@ func TestGitHubAdminEndpoints(t *testing.T) {
 	e.login("admin@example.nl", true)
 	w := e.asSession("GET", "/api/v1/admin/github", nil)
 	info := decode[app.GitHubAppInfo](t, w)
-	if w.Code != 200 || info.Configured || info.WebhookURL != pub+"/api/v1/github/webhook" || info.PublicURLProblem == "" {
+	// bitploy.test cannot be reached from GitHub: no webhook address to show.
+	if w.Code != 200 || info.Configured || info.WebhookURL != "" || info.PublicURLProblem == "" {
 		t.Fatalf("admin card: %d %s", w.Code, w.Body)
 	}
 	w = e.asSession("POST", "/api/v1/admin/github/manifest", map[string]any{"name": "My bitploy", "organization": "acme"})
 	m := decode[app.GitHubManifest](t, w)
 	if w.Code != 200 || !strings.HasPrefix(m.PostURL, "https://github.com/organizations/acme/settings/apps/new?state=") ||
-		!strings.Contains(m.Manifest, `"request_oauth_on_install":true`) || !strings.Contains(m.Manifest, `"name":"My bitploy"`) {
+		!strings.Contains(m.Manifest, `"request_oauth_on_install":true`) || !strings.Contains(m.Manifest, `"name":"My bitploy"`) ||
+		strings.Contains(m.Manifest, "hook_attributes") {
 		t.Fatalf("manifest: %d %s", w.Code, w.Body)
 	}
 	if w := e.asSession("POST", "/api/v1/admin/github/manifest/complete", map[string]any{"code": "abc", "state": "forged"}); w.Code != 400 || decode[errResp](t, w).Error.Code != "github_state_invalid" {

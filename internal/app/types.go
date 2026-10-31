@@ -119,7 +119,7 @@ type GitSourceState struct {
 	// PushReady is true when a push to the branch will start a deploy: auto-deploy
 	// is on and the owner's GitHub connection covers the repository.
 	PushReady bool `json:"push_ready"`
-	// PushStatus is ready, off, other_host, app_missing, not_connected, no_access or reconnect.
+	// PushStatus is ready, off, other_host, app_missing, no_webhook, not_connected, no_access or reconnect.
 	PushStatus  string     `json:"push_status"`
 	PushMessage string     `json:"push_message" doc:"The status in one plain sentence"`
 	LastPushAt  *time.Time `json:"last_push_at" doc:"When GitHub last told bitploy about a push to this branch"`

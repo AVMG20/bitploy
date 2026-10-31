@@ -287,6 +287,41 @@ func (c *Client) UserInstallations(ctx context.Context, userToken string) ([]Ins
 	return all, nil
 }
 
+// AuthenticatedUser returns the login of the GitHub user behind userToken (GET /user).
+func (c *Client) AuthenticatedUser(ctx context.Context, userToken string) (string, error) {
+	var out struct {
+		Login string `json:"login"`
+	}
+	if err := c.do(ctx, http.MethodGet, c.APIURL+"/user", userToken, nil, &out); err != nil {
+		return "", err
+	}
+	if !nameRe.MatchString(out.Login) {
+		return "", &APIError{Status: http.StatusBadGateway, Message: "no login in the answer"}
+	}
+	return out.Login, nil
+}
+
+// UserInstallationRepos lists the repositories of an installation that the
+// GitHub user behind userToken can open themselves
+// (GET /user/installations/{id}/repositories), up to 2,000.
+func (c *Client) UserInstallationRepos(ctx context.Context, userToken string, installationID int64) ([]Repo, error) {
+	var all []Repo
+	for page := 1; page <= maxRepoPages; page++ {
+		var out struct {
+			Repositories []Repo `json:"repositories"`
+		}
+		u := fmt.Sprintf("%s/user/installations/%d/repositories?per_page=%d&page=%d", c.APIURL, installationID, perPage, page)
+		if err := c.do(ctx, http.MethodGet, u, userToken, nil, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Repositories...)
+		if len(out.Repositories) < perPage {
+			break
+		}
+	}
+	return all, nil
+}
+
 // ---- repositories and branches ----
 
 // Repo is one repository an installation covers.

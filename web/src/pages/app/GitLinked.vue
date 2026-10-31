@@ -108,6 +108,7 @@ const fixTo = computed(() => {
     case 'reconnect':
       return { name: 'settings-github' }
     case 'app_missing':
+    case 'no_webhook':
       return isAdmin.value ? { name: 'admin', query: { tab: 'github' } } : null
     default:
       return null

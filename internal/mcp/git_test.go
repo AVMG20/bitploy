@@ -27,15 +27,14 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 
 	init := cs.InitializeResult().Instructions
 	for _, s := range []string{
-		"If the project already has a GitHub remote, prefer git",
-		"set_git_source with its HTTPS URL",
+		"If the project has a GitHub remote, prefer git",
+		"set_git_source with the remote's HTTPS URL",
 		"push",
 		"get_deployment",
-		"Otherwise\n   upload, which is fully supported",
+		"Upload\n   instead",
 		"deploy_files",
 		"create_upload",
-		"Never ask the user to create a repository or install git just to\n   deploy",
-		"at most mention once that connecting GitHub makes updates automatic",
+		"Never ask the user\n   to create a repository or install git just to deploy",
 		"git_source_linked",
 	} {
 		if !strings.Contains(init, s) {
@@ -49,7 +48,8 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 	res := call(t, cs, "get_deploy_rules", nil)
 	rules := structured(t, res)["rules"].(string)
 	for _, s := range []string{
-		"A project that has a GitHub remote is best linked with set_git_source. A project without one is uploaded",
+		"A project that has a GitHub remote is best linked with set_git_source.", "A project without a GitHub remote is uploaded",
+		"upload the files instead",
 		"never ask the user to create a repository or install git just to deploy",
 		"create_upload", "deploy_files", "git_source_linked", "set_git_source with remove=true", "github_access_missing",
 		"Connect GitHub", "Settings > GitHub", "push_ready",
@@ -85,7 +85,7 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 		t.Errorf("deploy_files stays the normal way to update an uploaded app: %s", d)
 	}
 	g := desc["set_git_source"]
-	for _, s := range []string{"Prefer this", "already has a GitHub remote", "auto_deploy", "committing and pushing", "get_deployment", "Settings > GitHub", "Connect GitHub",
+	for _, s := range []string{"Prefer this", "has a GitHub remote", "commit and push first", "upload the files instead", "auto_deploy", "committing and pushing", "get_deployment", "Settings > GitHub", "Connect GitHub",
 		"remove=true", "Not for projects without a GitHub remote", "never ask the user to create a repository"} {
 		if !strings.Contains(g, s) {
 			t.Errorf("set_git_source description lacks %q: %s", s, g)

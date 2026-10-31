@@ -27,7 +27,7 @@ func (s *Service) installationCandidates(ctx context.Context, userID, key string
 	owner, _ := github.SplitRepoKey(key)
 	var covering, others []db.GithubInstallation
 	for _, l := range active {
-		if !strings.EqualFold(l.AccountLogin, owner) {
+		if !strings.EqualFold(l.AccountLogin, owner) || !s.userMayUse(ctx, l, key) {
 			continue
 		}
 		if s.installationCovers(ctx, l, key) {
@@ -39,11 +39,30 @@ func (s *Service) installationCandidates(ctx context.Context, userID, key string
 	return append(covering, others...), nil
 }
 
+// installationCovers reports whether the link gives its user the
+// repository: the installation includes it, and for a limited link the user
+// could open it on GitHub when they linked.
 func (s *Service) installationCovers(ctx context.Context, l db.GithubInstallation, key string) bool {
+	if !s.userMayUse(ctx, l, key) {
+		return false
+	}
 	if l.RepositorySelection == "all" {
 		return true
 	}
 	n, err := s.Q.GitHubInstallationHasRepo(ctx, db.GitHubInstallationHasRepoParams{InstallationID: l.InstallationID, Repo: key})
+	return err == nil && n > 0
+}
+
+// userMayUse is the per-user half of installationCovers. A link by the owner
+// of the GitHub account may use every repository of the installation; a
+// limited link (organization member, collaborator) only those its user could
+// open on GitHub. Without this, anyone who can see an organization's
+// installation could deploy, and so read, its private repositories.
+func (s *Service) userMayUse(ctx context.Context, l db.GithubInstallation, key string) bool {
+	if l.Limited == 0 {
+		return true
+	}
+	n, err := s.Q.GitHubUserHasRepo(ctx, db.GitHubUserHasRepoParams{UserID: l.UserID, InstallationID: l.InstallationID, Repo: key})
 	return err == nil && n > 0
 }
 
@@ -95,7 +114,7 @@ func (s *Service) gitAccessHint(ctx context.Context, a Actor) string {
 	case app == nil:
 		return "GitHub is not set up on this bitploy yet, so private repositories cannot be deployed. Ask your bitploy admin to set it up on the Admin page. Public repositories work without it."
 	}
-	return "Open Settings > GitHub (" + settings + "), press Connect GitHub and give bitploy access to this repository."
+	return "Open Settings > GitHub (" + settings + "), press Connect GitHub and give bitploy access to this repository. Already connected? Give access on GitHub, then press Sync from GitHub there."
 }
 
 // ---- status of a linked repository ----
@@ -109,6 +128,7 @@ const (
 	pushNotConnected = "not_connected"
 	pushNoAccess     = "no_access"
 	pushReconnect    = "reconnect"
+	pushNoWebhook    = "no_webhook"
 )
 
 // gitSourceState describes the linked repository of an app and whether a push
@@ -147,7 +167,8 @@ func (s *Service) pushStatus(ctx context.Context, a Actor, r db.App, key string,
 	case r.GitAutoDeploy == 0:
 		return pushOff, "Auto-deploy is off. Pushes do not start a deploy."
 	}
-	if _, err := s.Q.GetGitHubApp(ctx); err != nil {
+	ghRow, err := s.Q.GetGitHubApp(ctx)
+	if err != nil {
 		if a.IsAdmin() {
 			return pushAppMissing, "GitHub is not set up yet. Create the GitHub App on the Admin page to deploy on every push."
 		}
@@ -169,12 +190,16 @@ func (s *Service) pushStatus(ctx context.Context, a Actor, r db.App, key string,
 		}
 		matching = true
 		if s.installationCovers(ctx, l, key) {
+			// Access problems come first: they also stop a deploy by hand.
+			if len(ghRow.WebhookSecretEnc) == 0 {
+				return pushNoWebhook, "GitHub cannot reach this bitploy, so pushes do not start a deploy. Deploy by hand after you push."
+			}
 			return pushReady, "Deploys on every push to " + branch + "."
 		}
 	}
 	switch {
 	case matching:
-		return pushNoAccess, "Bitploy cannot see " + key + " yet. Give it access to this repository on GitHub."
+		return pushNoAccess, "Bitploy cannot use " + key + " yet. Give it access on GitHub, then press Sync from GitHub in Settings > GitHub."
 	case inactive:
 		return pushReconnect, "GitHub access for " + owner + " was removed or paused. Connect GitHub again to deploy on every push."
 	case len(links) == 0:
@@ -271,6 +296,11 @@ func (s *Service) githubPush(ctx context.Context, body []byte) (string, error) {
 		if owner, _ := github.SplitRepoKey(key); !strings.EqualFold(link.AccountLogin, owner) {
 			continue
 		}
+		// A paused or removed installation, or a repository this user may not
+		// use through it, does not deploy.
+		if link.Status != "active" || !s.userMayUse(ctx, link, key) {
+			continue
+		}
 		matched++
 		if err := s.Q.SetAppGitLastPush(ctx, db.SetAppGitLastPushParams{GitLastPushAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: row.ID}); err != nil {
 			return "", apperr.Internal(err)
@@ -313,6 +343,7 @@ func (s *Service) githubInstallationEvent(ctx context.Context, body []byte) (str
 	}
 	if status == "deleted" {
 		_ = s.Q.ClearGitHubInstallationRepos(ctx, id)
+		_ = s.Q.ClearGitHubUserReposOfInstallation(ctx, id)
 	}
 	s.forgetInstallationCaches(id)
 	return "installation " + status, nil

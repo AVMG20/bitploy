@@ -128,7 +128,10 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
         <TriangleAlert />
         <AlertTitle>GitHub cannot reach this server</AlertTitle>
         <AlertDescription>
-          <p>{{ info.data.value.public_url_problem }}</p>
+          <p>
+            {{ info.data.value.public_url_problem }}
+            <template v-if="info.data.value.configured && !info.data.value.push_events"> Then disconnect GitHub here and create the app again.</template>
+          </p>
         </AlertDescription>
       </Alert>
 
@@ -136,11 +139,16 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
         <CardHeader>
           <CardTitle>GitHub App</CardTitle>
           <CardDescription>
-            People connect their own GitHub account through an app that you create once. It can only read the repositories they choose.
+            Create one GitHub App for this server. Then everyone connects their own GitHub account to it and picks which repositories bitploy may read.
           </CardDescription>
         </CardHeader>
         <form novalidate @submit.prevent="submit">
           <CardContent class="grid gap-4 sm:grid-cols-2 sm:items-start">
+            <ol class="grid list-decimal gap-1 pl-5 text-sm text-muted-foreground sm:col-span-2">
+              <li>Press Create GitHub App. GitHub opens and shows the app: read-only access to code{{ info.data.value.public_url_problem ? '' : ', and push events' }}.</li>
+              <li>Confirm on GitHub. You come back here, and bitploy stores the app's keys encrypted.</li>
+              <li>Everyone can then connect their GitHub account in Settings > GitHub.</li>
+            </ol>
             <FormField v-slot="{ componentField }" name="name">
               <FormItem>
                 <FormLabel>App name on GitHub</FormLabel>
@@ -159,7 +167,7 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
             </FormField>
           </CardContent>
           <CardFooter class="flex-wrap justify-between gap-3">
-            <p class="text-xs text-muted-foreground">GitHub asks you to confirm and then brings you back here.</p>
+            <p class="text-xs text-muted-foreground">Sign in to GitHub first with the account that should own the app.</p>
             <Button type="submit" :disabled="start.isPending.value || finish.isPending.value">
               <Github /> {{ start.isPending.value ? 'Opening GitHub...' : 'Create GitHub App' }}
             </Button>
@@ -171,7 +179,11 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
         <CardHeader>
           <CardTitle>{{ info.data.value.name }}</CardTitle>
           <CardDescription>
-            GitHub is set up. Everyone can connect their account in Settings, and pushes to their repositories deploy their apps.
+            {{
+              info.data.value.push_events
+                ? 'GitHub is set up. Everyone can connect their account in Settings > GitHub, and pushes deploy their apps.'
+                : 'GitHub is set up. Everyone can connect their account in Settings > GitHub to deploy private repositories.'
+            }}
           </CardDescription>
         </CardHeader>
         <CardContent class="grid gap-4">
@@ -186,11 +198,12 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
               <dt class="text-muted-foreground">Owned by</dt>
               <dd>@{{ info.data.value.owner }}</dd>
             </template>
-            <dt class="text-muted-foreground">Push events go to</dt>
-            <dd class="flex min-w-0 items-center gap-1">
+            <dt class="text-muted-foreground">Push events</dt>
+            <dd v-if="info.data.value.push_events" class="flex min-w-0 items-center gap-1">
               <code class="min-w-0 truncate font-mono text-xs">{{ info.data.value.webhook_url }}</code>
               <CopyButton v-if="info.data.value.webhook_url" :value="info.data.value.webhook_url" what="Address copied" label="Copy address" icon />
             </dd>
+            <dd v-else class="text-muted-foreground">Off. GitHub could not reach this server when the app was created.</dd>
             <template v-if="info.data.value.created_at">
               <dt class="text-muted-foreground">Created</dt>
               <dd><RelativeTime :date="info.data.value.created_at" /></dd>

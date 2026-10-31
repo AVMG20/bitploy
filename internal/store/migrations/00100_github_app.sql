@@ -3,6 +3,8 @@
 --  github_app                one row: the app the admin created (secrets sealed with the secret key)
 --  github_installations      which bitploy user linked which installation of that app
 --  github_installation_repos the repositories of installations that cover only selected ones
+--  github_user_repos         for a limited link (an organization, or another person's account):
+--                            the repositories that user could open on GitHub when they linked it
 --  github_deliveries         webhook delivery ids, so a repeated delivery is handled once
 -- The personal access token of the first GitHub feature is gone: its columns are dropped.
 
@@ -33,6 +35,8 @@ CREATE TABLE github_installations (
     repository_selection TEXT NOT NULL DEFAULT 'selected',    -- all | selected
     status               TEXT NOT NULL DEFAULT 'active',      -- active | suspended | deleted
     repos_synced_at      INTEGER,
+    github_login         TEXT NOT NULL DEFAULT '',            -- the GitHub user who proved access
+    limited              INTEGER NOT NULL DEFAULT 1,          -- 0 only when github_login owns the account
     created_at           INTEGER NOT NULL,
     updated_at           INTEGER NOT NULL,
     PRIMARY KEY (user_id, installation_id)
@@ -43,6 +47,13 @@ CREATE TABLE github_installation_repos (
     installation_id INTEGER NOT NULL,
     repo            TEXT NOT NULL,                            -- owner/name, lower case
     PRIMARY KEY (installation_id, repo)
+) WITHOUT ROWID;
+
+CREATE TABLE github_user_repos (
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    installation_id INTEGER NOT NULL,
+    repo            TEXT NOT NULL,                            -- owner/name, lower case
+    PRIMARY KEY (user_id, installation_id, repo)
 ) WITHOUT ROWID;
 
 CREATE TABLE github_deliveries (
@@ -59,6 +70,7 @@ ALTER TABLE users ADD COLUMN github_token_enc BLOB;
 ALTER TABLE users ADD COLUMN github_login TEXT;
 ALTER TABLE users ADD COLUMN github_token_expires_at INTEGER;
 DROP TABLE github_deliveries;
+DROP TABLE github_user_repos;
 DROP TABLE github_installation_repos;
 DROP TABLE github_installations;
 DROP TABLE github_app;

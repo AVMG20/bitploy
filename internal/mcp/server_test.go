@@ -162,7 +162,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	} {
 		_ = line
 	}
-	for _, s := range []string{"Every app is built from a Dockerfile.", "wait_seconds=30", "set_git_source with its HTTPS URL", "Never stop, delete or roll back an app the user did not name."} {
+	for _, s := range []string{"Every app is built from a Dockerfile.", "wait_seconds=30", "set_git_source with the remote's HTTPS URL", "Never stop, delete or roll back an app the user did not name."} {
 		if !strings.Contains(init.Instructions, s) {
 			t.Errorf("instructions lack %q", s)
 		}
