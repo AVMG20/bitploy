@@ -110,6 +110,11 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 		return Usage{}, apperr.Internal(err)
 	}
 	u.FilesMB = round1(float64(files) / mib)
+	backups, err := q.SumBackupBytesByUser(ctx, userID)
+	if err != nil {
+		return Usage{}, apperr.Internal(err)
+	}
+	u.BackupsMB = round1(float64(backups) / mib)
 
 	apps, err := q.ListAppsByUser(ctx, userID)
 	if err != nil {

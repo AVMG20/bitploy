@@ -153,7 +153,19 @@ Known limits: bridge networks are IPv4 only, so there are no IPv6 rules. An app 
 - Apps run with a memory/CPU/PID limit, `no-new-privileges`, no extra capabilities, no mounts except their own volume, and on their own network.
 - Builds run user code with the build container's privileges. That is acceptable for colleagues. Before opening bitploy to the public, follow the checklist at the end of "Security & limits" in [SPEC.md](SPEC.md).
 
-### Backups
+### Backups of an app's /data folder
+
+Each app with `/data` turned on has a **Storage** tab in the dashboard with a Back up now button, an upload button, automatic backups and the list of backups (download, restore, delete).
+
+- A backup is a `.tar.gz` of the folder contents in `<data dir>/backups/<app id>/<backup id>.tar.gz`. Kinds: manual, automatic, uploaded, before restore.
+- Automatic backups: off, every night (03:00 UTC) or every week (Sunday 03:00 UTC). A missed one is made as soon as bitploy is up again. Keep the newest N backups or N days. This applies to automatic and before-restore backups; manual and uploaded ones stay until deleted.
+- Restoring makes a backup of the current data first, stops the app, replaces the files and starts the app again. If the restore fails, the old data is put back; if that fails too, the app stays stopped and its page says what to do. If bitploy itself is restarted in the middle of a restore, it puts the old data back when it starts again. Restoring is only in the dashboard; AI assistants (MCP) can make and list backups (`create_backup`, `list_backups`) but not restore.
+- Backups count towards the owner's storage allowance. A manual backup or upload that does not fit is refused; an automatic one is skipped and shows why in the list.
+- A running app is paused (`docker pause`) while its files are read, so the copy is consistent. Deleting an app deletes its backups; turning `/data` off keeps them.
+- The API: `GET/POST /api/v1/apps/{app}/backups`, `DELETE /api/v1/apps/{app}/backups/{id}`, `POST .../{id}/restore`, `PUT /api/v1/apps/{app}/backup-settings`, `DELETE /api/v1/apps/{app}/backup-restore` (dismiss a finished restore), `GET .../{id}/download` (a plain link works with the session cookie, or use a bearer token with the deploy scope; a read-only token cannot download) and `POST /api/v1/apps/{app}/backups/upload` (the raw `.tar.gz` as the body).
+- These files are on the same disk as bitploy. `deploy/backup.sh` does not copy them off the server; it backs up the app volumes themselves.
+
+### Server backups
 
 Every night at 03:30 UTC bitploy writes a consistent database copy (`VACUUM INTO`) to `<data dir>/backups/`, keeps 7 of them, and does the other housekeeping (rollups, pruning, disk measuring, Docker prune, old uploads).
 

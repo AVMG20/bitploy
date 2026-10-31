@@ -4,6 +4,10 @@ import type {
   App,
   AuditEntry,
   CreateTokenInput,
+  Backup,
+  BackupList,
+  BackupRestore,
+  BackupSettings,
   Deployment,
   Domain,
   EnvVar,
@@ -59,6 +63,13 @@ export const paths = {
   appDomains: (slug: string) => `${V1}/apps/${enc(slug)}/domains`,
   appDomain: (slug: string, host: string) => `${V1}/apps/${enc(slug)}/domains/${enc(host)}`,
   appDomainCheck: (slug: string, host: string) => `${V1}/apps/${enc(slug)}/domains/${enc(host)}/check`,
+  appBackups: (slug: string) => `${V1}/apps/${enc(slug)}/backups`,
+  appBackup: (slug: string, id: string) => `${V1}/apps/${enc(slug)}/backups/${enc(id)}`,
+  appBackupDownload: (slug: string, id: string) => `${V1}/apps/${enc(slug)}/backups/${enc(id)}/download`,
+  appBackupRestore: (slug: string, id: string) => `${V1}/apps/${enc(slug)}/backups/${enc(id)}/restore`,
+  appBackupUpload: (slug: string) => `${V1}/apps/${enc(slug)}/backups/upload`,
+  appBackupSettings: (slug: string) => `${V1}/apps/${enc(slug)}/backup-settings`,
+  appBackupRestoreState: (slug: string) => `${V1}/apps/${enc(slug)}/backup-restore`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
@@ -189,6 +200,43 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
   }
 }
 
+/** POSTs a file as the raw request body, with upload progress (fetch cannot report it). */
+function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', path)
+    xhr.withCredentials = true
+    xhr.setRequestHeader('Accept', 'application/json')
+    xhr.setRequestHeader('Content-Type', 'application/gzip')
+    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total)
+    }
+    // Everything has been sent: the server may still need a while to check it.
+    xhr.upload.onload = () => onSent?.()
+    xhr.onerror = () =>
+      reject(new ApiError(0, { code: 'network_error', message: 'Cannot reach bitploy.', hint: 'Check your internet connection and try again.' }))
+    xhr.onload = () => {
+      let json: unknown = null
+      try {
+        json = JSON.parse(xhr.responseText)
+      } catch {
+        // not JSON (proxy error page, empty body)
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && json) {
+        resolve(json as T)
+        return
+      }
+      const body: Partial<ApiErrorBody['error']> = (json as Partial<ApiErrorBody> | null)?.error ?? {}
+      if (!body.message) body.message = xhr.status === 413 ? 'That file is too big.' : fallbackMessage(xhr.status)
+      if (!body.code) body.code = `http_${xhr.status}`
+      if (xhr.status === 401 || body.code === 'account_suspended') unauthorizedHandler?.()
+      reject(new ApiError(xhr.status, body))
+    }
+    xhr.send(file)
+  })
+}
+
 /** Accepts `[...]`, `{items:[...]}` or `{<key>:[...]}` and always returns an array. */
 function listOf<T>(data: unknown, key?: string): T[] {
   if (Array.isArray(data)) return data as T[]
@@ -291,6 +339,17 @@ export const api = {
     request<Domain>('POST', paths.appDomains(slug), { body: { hostname } }),
   checkDomain: (slug: string, host: string) => request<Domain>('POST', paths.appDomainCheck(slug, host)),
   removeDomain: (slug: string, host: string) => request<void>('DELETE', paths.appDomain(slug, host)),
+
+  // backups of /data
+  backups: (slug: string) => request<BackupList>('GET', paths.appBackups(slug)),
+  createBackup: (slug: string) => request<Backup>('POST', paths.appBackups(slug)),
+  deleteBackup: (slug: string, id: string) => request<void>('DELETE', paths.appBackup(slug, id)),
+  restoreBackup: (slug: string, id: string) => request<BackupRestore>('POST', paths.appBackupRestore(slug, id)),
+  updateBackupSettings: (slug: string, input: Partial<Pick<BackupSettings, 'schedule' | 'keep_mode' | 'keep'>>) =>
+    request<BackupSettings>('PUT', paths.appBackupSettings(slug), { body: input }),
+  dismissBackupRestore: (slug: string) => request<void>('DELETE', paths.appBackupRestoreState(slug)),
+  uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void) =>
+    uploadFile<Backup>(paths.appBackupUpload(slug), file, onProgress, onSent),
 
   // admin
   async adminUsers(): Promise<AdminUser[]> {

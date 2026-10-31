@@ -69,6 +69,7 @@ type Service struct {
 
 	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
 	ops      opsState      // metrics manager and domain-check settings (ops.go)
+	backup   backupState   // locks and restore state of /data backups (backups.go)
 }
 
 func New(cfg *config.Config, st *store.Store, crypto *store.Crypto, dk *dockerx.Client, routes *proxy.Writer, log *slog.Logger) *Service {

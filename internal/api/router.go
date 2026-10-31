@@ -24,6 +24,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.h = newHuma(apiMux, svc.Cfg)
 	a.accountRoutes()
 	a.appRoutes()
+	a.backupRoutes()
 	a.adminRoutes()
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })
 
@@ -43,6 +44,13 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	mux.Handle(prefix+"/", apiChain)
+	// File streams below /api/v1: same authentication, no 8 MB body cap.
+	a.backupFileRoutes(mux, func(next http.Handler) http.Handler {
+		next = annotate(next)
+		next = limiter.middleware(next)
+		next = auth.Middleware(svc, auth.Options{Channel: app.ChannelAPI, AllowCookie: true, CheckOrigin: true})(next)
+		return withMeta(svc.Cfg, next)
+	})
 
 	if mcpHandler != nil {
 		// /mcp takes bearer tokens only (never cookies). The actor is in the

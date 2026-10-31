@@ -166,7 +166,7 @@ func serve(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	shutdownErr := srv.Shutdown(shutdownCtx)
-	// Let the background jobs finish, so the traffic counts in memory are saved.
+	// Let the background jobs finish: traffic counts are saved and running backups thaw their app.
 	select {
 	case <-bgDone:
 	case <-time.After(5 * time.Second):

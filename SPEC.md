@@ -239,6 +239,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window)` | CPU, memory, network for `1h`, `24h` or `7d` | read | read-only |
+| `create_backup(app)` / `list_backups(app)` | Back up /data in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
 
 Also expose the rules as resource `bitploy://rules` and each template as `bitploy://templates/{stack}`, and add a prompt `deploy_project` that walks through the eight steps. Keep the tools anyway: many clients ignore resources and prompts.
 
@@ -308,6 +309,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
 | `GET /api/v1/apps/{app}/metrics?window=24h` | `get_metrics` |
+| `GET` `POST /api/v1/apps/{app}/backups` | `list_backups`, `create_backup` (restore, download, upload and settings are dashboard and REST only) |
 | `/api/v1/admin/users`, `/invites`, `/quotas`, `/server` | Admin only |
 
 Serve the generated spec at `/api/v1/openapi.json` and a read-only reference page at `/docs/api`.

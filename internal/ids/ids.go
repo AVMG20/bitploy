@@ -19,6 +19,7 @@ const (
 	Invite     = "inv"
 	Upload     = "upl"
 	Domain     = "dom"
+	Backup     = "bak"
 )
 
 // New returns prefix + "_" + 20 random base62 characters (~119 bits).
