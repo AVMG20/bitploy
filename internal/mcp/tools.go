@@ -71,10 +71,12 @@ type deployFilesIn struct {
 }
 
 type gitSourceIn struct {
-	App     string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	RepoURL string `json:"repo_url" jsonschema:"HTTPS address of the repository, like https://github.com/owner/repo (no .git needed, no token in the URL, no git@ addresses)."`
-	Branch  string `json:"branch,omitempty" jsonschema:"Branch to deploy, like main. Leave out for the repository's default branch."`
-	Subdir  string `json:"subdir,omitempty" jsonschema:"Folder inside the repository that holds the project and its Dockerfile, like apps/web. Leave out when the Dockerfile is at the top."`
+	App        string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	RepoURL    string `json:"repo_url,omitempty" jsonschema:"HTTPS address of the repository, like https://github.com/owner/repo (no .git needed, no token in the URL, no git@ addresses). Take it from the project's git remote. Not needed with remove."`
+	Branch     string `json:"branch,omitempty" jsonschema:"Branch to deploy, like main. Leave out for the repository's default branch."`
+	Subdir     string `json:"subdir,omitempty" jsonschema:"Folder inside the repository that holds the project and its Dockerfile, like apps/web. Leave out when the Dockerfile is at the top."`
+	AutoDeploy *bool  `json:"auto_deploy,omitempty" jsonschema:"true (default): every push to the branch is built and deployed by itself. false: pushes do nothing until you call deploy. Only GitHub repositories can deploy on push."`
+	Remove     bool   `json:"remove,omitempty" jsonschema:"true: unlink the repository so the app takes uploaded files again (deploy_files, create_upload). The running version stays. Only when the user really wants to go back to uploads; then no repo_url is needed."`
 }
 
 type deployIn struct {
@@ -148,6 +150,7 @@ func enums(vals map[string][]string) func(*jsonschema.Schema) {
 func (s *srv) registerTools() {
 	svc := s.svc
 	settingsURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/settings/github"
+	adminURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/admin"
 
 	addTool(s, "whoami", "Who am I",
 		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>), quotas, current usage and hard limits (inline 2 MB/200 files, zip 95 MB). Next: list_apps.",
@@ -264,14 +267,18 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, settings (port, health_path, volume, memory, cpu), git source, current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
 			if err != nil {
 				return nil, err
 			}
-			return &result{Summary: appLine(ap), Data: data("app", ap), Next: appNext(ap)}, nil
+			next := appNext(ap)
+			if ap.GitSource != nil {
+				next = append(next, gitStatusNext(ap, settingsURL, adminURL)...)
+			}
+			return &result{Summary: appLine(ap), Data: data("app", ap), Next: next}, nil
 		})
 
 	addTool(s, "create_app", "Create an app",
@@ -293,7 +300,7 @@ func (s *srv) registerTools() {
 				Next: []string{
 					bitployFileStep(ap),
 					"If the project has no Dockerfile, call get_template and add one, then call validate_dockerfile.",
-					"Send the code: deploy_files with app=" + ap.Slug + " for up to 2 MB and 200 files, create_upload for a zip, or set_git_source then deploy for a git repository. To publish changes later, call deploy_files again with app=" + ap.Slug + " and ALL files (it replaces the whole source).",
+					"Send the code. If the project already has a GitHub remote, prefer set_git_source with app=" + ap.Slug + " and that URL, then deploy once: later, every push deploys by itself. Otherwise deploy_files with app=" + ap.Slug + " for up to 2 MB and 200 files, or create_upload for a zip (no repository needed). To publish changes later with uploads, call deploy_files again with ALL files (it replaces the whole source).",
 				},
 			}, nil
 		})
@@ -318,7 +325,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_files", "Deploy files",
-		"Publishes the project from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file of the project every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the project's .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error.",
+		"Publishes the project from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file of the project every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the project's .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. An app that is linked to a git repository refuses this with git_source_linked: push to the repository instead.",
 		write(), true,
 		nil,
 		func(ctx context.Context, a app.Actor, in deployFilesIn) (*result, error) {
@@ -334,7 +341,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "create_upload", "Create a zip upload",
-		"For folders over 2 MB or 200 files: returns a one-time upload address (valid 15 minutes) and the exact curl command that uploads app.zip (max 95 MB, with the Dockerfile inside, without node_modules and .git). After curl succeeds, call deploy with the upload_id.",
+		"For folders over 2 MB or 200 files: returns a one-time upload address (valid 15 minutes) and the exact curl command that uploads app.zip (max 95 MB, with the Dockerfile inside, without node_modules and .git). After curl succeeds, call deploy with the upload_id. Refused with git_source_linked for an app linked to a git repository: push instead.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			u, err := svc.CreateUpload(ctx, a, in.App)
@@ -353,27 +360,40 @@ func (s *srv) registerTools() {
 			}, nil
 		})
 
-	addTool(s, "set_git_source", "Set a git source",
-		"Uses a git repository as the app's source: saves repo_url, branch and subdir and checks the repo can be read. Then call deploy. Public repos work as is. A private GitHub repo needs a read-only token the USER saves in the dashboard under Settings > GitHub ("+settingsURL+"); you cannot set it, so when this fails with github_token_missing tell the user to do that. The repo must contain the Dockerfile (inside subdir if set).",
+	addTool(s, "set_git_source", "Link a git repository",
+		"Links the app to a git repository and checks that bitploy can read it. Prefer this over uploads when the project has a GitHub remote (repo_url: its HTTPS address). Bitploy builds what is pushed, not local files, so commit and push first. After linking call deploy once; with auto_deploy (default true) every later push to the branch deploys by itself, so update the app by committing and pushing and follow it with get_deployment (app=slug, wait_seconds=30). Public repos work as is. A private GitHub repo needs the USER to open Settings > GitHub ("+settingsURL+"), press Connect GitHub and give bitploy access to the repo; you cannot do that. If this fails with github_access_missing, tell the user, or upload the files instead. The repo must contain the Dockerfile (inside subdir if set). remove=true unlinks the repository so the app takes uploads again; only when the user wants that. Not for projects without a GitHub remote: never ask the user to create a repository just to deploy.",
 		openWorld(idempotent()), true, nil,
 		func(ctx context.Context, a app.Actor, in gitSourceIn) (*result, error) {
-			ap, err := svc.SetGitSource(ctx, a, in.App, app.GitSource{RepoURL: in.RepoURL, Branch: in.Branch, Subdir: in.Subdir})
+			if in.Remove {
+				ap, err := svc.ClearGitSource(ctx, a, in.App)
+				if err != nil {
+					return nil, err
+				}
+				return &result{
+					Summary: fmt.Sprintf("%s no longer deploys from a repository; the running version stays.", ap.Slug),
+					Data:    data("app", ap),
+					Next: []string{
+						"The app takes uploaded files again: deploy_files with app=" + ap.Slug + " and ALL files, or create_upload for a zip.",
+						"Pushes to the repository no longer reach this app.",
+					},
+				}, nil
+			}
+			ap, err := svc.SetGitSource(ctx, a, in.App, app.GitSource{RepoURL: in.RepoURL, Branch: in.Branch, Subdir: in.Subdir, AutoDeploy: in.AutoDeploy})
 			if err != nil {
 				return nil, err
 			}
-			next := []string{"Call deploy with app=" + ap.Slug + " to build the latest commit. The repository must have a Dockerfile (in the subfolder, if you set one); if it has none, add one to the repository first (get_template) and push it."}
+			g := ap.GitSource
+			summary := fmt.Sprintf("Git source for %s saved and readable: %s, branch %s. %s", ap.Slug, repoName(g), g.Branch, g.PushMessage)
+			next := []string{"Call deploy with app=" + ap.Slug + " once to build the latest commit now. The repository must have a Dockerfile (in the subfolder, if you set one); if it has none, add one to the repository first (get_template) and push it."}
+			next = append(next, gitStatusNext(ap, settingsURL, adminURL)...)
 			if ap.Current == nil {
 				next = append(next, bitployFileStep(ap))
 			}
-			return &result{
-				Summary: fmt.Sprintf("Git source for %s saved and readable.", ap.Slug),
-				Data:    data("app", ap),
-				Next:    next,
-			}, nil
+			return &result{Summary: summary, Data: data("app", ap), Next: next}, nil
 		})
 
 	addTool(s, "deploy", "Deploy",
-		"Queues a build and returns at once (then poll get_deployment). With upload_id: deploys the zip from create_upload. Without: builds the latest commit of the app's git source; if the app has none, rebuilds the last deployed files or zip. That is how to apply new env vars or settings to an app that is not running, without resending files. To publish changed files, use deploy_files instead.",
+		"Queues a build and returns at once (then poll get_deployment). With upload_id: deploys the zip from create_upload (refused with git_source_linked when the app is linked to a repository). Without: builds the latest commit of the app's git source; if the app has none, rebuilds the last deployed files or zip. Call it for a linked repository only to build the first time, when auto-deploy is off, or to rebuild: with auto-deploy on, a push already starts a deployment (see get_deployment with app=slug). It is also how to apply new env vars or settings to an app that is not running, without resending files. To publish changed files, use deploy_files instead.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in deployIn) (*result, error) {
 			d, err := svc.Deploy(ctx, a, in.App, in.UploadID)
@@ -390,7 +410,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_deployment", "Get a deployment",
-		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail) or superseded. Pass the id from deploy/deploy_files, or just app to get its latest. With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
+		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail) or superseded. Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in getDeploymentIn) (*result, error) {
 			wait := in.WaitSeconds

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -145,12 +146,28 @@ func logPath(p string) string {
 
 // ---- security headers ----
 
-const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
-	"frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+// policy is the Content-Security-Policy. form-action also allows GitHub: the
+// admin's "Create GitHub App" button posts the app manifest to github.com
+// (and a form submit that is redirected is checked again at the target).
+func policy(cfg *config.Config) string {
+	formAction := "'self'"
+	if cfg != nil {
+		web := cfg.GitHubWebURL
+		if web == "" {
+			web = "https://github.com"
+		}
+		if u, err := url.Parse(web); err == nil && u.Host != "" {
+			formAction += " " + u.Scheme + "://" + u.Host
+		}
+	}
+	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
+		"frame-ancestors 'none'; base-uri 'none'; form-action " + formAction + "; object-src 'none'"
+}
 
 func securityHeaders(cfg *config.Config, next http.Handler) http.Handler {
 	hsts := !cfg.Dev && strings.HasPrefix(cfg.PublicURL, "https://")
+	csp := policy(cfg)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Content-Security-Policy", csp)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/proxy"
 	"github.com/AVMG20/bitploy/internal/store"
@@ -28,6 +29,7 @@ const (
 	ChannelAPI       Channel = "api"
 	ChannelMCP       Channel = "mcp"
 	ChannelSystem    Channel = "system" // worker, reconciler, background jobs
+	ChannelGitHub    Channel = "github" // a push to a linked repository (webhook)
 )
 
 // Scope of an API token. Session (dashboard) actors have ScopeSession.
@@ -70,14 +72,20 @@ type Service struct {
 	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
 	ops      opsState      // metrics manager and domain-check settings (ops.go)
 	backup   backupState   // locks and restore state of /data backups (backups.go)
+	github   githubState   // installation token and repository caches (github.go)
+
+	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no
+	// network is needed.
+	lsRemote func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)
 }
 
 func New(cfg *config.Config, st *store.Store, crypto *store.Crypto, dk *dockerx.Client, routes *proxy.Writer, log *slog.Logger) *Service {
 	return &Service{
 		Cfg: cfg, Store: st, Q: st.Q, Crypto: crypto, Docker: dk, Routes: routes, Log: log,
-		Now:    func() time.Time { return time.Now().UTC() },
-		wakeCh: make(chan struct{}, 1),
-		hub:    newHub(),
+		Now:      func() time.Time { return time.Now().UTC() },
+		wakeCh:   make(chan struct{}, 1),
+		hub:      newHub(),
+		lsRemote: deploy.LsRemoteInfo,
 	}
 }
 

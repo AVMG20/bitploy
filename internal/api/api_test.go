@@ -587,10 +587,10 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 	want := map[string][]string{
 		"/auth/login": {"post"}, "/auth/logout": {"post"}, "/session": {"get"}, "/invites/{code}/accept": {"post"},
 		"/me": {"get", "patch"}, "/usage": {"get"}, "/tokens": {"get", "post"}, "/tokens/{id}": {"delete"},
-		"/me/github-token": {"get", "put", "delete"}, "/me/password": {"put"},
-		"/templates": {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"},
+		"/me/password": {"put"},
+		"/templates":   {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"},
 		"/apps": {"get", "post"}, "/apps/{app}": {"get", "patch", "delete"},
-		"/apps/{app}/files": {"post"}, "/apps/{app}/uploads": {"post"}, "/apps/{app}/git-source": {"put"},
+		"/apps/{app}/files": {"post"}, "/apps/{app}/uploads": {"post"}, "/apps/{app}/git-source": {"put", "patch", "delete"},
 		"/apps/{app}/deployments": {"get", "post"}, "/deployments/{id}": {"get"}, "/deployments/{id}/log": {"get"},
 		"/apps/{app}/logs": {"get"}, "/apps/{app}/env": {"get", "put"},
 		"/apps/{app}/restart": {"post"}, "/apps/{app}/start": {"post"}, "/apps/{app}/stop": {"post"},
@@ -601,6 +601,9 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/admin/users": {"get"}, "/admin/invites": {"get", "post"}, "/admin/invites/{id}": {"delete"},
 		"/admin/quotas/{user_id}": {"put"}, "/admin/server": {"get"}, "/admin/apps": {"get"},
 		"/admin/apps/{app}/stop": {"post"}, "/admin/audit": {"get"},
+		"/github": {"get"}, "/github/connect": {"post"}, "/github/link": {"post"}, "/github/installations/{id}": {"delete"},
+		"/github/repositories": {"get"}, "/github/branches": {"get"},
+		"/admin/github": {"get", "delete"}, "/admin/github/manifest": {"post"}, "/admin/github/manifest/complete": {"post"},
 	}
 	for path, methods := range want {
 		item, ok := spec.Paths[path]
@@ -830,7 +833,7 @@ func TestPaginateCursor(t *testing.T) {
 
 func actorFrom(r *http.Request) (app.Actor, bool) { return auth.ActorFrom(r.Context()) }
 
-func TestProfilePasswordAndGitHubStatusEndpoints(t *testing.T) {
+func TestProfileAndPasswordEndpoints(t *testing.T) {
 	e := newEnv(t)
 	e.login("me@example.nl", false)
 	// The email needs the current password; a name does not.
@@ -857,10 +860,6 @@ func TestProfilePasswordAndGitHubStatusEndpoints(t *testing.T) {
 	w = e.asSession("PUT", "/api/v1/me/password", map[string]any{"current_password": "password-1234", "new_password": "another-password-9"})
 	if w.Code != 204 {
 		t.Fatalf("password: %d %s", w.Code, w.Body)
-	}
-	w = e.asSession("GET", "/api/v1/me/github-token", nil)
-	if st := decode[app.GitHubStatus](t, w); w.Code != 200 || st.Connected {
-		t.Fatalf("github status: %d %s", w.Code, w.Body)
 	}
 	w = e.asSession("GET", "/api/v1/me", nil)
 	if me := decode[app.Me](t, w); w.Code != 200 || me.Scope != app.ScopeSession || me.PublicURL != pub {

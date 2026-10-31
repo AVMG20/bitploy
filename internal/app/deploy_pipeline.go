@@ -235,13 +235,9 @@ func (p *pipeline) fetch(ctx context.Context) *apperr.Error {
 		p.logf("Cloning %s (branch %s).", redactURL(repo), p.app.GitBranch.String)
 		token := ""
 		if isGitHub(repo) {
-			t, err := s.GitHubTokenFor(ctx, p.app.UserID)
-			if err != nil {
-				return asApperr(err, "source_fetch_failed")
-			}
-			token = t
+			token = s.gitCloneToken(ctx, p.app.UserID, repo)
 		}
-		cr, err := deploy.Clone(ctx, deploy.GitSource{URL: repo, Branch: p.app.GitBranch.String, Subdir: p.app.GitSubdir.String, Token: token, SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings/github"}, p.buildDir, maxGitBytes)
+		cr, err := deploy.Clone(ctx, deploy.GitSource{URL: repo, Branch: p.app.GitBranch.String, Subdir: p.app.GitSubdir.String, Token: token, SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings/github", AccessHint: s.gitAccessHint(ctx, Actor{Role: "user"})}, p.buildDir, maxGitBytes)
 		if err != nil {
 			if ctx.Err() != nil {
 				return errCancelled

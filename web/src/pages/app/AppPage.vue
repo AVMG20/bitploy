@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ArrowLeft, ExternalLink, Play, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, GitBranch, Play, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp } from '@/composables/queries'
 import { useAppActions } from '@/composables/useAppActions'
 import { ApiError } from '@/lib/api'
-import { channelLabel, hostOf } from '@/lib/format'
+import { channelLabel, commitUrl, hostOf, shortSha } from '@/lib/format'
 
 const props = defineProps<{ slug: string }>()
 const route = useRoute()
@@ -76,6 +76,16 @@ function stop() {
             <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
             <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> by {{ channelLabel(dep.channel) }}</span>
             <span v-else>Not deployed yet</span>
+            <template v-if="data.git_source">
+              <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
+              <span class="inline-flex items-center gap-1.5">
+                <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
+                <template v-if="dep?.commit_sha">
+                  <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-[13px] text-foreground hover:underline">{{ shortSha(dep.commit_sha) }}</a>
+                  <span v-else class="font-mono text-[13px] text-foreground">{{ shortSha(dep.commit_sha) }}</span>
+                </template>
+              </span>
+            </template>
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">

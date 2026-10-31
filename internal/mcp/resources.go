@@ -129,13 +129,14 @@ func deployPrompt(app, instructions string) string {
 3. Call validate_dockerfile with the Dockerfile text and the list of project files. Fix every error. Read the warnings.
 4. ` + target + `
 5. Secrets (API keys, passwords, bot tokens) never go into files. Set them with set_env. They reach the app after restart_app, or with the first deploy.
-6. Send the code. Up to 2 MB and 200 files: deploy_files with ALL files. Bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. A git repository: set_git_source, then deploy. A private GitHub repository needs a token the user saves in the dashboard under Settings > GitHub; ask the user.
-7. deploy and deploy_files return at once. Call get_deployment with wait_seconds=30 until the state is running or failed. If it failed, read error.hint and the log tail, fix the cause and deploy again. After 3 failures with the same error code, stop and explain the problem to the user in plain words.
+6. Send the code. The project has a GitHub remote? Prefer git: commit and push, then set_git_source with the remote's HTTPS URL and deploy once; after that every push to the branch deploys by itself. A private repository needs the user to press Connect GitHub under Settings > GitHub in the dashboard; ask them, and upload instead if they cannot. No GitHub remote? Upload, which is fully supported: up to 2 MB and 200 files deploy_files with ALL files; bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. Never ask the user to create a repository or install git just to deploy.
+7. deploy and deploy_files return at once, and a push to a linked repository starts a deployment too. Call get_deployment (id, or app=<slug> for the latest) with wait_seconds=30 until the state is running or failed. If it failed, read error.hint and the log tail, fix the cause and deploy again. After 3 failures with the same error code, stop and explain the problem to the user in plain words.
 8. When it runs, give the user the URL and one or two plain sentences on what you did. Assume the user is not technical.
 
 UPDATE path (the app already exists, also in a new session):
 - Find the app: the .bitploy file. Without it, only if the user says the project is already online: list_apps and confirm by name and url with the user. Never take an app just because its name looks similar. Never create a second app for a project that has a .bitploy.
-- deploy_files again with app=<slug> and ALL files. It is a full snapshot that replaces the old source, not a patch. For git or zip sources: deploy (zip: create_upload first).
+- Linked to a git repository (get_app shows git_source)? Commit and push: with push_ready true bitploy deploys it by itself, then follow it with get_deployment (app=<slug>). Call deploy only when push_ready is false or to rebuild. Uploads are refused for a linked app (git_source_linked).
+- Otherwise deploy_files again with app=<slug> and ALL files. It is a full snapshot that replaces the old source, not a patch. For a zip source: create_upload first, then deploy.
 - Only env vars or settings changed: set_env then restart_app (app running), or deploy with only app= (app failed or never ran). volume, memory and CPU (update_app) apply on restart_app.
 - Then step 7 and 8 as above. The URL stays the same.
 

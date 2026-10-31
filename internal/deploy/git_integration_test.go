@@ -37,8 +37,8 @@ func TestGitHubPublicClone(t *testing.T) {
 func TestGitHubErrors(t *testing.T) {
 	ctx := context.Background()
 	_, err := LsRemote(ctx, GitSource{URL: "https://github.com/octocat/definitely-not-a-repo-zzz", Branch: "main"})
-	if ae := apperr.As(err); ae.Code != "github_token_missing" {
-		t.Errorf("missing repo without token: %v", err)
+	if ae := apperr.As(err); ae.Code != "github_access_missing" {
+		t.Errorf("missing repo without access: %v", err)
 	}
 	_, err = LsRemote(ctx, GitSource{URL: "https://github.com/octocat/Hello-World", Branch: "no-such-branch"})
 	if ae := apperr.As(err); ae.Code != "source_branch_not_found" {

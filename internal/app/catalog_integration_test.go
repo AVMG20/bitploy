@@ -37,7 +37,7 @@ func TestSetGitSourcePublicRepo(t *testing.T) {
 	// A private or missing repo without a stored token.
 	_, err = s.SetGitSource(ctx, a, ap.Slug, GitSource{RepoURL: "https://github.com/octocat/no-such-repo-zzz", Branch: "main"})
 	ae := apperr.As(err)
-	if ae.Code != "github_token_missing" || ae.Next != "set_git_source" {
+	if ae.Code != "github_access_missing" || ae.Next != "set_git_source" {
 		t.Errorf("err = %+v", ae)
 	}
 	// The saved source survives a failed attempt.

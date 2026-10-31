@@ -10,6 +10,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/deploy"
+	"github.com/AVMG20/bitploy/internal/github"
 	"github.com/AVMG20/bitploy/internal/mcp/rules"
 	"github.com/AVMG20/bitploy/internal/store/db"
 	"github.com/AVMG20/bitploy/internal/templates"
@@ -119,8 +120,11 @@ func templateName(e *apperr.Error) string {
 	return "generic"
 }
 
-// SetGitSource saves repo/branch/subdir and checks access with ls-remote
-// (using the user's GitHub token for github.com repos when set).
+// SetGitSource links a repository: it saves repo, branch and subdir and
+// checks that bitploy can read it with ls-remote. For github.com repositories
+// the owner's GitHub App installation is used when it covers the repo,
+// otherwise the check is anonymous (public repositories). Pushes to the
+// branch deploy by themselves unless AutoDeploy is false (GitHub only).
 func (s *Service) SetGitSource(ctx context.Context, a Actor, ref string, src GitSource) (App, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
@@ -139,30 +143,97 @@ func (s *Service) SetGitSource(ctx context.Context, a Actor, ref string, src Git
 		Branch:      strings.TrimSpace(src.Branch),
 		Subdir:      subdir,
 		SettingsURL: strings.TrimRight(s.Cfg.PublicURL, "/") + "/settings/github",
+		AccessHint:  s.gitAccessHint(ctx, a),
 	}
-	if deploy.IsGitHubURL(repo) {
-		tok, err := s.GitHubTokenFor(ctx, row.UserID)
-		if err != nil {
-			return App{}, err
-		}
-		gs.Token = tok
+	isGitHub := deploy.IsGitHubURL(repo)
+	if isGitHub {
+		gs.Token = s.gitCloneToken(ctx, row.UserID, repo)
 	}
-	sha, branch, err := deploy.LsRemoteInfo(ctx, gs)
+	sha, branch, err := s.lsRemote(ctx, gs)
 	if err != nil {
 		return App{}, err
 	}
+	auto := isGitHub && (src.AutoDeploy == nil || *src.AutoDeploy)
 	err = s.Q.SetAppGitSource(ctx, db.SetAppGitSourceParams{
-		GitRepoUrl: sql.NullString{String: repo, Valid: true},
-		GitBranch:  sql.NullString{String: branch, Valid: true},
-		GitSubdir:  nullStr(subdir),
-		UpdatedAt:  s.now(),
-		ID:         row.ID,
+		GitRepoUrl:    sql.NullString{String: repo, Valid: true},
+		GitBranch:     sql.NullString{String: branch, Valid: true},
+		GitSubdir:     nullStr(subdir),
+		GitAutoDeploy: b2i(auto),
+		UpdatedAt:     s.now(),
+		ID:            row.ID,
 	})
 	if err != nil {
 		return App{}, apperr.Internal(err)
 	}
+	if row.GitRepoUrl.String != repo || row.GitBranch.String != branch {
+		_ = s.Q.SetAppGitLastPush(ctx, db.SetAppGitLastPushParams{ID: row.ID}) // a new repository or branch has no push yet
+	}
 	s.Audit(ctx, a, "app.git_source_set", "app", row.ID, map[string]any{
-		"repo_url": repo, "branch": branch, "subdir": subdir, "commit": sha, "private_access": gs.Token != "",
+		"repo_url": repo, "branch": branch, "subdir": subdir, "commit": sha, "auto_deploy": auto, "app_access": gs.Token != "",
 	})
 	return s.GetApp(ctx, a, row.Slug)
+}
+
+// ClearGitSource unlinks the repository, so the app takes uploads again. The
+// running version stays as it is. Unlinking an app without a repository does nothing.
+func (s *Service) ClearGitSource(ctx context.Context, a Actor, ref string) (App, error) {
+	row, err := s.LoadApp(ctx, a, ref, true)
+	if err != nil {
+		return App{}, err
+	}
+	if row.GitRepoUrl.Valid && row.GitRepoUrl.String != "" {
+		if err := s.Q.ClearAppGitSource(ctx, db.ClearAppGitSourceParams{UpdatedAt: s.now(), ID: row.ID}); err != nil {
+			return App{}, apperr.Internal(err)
+		}
+		s.Audit(ctx, a, "app.git_source_clear", "app", row.ID, map[string]any{"repo_url": row.GitRepoUrl.String, "branch": row.GitBranch.String})
+	}
+	return s.GetApp(ctx, a, row.Slug)
+}
+
+// SetGitAutoDeploy turns "deploy on every push" on or off for a linked repository.
+func (s *Service) SetGitAutoDeploy(ctx context.Context, a Actor, ref string, on bool) (App, error) {
+	row, err := s.LoadApp(ctx, a, ref, true)
+	if err != nil {
+		return App{}, err
+	}
+	if !row.GitRepoUrl.Valid || row.GitRepoUrl.String == "" {
+		return App{}, apperr.Conflict("git_source_missing", "This app has no repository linked.",
+			"Link one first with set_git_source.").WithNext("set_git_source")
+	}
+	if on && !deploy.IsGitHubURL(row.GitRepoUrl.String) {
+		return App{}, apperr.Unprocessable("git_auto_deploy_unsupported", "Only GitHub repositories can deploy on every push.",
+			"Deploy this one by hand after you push, or move the repository to GitHub.")
+	}
+	if err := s.Q.SetAppGitAutoDeploy(ctx, db.SetAppGitAutoDeployParams{GitAutoDeploy: b2i(on), UpdatedAt: s.now(), ID: row.ID}); err != nil {
+		return App{}, apperr.Internal(err)
+	}
+	s.Audit(ctx, a, "app.git_auto_deploy", "app", row.ID, map[string]any{"auto_deploy": on})
+	return s.GetApp(ctx, a, row.Slug)
+}
+
+// gitLinkedErr refuses uploads and inline files for an app that deploys from
+// a repository: they would be overwritten by the next push, and two sources
+// for one app is a trap for beginners.
+func gitLinkedErr(row db.App) error {
+	if !row.GitRepoUrl.Valid || row.GitRepoUrl.String == "" {
+		return nil
+	}
+	where := row.GitRepoUrl.String
+	if key, ok := github.RepoKey(where); ok {
+		where = key
+	}
+	hint := "Push your change to " + row.GitBranch.String + ": bitploy builds it by itself, then follow it with get_deployment (app=" + row.Slug + "). "
+	if row.GitAutoDeploy == 0 {
+		hint = "Push your change to " + row.GitBranch.String + ", then call deploy with app=" + row.Slug + " to build it (auto-deploy is off). "
+	}
+	hint += "To go back to uploading files, unlink the repository first: set_git_source with remove=true, or Disconnect repo in the app's Settings."
+	return apperr.Conflict("git_source_linked",
+		"This app deploys from "+where+" (branch "+row.GitBranch.String+"), so files cannot be sent to it.",
+		hint).WithNext("get_deployment")
+}
+
+// UseLsRemote replaces the repository check that SetGitSource runs
+// (deploy.LsRemoteInfo). Tests use it so that no network is needed.
+func (s *Service) UseLsRemote(fn func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)) {
+	s.lsRemote = fn
 }

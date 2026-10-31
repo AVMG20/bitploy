@@ -10,21 +10,6 @@ import (
 	"database/sql"
 )
 
-const clearUserGitHub = `-- name: ClearUserGitHub :exec
-UPDATE users SET github_token_enc = NULL, github_login = NULL, github_token_expires_at = NULL, updated_at = ?
-WHERE id = ?
-`
-
-type ClearUserGitHubParams struct {
-	UpdatedAt int64
-	ID        string
-}
-
-func (q *Queries) ClearUserGitHub(ctx context.Context, arg ClearUserGitHubParams) error {
-	_, err := q.db.ExecContext(ctx, clearUserGitHub, arg.UpdatedAt, arg.ID)
-	return err
-}
-
 const countActiveTokensOfUser = `-- name: CountActiveTokensOfUser :one
 SELECT COUNT(*) FROM api_tokens
 WHERE user_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
@@ -388,7 +373,7 @@ type InsertUserParams struct {
 	UpdatedAt    int64
 }
 
-// Users, sessions, invites, API tokens, GitHub token, audit reads. OWNER: auth-api agent.
+// Users, sessions, invites, API tokens, audit reads. OWNER: auth-api agent.
 // quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
 func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 	_, err := q.db.ExecContext(ctx, insertUser,
@@ -605,7 +590,7 @@ func (q *Queries) ListTokensOfUser(ctx context.Context, userID string) ([]ApiTok
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, github_token_enc, github_login, github_token_expires_at, created_at, updated_at FROM users ORDER BY created_at ASC
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at FROM users ORDER BY created_at ASC
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -630,9 +615,6 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.QuotaDeploysPerHour,
 			&i.QuotaDomainsPerApp,
 			&i.QuotaVolumeMb,
-			&i.GithubTokenEnc,
-			&i.GithubLogin,
-			&i.GithubTokenExpiresAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -683,30 +665,6 @@ func (q *Queries) RevokeTokenRow(ctx context.Context, arg RevokeTokenRowParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const setUserGitHub = `-- name: SetUserGitHub :exec
-UPDATE users SET github_token_enc = ?, github_login = ?, github_token_expires_at = ?, updated_at = ?
-WHERE id = ?
-`
-
-type SetUserGitHubParams struct {
-	GithubTokenEnc       []byte
-	GithubLogin          sql.NullString
-	GithubTokenExpiresAt sql.NullInt64
-	UpdatedAt            int64
-	ID                   string
-}
-
-func (q *Queries) SetUserGitHub(ctx context.Context, arg SetUserGitHubParams) error {
-	_, err := q.db.ExecContext(ctx, setUserGitHub,
-		arg.GithubTokenEnc,
-		arg.GithubLogin,
-		arg.GithubTokenExpiresAt,
-		arg.UpdatedAt,
-		arg.ID,
-	)
-	return err
 }
 
 const touchSession = `-- name: TouchSession :exec

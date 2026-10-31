@@ -1,4 +1,4 @@
--- Users, sessions, invites, API tokens, GitHub token, audit reads. OWNER: auth-api agent.
+-- Users, sessions, invites, API tokens, audit reads. OWNER: auth-api agent.
 
 -- name: InsertUser :exec
 -- quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
@@ -24,14 +24,6 @@ WHERE id = ?;
 
 -- name: UpdateUserStatus :exec
 UPDATE users SET status = ?, updated_at = ? WHERE id = ?;
-
--- name: SetUserGitHub :exec
-UPDATE users SET github_token_enc = ?, github_login = ?, github_token_expires_at = ?, updated_at = ?
-WHERE id = ?;
-
--- name: ClearUserGitHub :exec
-UPDATE users SET github_token_enc = NULL, github_login = NULL, github_token_expires_at = NULL, updated_at = ?
-WHERE id = ?;
 
 -- name: CountAppsOfUser :one
 SELECT COUNT(*) FROM apps WHERE user_id = ?;

@@ -176,7 +176,7 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 }
 
 const listRestoringApps = `-- name: ListRestoringApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume FROM apps WHERE restore_backup_id != ''
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps WHERE restore_backup_id != ''
 `
 
 func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
@@ -219,6 +219,8 @@ func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
 			&i.RestoreBackupID,
 			&i.RestoreSafeID,
 			&i.RestoreResume,
+			&i.GitAutoDeploy,
+			&i.GitLastPushAt,
 		); err != nil {
 			return nil, err
 		}

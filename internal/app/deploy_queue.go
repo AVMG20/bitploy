@@ -47,6 +47,9 @@ func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []
 	if err != nil {
 		return Deployment{}, err
 	}
+	if err := gitLinkedErr(row); err != nil {
+		return Deployment{}, err
+	}
 	in := make([]deploy.File, len(files))
 	for i, f := range files {
 		in[i] = deploy.File{Path: f.Path, Content: f.Content, Encoding: f.Encoding}
@@ -83,6 +86,9 @@ func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []
 func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
+		return Upload{}, err
+	}
+	if err := gitLinkedErr(row); err != nil {
 		return Upload{}, err
 	}
 	if _, err := s.activeUser(ctx, row.UserID); err != nil {
@@ -192,6 +198,9 @@ func (s *Service) Deploy(ctx context.Context, a Actor, ref, uploadID string) (De
 		return Deployment{}, err
 	}
 	if uploadID != "" {
+		if err := gitLinkedErr(row); err != nil {
+			return Deployment{}, err
+		}
 		u, err := s.Q.GetUpload(ctx, uploadID)
 		if errors.Is(err, sql.ErrNoRows) || (err == nil && u.AppID != row.ID) {
 			return Deployment{}, apperr.NotFound("upload_not_found", "There is no upload "+quote(uploadID)+" for this app.", "Call create_upload to get an upload URL for this app.").WithNext("create_upload")
@@ -285,6 +294,10 @@ func (s *Service) redeploy(ctx context.Context, a Actor, ref string, latest bool
 	deps, err := s.Q.ListAllDeploymentsByApp(ctx, row.ID) // newest first
 	if err != nil {
 		return Deployment{}, apperr.Internal(err)
+	}
+	if row.GitRepoUrl.Valid && row.GitRepoUrl.String != "" {
+		// A linked repository is the source: rebuild its branch, not an older upload.
+		return s.queueDeployment(ctx, a, row, queueSpec{kind: "git", ref: row.GitBranch.String})
 	}
 	var pick *db.Deployment
 	if !latest && row.CurrentDeploymentID.Valid {
@@ -451,6 +464,9 @@ type queueSpec struct {
 	warningsJSON sql.NullString
 	prepare      func(depID string) error // writes the source snapshot before the row exists
 	inTx         func(q *db.Queries) error
+	// commitSHA and commitMessage are known when a push started the deployment;
+	// the clone overwrites them with the commit it really built.
+	commitSHA, commitMessage string
 }
 
 func portOf(p int) sql.NullInt64 {
@@ -533,11 +549,17 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 		if err != nil {
 			return err
 		}
-		return q.InsertDeployment(ctx, db.InsertDeploymentParams{
+		if err := q.InsertDeployment(ctx, db.InsertDeploymentParams{
 			ID: depID, AppID: app.ID, Seq: seq, SourceKind: qs.kind, SourceRef: qs.ref,
 			Channel: string(a.Channel), CreatedBy: nullStr(a.UserID), TokenID: nullStr(a.TokenID),
 			Image: nullStr(qs.image), Port: qs.port, HasHealthcheck: b2i(qs.hasHC), Warnings: warnings, QueuedAt: now,
-		})
+		}); err != nil {
+			return err
+		}
+		if qs.commitSHA != "" {
+			return q.SetDeploymentCommit(ctx, db.SetDeploymentCommitParams{CommitSha: nullStr(qs.commitSHA), CommitMessage: nullStr(qs.commitMessage), ID: depID})
+		}
+		return nil
 	})
 	if err != nil {
 		os.Remove(s.sourceZip(depID))

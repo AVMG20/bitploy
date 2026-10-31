@@ -521,6 +521,7 @@ func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 		_ = s.Q.DeleteOldInvites(ctx, db.DeleteOldInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)})
 		_ = s.Q.DeleteOldIdempotencyKeys(ctx, now-86400)
 		_ = s.Q.DeleteOldAudit(ctx, now-90*86400)
+		_ = s.Q.PruneGitHubDeliveries(ctx, now-7*86400)
 	}
 	run()
 	t := time.NewTicker(time.Hour)

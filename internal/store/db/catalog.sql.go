@@ -10,17 +10,121 @@ import (
 	"database/sql"
 )
 
+const clearAppGitSource = `-- name: ClearAppGitSource :exec
+UPDATE apps SET git_repo_url = NULL, git_branch = NULL, git_subdir = NULL, git_auto_deploy = 1, git_last_push_at = NULL, updated_at = ? WHERE id = ?
+`
+
+type ClearAppGitSourceParams struct {
+	UpdatedAt int64
+	ID        string
+}
+
+func (q *Queries) ClearAppGitSource(ctx context.Context, arg ClearAppGitSourceParams) error {
+	_, err := q.db.ExecContext(ctx, clearAppGitSource, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const listAppsWithGitHubSource = `-- name: ListAppsWithGitHubSource :many
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps WHERE git_repo_url IS NOT NULL AND lower(git_repo_url) LIKE 'https://%github.com/%'
+`
+
+func (q *Queries) ListAppsWithGitHubSource(ctx context.Context) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listAppsWithGitHubSource)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []App{}
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Slug,
+			&i.Name,
+			&i.Type,
+			&i.Port,
+			&i.HealthPath,
+			&i.DockerfilePath,
+			&i.ContextDir,
+			&i.VolumeEnabled,
+			&i.MemoryMb,
+			&i.CpuMillis,
+			&i.GitRepoUrl,
+			&i.GitBranch,
+			&i.GitSubdir,
+			&i.DesiredState,
+			&i.Status,
+			&i.StatusMessage,
+			&i.CurrentDeploymentID,
+			&i.DeploySeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VolumeMb,
+			&i.VolumeName,
+			&i.BackupSchedule,
+			&i.BackupKeepMode,
+			&i.BackupKeep,
+			&i.RestoreBackupID,
+			&i.RestoreSafeID,
+			&i.RestoreResume,
+			&i.GitAutoDeploy,
+			&i.GitLastPushAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setAppGitAutoDeploy = `-- name: SetAppGitAutoDeploy :exec
+UPDATE apps SET git_auto_deploy = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppGitAutoDeployParams struct {
+	GitAutoDeploy int64
+	UpdatedAt     int64
+	ID            string
+}
+
+func (q *Queries) SetAppGitAutoDeploy(ctx context.Context, arg SetAppGitAutoDeployParams) error {
+	_, err := q.db.ExecContext(ctx, setAppGitAutoDeploy, arg.GitAutoDeploy, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAppGitLastPush = `-- name: SetAppGitLastPush :exec
+UPDATE apps SET git_last_push_at = ? WHERE id = ?
+`
+
+type SetAppGitLastPushParams struct {
+	GitLastPushAt sql.NullInt64
+	ID            string
+}
+
+func (q *Queries) SetAppGitLastPush(ctx context.Context, arg SetAppGitLastPushParams) error {
+	_, err := q.db.ExecContext(ctx, setAppGitLastPush, arg.GitLastPushAt, arg.ID)
+	return err
+}
+
 const setAppGitSource = `-- name: SetAppGitSource :exec
 
-UPDATE apps SET git_repo_url = ?, git_branch = ?, git_subdir = ?, updated_at = ? WHERE id = ?
+UPDATE apps SET git_repo_url = ?, git_branch = ?, git_subdir = ?, git_auto_deploy = ?, updated_at = ? WHERE id = ?
 `
 
 type SetAppGitSourceParams struct {
-	GitRepoUrl sql.NullString
-	GitBranch  sql.NullString
-	GitSubdir  sql.NullString
-	UpdatedAt  int64
-	ID         string
+	GitRepoUrl    sql.NullString
+	GitBranch     sql.NullString
+	GitSubdir     sql.NullString
+	GitAutoDeploy int64
+	UpdatedAt     int64
+	ID            string
 }
 
 // Templates, Dockerfile checks and git sources. OWNER: MCP agent.
@@ -29,6 +133,7 @@ func (q *Queries) SetAppGitSource(ctx context.Context, arg SetAppGitSourceParams
 		arg.GitRepoUrl,
 		arg.GitBranch,
 		arg.GitSubdir,
+		arg.GitAutoDeploy,
 		arg.UpdatedAt,
 		arg.ID,
 	)

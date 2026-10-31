@@ -99,13 +99,19 @@ func TestMapGitErrorCodes(t *testing.T) {
 	ghTok := GitSource{URL: "https://github.com/o/r", Token: "github_pat_ABCDEFGHIJKLMNOPQRSTUV", SettingsURL: "https://bitploy.nl/settings"}
 	other := GitSource{URL: "https://gitlab.com/o/r"}
 	e := mapGitError(transportErr("repository not found"), gh)
-	if e.Code != "github_token_missing" || !strings.Contains(e.Hint, "https://bitploy.nl/settings") {
-		t.Errorf("github no token: %+v", e)
+	if e.Code != "github_access_missing" || !strings.Contains(e.Hint, "https://bitploy.nl/settings") || !strings.Contains(e.Hint, "Connect GitHub") || strings.Contains(strings.ToLower(e.Hint+e.Message), "token") {
+		t.Errorf("github no connection: %+v", e)
 	}
-	if e := mapGitError(transportErr("authentication required"), ghTok); e.Code != "github_repo_forbidden" || !strings.Contains(e.Hint, "https://bitploy.nl/settings") {
-		t.Errorf("github with token: %+v", e)
+	// The caller knows whether GitHub is set up, and says what to do.
+	ghHint := gh
+	ghHint.AccessHint = "Ask your bitploy admin."
+	if e := mapGitError(transportErr("repository not found"), ghHint); e.Code != "github_access_missing" || !strings.Contains(e.Hint, "Ask your bitploy admin.") || strings.Contains(e.Hint, "Connect GitHub") {
+		t.Errorf("access hint: %+v", e)
 	}
-	if e := mapGitError(transportErr("authorization failed"), ghTok); e.Code != "github_repo_forbidden" {
+	if e := mapGitError(transportErr("authentication required"), ghTok); e.Code != "github_access_missing" || !strings.Contains(e.Hint, "https://bitploy.nl/settings") {
+		t.Errorf("github with a connection that lacks the repo: %+v", e)
+	}
+	if e := mapGitError(transportErr("authorization failed"), ghTok); e.Code != "github_access_missing" {
 		t.Errorf("authz failed: %+v", e)
 	}
 	if e := mapGitError(transportErr("repository not found"), other); e.Code != "source_repo_not_found" {
@@ -283,13 +289,13 @@ func TestCloneEndToEnd(t *testing.T) {
 	t.Run("token missing", func(t *testing.T) {
 		_, err := LsRemote(ctx, GitSource{URL: gs.URL, Branch: "main", SettingsURL: "https://bitploy.test/settings"})
 		ae := apperr.As(err)
-		if ae.Code != "github_token_missing" || !strings.Contains(ae.Hint, "https://bitploy.test/settings") {
+		if ae.Code != "github_access_missing" || !strings.Contains(ae.Hint, "https://bitploy.test/settings") {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("wrong token", func(t *testing.T) {
 		_, err := LsRemote(ctx, GitSource{URL: gs.URL, Branch: "main", Token: "ghp_wrongwrongwrongwrongwrongwrong1234"})
-		if ae := apperr.As(err); ae.Code != "github_repo_forbidden" {
+		if ae := apperr.As(err); ae.Code != "github_access_missing" {
 			t.Fatalf("got %v", err)
 		}
 	})

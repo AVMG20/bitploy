@@ -36,7 +36,7 @@ func limitsInfo() map[string]any {
 // changeRules says which tool applies which kind of change.
 func changeRules() map[string]string {
 	return map[string]string{
-		"code_or_dockerfile":      "deploy_files again with ALL files (it replaces the whole source); git or zip sources: deploy",
+		"code_or_dockerfile":      "linked repository: commit and push (deploys by itself when auto-deploy is on, otherwise deploy); files: deploy_files again with ALL files (it replaces the whole source); zip: create_upload, then deploy",
 		"env_vars":                "set_env, then restart_app (app is running) or deploy with only app= (app is failed or never ran)",
 		"volume_memory_cpu":       "update_app, then restart_app",
 		"port_health_path_etc":    "update_app, then deploy with only app= (rebuilds the last source, no files needed)",
@@ -57,7 +57,7 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	b.WriteString(md)
 	b.WriteString("\n## This server\n\n")
 	fmt.Fprintf(&b, "- Apps are served at %s (base domain %s).\n", s.svc.Cfg.AppURL("<slug>"), s.svc.Cfg.AppsDomain)
-	fmt.Fprintf(&b, "- Dashboard (API tokens and the GitHub token for private repos under Settings, usage): %s\n", s.svc.Cfg.PublicURL)
+	fmt.Fprintf(&b, "- Dashboard (API tokens, usage, and Settings > GitHub for private repos): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
 		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",
@@ -123,6 +123,9 @@ func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	switch {
 	case ap.GitSource != nil:
 		b.Source = "git " + ap.GitSource.RepoURL
+		if ap.GitSource.PushReady {
+			b.Source += " (deploys on every push to " + ap.GitSource.Branch + ")"
+		}
 	case ap.Current != nil:
 		b.Source = ap.Current.SourceKind
 	}
@@ -207,22 +210,60 @@ func appLine(ap app.App) string {
 }
 
 // updateHow says how to publish new code to this app.
-func updateHow(slug, sourceKind string, git bool) string {
-	switch {
-	case git || sourceKind == "git":
-		return "push the change to the repository, then call deploy with app=" + slug
-	case sourceKind == "upload":
+func updateHow(slug, sourceKind string) string {
+	switch sourceKind {
+	case "git":
+		return "commit and push to the repository's branch: with auto-deploy on that starts a deployment by itself (follow it with get_deployment, app=" + slug + ", wait_seconds=30); otherwise call deploy with app=" + slug + " after the push"
+	case "upload":
 		return "zip the folder again: create_upload with app=" + slug + ", run its curl command, then deploy with the new upload_id"
 	}
 	return "call deploy_files with app=" + slug + " and ALL project files (it replaces the whole source, it is not a patch)"
 }
 
+// appUpdateHow says how to publish new code to a specific app: a linked
+// repository always means pushing, whatever was deployed before.
 func appUpdateHow(ap app.App) string {
+	if ap.GitSource != nil {
+		if ap.GitSource.PushReady {
+			return "commit and push to " + ap.GitSource.Branch + " (bitploy deploys the push by itself; follow it with get_deployment, app=" + ap.Slug + ", wait_seconds=30)"
+		}
+		return "commit and push to " + ap.GitSource.Branch + ", then call deploy with app=" + ap.Slug
+	}
 	kind := ""
 	if ap.Current != nil {
 		kind = ap.Current.SourceKind
 	}
-	return updateHow(ap.Slug, kind, ap.GitSource != nil && kind != "files" && kind != "upload")
+	return updateHow(ap.Slug, kind)
+}
+
+// repoName is owner/name for GitHub repositories, else the address.
+func repoName(g *app.GitSourceState) string {
+	if g.Repo != "" {
+		return g.Repo
+	}
+	return g.RepoURL
+}
+
+// gitStatusNext tells an agent what a linked repository means for updates and,
+// when pushes cannot deploy yet, what the user has to do.
+func gitStatusNext(ap app.App, settingsURL, adminURL string) []string {
+	g := ap.GitSource
+	if g == nil {
+		return nil
+	}
+	switch g.PushStatus {
+	case "ready":
+		return []string{"Pushes to " + g.Branch + " deploy by themselves. To update the app, commit and push, then call get_deployment with app=" + ap.Slug + " and wait_seconds=30. Call deploy only to rebuild."}
+	case "off":
+		return []string{"Auto-deploy is off: after each push call deploy with app=" + ap.Slug + ". The user can turn it on in the app's Settings, or you can call set_git_source again with auto_deploy=true."}
+	case "other_host":
+		return []string{"This git host cannot tell bitploy about pushes: after each push call deploy with app=" + ap.Slug + "."}
+	case "no_webhook":
+		return []string{"GitHub cannot reach this bitploy, so pushes do not deploy by themselves: after each push call deploy with app=" + ap.Slug + "."}
+	case "app_missing":
+		return []string{"Pushes do not deploy by themselves because GitHub is not set up on this bitploy. Tell the user: an admin sets it up on the Admin page (" + adminURL + "), then each person connects GitHub in Settings > GitHub. Until then call deploy with app=" + ap.Slug + " after each push."}
+	}
+	return []string{"Pushes do not deploy by themselves yet: " + g.PushMessage + " Tell the user to open Settings > GitHub (" + settingsURL + "). Until then call deploy with app=" + ap.Slug + " after each push."}
 }
 
 func bitployFileStep(ap app.App) string {
@@ -334,7 +375,7 @@ func setEnvNext(slug string, cur *app.App) []string {
 func redoStep(d app.Deployment) string {
 	switch d.SourceKind {
 	case "git":
-		return "push the fix and call deploy with app=" + d.AppSlug
+		return "push the fix to the branch (a push deploys by itself when auto-deploy is on, otherwise call deploy with app=" + d.AppSlug + ")"
 	case "upload":
 		return "zip again with create_upload (app=" + d.AppSlug + ") and deploy with the new upload_id"
 	case "rollback":
@@ -426,7 +467,7 @@ func deploymentResult(verb string, d app.Deployment) *result {
 			next = []string{"Give the user " + who + " and one or two plain sentences on what you did."}
 		}
 		next = append(next,
-			"To publish changes later: "+updateHow(d.AppSlug, d.SourceKind, false)+". The URL stays the same.",
+			"To publish changes later: "+updateHow(d.AppSlug, d.SourceKind)+". The URL stays the same.",
 			bitployFileStep(app.App{Slug: d.AppSlug, URL: d.URL}),
 		)
 		if len(d.Warnings) > 0 {

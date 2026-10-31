@@ -53,6 +53,8 @@ type App struct {
 	RestoreBackupID     string
 	RestoreSafeID       string
 	RestoreResume       int64
+	GitAutoDeploy       int64
+	GitLastPushAt       sql.NullInt64
 }
 
 type AppBackup struct {
@@ -136,6 +138,52 @@ type EnvVar struct {
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
+}
+
+type GithubApp struct {
+	ID               int64
+	GithubAppID      int64
+	Slug             string
+	Name             string
+	HtmlUrl          string
+	OwnerLogin       string
+	OwnerType        string
+	ClientID         string
+	ClientSecretEnc  []byte
+	WebhookSecretEnc []byte
+	PrivateKeyEnc    []byte
+	CreatedBy        sql.NullString
+	CreatedAt        int64
+}
+
+type GithubDelivery struct {
+	DeliveryID string
+	ReceivedAt int64
+}
+
+type GithubInstallation struct {
+	UserID              string
+	InstallationID      int64
+	AccountLogin        string
+	AccountType         string
+	RepositorySelection string
+	Status              string
+	ReposSyncedAt       sql.NullInt64
+	GithubLogin         string
+	Limited             int64
+	CreatedAt           int64
+	UpdatedAt           int64
+}
+
+type GithubInstallationRepo struct {
+	InstallationID int64
+	Repo           string
+}
+
+type GithubUserRepo struct {
+	UserID         string
+	InstallationID int64
+	Repo           string
 }
 
 type IdempotencyKey struct {
@@ -270,21 +318,18 @@ type UsageDaily struct {
 }
 
 type User struct {
-	ID                   string
-	Email                string
-	Name                 string
-	PasswordHash         string
-	Role                 string
-	Status               string
-	QuotaApps            int64
-	QuotaMemoryMb        int64
-	QuotaCpuMillis       int64
-	QuotaDeploysPerHour  int64
-	QuotaDomainsPerApp   int64
-	QuotaVolumeMb        int64
-	GithubTokenEnc       []byte
-	GithubLogin          sql.NullString
-	GithubTokenExpiresAt sql.NullInt64
-	CreatedAt            int64
-	UpdatedAt            int64
+	ID                  string
+	Email               string
+	Name                string
+	PasswordHash        string
+	Role                string
+	Status              string
+	QuotaApps           int64
+	QuotaMemoryMb       int64
+	QuotaCpuMillis      int64
+	QuotaDeploysPerHour int64
+	QuotaDomainsPerApp  int64
+	QuotaVolumeMb       int64
+	CreatedAt           int64
+	UpdatedAt           int64
 }
