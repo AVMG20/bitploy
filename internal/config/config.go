@@ -52,6 +52,7 @@ type Config struct {
 	InternalURL       string // how Traefik reaches bitploy (catch-all pages)
 	BuilderCPUs       string // CPU limit of the isolated BuildKit container (default 2)
 	BuilderMemory     string // memory limit of the isolated BuildKit container (default 3g)
+	GeoIP             bool   // download the free DB-IP country database for traffic stats (BITPLOY_GEOIP=off turns it off)
 	Dev               bool   // relaxes Secure cookies and HTTPS-only checks for localhost
 }
 
@@ -73,6 +74,7 @@ func Load() (*Config, error) {
 		InternalURL:       env("BITPLOY_INTERNAL_URL", "http://bitploy:8080"),
 		BuilderCPUs:       env("BITPLOY_BUILDER_CPUS", DefaultBuilderCPUs),
 		BuilderMemory:     env("BITPLOY_BUILDER_MEMORY", DefaultBuilderMemory),
+		GeoIP:             !offValue(env("BITPLOY_GEOIP", "")),
 		Dev:               env("BITPLOY_DEV", "") == "1",
 		MaxParallelBuilds: 2,
 		MaxApps:           100,
@@ -115,6 +117,14 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
+func offValue(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "false", "no", "0":
+		return true
+	}
+	return false
+}
+
 // AppURL is the public URL of an app subdomain.
 func (c *Config) AppURL(slug string) string {
 	host := slug + "." + c.AppsDomain
@@ -139,12 +149,15 @@ func (c *Config) UploadsDir() string           { return c.Path("uploads") }
 func (c *Config) BuildsDir() string            { return c.Path("builds") }
 func (c *Config) LogsDir() string              { return c.Path("logs") }
 func (c *Config) RoutesDir() string            { return c.Path("traefik", "dynamic") }
+func (c *Config) TraefikLogsDir() string       { return c.Path("traefik", "logs") }
+func (c *Config) AccessLogPath() string        { return c.Path("traefik", "logs", "access.log") }
+func (c *Config) GeoIPDir() string             { return c.Path("geoip") }
 func (c *Config) BuildDir(depID string) string { return c.Path("builds", depID) }
 func (c *Config) BuildLog(depID string) string { return c.Path("logs", depID+".log") }
 
 // EnsureDirs creates the data directory tree.
 func (c *Config) EnsureDirs() error {
-	for _, d := range []string{c.DataDir, c.UploadsDir(), c.BuildsDir(), c.LogsDir(), c.RoutesDir()} {
+	for _, d := range []string{c.DataDir, c.UploadsDir(), c.BuildsDir(), c.LogsDir(), c.RoutesDir(), c.TraefikLogsDir()} {
 		if err := os.MkdirAll(d, 0o750); err != nil {
 			return err
 		}

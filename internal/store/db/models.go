@@ -185,6 +185,53 @@ type SlugReservation struct {
 	ExpiresAt int64
 }
 
+type TrafficCountry struct {
+	AppID    string
+	Day      string
+	Country  string
+	Requests int64
+	Visitors int64
+}
+
+type TrafficCursor struct {
+	ID       int64
+	Pos      int64
+	HeadLen  int64
+	HeadHash string
+}
+
+type TrafficDaily struct {
+	AppID     string
+	Day       string
+	Requests  int64
+	Errors4xx int64
+	Errors5xx int64
+	Visitors  int64
+}
+
+type TrafficHourly struct {
+	AppID     string
+	Hour      int64
+	Requests  int64
+	Errors4xx int64
+	Errors5xx int64
+	Visitors  int64
+}
+
+type TrafficPath struct {
+	AppID string
+	Day   string
+	Path  string
+	Views int64
+}
+
+type TrafficReferrer struct {
+	AppID  string
+	Day    string
+	Host   string
+	Visits int64
+}
+
 type Upload struct {
 	ID         string
 	AppID      string

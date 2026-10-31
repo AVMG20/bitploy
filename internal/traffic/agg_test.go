@@ -1,0 +1,221 @@
+package traffic
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+)
+
+var t0 = time.Date(2026, 10, 30, 14, 3, 0, 0, time.UTC)
+
+const (
+	firefox = "Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0"
+	safari  = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1"
+)
+
+func req(path, ip, ua string) Entry {
+	return Entry{Method: "GET", Path: path, Status: 200, IP: ip, UserAgent: ua, Time: t0, Host: "a.bitploy.nl"}
+}
+
+func newAgg() *Aggregator { return NewAggregator(func() time.Time { return t0 }) }
+
+func TestAggregateCounts(t *testing.T) {
+	a := newAgg()
+	home := req("/", "203.0.113.1", firefox)
+	home.Country = "NL"
+	a.Add("app_1", home)
+	a.Add("app_1", home) // same visitor again
+	other := req("/about", "203.0.113.2", safari)
+	other.Country = "DE"
+	other.Referer = "https://www.example.com/x"
+	a.Add("app_1", other)
+	a.Add("app_1", req("/app.js", "203.0.113.1", firefox)) // asset: counted, not a page
+	notFound := req("/nope", "203.0.113.3", firefox)
+	notFound.Status = 404
+	a.Add("app_1", notFound)
+	broken := req("/crash", "203.0.113.4", firefox)
+	broken.Status = 502
+	a.Add("app_1", broken)
+	post := req("/form", "203.0.113.1", firefox)
+	post.Method = "POST"
+	a.Add("app_1", post)
+	a.Add("app_1", req("/", "198.51.100.9", "Googlebot/2.1")) // bot: a request, no visitor, no page
+	a.Add("app_2", req("/", "203.0.113.1", firefox))
+
+	snap := a.Flush()
+	d := snap["app_1"]
+	hour := t0.Truncate(time.Hour).Unix()
+	if got, want := d.Hours[hour], (Counts{Requests: 8, Errors4xx: 1, Errors5xx: 1, Visitors: 4}); got != want {
+		t.Errorf("hour = %+v, want %+v", got, want)
+	}
+	day := d.Days["2026-10-30"]
+	if day.Counts != d.Hours[hour] {
+		t.Errorf("day counts %+v differ from hour %+v", day.Counts, d.Hours[hour])
+	}
+	// Pages: GET, status below 400, no assets, no bots. "/" twice, "/about" once.
+	if len(day.Paths) != 2 || day.Paths["/"] != 2 || day.Paths["/about"] != 1 {
+		t.Errorf("paths = %v", day.Paths)
+	}
+	if len(day.Referrers) != 1 || day.Referrers["example.com"] != 1 {
+		t.Errorf("referrers = %v", day.Referrers)
+	}
+	if got := day.Countries["NL"]; got != (CountryCounts{Requests: 2, Visitors: 1}) {
+		t.Errorf("NL = %+v", got)
+	}
+	if got := day.Countries["DE"]; got != (CountryCounts{Requests: 1, Visitors: 1}) {
+		t.Errorf("DE = %+v", got)
+	}
+	if got := day.Countries[UnknownCountry]; got.Requests != 5 || got.Visitors != 2 {
+		t.Errorf("unknown = %+v", got)
+	}
+	if snap["app_2"].Hours[hour].Visitors != 1 {
+		t.Errorf("app_2 = %+v", snap["app_2"].Hours[hour])
+	}
+
+	// Flushing again with nothing new reports nothing.
+	if again := a.Flush(); len(again) != 0 {
+		t.Errorf("second flush: %v", again)
+	}
+}
+
+func TestVisitorsStayUniqueAcrossFlushes(t *testing.T) {
+	a := newAgg()
+	a.Add("app_1", req("/", "203.0.113.1", firefox))
+	if v := a.Flush()["app_1"].Days["2026-10-30"].Visitors; v != 1 {
+		t.Fatalf("first flush: %d visitors", v)
+	}
+	// Same visitor a minute later: a request, but not a new visitor.
+	a.Add("app_1", req("/b", "203.0.113.1", firefox))
+	a.Add("app_1", req("/b", "203.0.113.5", firefox))
+	d := a.Flush()["app_1"].Days["2026-10-30"]
+	if d.Requests != 2 || d.Visitors != 1 {
+		t.Errorf("second flush: %+v", d.Counts)
+	}
+}
+
+func TestSaltChangesPerDay(t *testing.T) {
+	a := newAgg()
+	h1 := a.visitorHash("2026-10-30", "203.0.113.1", firefox)
+	if h1 != a.visitorHash("2026-10-30", "203.0.113.1", firefox) {
+		t.Error("same day, same visitor: different hash")
+	}
+	if h1 == a.visitorHash("2026-10-30", "203.0.113.2", firefox) || h1 == a.visitorHash("2026-10-30", "203.0.113.1", safari) {
+		t.Error("different visitor: same hash")
+	}
+	if h1 == a.visitorHash("2026-10-31", "203.0.113.1", firefox) {
+		t.Error("next day: same hash (salt did not change)")
+	}
+	// The salt is dropped with its day.
+	a.now = func() time.Time { return t0.AddDate(0, 0, 3) }
+	a.Flush()
+	if len(a.salt) != 0 {
+		t.Errorf("old salts kept: %d", len(a.salt))
+	}
+}
+
+func TestDaysAndHoursFromLogTime(t *testing.T) {
+	a := newAgg()
+	late := req("/", "203.0.113.1", firefox)
+	late.Time = time.Date(2026, 10, 29, 23, 59, 59, 0, time.UTC)
+	a.Add("app_1", late)
+	soon := req("/", "203.0.113.1", firefox)
+	soon.Time = time.Date(2026, 10, 30, 0, 0, 1, 0, time.UTC)
+	a.Add("app_1", soon)
+	d := a.Flush()["app_1"]
+	if len(d.Days) != 2 || len(d.Hours) != 2 {
+		t.Fatalf("days %d, hours %d", len(d.Days), len(d.Hours))
+	}
+	// Salt rotates at midnight: the same person is a new visitor on the new day.
+	if d.Days["2026-10-29"].Visitors != 1 || d.Days["2026-10-30"].Visitors != 1 {
+		t.Errorf("visitors per day: %+v", d.Days)
+	}
+}
+
+func TestPathCapFoldsIntoOther(t *testing.T) {
+	a := newAgg()
+	for round := 0; round < 2; round++ {
+		for i := 0; i < MaxPathsPerDay+50; i++ {
+			a.Add("app_1", req(fmt.Sprintf("/p/%d", i), "203.0.113.1", firefox))
+		}
+		if round == 0 {
+			a.Flush() // the cap holds across flushes
+		}
+	}
+	d := a.Flush()["app_1"].Days["2026-10-30"]
+	if len(d.Paths) > MaxPathsPerDay {
+		t.Errorf("%d paths in the second flush", len(d.Paths))
+	}
+	if d.Paths[OtherName] == 0 {
+		t.Error("no (other) bucket")
+	}
+	var total int64
+	for _, n := range d.Paths {
+		total += n
+	}
+	if total != int64(MaxPathsPerDay+50) {
+		t.Errorf("views lost: %d", total)
+	}
+}
+
+func TestPathCapAcrossFlushes(t *testing.T) {
+	a := newAgg()
+	distinct := map[string]bool{}
+	for i := 0; i < MaxPathsPerDay*2; i++ {
+		a.Add("app_1", req(fmt.Sprintf("/p/%d", i), "203.0.113.1", firefox))
+		if i%100 == 99 {
+			for p := range a.Flush()["app_1"].Days["2026-10-30"].Paths {
+				distinct[p] = true
+			}
+		}
+	}
+	if len(distinct) > MaxPathsPerDay {
+		t.Errorf("%d distinct paths stored for one day", len(distinct))
+	}
+}
+
+func TestReferrerCapDropsExtra(t *testing.T) {
+	a := newAgg()
+	for i := 0; i < MaxReferrersPerDay+20; i++ {
+		e := req("/", "203.0.113.1", firefox)
+		e.Referer = fmt.Sprintf("https://site%d.example/", i)
+		a.Add("app_1", e)
+	}
+	if n := len(a.Flush()["app_1"].Days["2026-10-30"].Referrers); n != MaxReferrersPerDay {
+		t.Errorf("%d referrers", n)
+	}
+}
+
+func TestOwnReferrerIgnored(t *testing.T) {
+	a := newAgg()
+	e := req("/b", "203.0.113.1", firefox)
+	e.Referer = "https://a.bitploy.nl/"
+	a.Add("app_1", e)
+	if n := len(a.Flush()["app_1"].Days["2026-10-30"].Referrers); n != 0 {
+		t.Errorf("own site counted as referrer: %d", n)
+	}
+}
+
+func TestForget(t *testing.T) {
+	a := newAgg()
+	a.Add("app_1", req("/", "203.0.113.1", firefox))
+	a.Forget("app_1")
+	if len(a.Flush()) != 0 {
+		t.Error("deleted app still flushed")
+	}
+}
+
+// Nothing a visitor sends may end up in what is stored: not the IP, not the user agent.
+func TestSnapshotHasNoIPOrUserAgent(t *testing.T) {
+	a := newAgg()
+	e := req("/", "203.0.113.77", "SecretBrowser/9.9 (unique-ua-string)")
+	e.Referer = "https://ref.example/page?token=abc"
+	e.Country = "NL"
+	a.Add("app_1", e)
+	dump := fmt.Sprintf("%+v", *a.Flush()["app_1"].Days["2026-10-30"])
+	for _, secret := range []string{"203.0.113.77", "SecretBrowser", "unique-ua-string", "token=abc"} {
+		if strings.Contains(dump, secret) {
+			t.Errorf("snapshot contains %q: %s", secret, dump)
+		}
+	}
+}

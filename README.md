@@ -25,7 +25,7 @@ make dev
 | Go server | http://localhost:8080 |
 | Traefik in Docker, plain HTTP | apps at `http://<slug>.localhost:8000` |
 
-On the first run it creates a dev admin: `dev@bitploy.localhost` / `devpassword123`. Data goes to `./.data`; delete that folder to start over. Stop with Ctrl-C. Traefik keeps running; remove it with `docker compose -f deploy/docker-compose.dev.yml down`.
+On the first run it creates a dev admin: `dev@bitploy.localhost` / `devpassword123`. Data goes to `./.data`; delete that folder to start over. Stop with Ctrl-C. Traefik keeps running (and writes the access log that feeds the Traffic tab to `.data/traefik/logs`); remove it with `docker compose -f deploy/docker-compose.dev.yml down`.
 
 Other commands:
 
@@ -119,6 +119,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_TRAEFIK_INTERNAL_URL` | `http://bitploy-traefik:8081` | Traefik's unpublished entrypoint, for health checks before a swap |
 | `BITPLOY_INTERNAL_URL` | `http://bitploy:8080` | How Traefik reaches bitploy (dashboard route, "No app here" page) |
 | `BITPLOY_APPS_SCHEME`, `BITPLOY_APPS_PORT` | `https`, empty | Scheme and port of app URLs (development uses `http` and `8000`) |
+| `BITPLOY_GEOIP` | `on` | Traffic stats look up visitor countries with DB-IP's free country database, downloaded into `<data dir>/geoip`. Default `on`; `off` skips the download (country is then only known when Cloudflare sends it) |
 | `BITPLOY_DEV` | `1` | Local development only: plain HTTP, no `Secure` cookies, no Docker cache pruning |
 | `BITPLOY_IMAGE` | `ghcr.io/avmg20/bitploy:1.2.0` | Used by `docker-compose.yml`, not by bitploy itself. Pin a version here. |
 
@@ -236,6 +237,7 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 - Crash loop: an app that dies 5 times in 5 minutes is stopped and marked `crashed` with its last log lines. Start it again after fixing the cause.
 - Out of memory: the app status says "Out of memory: raise the memory limit or use less".
 - Disk: builds are refused under 15% free disk. The nightly job prunes dangling bitploy images and caps the build cache at 10 GB.
+- Traffic: each web app has a Traffic tab (visitors, requests, top pages, countries, referrers; 30 days). It reads Traefik's access log, `<data dir>/traefik/logs/access.log`, which bitploy keeps small by truncating it. No cookies, no stored IP addresses or user agents. Visitors are counted per UTC day. Country data is from [DB-IP.com](https://db-ip.com) (IP to Country Lite, CC BY 4.0). **Existing installs: run `install.sh` again** (it creates the log folder, installs the new `traefik.yml` and restarts Traefik); until then there are no stats. Without `install.sh`: create `<data dir>/traefik/logs`, copy the new `traefik.yml` and `docker-compose.yml` to `/opt/bitploy`, then `docker compose up -d` and `docker restart bitploy-traefik`.
 - Metrics: 15-second samples for 24 hours, 5-minute rollups for 30 days, audit log for 90 days.
 
 ## Architecture
@@ -261,6 +263,7 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 - **Traefik sends app traffic straight to containers**, never through bitploy, so apps keep serving while bitploy restarts. bitploy writes one YAML route file per app (atomic rename); Traefik picks it up within a second.
 - **Deploys** go through a queue in SQLite: fetch, validate the Dockerfile, `docker buildx build`, start, health check through Traefik, swap the route, stop the old container. A failed deploy leaves the old version running.
 - **Reconciler** compares the database with real containers, networks and route files every 60 seconds and repairs drift.
+- **Traffic stats** (`internal/traffic`): Traefik writes its access log to a file in the data dir; bitploy tails it every 5 s, counts per app in memory and saves once a minute.
 - **Metrics** (`internal/metrics`): one streaming stats connection per running container, a 15 s ticker writing one sample per app in a single transaction, a Docker events listener (`die`, `oom`, `health_status`) that updates app status at once and detects crash loops, and the nightly job.
 
 | Path | Contents |
@@ -271,6 +274,7 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 | `internal/deploy`, `internal/dockerx`, `internal/proxy` | builds, Docker wrapper, Traefik route files |
 | `internal/domains` | hostname rules and DNS checks for custom domains |
 | `internal/metrics` | collector, rollups, nightly job |
+| `internal/traffic` | access log reader, visitor counting, country lookup |
 | `internal/store` | SQLite, migrations, sqlc queries, crypto |
 | `web` | Vue dashboard (embedded into the binary from `web/dist`) |
 | `deploy` | compose files, Traefik config, `daemon.json`, firewall, install, backup, dev scripts |

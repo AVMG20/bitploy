@@ -11,6 +11,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/domains"
 	"github.com/AVMG20/bitploy/internal/metrics"
+	"github.com/AVMG20/bitploy/internal/traffic"
 )
 
 var _ metrics.Docker = (*dockerx.Client)(nil)
@@ -19,6 +20,9 @@ var _ metrics.Docker = (*dockerx.Client)(nil)
 type opsState struct {
 	once sync.Once
 	mgr  *metrics.Manager
+
+	trafficOnce sync.Once
+	traffic     *traffic.Manager
 
 	// Tests replace these; nil means the real thing.
 	resolvers   []domains.Named
@@ -64,10 +68,14 @@ func (s *Service) opsSyncRoute(ctx context.Context, appID string) error {
 // only the domain checker and the nightly database jobs run.
 func (s *Service) RunBackground(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		s.runDomainChecker(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		s.trafficMgr().Run(ctx)
 	}()
 	s.metricsMgr().Run(ctx)
 	wg.Wait()

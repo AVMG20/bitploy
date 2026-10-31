@@ -249,6 +249,47 @@ type Metrics struct {
 	Latest        *MetricPoint  `json:"latest"`
 }
 
+// Traffic is the visitor stats of one app (GET /apps/{app}/traffic).
+// Visitors are unique per UTC day: over several days a returning visitor counts once per day.
+type Traffic struct {
+	App           string           `json:"app"`
+	Window        string           `json:"window"`      // 24h | 7d | 30d | today (totals only)
+	Granularity   string           `json:"granularity"` // hour for 24h, day otherwise
+	VisitorsToday int64            `json:"visitors_today"`
+	Totals        TrafficTotals    `json:"totals"`
+	Points        []TrafficPoint   `json:"points"`
+	Pages         []TrafficItem    `json:"pages"`
+	Countries     []TrafficCountry `json:"countries"`
+	Referrers     []TrafficItem    `json:"referrers"`
+}
+
+type TrafficTotals struct {
+	Requests  int64   `json:"requests"`
+	Visitors  int64   `json:"visitors"`
+	Errors    int64   `json:"errors"`     // answers with status 500 or more
+	ErrorRate float64 `json:"error_rate"` // errors as a percentage of requests
+}
+
+type TrafficPoint struct {
+	TS       time.Time `json:"ts"`
+	Requests int64     `json:"requests"`
+	Visitors int64     `json:"visitors"`
+	Errors   int64     `json:"errors"`
+}
+
+// TrafficItem is a page or a referrer with its count. Lists cover whole UTC
+// days, so for 24h they span today and yesterday.
+type TrafficItem struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+type TrafficCountry struct {
+	Code     string `json:"code"` // ISO 3166-1 alpha-2, or "unknown"
+	Requests int64  `json:"requests"`
+	Visitors int64  `json:"visitors"`
+}
+
 type AuditEntry struct {
 	ID         int64          `json:"id"`
 	TS         time.Time      `json:"ts"`

@@ -12,9 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useApp, useAppMetrics } from '@/composables/queries'
+import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { channelLabel, describeSource, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
+import { channelLabel, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
@@ -30,6 +30,8 @@ const metrics = useAppMetrics(() => props.slug, windowSel)
 const points = computed(() => metrics.data.value?.points ?? [])
 
 const data = computed(() => app.data.value)
+const isWeb = computed(() => data.value?.type === 'web')
+const traffic = useAppVisitorsToday(() => props.slug)
 const dep = computed(() => data.value?.current_deployment ?? null)
 const running = computed(() => data.value?.status === 'running')
 // The newest 15-second sample, only while the app runs.
@@ -67,6 +69,9 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
         <div class="border-b p-4 lg:border-b-0">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Running for</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ running ? uptime(data.started_at, nowMs) : '-' }}</p>
+          <p v-if="isWeb && data.restart_count > 0" class="mt-1 text-xs text-muted-foreground">
+            Restarted {{ data.restart_count === 1 ? 'once' : data.restart_count + ' times' }} by itself
+          </p>
         </div>
         <div class="border-b border-l p-4 lg:border-b-0">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Memory now</p>
@@ -84,7 +89,15 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
           </p>
           <Progress class="mt-2" :model-value="live ? pct(live.cpu, cpuLimitPct) : 0" />
         </div>
-        <div class="border-l p-4">
+        <RouterLink
+          v-if="isWeb"
+          :to="{ name: 'app-traffic', params: { slug } }"
+          class="border-l p-4 transition-colors hover:bg-muted/40"
+        >
+          <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Visitors today</p>
+          <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ traffic.data.value ? formatCount(traffic.data.value.visitors_today) : '-' }}</p>
+        </RouterLink>
+        <div v-else class="border-l p-4">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Automatic restarts</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ data.restart_count }}</p>
         </div>

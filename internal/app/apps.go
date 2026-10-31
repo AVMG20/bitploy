@@ -520,6 +520,7 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 	for _, d := range deps {
 		s.NotifyDeployment(d.ID)
 	}
+	s.trafficMgr().Forget(row.ID) // the stored stats went with the app row (foreign key cascade)
 	s.Audit(ctx, a, "app.delete", "app", row.ID, map[string]any{"slug": row.Slug})
 	s.metricsMgr().MeasureSoon()
 	return nil

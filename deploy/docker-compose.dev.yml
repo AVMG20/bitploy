@@ -14,5 +14,6 @@ services:
     volumes:
       - ./traefik/traefik.dev.yml:/etc/traefik/traefik.yml:ro
       - ../.data/traefik/dynamic:/dynamic:ro   # route files written by `go run ./cmd/bitploy serve`
+      - ../.data/traefik/logs:/var/log/traefik # access log for traffic stats, read by `go run ./cmd/bitploy serve`
     extra_hosts:
       - "host.docker.internal:host-gateway"    # Traefik reaches the Go server on the host (catch-all page)

@@ -6,6 +6,32 @@ global:
 log:
   level: INFO
 
+# Same access log as production (see traefik.yml): bitploy reads it for traffic stats.
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  bufferingSize: 100
+  fields:
+    defaultMode: drop
+    queryParameters:
+      defaultMode: drop    # no ?query strings in RequestPath
+    names:
+      StartUTC: keep
+      RouterName: keep
+      EntryPointName: keep
+      RequestHost: keep
+      RequestMethod: keep
+      RequestPath: keep
+      DownstreamStatus: keep
+      Duration: keep
+      ClientHost: keep
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        Referer: keep
+        Cf-Ipcountry: keep
+
 entryPoints:
   web:
     address: ":80"          # published as localhost:8000

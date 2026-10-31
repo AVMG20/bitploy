@@ -53,6 +53,13 @@ type Writer struct {
 
 func routerName(slug string) string { return "app-" + slug }
 
+// RouterName is the Traefik router of an app's own hostname. It is what the
+// access log shows (with an "@file" suffix), so traffic stats can find the app.
+func RouterName(slug string) string { return routerName(slug) }
+
+// HostRouterName is the Traefik router of one of an app's custom hostnames.
+func HostRouterName(slug, host string) string { return hostRouterName(slug, host) }
+
 func hostRouterName(slug, host string) string {
 	return "app-" + slug + "-" + strings.NewReplacer(".", "-", "*", "x").Replace(strings.ToLower(host))
 }
