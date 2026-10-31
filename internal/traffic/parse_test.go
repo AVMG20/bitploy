@@ -139,3 +139,21 @@ func TestClientIP(t *testing.T) {
 		t.Errorf("ParseLine IP = %q", e.IP)
 	}
 }
+
+// Lines written by a real Traefik v3.7.17 with the accessLog block of
+// deploy/traefik/traefik.yml (note the lowercase entryPointName key).
+func TestParseRealTraefikLines(t *testing.T) {
+	lines := []string{
+		`{"ClientHost":"9.9.9.9, 8.8.8.8","DownstreamStatus":404,"Duration":9746549,"RequestHost":"demo.localhost","RequestMethod":"GET","RequestPath":"/docs/page","RouterName":"app-demo@file","StartUTC":"2026-10-31T12:39:43.399585864Z","entryPointName":"websecure","level":"info","msg":"","request_Cf-Ipcountry":"NL","request_Referer":"https://news.ycombinator.com/item?id=1","request_User-Agent":"Mozilla/5.0 test","time":"2026-10-31T12:39:43Z"}`,
+		`{"ClientHost":"127.0.0.1","DownstreamStatus":404,"Duration":2668550,"RequestHost":"demo.localhost","RequestMethod":"GET","RequestPath":"/missing.png","RouterName":"app-demo@file","StartUTC":"2026-10-31T12:39:43.421926266Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-10-31T12:39:43Z"}`,
+	}
+	e, ok := ParseLine([]byte(lines[0]))
+	if !ok || e.Router != "app-demo" || e.EntryPoint != "websecure" || e.IP != "8.8.8.8" || e.Country != "NL" ||
+		e.Path != "/docs/page" || e.Status != 404 || e.UserAgent != "Mozilla/5.0 test" || e.Referer == "" || e.Time.IsZero() {
+		t.Fatalf("first line: %+v ok=%v", e, ok)
+	}
+	e, ok = ParseLine([]byte(lines[1]))
+	if !ok || e.IP != "127.0.0.1" || e.Country != "" || e.Path != "/missing.png" {
+		t.Fatalf("second line: %+v ok=%v", e, ok)
+	}
+}
