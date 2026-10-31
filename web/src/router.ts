@@ -43,6 +43,7 @@ export const router = createRouter({
             { path: 'deployments', name: 'app-deployments', component: () => import('./pages/app/DeploymentsTab.vue'), props: true },
             { path: 'logs', name: 'app-logs', component: () => import('./pages/app/LogsTab.vue'), props: true },
             { path: 'domains', name: 'app-domains', component: () => import('./pages/app/DomainsTab.vue'), props: true },
+            { path: 'storage', name: 'app-storage', component: () => import('./pages/app/StorageTab.vue'), props: true },
             { path: 'settings', name: 'app-settings', component: () => import('./pages/app/SettingsTab.vue'), props: true },
           ],
         },

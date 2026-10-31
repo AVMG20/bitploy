@@ -58,8 +58,9 @@ func (s *Service) opsSyncRoute(ctx context.Context, appID string) error {
 
 // ---- background ----
 
-// RunBackground starts the domain checker, metrics collector, Docker events
-// listener (die/oom/health_status, crash-loop detection) and nightly jobs.
+// RunBackground starts the domain checker, the automatic /data backups, metrics
+// collector, Docker events listener (die/oom/health_status, crash-loop
+// detection) and nightly jobs.
 // It returns when ctx ends. It works without Docker (s.Docker == nil): then
 // only the domain checker and the nightly database jobs run.
 func (s *Service) RunBackground(ctx context.Context) {
@@ -68,6 +69,11 @@ func (s *Service) RunBackground(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		s.runDomainChecker(ctx)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runBackups(ctx)
 	}()
 	s.metricsMgr().Run(ctx)
 	wg.Wait()

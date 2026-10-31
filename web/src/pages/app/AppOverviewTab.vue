@@ -184,12 +184,16 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               <span class="text-muted-foreground">Saved data <span class="font-mono text-xs">/data</span></span>
               <span class="text-muted-foreground">Off</span>
             </div>
+            <div class="flex items-baseline justify-between gap-4">
+              <span class="text-muted-foreground">Backups</span>
+              <span class="shrink-0 font-semibold tabular-nums" :class="!data.backups_mb && 'font-normal text-muted-foreground'">{{ data.backups_mb ? formatMB(data.backups_mb) : 'None' }}</span>
+            </div>
             <div class="mt-auto flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
               <span>
                 <template v-if="data.disk_measured_at">Measured <RelativeTime :date="data.disk_measured_at" /> · </template>counts towards your storage<template v-if="data.volume">; the app stops if /data goes over its limit</template>
               </span>
-              <RouterLink :to="{ name: 'app-settings', params: { slug } }" class="inline-flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
-                Settings <ArrowRight class="size-3.5" />
+              <RouterLink :to="{ name: 'app-storage', params: { slug } }" class="inline-flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
+                Storage <ArrowRight class="size-3.5" />
               </RouterLink>
             </div>
           </CardContent>

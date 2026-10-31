@@ -16,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { keys, useApp, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
@@ -168,11 +167,6 @@ const resForm = useForm({
   validationSchema: computed(() =>
     toTypedSchema(
       z.object({
-        volume: z.boolean(),
-        volume_gb: z.coerce
-          .number({ invalid_type_error: 'Enter a number.' })
-          .min(0.1, 'At least 0.1 GB.')
-          .max((quota.value?.volume_mb || 1024 * 1024) / 1024, `Your plan allows up to ${formatMB(quota.value?.volume_mb)} in total.`),
         memory_mb: z.coerce
           .number({ invalid_type_error: 'Enter a number.' })
           .int('Use a whole number.')
@@ -185,7 +179,7 @@ const resForm = useForm({
       }),
     ),
   ),
-  initialValues: { volume: false, volume_gb: 5, memory_mb: 512, cpus: 0.5 },
+  initialValues: { memory_mb: 512, cpus: 0.5 },
 })
 
 let resLoadedFor = ''
@@ -195,22 +189,17 @@ watch(
     // Fill the form once per app (not on every poll, which would wipe unsaved edits).
     if (a && resLoadedFor !== a.id) {
       resLoadedFor = a.id
-      resForm.resetForm({ values: { volume: a.volume, volume_gb: a.volume_mb / 1024, memory_mb: a.memory_mb, cpus: a.cpu_millis / 1000 } })
+      resForm.resetForm({ values: { memory_mb: a.memory_mb, cpus: a.cpu_millis / 1000 } })
     }
   },
   { immediate: true },
 )
 
 const saveRes = useMutation({
-  mutationFn: (v: { volume: boolean; volume_gb: number; memory_mb: number; cpus: number }) =>
-    api.updateApp(props.slug, {
-      volume: v.volume,
-      volume_mb: Math.round(v.volume_gb * 1024),
-      memory_mb: v.memory_mb,
-      cpu_millis: Math.round(v.cpus * 1000),
-    }),
+  mutationFn: (v: { memory_mb: number; cpus: number }) =>
+    api.updateApp(props.slug, { memory_mb: v.memory_mb, cpu_millis: Math.round(v.cpus * 1000) }),
   onSuccess: () => {
-    toastOk('Settings saved', 'Changes apply the next time the app starts.')
+    toastOk('Size saved', 'Changes apply the next time the app starts.')
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -322,34 +311,13 @@ const del = useMutation({
 
     <Card>
       <CardHeader>
-        <CardTitle>Storage and size</CardTitle>
-        <CardDescription>Decide how much computer power this app gets, and whether it can keep files.</CardDescription>
+        <CardTitle>Size</CardTitle>
+        <CardDescription>How much memory and processor power this app gets.</CardDescription>
       </CardHeader>
       <CardContent>
         <FormScope :form="resForm">
           <form class="grid gap-4" novalidate @submit.prevent="submitRes">
-            <FormField v-slot="{ value, handleChange }" name="volume">
-              <FormItem class="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
-                <div class="grid gap-1">
-                  <FormLabel>Keep files between deploys</FormLabel>
-                  <FormDescription>
-                    Turns on a storage folder at /data that survives new versions. While it is on, deploys restart the app for a few seconds instead of switching over smoothly.
-                  </FormDescription>
-                </div>
-                <FormControl><Switch :model-value="value" @update:model-value="handleChange" /></FormControl>
-              </FormItem>
-            </FormField>
-            <FormField v-if="resForm.values.volume" v-slot="{ componentField }" name="volume_gb">
-              <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
-                <FormLabel>Storage limit (GB)</FormLabel>
-                <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
-                <FormDescription v-if="quota && me.data.value">
-                  {{ formatMB(me.data.value.usage.files_mb + me.data.value.usage.volume_reserved_mb) }} of your {{ formatMB(quota.volume_mb) }} storage is taken by app files and /data limits.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-            <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
               <FormField v-slot="{ componentField }" name="memory_mb">
                 <FormItem>
                   <FormLabel>Memory (MB)</FormLabel>
@@ -367,7 +335,7 @@ const del = useMutation({
                 </FormItem>
               </FormField>
             </div>
-            <div><Button type="submit" :disabled="saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save changes' }}</Button></div>
+            <div><Button type="submit" :disabled="saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
           </form>
         </FormScope>
       </CardContent>
@@ -376,7 +344,7 @@ const del = useMutation({
     <Card class="border-destructive/40">
       <CardHeader>
         <CardTitle class="text-destructive">Delete this app</CardTitle>
-        <CardDescription>This removes the app, its address, its stored files and all old versions. It cannot be undone.</CardDescription>
+        <CardDescription>This removes the app, its address, its stored files, its backups and all old versions. It cannot be undone.</CardDescription>
       </CardHeader>
       <CardContent>
         <Button variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
@@ -403,7 +371,7 @@ const del = useMutation({
     <ConfirmDialog
       v-model:open="deleteOpen"
       title="Delete this app for good?"
-      description="Everything about it is removed, including files stored in /data."
+      description="Everything about it is removed, including the files in /data and its backups."
       confirm-label="Delete app"
       :type-to-confirm="slug"
       :loading="del.isPending.value"

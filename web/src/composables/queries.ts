@@ -14,6 +14,7 @@ export const keys = {
   deployments: (slug: string) => ['deployments', slug] as const,
   env: (slug: string) => ['env', slug] as const,
   domains: (slug: string) => ['domains', slug] as const,
+  backups: (slug: string) => ['backups', slug] as const,
   tokens: ['tokens'] as const,
   sessions: ['sessions'] as const,
   github: ['github'] as const,
@@ -46,5 +47,14 @@ export function useAppMetrics(slug: MaybeRefOrGetter<string>, window: MaybeRefOr
     queryFn: () => api.metrics(toValue(slug), toValue(window)),
     refetchInterval: 15_000,
     enabled: computed(() => (enabled === undefined ? true : toValue(enabled))),
+  })
+}
+
+/** The backups of an app; refreshes every 2 seconds while one is being made or restored. */
+export function useBackups(slug: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => keys.backups(toValue(slug))),
+    queryFn: () => api.backups(toValue(slug)),
+    refetchInterval: (q) => (q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),
   })
 }

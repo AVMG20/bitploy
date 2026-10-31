@@ -52,17 +52,8 @@ const VolumeInitImage = "busybox:1.37"
 // Docker still copies that directory's owner onto the empty volume when the app
 // starts, which wins over this mode.
 func (c *Client) PrepareVolume(ctx context.Context, volume string) error {
-	if _, err := c.API.ImageInspect(ctx, VolumeInitImage); err != nil {
-		if !IsNotFound(err) {
-			return err
-		}
-		pull, err := c.API.ImagePull(ctx, VolumeInitImage, client.ImagePullOptions{})
-		if err != nil {
-			return err
-		}
-		if err := pull.Wait(ctx); err != nil {
-			return err
-		}
+	if err := c.ensureInitImage(ctx); err != nil {
+		return err
 	}
 	name := "bp-init-" + volume
 	_ = c.RemoveContainer(ctx, name)
@@ -97,6 +88,21 @@ func (c *Client) PrepareVolume(ctx context.Context, volume string) error {
 		}
 	case err := <-w.Error:
 		return err
+	}
+	return nil
+}
+
+// ensureInitImage pulls the helper image when it is not on the server yet.
+func (c *Client) ensureInitImage(ctx context.Context) error {
+	if _, err := c.API.ImageInspect(ctx, VolumeInitImage); err != nil {
+		if !IsNotFound(err) {
+			return err
+		}
+		pull, err := c.API.ImagePull(ctx, VolumeInitImage, client.ImagePullOptions{})
+		if err != nil {
+			return err
+		}
+		return pull.Wait(ctx)
 	}
 	return nil
 }

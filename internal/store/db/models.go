@@ -47,6 +47,20 @@ type App struct {
 	UpdatedAt           int64
 	VolumeMb            int64
 	VolumeName          string
+	BackupSchedule      string
+	BackupKeepMode      string
+	BackupKeep          int64
+}
+
+type AppBackup struct {
+	ID         string
+	AppID      string
+	Kind       string
+	Status     string
+	SizeBytes  int64
+	Error      string
+	CreatedAt  int64
+	FinishedAt sql.NullInt64
 }
 
 type AppDisk struct {

@@ -40,6 +40,8 @@ export interface Usage {
   volume_used_mb: number
   /** Images and stored source of all apps. */
   files_mb: number
+  /** Backups of all apps. */
+  backups_mb: number
 }
 
 export interface Me {
@@ -203,6 +205,8 @@ export interface App {
   volume_used_mb: number | null
   /** The app's own files: kept images and stored source; null until measured. */
   files_mb: number | null
+  /** What the app's backups take; counts towards the storage allowance. */
+  backups_mb: number
   disk_measured_at?: string
   memory_mb: number
   cpu_millis: number
@@ -307,4 +311,48 @@ export interface ApiErrorBody {
     next?: string
     details?: unknown
   }
+}
+
+// ---------------------------------------------------------------------------
+// Backups of /data
+// ---------------------------------------------------------------------------
+export type BackupKind = 'manual' | 'scheduled' | 'uploaded' | 'before_restore'
+export type BackupStatus = 'running' | 'ready' | 'failed'
+export type BackupSchedule = 'off' | 'daily' | 'weekly'
+export type BackupKeepMode = 'last' | 'days'
+
+export interface Backup {
+  id: string
+  kind: BackupKind
+  status: BackupStatus
+  size_bytes: number
+  /** Why a failed backup failed, in plain words. */
+  error?: string
+  created_at: string
+}
+
+export interface BackupSettings {
+  schedule: BackupSchedule
+  keep_mode: BackupKeepMode
+  /** How many backups (keep_mode last) or how many days (keep_mode days). */
+  keep: number
+  /** When the next automatic backup is due; a time in the past means "soon". */
+  next_at?: string
+}
+
+export interface BackupRestore {
+  backup_id: string
+  state: 'running' | 'done' | 'failed'
+  error?: string
+  started_at: string
+  finished_at?: string
+}
+
+export interface BackupList {
+  items: Backup[]
+  settings: BackupSettings
+  restore: BackupRestore | null
+  /** A backup, upload or restore of this app is in progress. */
+  busy: boolean
+  total_bytes: number
 }

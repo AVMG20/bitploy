@@ -25,6 +25,7 @@ const tabs = [
   { name: 'app-deployments', label: 'Deployments' },
   { name: 'app-logs', label: 'Logs' },
   { name: 'app-domains', label: 'Domains' },
+  { name: 'app-storage', label: 'Storage' },
   { name: 'app-settings', label: 'Settings' },
 ]
 const current = computed(() => String(route.name))

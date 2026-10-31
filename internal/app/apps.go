@@ -472,6 +472,12 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 			"The confirmation does not match this app's subdomain, so nothing was deleted.",
 			"Call delete_app again with confirm_slug set to exactly "+quote(row.Slug)+".").WithNext("delete_app")
 	}
+	// A backup or restore in progress holds files and the volume of this app.
+	bl := s.backupLock(row.ID)
+	if !bl.TryLock() {
+		return backupBusyErr()
+	}
+	defer bl.Unlock()
 	s.cancelAllDeployments(ctx, row.ID)
 	lock := s.appLock(row.ID)
 	lock.Lock()
@@ -506,6 +512,9 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 		_ = os.Remove(s.Cfg.BuildLog(d.ID))
 		_ = os.RemoveAll(s.Cfg.BuildDir(d.ID))
 		_ = os.Remove(s.sourceZip(d.ID))
+	}
+	if err := s.removeAppBackups(row.ID); err != nil {
+		s.Log.Warn("removing backups of deleted app failed", "app", row.Slug, "err", err)
 	}
 	if err := s.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.DeleteAppRow(ctx, row.ID); err != nil {
@@ -588,8 +597,9 @@ func appVolumeName(a db.App) string {
 }
 
 // storageTaken is what the user's storage allowance already holds, in MB:
-// the /data limits of their apps with a volume (except excludeID, may be "")
-// and the measured app files (kept images and stored source) of all apps.
+// the /data limits of their apps with a volume (except excludeID, may be ""),
+// the measured app files (kept images and stored source) of all apps and
+// their /data backups.
 func (s *Service) storageTaken(ctx context.Context, userID, excludeID string) (int64, error) {
 	reserved, err := s.Q.SumVolumeMBByUser(ctx, db.SumVolumeMBByUserParams{UserID: userID, ID: excludeID})
 	if err != nil {
@@ -599,7 +609,11 @@ func (s *Service) storageTaken(ctx context.Context, userID, excludeID string) (i
 	if err != nil {
 		return 0, err
 	}
-	return reserved + (files+mib-1)/mib, nil
+	backups, err := s.Q.SumBackupBytesByUser(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return reserved + (files+backups+mib-1)/mib, nil
 }
 
 // checkVolumeQuota verifies that this app's volume (excludeID, may be "") at
@@ -615,7 +629,7 @@ func (s *Service) checkVolumeQuota(ctx context.Context, u db.User, excludeID str
 	}
 	if taken+volMB > u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_quota_exceeded",
-			fmt.Sprintf("This needs %d MB of storage, but your apps already take %d MB of your %d MB storage (app files plus the space kept for /data).", volMB, taken, u.QuotaVolumeMb),
+			fmt.Sprintf("This needs %d MB of storage, but your apps already take %d MB of your %d MB storage (app files, backups and the space kept for /data).", volMB, taken, u.QuotaVolumeMb),
 			"Use a smaller volume_mb for this app, lower it on another app, turn off a volume or delete an app you no longer need, or ask a bitploy admin for more storage.").WithNext("update_app")
 	}
 	return nil
@@ -634,7 +648,7 @@ func (s *Service) checkStorageRoom(ctx context.Context, u db.User) error {
 	}
 	if taken >= u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_full",
-			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files plus the space kept for /data), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
+			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files, backups and the space kept for /data), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
 			"Make room: delete an app you no longer need, lower the /data limit (volume_mb) of an app, or slim the image (smaller base image, no big files in the source). Or ask a bitploy admin for more storage.").WithNext("list_apps")
 	}
 	return nil
@@ -791,6 +805,9 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 			used := round1(float64(d.VolumeBytes) / mib)
 			v.VolumeUsedMB = &used
 		}
+	}
+	if n, err := s.Q.SumBackupBytesByApp(ctx, r.ID); err == nil {
+		v.BackupsMB = round1(float64(n) / mib)
 	}
 	if r.Type == "web" {
 		v.URL = s.Cfg.AppURL(r.Slug)

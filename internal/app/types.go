@@ -44,6 +44,7 @@ type Usage struct {
 	VolumeReservedMB  int64   `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
 	VolumeUsedMB      float64 `json:"volume_used_mb"`     // measured hourly
 	FilesMB           float64 `json:"files_mb"`           // images and stored source of all apps, measured hourly
+	BackupsMB         float64 `json:"backups_mb"`         // backups of all apps
 }
 
 // Me is returned by whoami / GET /api/v1/me.
@@ -134,6 +135,7 @@ type App struct {
 	// and stored source, measured hourly and after each deploy; nil until measured.
 	FilesMB        *float64    `json:"files_mb"`
 	DiskMeasuredAt *time.Time  `json:"disk_measured_at,omitempty"`
+	BackupsMB      float64     `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
 	MemoryMB       int64       `json:"memory_mb"`
 	CPUMillis      int64       `json:"cpu_millis"`
 	GitSource      *GitSource  `json:"git_source"`
@@ -358,4 +360,50 @@ type LogOptions struct {
 	Kind  string     // build | runtime
 	Tail  int        // default 200, max 1000
 	Since *time.Time // runtime only
+}
+
+// Backup is one archive of an app's /data folder.
+type Backup struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`   // manual | scheduled | uploaded | before_restore
+	Status    string    `json:"status"` // running | ready | failed
+	SizeBytes int64     `json:"size_bytes"`
+	Error     string    `json:"error,omitempty"` // why a failed backup failed, in plain words
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// BackupSettings are the automatic backups of one app.
+type BackupSettings struct {
+	Schedule string `json:"schedule"`  // off | daily | weekly
+	KeepMode string `json:"keep_mode"` // last (keep the newest N) | days (keep N days)
+	Keep     int64  `json:"keep"`
+	// NextAt is when the next automatic backup is due; nil when they are off.
+	NextAt *time.Time `json:"next_at,omitempty"`
+}
+
+// BackupRestore is the state of the latest restore of an app since bitploy started.
+type BackupRestore struct {
+	BackupID   string     `json:"backup_id"`
+	State      string     `json:"state"` // running | done | failed
+	Error      string     `json:"error,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
+// BackupList is GET /apps/{app}/backups.
+type BackupList struct {
+	Items    []Backup       `json:"items"`
+	Settings BackupSettings `json:"settings"`
+	// Restore is set while a restore runs and until the next one starts.
+	Restore *BackupRestore `json:"restore"`
+	// Busy is true while a backup, upload or restore of this app is in progress.
+	Busy       bool  `json:"busy"`
+	TotalBytes int64 `json:"total_bytes"` // what all backups of this app take
+}
+
+// BackupSettingsInput: nil fields are left unchanged.
+type BackupSettingsInput struct {
+	Schedule *string `json:"schedule,omitempty" doc:"off, daily or weekly"`
+	KeepMode *string `json:"keep_mode,omitempty" doc:"last (keep the newest backups) or days (keep backups for some days)"`
+	Keep     *int64  `json:"keep,omitempty" doc:"How many backups, or how many days, depending on keep_mode"`
 }
