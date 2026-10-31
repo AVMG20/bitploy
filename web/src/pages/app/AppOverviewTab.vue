@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { channelLabel, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
+import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
@@ -150,7 +150,8 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               <template v-if="dep.commit_sha">
                 <dt class="text-muted-foreground">Commit</dt>
                 <dd class="min-w-0">
-                  <span class="font-mono">{{ shortSha(dep.commit_sha) }}</span>
+                  <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono hover:underline">{{ shortSha(dep.commit_sha) }}</a>
+                  <span v-else class="font-mono">{{ shortSha(dep.commit_sha) }}</span>
                   <span v-if="dep.commit_message" class="block truncate text-muted-foreground">{{ dep.commit_message }}</span>
                 </dd>
               </template>

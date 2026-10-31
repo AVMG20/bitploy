@@ -90,11 +90,32 @@ sudo deploy/probe-test.sh     # must end with "All checks passed."
 
 Open your domain, log in, and invite colleagues from the Admin page. Under Connect AI they find the MCP setup for their assistant.
 
-**Back up `BITPLOY_SECRET_KEY` now, somewhere that is not this server** (a password manager). It encrypts every saved env var and GitHub token. Without it a restored database is readable, but those secrets are gone for good.
+**Back up `BITPLOY_SECRET_KEY` now, somewhere that is not this server** (a password manager). It encrypts every saved env var and the GitHub App's credentials. Without it a restored database is readable, but those secrets are gone for good.
 
 ```bash
 sudo grep BITPLOY_SECRET_KEY /etc/bitploy/bitploy.env
 ```
+
+### Connect GitHub (optional)
+
+With GitHub connected, people pick a repository in an app's Settings and every push to its branch deploys the app. Uploading files keeps working for everyone, with or without GitHub.
+
+**Admin, once.** Bitploy uses one GitHub App for the whole server, and you create it from the dashboard:
+
+1. Make sure `BITPLOY_PUBLIC_URL` is an address GitHub can reach over the internet. GitHub posts push events to `<public url>/api/v1/github/webhook`. On `localhost`, a private address or a name without a dot the push events never arrive, and the Admin page warns about it.
+2. Open Admin, GitHub, choose a name (and an organization if the app should belong to one) and press Create GitHub App. GitHub shows what will be created. Confirm there, and you land back in bitploy.
+
+The app asks for read-only access to repository contents and metadata, and for push events. Bitploy keeps its private key, client secret and webhook secret encrypted with `BITPLOY_SECRET_KEY`. Disconnect on the same page removes them from bitploy; delete the app on GitHub too if you want it gone there.
+
+**Everyone, once.** Settings, GitHub, Connect GitHub. GitHub asks which account and which repositories bitploy may read; pick the ones you want. If you have already installed the app, use Link existing accounts. Then, in an app's Settings, under Source, pick a repository, a branch and optionally a folder. Press Redeploy for the first build; after that every push to that branch deploys by itself. A few quick pushes in a row end in one build of the newest commit.
+
+**What to know**
+
+- An app built from a repository does not accept uploaded files (the error says `git_source_linked`). Disconnect the repository in the app's Settings, or call `set_git_source` with `remove: true`, to upload again. The running app is not touched.
+- Private repositories need the app installed with access to that repository. Public repositories on any git host also work through a plain address, but only GitHub repositories deploy on push.
+- Bitploy clones with a short-lived token for that one repository, read-only, and never writes it to disk, a log or an image.
+- Anyone who can see an organization's installation can connect it to their own bitploy account, and then deploy any repository that installation covers. Install the app on an organization only when you are fine with that.
+- Bitploy does not poll GitHub. If a push is missed (the server was down for a long time, or the public URL was wrong), redeliver it from the GitHub App's Advanced tab, or press Redeploy.
 
 ### Configuration
 
@@ -106,7 +127,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_APPS_DOMAIN` | `bitploy.nl` | Parent domain of app subdomains |
 | `BITPLOY_EDGE_HOST` | `edge.bitploy.nl` | DNS-only name that custom domains point to (default `edge.<apps domain>`) |
 | `BITPLOY_SERVER_IPV4`, `BITPLOY_SERVER_IPV6` | `203.0.113.10` | Shown in DNS instructions and accepted by DNS checks |
-| `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and GitHub tokens. `openssl rand -base64 32` |
+| `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials. `openssl rand -base64 32` |
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files, backups |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account (written into Traefik's config by `install.sh`) |
 | `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
@@ -120,6 +141,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_INTERNAL_URL` | `http://bitploy:8080` | How Traefik reaches bitploy (dashboard route, "No app here" page) |
 | `BITPLOY_APPS_SCHEME`, `BITPLOY_APPS_PORT` | `https`, empty | Scheme and port of app URLs (development uses `http` and `8000`) |
 | `BITPLOY_GEOIP` | `on` | Traffic stats look up visitor countries with DB-IP's free country database, downloaded into `<data dir>/geoip`. Default `on`; `off` skips the download (country is then only known when Cloudflare sends it) |
+| `BITPLOY_GITHUB_URL`, `BITPLOY_GITHUB_API_URL` | `https://github.com`, `https://api.github.com` | Where bitploy talks to GitHub. Leave them alone, unless you run GitHub Enterprise Server or a test double |
 | `BITPLOY_DEV` | `1` | Local development only: plain HTTP, no `Secure` cookies, no Docker cache pruning |
 | `BITPLOY_IMAGE` | `ghcr.io/avmg20/bitploy:1.2.0` | Used by `docker-compose.yml`, not by bitploy itself. Pin a version here. |
 

@@ -31,6 +31,7 @@ func (s *Service) githubAppInfo(ctx context.Context, admin bool) (GitHubAppInfo,
 	info := GitHubAppInfo{}
 	if admin {
 		info.WebhookURL = s.githubWebhookURL()
+		info.DefaultName = s.defaultGitHubAppName()
 		info.PublicURLProblem = publicURLProblem(s.Cfg.PublicURL)
 	}
 	if app == nil {

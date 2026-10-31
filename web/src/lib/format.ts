@@ -78,6 +78,8 @@ export function channelLabel(channel: string): string {
       return 'Dashboard'
     case 'system':
       return 'System'
+    case 'github':
+      return 'GitHub push'
     default:
       return channel
   }
@@ -184,6 +186,12 @@ export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : ''
 }
 
+/** Link to a commit on GitHub, or '' when the app's repository is not on GitHub. */
+export function commitUrl(app: App | null | undefined, sha: string | null | undefined): string {
+  const base = app?.git_source?.repo_html_url
+  return base && sha ? `${base}/commit/${sha}` : ''
+}
+
 export function hostOf(url: string): string {
   try {
     return new URL(url).host
@@ -196,8 +204,10 @@ export function hostOf(url: string): string {
 export function describeSource(d: Deployment, app?: App | null): string {
   switch (d.source_kind) {
     case 'git': {
-      const repo = app?.git_source ? `${app.git_source.repo_url.replace(/^https?:\/\//, '').replace(/\.git$/, '')} (${app.git_source.branch})` : 'a git repository'
-      return `GitHub: ${repo}`
+      const gs = app?.git_source
+      if (!gs) return 'A git repository'
+      const name = gs.repo ?? gs.repo_url.replace(/^https?:\/\//, '').replace(/\.git$/, '')
+      return `${gs.repo ? 'GitHub' : 'Git'}: ${name} (${gs.branch})`
     }
     case 'upload':
       return 'Uploaded folder (zip)'

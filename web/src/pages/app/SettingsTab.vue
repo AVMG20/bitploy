@@ -10,6 +10,8 @@ import { KeyRound, Pencil, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
+import GitConnect from './GitConnect.vue'
+import GitLinked from './GitLinked.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -263,6 +265,11 @@ const del = useMutation({
         </FormScope>
       </CardContent>
     </Card>
+
+    <template v-if="app.data.value">
+      <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
+      <GitConnect v-else :app="app.data.value" />
+    </template>
 
     <Card>
       <CardHeader>

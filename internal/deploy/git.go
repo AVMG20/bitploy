@@ -296,8 +296,8 @@ func (s GitSource) prepare() (GitSource, error) {
 // ---- LsRemote ----
 
 // LsRemote checks that the branch exists and is readable. Errors are
-// *apperr.Error with codes like source_repo_not_found, github_token_missing,
-// github_repo_forbidden, source_branch_not_found.
+// *apperr.Error with codes like source_repo_not_found, github_access_missing,
+// source_branch_not_found.
 func LsRemote(ctx context.Context, src GitSource) (sha string, err error) {
 	sha, _, err = LsRemoteInfo(ctx, src)
 	return sha, err

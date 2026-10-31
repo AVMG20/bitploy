@@ -231,3 +231,9 @@ func gitLinkedErr(row db.App) error {
 		"This app deploys from "+where+" (branch "+row.GitBranch.String+"), so files cannot be sent to it.",
 		hint).WithNext("get_deployment")
 }
+
+// UseLsRemote replaces the repository check that SetGitSource runs
+// (deploy.LsRemoteInfo). Tests use it so that no network is needed.
+func (s *Service) UseLsRemote(fn func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)) {
+	s.lsRemote = fn
+}

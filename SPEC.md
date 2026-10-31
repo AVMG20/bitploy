@@ -20,7 +20,7 @@ Defaults picked where the brief was open:
 
 You are a senior Go and Vue engineer building **bitploy**: a small, self-hosted deploy platform in the spirit of Dokploy, run on a single Hetzner server. Its main users are AI coding agents, driven through an MCP server and a REST API. Humans log in to a clean dashboard to create tokens, read logs and watch usage.
 
-The core promise: **anyone can deploy anything**. A colleague who has never heard of Docker drags a folder with one `index.html` into their AI chat, says "put this online", and gets `https://quiet-otter-3f9a.bitploy.nl` back in under two minutes. An expert points the agent at a private GitHub repo with a Go API and gets the same result.
+The core promise: **anyone can deploy anything**. A colleague who has never heard of Docker drags a folder with one `index.html` into their AI chat, says "put this online", and gets `https://quiet-otter-3f9a.bitploy.nl` back in under two minutes. An expert connects GitHub and points the agent at a private repo with a Go API and gets the same result.
 
 The rule that makes this work: **every app is a Dockerfile**. Bitploy never guesses how to build or run code. The MCP server teaches the agent this rule, hands it templates, validates its Dockerfile, and refuses any deploy without one. That single rule keeps bitploy small and makes it able to run "any weird app".
 
@@ -128,12 +128,14 @@ A user has two kinds of credential: a session cookie for the dashboard and beare
 
 Redact anything matching `bp_[A-Za-z0-9]{20,}` from logs, build logs and error messages. On `/mcp`, plug the token check into the SDK's bearer-token middleware (`auth.RequireBearerToken`) with bitploy's own verifier.
 
-**GitHub tokens (private repos)**
+**GitHub (private repos and push to deploy)**
 
-- One per user, set in Settings: a fine-grained personal access token with read-only Contents and Metadata on the repos they choose.
-- On save, call GitHub `GET /user` to validate it; show "connected as @login" and the expiry. Store it AES-256-GCM encrypted and never return it.
-- Use it only server-side while cloning, as HTTP basic auth with username `x-access-token`. It must never reach `.git/config`, a log line, the build context or an image.
-- A private repo without a working token fails with `github_token_missing` or `github_repo_forbidden`, each with a hint linking to Settings.
+- One GitHub App per instance, created by an admin from the dashboard with GitHub's manifest flow (read-only contents and metadata, push events). Its private key, client secret and webhook secret are stored AES-256-GCM encrypted and never returned.
+- Each user installs the app on their own account or organizations from Settings, GitHub. Bitploy links an installation only after exchanging the OAuth code and finding the installation in `GET /user/installations`; an `installation_id` in a URL is never trusted alone.
+- Cloning a `github.com` repository uses a short-lived, read-only token for that one repository, minted from the app owner's own installation. It reaches git only as HTTP basic auth (username `x-access-token`) and must never reach `.git/config`, a log line, the build context or an image. With no covering installation the clone is anonymous.
+- A private repo bitploy cannot read fails with `github_access_missing`, with a hint pointing to Settings, GitHub: "Connect GitHub and give bitploy access to this repo".
+- `POST /api/v1/github/webhook` receives push events: signature checked first (HMAC-SHA256, constant time), 5 MB cap, deduped by delivery id, answered with `202`. A push to the linked branch of an app whose owner linked that installation queues a deployment on channel `github` (commit sha and message recorded); quick pushes collapse into one build of the newest commit.
+- An app linked to a repository refuses uploads (`git_source_linked`) until it is disconnected.
 
 ## Deploy model
 
@@ -150,7 +152,7 @@ App `type` is `web` (default) or `worker`. A worker is for bots, queue consumers
 | Inline files | MCP `deploy_files` or API JSON: a list of `{path, content, encoding}` | 2 MB total, 200 files | A noob with three HTML files |
 | Zip upload | One-time upload URL, `curl --data-binary @app.zip` | 95 MB compressed (under Cloudflare's 100 MB request cap), 500 MB unpacked, 20,000 files | A folder on a laptop |
 | Public git | HTTPS URL, branch, optional subdirectory | Shallow clone, 500 MB | Open-source repos |
-| Private GitHub | Same, using the user's stored GitHub token | Same | Company repos |
+| GitHub | Same, plus private repos through the user's GitHub App installation; every push to the branch deploys | Same | Company repos, anyone who already lives in git |
 
 Zip handling: if everything sits in one top-level folder, strip it (people zip the folder, not its contents). Drop `__MACOSX/` and `.DS_Store`. Reject absolute paths, `..`, symlinks and device files. Count bytes while extracting and abort past the unpacked limit.
 
@@ -235,9 +237,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `update_app(app, …)` | Port, health path, volume, resources | deploy | idempotent |
 | `deploy_files(app, files[])` | Inline source, validates, queues a deployment | deploy | — |
 | `create_upload(app)` | One-time URL (15 min) and the exact `curl` command | deploy | — |
-| `set_git_source(app, repo_url, branch, subdir?)` | Saves the source and checks access with `ls-remote` | deploy | idempotent |
+| `set_git_source(app, repo_url?, branch?, subdir?, auto_deploy?, remove?)` | Saves the source and checks access with `ls-remote`; `auto_deploy` (default on for GitHub) deploys on every push; `remove: true` unlinks | deploy | idempotent |
 | `deploy(app, upload_id?)` | Queues a deployment from the upload or git source | deploy | — |
-| `get_deployment(id, wait_seconds?)` | State, timings, error, last 50 log lines | read | read-only |
+| `get_deployment(id?, app?, wait_seconds?)` | State, timings, error, last 50 log lines; with only `app` it returns the latest deployment | read | read-only |
 | `list_deployments(app)` | History, newest first | read | read-only |
 | `get_logs(app, kind, tail?, since?)` | `build` or `runtime` logs, max 1,000 lines | read | read-only |
 | `set_env(app, set, unset)` | Encrypted env vars; values are never returned | deploy | idempotent |
@@ -299,7 +301,10 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/invites/{code}/accept` | Finish signup from an invite |
 | `GET /api/v1/me`, `GET /api/v1/usage` | `whoami`, usage totals |
 | `GET` `POST` `DELETE /api/v1/tokens[/{id}]` | Manage API tokens (session only) |
-| `PUT` `DELETE /api/v1/me/github-token` | Store or remove the GitHub token |
+| `GET /api/v1/github`, `POST /api/v1/github/connect`, `POST /api/v1/github/link`, `DELETE /api/v1/github/installations/{id}` | The user's GitHub connection (session only) |
+| `GET /api/v1/github/repositories`, `GET /api/v1/github/branches` | Repository and branch pickers (session only) |
+| `GET` `DELETE /api/v1/admin/github`, `POST /api/v1/admin/github/manifest[/complete]` | Create or remove the instance's GitHub App (admin, session only) |
+| `POST /api/v1/github/webhook` | GitHub's push and installation events (signature, no session) |
 | `GET /api/v1/templates[/{stack}]` | `get_template` |
 | `POST /api/v1/dockerfile/validate` | `validate_dockerfile` |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
@@ -307,7 +312,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/apps/{app}/files` | `deploy_files` |
 | `POST /api/v1/apps/{app}/uploads` | `create_upload` |
 | `POST /u/{upload_id}` | Raw zip body; the unguessable ID is the credential, single use, 15 min |
-| `PUT /api/v1/apps/{app}/git-source` | `set_git_source` |
+| `PUT` `DELETE /api/v1/apps/{app}/git-source`, `PATCH` for `auto_deploy` | `set_git_source`, with `remove: true` to unlink |
 | `GET` `POST /api/v1/apps/{app}/deployments` | `list_deployments`, `deploy` |
 | `GET /api/v1/deployments/{id}?wait=30` | `get_deployment` with long-poll |
 | `GET /api/v1/deployments/{id}/log[?follow=1]` | Build log as text or SSE |
@@ -390,10 +395,10 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row |
 | App → Logs | Build and runtime logs, live tail, filter box | Download |
 | App → Domains | Subdomain; custom domains with the DNS records to copy and their status | Add, check now, remove |
-| App → Settings | Env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |
+| App → Settings | Source (linked repo, branch, folder, deploy on every push), env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
-| Settings | Profile, password, active sessions, GitHub token ("connected as @login") | Change, sign out everywhere |
+| Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos) | Change, connect or disconnect GitHub, sign out everywhere |
 | Admin | Users with app count, usage and quota; invites; server CPU, RAM, disk, Docker disk use, build queue | Invite, edit quota, disable user, stop any app |
 
 **Connect AI page** — the page noobs will use most. Prefill the token they just created, and verify each snippet against the client's current docs when you build it:
@@ -477,7 +482,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 **Control plane**
 
 - Only the bitploy container mounts `docker.sock`, which is root-equivalent: SSH keys only on the host, no other services on it.
-- `BITPLOY_SECRET_KEY` (32 random bytes) lives in an env file with mode 0600. Losing it means losing env vars and GitHub tokens, so the README says to back it up separately.
+- `BITPLOY_SECRET_KEY` (32 random bytes) lives in an env file with mode 0600. Losing it means losing env vars and the GitHub App's credentials, so the README says to back it up separately.
 - Dashboard headers: a strict CSP with no inline scripts, `X-Frame-Options: DENY`, HSTS, `Referrer-Policy: same-origin`.
 - Audit log: every change, with user, channel, token ID, IP and target, kept 90 days and visible to admins. Nobody, admins included, can read env var values back.
 
@@ -517,7 +522,7 @@ In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443
 | `BITPLOY_APPS_DOMAIN` | `bitploy.nl` | Parent domain for app subdomains |
 | `BITPLOY_EDGE_HOST` | `edge.bitploy.nl` | DNS-only CNAME target for custom domains |
 | `BITPLOY_SERVER_IPV4`, `BITPLOY_SERVER_IPV6` | `203.0.113.10` | Used in DNS checks and instructions |
-| `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and GitHub tokens |
+| `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials |
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account |
 | `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
@@ -559,10 +564,10 @@ Traefik needs no Docker socket: it reads only files. Bitploy attaches the Traefi
 | # | Milestone | Done when |
 | --- | --- | --- |
 | M0 | Skeleton: repo layout, Makefile, `/healthz`, SQLite and migrations, embedded shadcn-vue shell, CI (`go vet`, staticcheck, tests, `vue-tsc`, eslint) | `make build` produces one binary that serves the dashboard shell |
-| M1 | Auth: invites, argon2id, sessions, CSRF, API tokens, GitHub token storage, audit log | A POST from an `https://x.bitploy.nl` origin with a valid cookie is rejected; a revoked token gets 401 on its next request |
+| M1 | Auth: invites, argon2id, sessions, CSRF, API tokens, audit log | A POST from an `https://x.bitploy.nl` origin with a valid cookie is rejected; a revoked token gets 401 on its next request |
 | M2 | Deploy core: inline files, zip uploads, Dockerfile checks, build, run, health check, swap, route files, subdomains, logs, reconciler | A zip with `index.html` and the static Dockerfile is live over HTTPS in under 2 minutes; a broken deploy leaves the old version serving; killing bitploy mid-build leaves no orphans after restart |
 | M3 | MCP: all tools, instructions, templates, resources, prompt | A fresh agent with only bitploy's MCP and a token deploys a folder holding one `index.html` and no Dockerfile, unaided; given a Node app on `localhost`, it follows the hint and fixes it |
-| M4 | Git sources: public and private GitHub | A private repo deploys with a fine-grained token, and the token appears in no log, image layer (`docker history`) or API response |
+| M4 | Git sources: public git, and GitHub through the GitHub App (private repos, push to deploy) | A private repo deploys through the app installation, a push to its branch deploys it, and no token appears in any log, image layer (`docker history`) or API response |
 | M5 | Dashboard and metrics: every page, charts, Connect AI | A non-technical colleague goes from invite to a live app in under 10 minutes without help |
 | M6 | Custom domains | A domain outside Cloudflare goes from `add_domain` to `active` with a valid certificate; a wrong CNAME gives a readable error |
 | M7 | Hardening and ops: quotas, rate limits, firewall and probe test, crash-loop detection, backups, `install.sh` | A fresh Hetzner server reaches its first deploy within 15 minutes of `install.sh`; the probe container cannot reach the host, the metadata address or another app |
@@ -580,4 +585,4 @@ Traefik needs no Docker socket: it reads only files. Bitploy attaches the Traefi
 - Any build path without a Dockerfile: no buildpacks, no Nixpacks.
 - Raw TCP or UDP ports; only HTTP(S) through Traefik.
 - Billing, teams and shared apps.
-- Next after v1: GitHub push webhooks for auto-deploy, preview deployments per branch, and MCP OAuth for clients that only connect through OAuth.
+- Next after v1: preview deployments per branch, push webhooks for other git hosts, and MCP OAuth for clients that only connect through OAuth.

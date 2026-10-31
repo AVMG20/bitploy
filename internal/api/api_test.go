@@ -590,7 +590,7 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/me/password": {"put"},
 		"/templates":   {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"},
 		"/apps": {"get", "post"}, "/apps/{app}": {"get", "patch", "delete"},
-		"/apps/{app}/files": {"post"}, "/apps/{app}/uploads": {"post"}, "/apps/{app}/git-source": {"put"},
+		"/apps/{app}/files": {"post"}, "/apps/{app}/uploads": {"post"}, "/apps/{app}/git-source": {"put", "patch", "delete"},
 		"/apps/{app}/deployments": {"get", "post"}, "/deployments/{id}": {"get"}, "/deployments/{id}/log": {"get"},
 		"/apps/{app}/logs": {"get"}, "/apps/{app}/env": {"get", "put"},
 		"/apps/{app}/restart": {"post"}, "/apps/{app}/start": {"post"}, "/apps/{app}/stop": {"post"},
@@ -601,6 +601,9 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/admin/users": {"get"}, "/admin/invites": {"get", "post"}, "/admin/invites/{id}": {"delete"},
 		"/admin/quotas/{user_id}": {"put"}, "/admin/server": {"get"}, "/admin/apps": {"get"},
 		"/admin/apps/{app}/stop": {"post"}, "/admin/audit": {"get"},
+		"/github": {"get"}, "/github/connect": {"post"}, "/github/link": {"post"}, "/github/installations/{id}": {"delete"},
+		"/github/repositories": {"get"}, "/github/branches": {"get"},
+		"/admin/github": {"get", "delete"}, "/admin/github/manifest": {"post"}, "/admin/github/manifest/complete": {"post"},
 	}
 	for path, methods := range want {
 		item, ok := spec.Paths[path]

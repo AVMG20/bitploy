@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { channelLabel, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
+import { channelLabel, commitUrl, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Deployment } from '@/lib/types'
 
@@ -83,7 +83,8 @@ function canRollback(d: Deployment): boolean {
           <span>Via {{ channelLabel(d.channel) }}</span>
           <span>{{ describeSource(d, app.data.value) }}</span>
           <span v-if="d.commit_sha">
-            <span class="font-mono">{{ shortSha(d.commit_sha) }}</span>
+            <a v-if="commitUrl(app.data.value, d.commit_sha)" :href="commitUrl(app.data.value, d.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-foreground hover:underline">{{ shortSha(d.commit_sha) }}</a>
+            <span v-else class="font-mono">{{ shortSha(d.commit_sha) }}</span>
             <template v-if="d.commit_message"> {{ d.commit_message }}</template>
           </span>
         </div>

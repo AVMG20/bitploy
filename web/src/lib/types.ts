@@ -10,7 +10,6 @@ export interface User {
   name: string
   role: Role
   status: 'active' | 'suspended'
-  github_login?: string
   created_at: string
 }
 
@@ -93,16 +92,81 @@ export interface Invite {
   url?: string
 }
 
-export interface GitHubStatus {
-  connected: boolean
-  login?: string
-  expires_at?: string
+/** The GitHub App of this bitploy. Everyone sees `configured`, `name` and `slug`; the rest is for admins. */
+export interface GitHubAppInfo {
+  configured: boolean
+  name?: string
+  slug?: string
+  html_url?: string
+  manage_url?: string
+  owner?: string
+  webhook_url?: string
+  default_name?: string
+  created_at?: string
+  /** Why GitHub cannot reach this server; empty when it can. */
+  public_url_problem?: string
 }
 
+export interface GitHubInstallation {
+  id: number
+  account_login: string
+  account_type: 'User' | 'Organization'
+  repository_selection: 'all' | 'selected'
+  status: 'active' | 'suspended' | 'deleted'
+  manage_url: string
+  repo_count?: number
+  connected_at: string
+}
+
+export interface GitHubOverview {
+  app: GitHubAppInfo
+  installations: GitHubInstallation[]
+}
+
+export interface GitHubRepo {
+  full_name: string
+  private: boolean
+  html_url: string
+  default_branch: string
+  installation_id: number
+  pushed_at?: string
+}
+
+export interface GitHubBranches {
+  default_branch: string
+  branches: string[]
+}
+
+export interface GitHubManifest {
+  post_url: string
+  manifest: string
+  state: string
+  name: string
+}
+
+/** What you send to link a repository to an app. */
+export interface GitSourceInput {
+  repo_url: string
+  branch?: string
+  subdir?: string
+  auto_deploy?: boolean
+}
+
+export type PushStatus = 'ready' | 'off' | 'other_host' | 'app_missing' | 'not_connected' | 'no_access' | 'reconnect'
+
+/** The repository linked to an app, and whether a push will deploy it. */
 export interface GitSource {
   repo_url: string
   branch: string
   subdir?: string
+  /** owner/name, for repositories on github.com. */
+  repo?: string
+  repo_html_url?: string
+  auto_deploy: boolean
+  push_ready: boolean
+  push_status: PushStatus
+  push_message: string
+  last_push_at: string | null
 }
 
 export type AppStatus = 'new' | 'deploying' | 'running' | 'stopped' | 'failed' | 'crashed'

@@ -9,11 +9,13 @@ type GitHubAppInfo struct {
 	Name       string `json:"name,omitempty"`
 	Slug       string `json:"slug,omitempty"`
 	// Admin only:
-	HTMLURL    string     `json:"html_url,omitempty" doc:"The app's page on GitHub"`
-	ManageURL  string     `json:"manage_url,omitempty" doc:"Where the owner changes or deletes the app on GitHub"`
-	Owner      string     `json:"owner,omitempty" doc:"GitHub account that owns the app"`
-	WebhookURL string     `json:"webhook_url,omitempty" doc:"Where GitHub sends push events"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	HTMLURL    string `json:"html_url,omitempty" doc:"The app's page on GitHub"`
+	ManageURL  string `json:"manage_url,omitempty" doc:"Where the owner changes or deletes the app on GitHub"`
+	Owner      string `json:"owner,omitempty" doc:"GitHub account that owns the app"`
+	WebhookURL string `json:"webhook_url,omitempty" doc:"Where GitHub sends push events"`
+	// DefaultName is the app name offered when creating the app.
+	DefaultName string     `json:"default_name,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	// PublicURLProblem says why GitHub cannot reach bitploy; empty when it can.
 	PublicURLProblem string `json:"public_url_problem,omitempty"`
 }
