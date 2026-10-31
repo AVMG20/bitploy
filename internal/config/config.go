@@ -54,6 +54,8 @@ type Config struct {
 	BuilderMemory     string // memory limit of the isolated BuildKit container (default 3g)
 	GeoIP             bool   // download the free DB-IP country database for traffic stats (BITPLOY_GEOIP=off turns it off)
 	Dev               bool   // relaxes Secure cookies and HTTPS-only checks for localhost
+	GitHubAPIURL      string // GitHub REST API (BITPLOY_GITHUB_API_URL); tests point it at a fake
+	GitHubWebURL      string // github.com web address, for the app manifest, install and OAuth pages (BITPLOY_GITHUB_URL)
 }
 
 func Load() (*Config, error) {
@@ -76,6 +78,8 @@ func Load() (*Config, error) {
 		BuilderMemory:     env("BITPLOY_BUILDER_MEMORY", DefaultBuilderMemory),
 		GeoIP:             !offValue(env("BITPLOY_GEOIP", "")),
 		Dev:               env("BITPLOY_DEV", "") == "1",
+		GitHubAPIURL:      strings.TrimRight(env("BITPLOY_GITHUB_API_URL", "https://api.github.com"), "/"),
+		GitHubWebURL:      strings.TrimRight(env("BITPLOY_GITHUB_URL", "https://github.com"), "/"),
 		MaxParallelBuilds: 2,
 		MaxApps:           100,
 	}

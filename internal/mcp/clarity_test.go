@@ -229,7 +229,7 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	rules := structured(t, res)["rules"].(string)
 	for _, s := range []string{
 		"https://<slug>.bitploy.test", "This server", "2 MB", "95 MB", "restart_app", ".bitploy", "Never reuse an app just because its name looks similar",
-		"full snapshot", "out of memory", "/data", "DNS", "deploy_rate_limited", "token_read_only", "github_token_missing",
+		"full snapshot", "out of memory", "/data", "DNS", "deploy_rate_limited", "token_read_only", "github_access_missing", "git_source_linked",
 	} {
 		if !strings.Contains(rules, s) {
 			t.Errorf("rules lack %q", s)
@@ -357,7 +357,7 @@ func TestDeploymentResultGuidesEachState(t *testing.T) {
 		}
 	}
 	d.SourceKind = "git"
-	if s := joined(d); !strings.Contains(s, "push the change") || strings.Contains(s, "ALL project files") {
+	if s := joined(d); !strings.Contains(s, "commit and push") || strings.Contains(s, "ALL project files") {
 		t.Errorf("git update path: %s", s)
 	}
 	d.SourceKind = "upload"

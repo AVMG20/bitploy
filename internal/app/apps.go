@@ -820,9 +820,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		p := r.Port.Int64
 		v.Port = &p
 	}
-	if r.GitRepoUrl.Valid && r.GitRepoUrl.String != "" {
-		v.GitSource = &GitSource{RepoURL: r.GitRepoUrl.String, Branch: r.GitBranch.String, Subdir: r.GitSubdir.String}
-	}
+	v.GitSource = s.gitSourceState(ctx, a, r)
 	if r.CurrentDeploymentID.Valid {
 		if d, err := s.Q.GetDeployment(ctx, r.CurrentDeploymentID.String); err == nil {
 			dv := s.deploymentView(d, r.Slug, r.Type)

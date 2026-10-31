@@ -39,10 +39,6 @@ type passwordRequest struct {
 	NewPassword     string `json:"new_password" doc:"At least 10 characters. All other sessions are signed out."`
 }
 
-type githubRequest struct {
-	Token string `json:"token" doc:"Fine-grained GitHub personal access token with read-only Contents and Metadata. Never returned."`
-}
-
 func (a *API) accountRoutes() {
 	reg(a, public, huma.Operation{
 		OperationID: "login", Method: http.MethodPost, Path: "/auth/login", Tags: []string{"Auth"},
@@ -193,29 +189,6 @@ func (a *API) accountRoutes() {
 		ID string `path:"id"`
 	}) (*Empty, error) {
 		if err := a.svc.RevokeToken(ctx, act, in.ID); err != nil {
-			return nil, err
-		}
-		return &Empty{}, nil
-	})
-
-	// ---- GitHub token ----
-	reg(a, anyAuth, huma.Operation{
-		OperationID: "getGitHubToken", Method: http.MethodGet, Path: "/me/github-token", Tags: []string{"Account"},
-		Summary: "GitHub token status", Description: "Connected as which GitHub login, and when it expires. The token itself is never returned.",
-	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.GitHubStatus], error) {
-		return okOrNil(a.svc.GetGitHubStatus(ctx, act))
-	})
-	reg(a, sessionOnly, huma.Operation{
-		OperationID: "setGitHubToken", Method: http.MethodPut, Path: "/me/github-token", Tags: []string{"Account"},
-		Summary: "Store the GitHub token", Description: "Validated against GitHub GET /user, then stored encrypted.",
-	}, func(ctx context.Context, act app.Actor, in *struct{ Body githubRequest }) (*Out[app.GitHubStatus], error) {
-		return okOrNil(a.svc.SetGitHubToken(ctx, act, in.Body.Token))
-	})
-	reg(a, sessionOnly, huma.Operation{
-		OperationID: "deleteGitHubToken", Method: http.MethodDelete, Path: "/me/github-token", Tags: []string{"Account"},
-		Summary: "Remove the GitHub token", DefaultStatus: http.StatusNoContent,
-	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Empty, error) {
-		if err := a.svc.DeleteGitHubToken(ctx, act); err != nil {
 			return nil, err
 		}
 		return &Empty{}, nil

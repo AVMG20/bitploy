@@ -5,8 +5,8 @@ package deploy
 //
 // Security rules for this file:
 //   - HTTPS only; no credentials inside the URL.
-//   - The GitHub token is used only in memory as basic auth (x-access-token)
-//     and only for github.com. It is never written to disk, to .git/config,
+//   - The GitHub installation token is used only in memory as basic auth
+//     (x-access-token) and only for github.com. It is never written to disk, to .git/config,
 //     to a log line or to an error message.
 //   - Clone removes .git before returning, so the build context never holds
 //     the repository's config.
@@ -43,16 +43,21 @@ import (
 	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
-// GitSource describes one branch of a repository. Token is the user's GitHub
-// token (decrypted), used only in memory as basic auth (x-access-token).
+// GitSource describes one branch of a repository. Token is a short-lived
+// GitHub App installation token, used only in memory as basic auth
+// (x-access-token).
 type GitSource struct {
 	URL    string
 	Branch string
 	Subdir string
 	Token  string
-	// SettingsURL is where the user stores a GitHub token (PUBLIC_URL/settings).
-	// Used in hints only; when empty the hints say "Settings in the bitploy dashboard".
+	// SettingsURL is where the user connects GitHub (PUBLIC_URL/settings/github).
+	// Used in hints only; when empty the hints say "Settings > GitHub in the bitploy dashboard".
 	SettingsURL string
+	// AccessHint, when set, replaces the "if it is private" advice of the
+	// error for a repository bitploy cannot read. The caller knows whether the
+	// GitHub App is set up and who is asking; this package does not.
+	AccessHint string
 }
 
 // CloneResult is what a shallow clone produced.
@@ -206,7 +211,7 @@ func NormalizeGitURL(raw string) (string, error) {
 	}
 	if u.User != nil {
 		return "", invalid("The repository URL contains a user name or password.",
-			"Remove the credentials from the URL. For a private GitHub repository, save a GitHub token in Settings in the bitploy dashboard instead.")
+			"Remove the credentials from the URL. For a private GitHub repository, connect GitHub in Settings > GitHub in the bitploy dashboard instead.")
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return "", invalid("The repository URL must not have a ? or # part.", "Use the plain address, for example https://github.com/owner/repo.")
@@ -265,7 +270,7 @@ func (s GitSource) settingsText() string {
 	if s.SettingsURL != "" {
 		return s.SettingsURL
 	}
-	return "the Settings page in the bitploy dashboard"
+	return "Settings > GitHub in the bitploy dashboard"
 }
 
 // prepare validates the source and returns a normalized copy.
@@ -623,17 +628,19 @@ func mapGitError(err error, src GitSource) *apperr.Error {
 }
 
 // notReadable covers GitHub's "401 or 404" answer, which looks the same for a
-// private repo, a typo in the URL and a token without access.
+// private repo, a typo in the URL and a connection that does not include the repo.
 func notReadable(src GitSource, github, hasToken bool) *apperr.Error {
-	switch {
-	case github && !hasToken:
-		return apperr.Unprocessable("github_token_missing",
-			"Bitploy cannot read this GitHub repository. It is private or the address is misspelled, and you have not saved a GitHub token.",
-			fmt.Sprintf("If it is private: create a fine-grained personal access token at https://github.com/settings/personal-access-tokens with read-only access to Contents and Metadata for this repository, and save it in %s. Then call set_git_source again. If the address is wrong, fix it and call set_git_source again.", src.settingsText())).WithNext("set_git_source")
-	case github:
-		return apperr.Forbidden("github_repo_forbidden",
-			"GitHub does not let your saved token read this repository. The address may be misspelled, the token may not include this repository, or it may have expired.",
-			fmt.Sprintf("Check the address. Then edit your token at https://github.com/settings/personal-access-tokens so it includes this repository with read-only Contents and Metadata access (or create a new one), and save it in %s.", src.settingsText())).WithNext("set_git_source")
+	if github {
+		advice := src.AccessHint
+		if advice == "" {
+			advice = fmt.Sprintf("Open %s, press Connect GitHub and give bitploy access to this repository.", src.settingsText())
+		}
+		msg := "Bitploy cannot read this GitHub repository. It is private, or the address is misspelled."
+		if hasToken {
+			msg = "Bitploy's GitHub connection does not include this repository, or the address is misspelled."
+		}
+		return apperr.Unprocessable("github_access_missing", msg,
+			"Check the address. If the repository is private: "+advice+" Then call set_git_source again.").WithNext("set_git_source")
 	}
 	return apperr.NotFound("source_repo_not_found",
 		"The repository was not found, or it needs a login.",

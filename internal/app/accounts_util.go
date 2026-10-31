@@ -34,9 +34,6 @@ func acctUserFromRow(u db.User) User {
 		ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, Status: u.Status,
 		CreatedAt: ts(u.CreatedAt),
 	}
-	if u.GithubLogin.Valid && len(u.GithubTokenEnc) > 0 {
-		out.GitHubLogin = &u.GithubLogin.String
-	}
 	return out
 }
 

@@ -11,13 +11,12 @@ import (
 // dashboard's TypeScript types mirror them. JSON is snake_case.
 
 type User struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	Name        string    `json:"name"`
-	Role        string    `json:"role"`   // user | admin
-	Status      string    `json:"status"` // active | suspended
-	GitHubLogin *string   `json:"github_login,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`   // user | admin
+	Status    string    `json:"status"` // active | suspended
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Quota struct {
@@ -100,16 +99,30 @@ type Invite struct {
 	URL string `json:"url,omitempty"`
 }
 
-type GitHubStatus struct {
-	Connected bool       `json:"connected"`
-	Login     string     `json:"login,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+// GitSource is what you send to link a repository to an app.
+type GitSource struct {
+	RepoURL    string `json:"repo_url"`
+	Branch     string `json:"branch" required:"false" doc:"Leave empty for the repository's default branch."`
+	Subdir     string `json:"subdir,omitempty"`
+	AutoDeploy *bool  `json:"auto_deploy,omitempty" doc:"Deploy on every push to the branch. Default true. Needs GitHub connected (Settings > GitHub)."`
 }
 
-type GitSource struct {
-	RepoURL string `json:"repo_url"`
-	Branch  string `json:"branch" required:"false" doc:"Leave empty for the repository's default branch."`
-	Subdir  string `json:"subdir,omitempty"`
+// GitSourceState is the linked repository of an app, with what bitploy knows
+// about push events.
+type GitSourceState struct {
+	RepoURL     string `json:"repo_url"`
+	Branch      string `json:"branch"`
+	Subdir      string `json:"subdir,omitempty"`
+	Repo        string `json:"repo,omitempty" doc:"owner/name, for repositories on github.com"`
+	RepoHTMLURL string `json:"repo_html_url,omitempty" doc:"Link to the repository on GitHub"`
+	AutoDeploy  bool   `json:"auto_deploy" doc:"The setting: deploy on every push to the branch"`
+	// PushReady is true when a push to the branch will start a deploy: auto-deploy
+	// is on and the owner's GitHub connection covers the repository.
+	PushReady bool `json:"push_ready"`
+	// PushStatus is ready, off, other_host, app_missing, not_connected, no_access or reconnect.
+	PushStatus  string     `json:"push_status"`
+	PushMessage string     `json:"push_message" doc:"The status in one plain sentence"`
+	LastPushAt  *time.Time `json:"last_push_at" doc:"When GitHub last told bitploy about a push to this branch"`
 }
 
 type App struct {
@@ -133,16 +146,16 @@ type App struct {
 	VolumeUsedMB *float64 `json:"volume_used_mb"`
 	// FilesMB is the app's own files: its kept images (versions for rollback)
 	// and stored source, measured hourly and after each deploy; nil until measured.
-	FilesMB        *float64    `json:"files_mb"`
-	DiskMeasuredAt *time.Time  `json:"disk_measured_at,omitempty"`
-	BackupsMB      float64     `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
-	MemoryMB       int64       `json:"memory_mb"`
-	CPUMillis      int64       `json:"cpu_millis"`
-	GitSource      *GitSource  `json:"git_source"`
-	Current        *Deployment `json:"current_deployment"`
-	Domains        []Domain    `json:"domains"`
-	StartedAt      *time.Time  `json:"started_at,omitempty"` // current container start, for uptime
-	RestartCount   int64       `json:"restart_count"`
+	FilesMB        *float64        `json:"files_mb"`
+	DiskMeasuredAt *time.Time      `json:"disk_measured_at,omitempty"`
+	BackupsMB      float64         `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
+	MemoryMB       int64           `json:"memory_mb"`
+	CPUMillis      int64           `json:"cpu_millis"`
+	GitSource      *GitSourceState `json:"git_source"`
+	Current        *Deployment     `json:"current_deployment"`
+	Domains        []Domain        `json:"domains"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
+	RestartCount   int64           `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
 	Live      *MetricPoint `json:"live"`
 	CreatedAt time.Time    `json:"created_at"`

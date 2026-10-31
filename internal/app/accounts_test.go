@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -557,81 +555,6 @@ func TestOpenSignup(t *testing.T) {
 	in.Email = "open2@example.nl"
 	if _, _, err := s.AcceptInvite(ctx, "open", in, "1.1.1.1", "ua"); err != nil {
 		t.Fatalf("open signup is reusable: %v", err)
-	}
-}
-
-func TestGitHubToken(t *testing.T) {
-	s, _ := acctTestSvc(t)
-	ctx := context.Background()
-	u := mustUser(t, s, "me@example.nl", false)
-	c, _ := login(t, s, "me@example.nl")
-	sess := sessionActor(t, s, c)
-
-	const secret = "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz"
-	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/user" || r.Header.Get("Authorization") != "Bearer "+secret {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("github-authentication-token-expiration", "2030-01-02 03:04:05 UTC")
-		w.Write([]byte(`{"login":"octocat"}`))
-	}))
-	defer gh.Close()
-	old := acctGithubAPI
-	acctGithubAPI = gh.URL
-	defer func() { acctGithubAPI = old }()
-
-	if st, _ := s.GetGitHubStatus(ctx, sess); st.Connected {
-		t.Fatal("connected before setting")
-	}
-	if tok, err := s.GitHubTokenFor(ctx, u.ID); tok != "" || err != nil {
-		t.Fatalf("token before set: %q %v", tok, err)
-	}
-	if _, err := s.SetGitHubToken(ctx, sess, "github_pat_wrongwrongwrongwrongwrong"); code(err) != "github_token_invalid" {
-		t.Fatalf("bad token: %v", err)
-	}
-	st, err := s.SetGitHubToken(ctx, sess, secret)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !st.Connected || st.Login != "octocat" || st.ExpiresAt == nil || st.ExpiresAt.Year() != 2030 {
-		t.Fatalf("status: %+v", st)
-	}
-	// Stored encrypted, bound to the user, never in the clear.
-	var enc []byte
-	s.Store.DB.QueryRow(`SELECT github_token_enc FROM users WHERE id = ?`, u.ID).Scan(&enc)
-	if len(enc) == 0 || strings.Contains(string(enc), "github_pat") {
-		t.Fatal("token not encrypted at rest")
-	}
-	if _, err := s.Crypto.Open(enc, "github:"+u.ID); err != nil {
-		t.Fatalf("not sealed with github:<userID>: %v", err)
-	}
-	if tok, err := s.GitHubTokenFor(ctx, u.ID); tok != secret || err != nil {
-		t.Fatalf("GitHubTokenFor: %q %v", tok, err)
-	}
-	me, _ := s.Me(ctx, sess)
-	if me.User.GitHubLogin == nil || *me.User.GitHubLogin != "octocat" {
-		t.Fatalf("me: %+v", me.User)
-	}
-	// A token actor cannot set or delete it.
-	tokenActor := Actor{UserID: u.ID, Scope: ScopeDeploy, Channel: ChannelAPI}
-	if _, err := s.SetGitHubToken(ctx, tokenActor, secret); code(err) != "session_required" {
-		t.Fatalf("token actor: %v", err)
-	}
-	if err := s.DeleteGitHubToken(ctx, sess); err != nil {
-		t.Fatal(err)
-	}
-	if st, _ := s.GetGitHubStatus(ctx, sess); st.Connected {
-		t.Fatal("still connected after delete")
-	}
-	if tok, _ := s.GitHubTokenFor(ctx, u.ID); tok != "" {
-		t.Fatal("token survived delete")
-	}
-	// The secret is nowhere in the audit log.
-	var leaked int
-	s.Store.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE details LIKE '%github_pat%'`).Scan(&leaked)
-	if leaked != 0 {
-		t.Fatal("GitHub token leaked into the audit log")
 	}
 }
 

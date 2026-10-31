@@ -25,6 +25,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.accountRoutes()
 	a.appRoutes()
 	a.backupRoutes()
+	a.githubRoutes()
 	a.adminRoutes()
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })
 
@@ -44,6 +45,8 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	mux.Handle(prefix+"/", apiChain)
+	// GitHub's webhook: no session or token, the signature is the credential.
+	mux.Handle("POST "+prefix+"/github/webhook", readDeadline(apiReadTimeout, http.HandlerFunc(a.githubWebhook)))
 	// File streams below /api/v1: same authentication, no 8 MB body cap.
 	a.backupFileRoutes(mux, func(next http.Handler) http.Handler {
 		next = annotate(next)

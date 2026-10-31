@@ -194,7 +194,7 @@ func hintSuffix(tool, code string) string {
 	case code == "dockerfile_missing" && tool == "deploy_files":
 		return "\n\nAfter saving the two files, call deploy_files again with ALL project files, including the new Dockerfile and .dockerignore."
 	case code == "dockerfile_missing" && tool == "deploy":
-		return "\n\nAdd the two files to the project: for a git source commit and push them, for a zip create it again (create_upload), for files use deploy_files with ALL files."
+		return "\n\nAdd the two files to the project: for a git source commit and push them (a push deploys by itself when auto-deploy is on), for a zip create it again (create_upload), for files use deploy_files with ALL files."
 	}
 	return ""
 }
