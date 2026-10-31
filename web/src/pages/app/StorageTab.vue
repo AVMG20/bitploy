@@ -426,7 +426,7 @@ const kindLabel: Record<BackupKind, string> = {
         />
         <ul v-else class="divide-y rounded-lg border">
           <li v-for="b in list.items" :key="b.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
-            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+            <div class="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-x-3 gap-y-1">
               <span class="text-sm font-medium"><RelativeTime :date="b.created_at" /></span>
               <span class="hidden text-sm text-muted-foreground sm:inline">{{ formatDateTime(b.created_at) }}</span>
               <Badge variant="secondary">{{ kindLabel[b.kind] }}</Badge>
@@ -434,7 +434,7 @@ const kindLabel: Record<BackupKind, string> = {
                 <Loader2 class="size-3.5 animate-spin" /> Working...
               </span>
               <span v-else-if="b.status === 'failed'" class="min-w-0 text-sm text-destructive">{{ b.error || 'This backup failed.' }}</span>
-              <span v-else class="text-sm text-muted-foreground tabular-nums">{{ formatBytes(b.size_bytes) }}</span>
+              <span v-else class="text-sm whitespace-nowrap text-muted-foreground tabular-nums">{{ formatBytes(b.size_bytes) }}</span>
             </div>
             <div class="ml-auto flex gap-1">
               <template v-if="b.status === 'ready'">
@@ -454,14 +454,15 @@ const kindLabel: Record<BackupKind, string> = {
               </template>
               <Button
                 v-if="b.status !== 'running'"
-                size="sm"
+                size="icon-sm"
                 variant="ghost"
-                class="text-destructive"
+                class="text-muted-foreground hover:text-destructive"
                 :disabled="working"
+                title="Delete"
                 aria-label="Delete this backup"
                 @click="toDelete = b"
               >
-                <Trash2 /> Delete
+                <Trash2 />
               </Button>
             </div>
           </li>
