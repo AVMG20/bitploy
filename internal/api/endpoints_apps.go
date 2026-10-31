@@ -360,6 +360,17 @@ func (a *API) appRoutes() {
 	}) (*Out[app.Metrics], error) {
 		return okOrNil(a.svc.GetMetrics(ctx, act, in.App, in.Window))
 	})
+
+	// ---- traffic ----
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "getTraffic", Method: http.MethodGet, Path: "/apps/{app}/traffic", Tags: []string{"Traffic"},
+		Summary: "Visitors, top pages, countries and referrers",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		AppRef
+		Window string `query:"window" default:"24h" enum:"24h,7d,30d"`
+	}) (*Out[app.Traffic], error) {
+		return okOrNil(a.svc.GetTraffic(ctx, act, in.App, in.Window))
+	})
 }
 
 func tailOrDefault(n, def int) int {

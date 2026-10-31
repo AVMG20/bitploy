@@ -188,3 +188,26 @@ export function describeSource(d: Deployment, app?: App | null): string {
       return d.source_kind
   }
 }
+
+export function formatCount(n: number): string {
+  return n.toLocaleString()
+}
+
+/** Flag emoji for an ISO 3166-1 alpha-2 code; a globe when the country is unknown. */
+export function countryFlag(code: string): string {
+  if (!/^[A-Za-z]{2}$/.test(code)) return '\u{1F310}'
+  return String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1a5 + c.charCodeAt(0)))
+}
+
+let regionNames: Intl.DisplayNames | null | undefined
+export function countryName(code: string): string {
+  if (!/^[A-Za-z]{2}$/.test(code)) return 'Unknown'
+  if (regionNames === undefined) {
+    try {
+      regionNames = new Intl.DisplayNames(undefined, { type: 'region' })
+    } catch {
+      regionNames = null
+    }
+  }
+  return regionNames?.of(code.toUpperCase()) ?? code.toUpperCase()
+}

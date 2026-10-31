@@ -20,6 +20,7 @@ services:
     volumes:
       - ./traefik:/etc/traefik:ro                          # static config (traefik.yml)
       - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/traefik/dynamic:/dynamic:ro   # route files written by bitploy
+      - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/traefik/logs:/var/log/traefik   # access log, read and truncated by bitploy (traffic stats)
       - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/acme:/acme   # Let's Encrypt account and certificates
       - /etc/bitploy/origin:/certs:ro                      # Cloudflare Origin CA certificate (origin.pem, origin.key)
     healthcheck:

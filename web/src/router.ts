@@ -40,6 +40,7 @@ export const router = createRouter({
           props: true,
           children: [
             { path: '', name: 'app', component: () => import('./pages/app/AppOverviewTab.vue'), props: true },
+            { path: 'traffic', name: 'app-traffic', component: () => import('./pages/app/TrafficTab.vue'), props: true },
             { path: 'deployments', name: 'app-deployments', component: () => import('./pages/app/DeploymentsTab.vue'), props: true },
             { path: 'logs', name: 'app-logs', component: () => import('./pages/app/LogsTab.vue'), props: true },
             { path: 'domains', name: 'app-domains', component: () => import('./pages/app/DomainsTab.vue'), props: true },

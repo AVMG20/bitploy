@@ -22,11 +22,14 @@ const app = useApp(() => props.slug)
 
 const tabs = [
   { name: 'app', label: 'Overview' },
+  { name: 'app-traffic', label: 'Traffic' },
   { name: 'app-deployments', label: 'Deployments' },
   { name: 'app-logs', label: 'Logs' },
   { name: 'app-domains', label: 'Domains' },
   { name: 'app-settings', label: 'Settings' },
 ]
+// Background workers have no visitors.
+const shownTabs = computed(() => tabs.filter((t) => t.name !== 'app-traffic' || app.data.value?.type !== 'worker'))
 const current = computed(() => String(route.name))
 const notFound = computed(() => app.error.value instanceof ApiError && app.error.value.status === 404)
 
@@ -100,7 +103,7 @@ function stop() {
       <Tabs :model-value="current" class="min-w-0">
         <div class="overflow-x-auto overflow-y-hidden border-b">
           <TabsList variant="line" class="-ml-1.5">
-            <TabsTrigger v-for="t in tabs" :key="t.name" :value="t.name" as-child>
+            <TabsTrigger v-for="t in shownTabs" :key="t.name" :value="t.name" as-child>
               <RouterLink :to="{ name: t.name, params: { slug } }">{{ t.label }}</RouterLink>
             </TabsTrigger>
           </TabsList>

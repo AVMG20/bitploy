@@ -93,3 +93,9 @@ rename or remove anything, and mention it in your final summary.
   BITPLOY_TRAEFIK_INTERNAL_URL=http://localhost:8081
   BITPLOY_INTERNAL_URL=http://host.docker.internal:8080 BITPLOY_DATA_DIR=./.data`.
   Traefik runs in Docker with the web entrypoint on host port 8000.
+- **Traffic stats** (`internal/traffic`, `internal/app/traffic.go`, migration `00090`, queries `traffic.sql`):
+  Traefik writes a JSON access log to `<data dir>/traefik/logs/access.log`; bitploy tails it,
+  maps `RouterName` (`app-<slug>@file`, custom domains `app-<slug>-<host>@file`, names from
+  `proxy.RouterName` / `proxy.HostRouterName`) to an app, and keeps only counts. Never store an
+  IP address, user agent or query string. `GET /api/v1/apps/{app}/traffic?window=24h|7d|30d`.
+  The fields kept in `deploy/traefik/traefik*.yml` and the ones read in `traffic.ParseLine` go together.

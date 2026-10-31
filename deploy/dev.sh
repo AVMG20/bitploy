@@ -14,7 +14,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 command -v docker >/dev/null || { echo "dev.sh: Docker is not installed or not on PATH" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "dev.sh: the Docker daemon is not running" >&2; exit 1; }
 
-mkdir -p .data/traefik/dynamic
+mkdir -p .data/traefik/dynamic .data/traefik/logs
+# Traefik (root in its container) appends to this file and the Go server, running as you,
+# truncates it. Create it open for both so that works on Linux too.
+touch .data/traefik/logs/access.log
+chmod 666 .data/traefik/logs/access.log
 
 # Dev settings from docs/CONTRACT.md.
 export BITPLOY_DEV=1

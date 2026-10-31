@@ -12,6 +12,8 @@ import type {
   Me,
   Metrics,
   MetricWindow,
+  Traffic,
+  TrafficWindow,
   Page,
   ServerStats,
   Session,
@@ -53,6 +55,7 @@ export const paths = {
   appEnv: (slug: string) => `${V1}/apps/${enc(slug)}/env`,
   appLogs: (slug: string) => `${V1}/apps/${enc(slug)}/logs`,
   appMetrics: (slug: string) => `${V1}/apps/${enc(slug)}/metrics`,
+  appTraffic: (slug: string) => `${V1}/apps/${enc(slug)}/traffic`,
   appDomains: (slug: string) => `${V1}/apps/${enc(slug)}/domains`,
   appDomain: (slug: string, host: string) => `${V1}/apps/${enc(slug)}/domains/${enc(host)}`,
   appDomainCheck: (slug: string, host: string) => `${V1}/apps/${enc(slug)}/domains/${enc(host)}/check`,
@@ -277,6 +280,8 @@ export const api = {
     request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset } }),
   metrics: (slug: string, window: MetricWindow) =>
     request<Metrics>('GET', paths.appMetrics(slug), { query: { window } }),
+  traffic: (slug: string, window: TrafficWindow) =>
+    request<Traffic>('GET', paths.appTraffic(slug), { query: { window } }),
 
   // domains
   async domains(slug: string): Promise<Domain[]> {

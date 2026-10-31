@@ -12,6 +12,7 @@ require (
 	github.com/moby/moby/client v0.6.2
 	github.com/moby/patternmatcher v0.6.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/oschwald/maxminddb-golang/v2 v2.8.0
 	github.com/pressly/goose/v3 v3.29.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0

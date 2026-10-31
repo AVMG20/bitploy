@@ -257,6 +257,38 @@ export interface Metrics {
   latest: MetricPoint | null
 }
 
+export type TrafficWindow = '24h' | '7d' | '30d'
+
+export interface TrafficPoint {
+  ts: string
+  requests: number
+  visitors: number
+  errors: number
+}
+
+export interface TrafficItem {
+  name: string
+  count: number
+}
+
+export interface TrafficCountry {
+  code: string
+  requests: number
+  visitors: number
+}
+
+export interface Traffic {
+  app: string
+  window: TrafficWindow
+  granularity: 'hour' | 'day'
+  visitors_today: number
+  totals: { requests: number; visitors: number; errors: number; error_rate: number }
+  points: TrafficPoint[]
+  pages: TrafficItem[]
+  countries: TrafficCountry[]
+  referrers: TrafficItem[]
+}
+
 export interface AuditEntry {
   id: number
   ts: string

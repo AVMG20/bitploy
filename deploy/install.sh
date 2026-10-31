@@ -244,7 +244,7 @@ fi
 say "5/5 Starting bitploy"
 data_dir="$(env_get BITPLOY_DATA_DIR)"
 data_dir="${data_dir:-$DATA_DIR}"
-install -d -m 0750 "$data_dir" "$data_dir/traefik/dynamic" "$data_dir/uploads" "$data_dir/builds" "$data_dir/logs" "$data_dir/backups"
+install -d -m 0750 "$data_dir" "$data_dir/traefik/dynamic" "$data_dir/traefik/logs" "$data_dir/uploads" "$data_dir/builds" "$data_dir/logs" "$data_dir/backups"
 install -d -m 0700 "$data_dir/acme"
 
 install -d -m 0755 "$INSTALL_DIR/traefik"

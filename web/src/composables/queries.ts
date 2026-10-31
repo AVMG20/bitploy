@@ -2,7 +2,7 @@ import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { api } from '@/lib/api'
-import type { MetricWindow } from '@/lib/types'
+import type { MetricWindow, TrafficWindow } from '@/lib/types'
 
 export const REFRESH_MS = 5_000
 
@@ -11,6 +11,7 @@ export const keys = {
   apps: ['apps'] as const,
   app: (slug: string) => ['app', slug] as const,
   metrics: (slug: string, window: MetricWindow) => ['metrics', slug, window] as const,
+  traffic: (slug: string, window: TrafficWindow) => ['traffic', slug, window] as const,
   deployments: (slug: string) => ['deployments', slug] as const,
   env: (slug: string) => ['env', slug] as const,
   domains: (slug: string) => ['domains', slug] as const,
@@ -37,6 +38,14 @@ export function useApp(slug: MaybeRefOrGetter<string>) {
     queryKey: computed(() => keys.app(toValue(slug))),
     queryFn: () => api.app(toValue(slug)),
     refetchInterval: REFRESH_MS,
+  })
+}
+
+export function useAppTraffic(slug: MaybeRefOrGetter<string>, window: MaybeRefOrGetter<TrafficWindow>) {
+  return useQuery({
+    queryKey: computed(() => keys.traffic(toValue(slug), toValue(window))),
+    queryFn: () => api.traffic(toValue(slug), toValue(window)),
+    refetchInterval: 30_000,
   })
 }
 
