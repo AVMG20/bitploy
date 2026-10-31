@@ -144,7 +144,7 @@ const scheduleHint = computed(() => {
     case 'weekly':
       return 'Every Sunday at 03:00 UTC.'
     default:
-      return 'Only when you back up by hand.'
+      return 'Only when you click Back up now.'
   }
 })
 const nextAt = computed(() => {
@@ -283,7 +283,7 @@ const kindLabel: Record<BackupKind, string> = {
     <Card>
       <CardHeader>
         <CardTitle>Saved data</CardTitle>
-        <CardDescription>The <span class="font-mono">/data</span> folder keeps its files when you deploy a new version.</CardDescription>
+        <CardDescription>Each deploy starts from a fresh copy of your app. Files it saves in <span class="font-mono">/data</span>, like uploads or a database, are kept.</CardDescription>
       </CardHeader>
       <CardContent>
         <FormScope :form="dataForm">
@@ -303,7 +303,7 @@ const kindLabel: Record<BackupKind, string> = {
               <FormItem class="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
                 <div class="grid gap-1">
                   <FormLabel>Keep files in /data</FormLabel>
-                  <FormDescription>Deploys restart the app for a few seconds while this is on. Backups stay if you turn it off.</FormDescription>
+                  <FormDescription>While this is on, each deploy takes the app offline for a few seconds.</FormDescription>
                 </div>
                 <FormControl><Switch :model-value="value" @update:model-value="handleChange" /></FormControl>
               </FormItem>
@@ -332,9 +332,9 @@ const kindLabel: Record<BackupKind, string> = {
         </div>
         <div v-if="data.volume" class="flex flex-wrap gap-2">
           <input ref="fileInput" type="file" accept=".gz,.tgz,application/gzip,application/x-gzip" class="hidden" @change="onFile" />
-          <Button variant="outline" :disabled="working" @click="fileInput?.click()">
+          <Button variant="outline" :disabled="working" title="A .tar.gz file with the files for /data" @click="fileInput?.click()">
             <Loader2 v-if="uploading" class="animate-spin" /><Upload v-else />
-            {{ uploading ? (processing ? 'Processing...' : `Uploading ${Math.round(progress * 100)}%`) : 'Upload backup' }}
+            {{ uploading ? (processing ? 'Checking file...' : `Uploading ${Math.round(progress * 100)}%`) : 'Upload backup' }}
           </Button>
           <Button :disabled="working" @click="createBackup.mutate()">
             <Loader2 v-if="createBackup.isPending.value || backingUp" class="animate-spin" /><Archive v-else />
@@ -398,7 +398,7 @@ const kindLabel: Record<BackupKind, string> = {
                 <span class="shrink-0 text-sm text-muted-foreground">{{ backupForm.values.keep_mode === 'days' ? 'days' : 'backups' }}</span>
               </div>
               <p v-if="backupForm.errors.value.keep" class="text-[0.8rem] font-medium text-destructive">{{ backupForm.errors.value.keep }}</p>
-              <p v-else class="text-[0.8rem] text-muted-foreground">Manual and uploaded backups stay until you delete them.</p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">Applies to automatic backups. Others stay until you delete them.</p>
             </div>
             <div class="sm:col-span-2">
               <Button type="submit" :disabled="saveSettings.isPending.value || !backupForm.meta.value.dirty">
@@ -414,7 +414,7 @@ const kindLabel: Record<BackupKind, string> = {
           v-else-if="!list.items.length && !data.volume"
           :icon="HardDrive"
           title="/data is off."
-          description="Turn it on to keep files between deploys and to back them up."
+          description="Turn it on to keep your app's files between deploys and back them up."
         >
           <Button :disabled="turnOn.isPending.value" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on /data' }}</Button>
         </EmptyState>
@@ -473,7 +473,7 @@ const kindLabel: Record<BackupKind, string> = {
     <ConfirmDialog
       v-model:open="restoreOpen"
       title="Restore this backup?"
-      :description="`${appWillRestart ? 'The app restarts. ' : ''}A backup of the current data is made first, so you can undo this.`"
+      :description="`The files in /data are replaced by this backup.${appWillRestart ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`"
       confirm-label="Restore"
       :destructive="false"
       :loading="restore.isPending.value"
@@ -482,7 +482,7 @@ const kindLabel: Record<BackupKind, string> = {
     <ConfirmDialog
       v-model:open="deleteOpen"
       title="Delete this backup?"
-      description="It is removed for good."
+      description="This cannot be undone."
       confirm-label="Delete"
       :loading="remove.isPending.value"
       @confirm="toDelete && remove.mutate(toDelete.id)"

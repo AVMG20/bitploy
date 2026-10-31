@@ -4,10 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { Globe, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
-import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -52,7 +51,7 @@ const { handleSubmit, resetForm } = useForm({
 const add = useMutation({
   mutationFn: (hostname: string) => api.addDomain(props.slug, hostname),
   onSuccess: (d) => {
-    toastOk(`Added ${d.hostname}`, 'Now create the DNS records below at your domain provider.')
+    toastOk(`Added ${d.hostname}`, 'Now add the DNS records shown below.')
     resetForm()
     refresh()
   },
@@ -99,7 +98,7 @@ const remove = useMutation({
     <Card>
       <CardHeader>
         <CardTitle>Free address</CardTitle>
-        <CardDescription>Every app gets one automatically.</CardDescription>
+        <CardDescription>Always works, also after you add your own domain.</CardDescription>
       </CardHeader>
       <CardContent v-if="app.data.value">
         <div class="flex items-center gap-1 rounded-lg border bg-muted/40 py-1 pr-1 pl-3">
@@ -115,7 +114,7 @@ const remove = useMutation({
     <Card>
       <CardHeader>
         <CardTitle>Your own domain</CardTitle>
-        <CardDescription>Use an address you own, like www.example.com. You will need to add a few records at the company where you bought the domain.</CardDescription>
+        <CardDescription>Use a domain you own, like www.example.com. You add a few DNS records where you bought it.</CardDescription>
       </CardHeader>
       <CardContent>
         <form class="flex flex-col gap-2 sm:flex-row sm:items-start" novalidate @submit.prevent="submit">
@@ -133,7 +132,6 @@ const remove = useMutation({
 
     <QueryError v-if="domains.isError.value" :error="domains.error.value" @retry="domains.refetch()" />
     <Skeleton v-else-if="domains.isPending.value" class="h-32 w-full" />
-    <EmptyState v-else-if="!domains.data.value?.length" :icon="Globe" title="No custom domains yet." description="Add one above whenever you want your own address." />
 
     <Card v-for="d in domains.data.value ?? []" :key="d.id">
       <CardHeader>
@@ -154,7 +152,7 @@ const remove = useMutation({
       <CardContent class="grid gap-3">
         <p v-if="d.last_error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{{ d.last_error }}</p>
         <template v-if="d.status !== 'active' && d.records?.length">
-          <p class="text-sm">Add these records at your domain provider:</p>
+          <p class="text-sm">Add these records where you bought the domain. We check every 5 minutes; changes can take a few hours to show up.</p>
           <div class="overflow-x-auto rounded-lg border bg-card">
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs text-muted-foreground">

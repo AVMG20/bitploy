@@ -7,7 +7,7 @@ export interface TrafficRow {
   key: string
   label: string
   count: number
-  /** Shown before the label, for example a flag. */
+  /** Shown before the label in small capitals, for example a country code. */
   prefix?: string
 }
 
@@ -29,7 +29,7 @@ const width = (count: number) => (top.value > 0 ? Math.max(2, (count / top.value
         <li v-for="r in rows" :key="r.key" class="relative flex items-center justify-between gap-3 rounded-md px-2 py-1 text-sm">
           <span class="absolute inset-y-0 left-0 rounded-md bg-primary/10" :style="{ width: `${width(r.count)}%` }" aria-hidden="true" />
           <span class="relative flex min-w-0 items-center gap-2" :title="r.label">
-            <span v-if="r.prefix" aria-hidden="true">{{ r.prefix }}</span>
+            <span v-if="r.prefix" class="w-5 shrink-0 font-mono text-[11px] text-muted-foreground" aria-hidden="true">{{ r.prefix }}</span>
             <span class="truncate">{{ r.label }}</span>
           </span>
           <span class="relative shrink-0 font-medium tabular-nums">{{ formatCount(r.count) }}</span>

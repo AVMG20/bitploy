@@ -23,11 +23,8 @@ interface Datum {
   requests: number
 }
 
-// Both numbers show in the tooltip; the bars follow the selected one.
-const config: ChartConfig = {
-  visitors: { label: 'Visitors', color: 'var(--chart-1)' },
-  requests: { label: 'Requests', color: 'var(--muted-foreground)' },
-}
+const labels = { visitors: 'Visitors', requests: 'Requests' }
+const config = computed<ChartConfig>(() => ({ [props.field]: { label: labels[props.field], color: 'var(--chart-1)' } }))
 
 const data = computed<Datum[]>(() =>
   props.points.map((p) => ({ date: new Date(p.ts), visitors: p.visitors, requests: p.requests })),
@@ -52,14 +49,16 @@ function fmtTick(ms: number): string {
     : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }) // days are UTC midnights
 }
 
-const template = componentToString(config, ChartTooltipContent, {
-  labelFormatter: (d: number | Date) => {
-    const date = d instanceof Date ? d : new Date(d)
-    return props.granularity === 'hour'
-      ? date.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
-  },
-})
+const template = computed(() =>
+  componentToString(config.value, ChartTooltipContent, {
+    labelFormatter: (d: number | Date) => {
+      const date = d instanceof Date ? d : new Date(d)
+      return props.granularity === 'hour'
+        ? date.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+        : date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+    },
+  }),
+)
 </script>
 
 <template>

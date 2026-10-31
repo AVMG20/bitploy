@@ -131,7 +131,7 @@ const envForm = useForm({
 const saveEnv = useMutation({
   mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, []),
   onSuccess: (_r, v) => {
-    toastOk(`Saved ${v.name}`, 'The new value is used the next time the app starts.')
+    toastOk(`Saved ${v.name}`, 'Restart the app to use the new value.')
     envForm.resetForm({ values: { name: '', value: '' } })
     void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
   },
@@ -199,7 +199,7 @@ const saveRes = useMutation({
   mutationFn: (v: { memory_mb: number; cpus: number }) =>
     api.updateApp(props.slug, { memory_mb: v.memory_mb, cpu_millis: Math.round(v.cpus * 1000) }),
   onSuccess: () => {
-    toastOk('Size saved', 'Changes apply the next time the app starts.')
+    toastOk('Size saved', 'Restart the app to apply it.')
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -266,15 +266,15 @@ const del = useMutation({
 
     <Card>
       <CardHeader>
-        <CardTitle>Secrets and settings (environment variables)</CardTitle>
+        <CardTitle>Environment variables</CardTitle>
         <CardDescription>
-          Passwords, API keys and other values your app needs. For safety, values are never shown again after saving.
+          Passwords, API keys and other settings your app reads when it starts. Values are hidden after saving.
         </CardDescription>
       </CardHeader>
       <CardContent class="grid gap-4">
         <QueryError v-if="env.isError.value" :error="env.error.value" @retry="env.refetch()" />
         <Skeleton v-else-if="env.isPending.value" class="h-20 w-full" />
-        <EmptyState v-else-if="!env.data.value?.length" :icon="KeyRound" title="No variables yet." description="Add one below. Your app can read it like any environment variable." />
+        <EmptyState v-else-if="!env.data.value?.length" :icon="KeyRound" title="No variables yet." description="Add one below, like DATABASE_URL." />
         <ul v-else class="divide-y rounded-lg border">
           <li v-for="v in env.data.value" :key="v.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
             <span class="font-mono text-sm font-medium">{{ v.name }}</span>

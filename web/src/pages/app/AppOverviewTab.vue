@@ -166,7 +166,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               <dd>{{ formatMB(data.memory_mb) }} memory, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </dl>
             <div class="mt-auto flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
-              <span>Earlier versions can be rolled back.</span>
+              <span>You can go back to an earlier version.</span>
               <RouterLink :to="{ name: 'app-deployments', params: { slug } }" class="inline-flex items-center gap-1 font-medium text-foreground hover:underline">
                 All deployments <ArrowRight class="size-3.5" />
               </RouterLink>

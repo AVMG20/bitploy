@@ -239,7 +239,7 @@ function download() {
     >
       <p v-if="noBuildYet" class="text-neutral-400">There is no build log yet. It appears after the first deploy.</p>
       <p v-else-if="!visible.length" class="text-neutral-400">
-        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : 'Nothing logged yet. New lines show up here as they happen.' }}
+        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : 'Nothing logged yet. Anything your app prints shows up here.' }}
       </p>
       <div v-for="(l, i) in visible" :key="i" class="break-words whitespace-pre-wrap">{{ l }}</div>
     </div>

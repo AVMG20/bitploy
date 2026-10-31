@@ -36,7 +36,10 @@ const confirmOpen = computed({
 const rollback = useMutation({
   mutationFn: (d: Deployment) => api.rollback(props.slug, d.id),
   onSuccess: (_r, d) => {
-    toastOk(`Going back to version #${d.seq}`, 'Your app keeps running while the old version starts.')
+    toastOk(
+      `Going back to version #${d.seq}`,
+      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : 'Your app keeps running while the old version starts.',
+    )
     target.value = null
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
@@ -60,7 +63,7 @@ function canRollback(d: Deployment): boolean {
       v-else-if="!list.data.value?.length"
       :icon="History"
       title="No deployments yet."
-      description="Tell your AI assistant to deploy to this app and every version will show up here."
+      description="Every version your AI assistant deploys shows up here, and you can go back to any of them."
     >
       <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
     </EmptyState>
@@ -71,7 +74,7 @@ function canRollback(d: Deployment): boolean {
           <StatusBadge v-bind="deploymentStateInfo(d.state)" />
           <span v-if="d.id === app.data.value?.current_deployment?.id" class="text-xs font-medium text-success">Current version</span>
           <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /></span>
-          <span class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
+          <span v-if="d.duration_seconds !== null" class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
           <Button v-if="canRollback(d)" class="ml-auto" size="sm" variant="outline" @click="target = d">
             <Undo2 /> Go back to this version
           </Button>
