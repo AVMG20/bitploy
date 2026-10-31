@@ -346,6 +346,8 @@ export interface BackupRestore {
   error?: string
   started_at: string
   finished_at?: string
+  /** The app was running, so it is stopped for the restore and started again. */
+  app_restarts: boolean
 }
 
 export interface BackupList {
@@ -355,4 +357,6 @@ export interface BackupList {
   /** A backup, upload or restore of this app is in progress. */
   busy: boolean
   total_bytes: number
+  /** The biggest backup file that can be uploaded right now. */
+  upload_max_bytes: number
 }

@@ -132,7 +132,11 @@ func serve(log *slog.Logger) error {
 
 	go svc.RunReconciler(ctx)
 	go svc.RunWorker(ctx)
-	go svc.RunBackground(ctx)
+	backgroundDone := make(chan struct{})
+	go func() {
+		defer close(backgroundDone)
+		svc.RunBackground(ctx)
+	}()
 	go svc.RunAccountsMaintenance(ctx)
 
 	srv := &http.Server{
@@ -159,7 +163,14 @@ func serve(log *slog.Logger) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	err = srv.Shutdown(shutdownCtx)
+	// Running backups stop with ctx and thaw their app first: give them a moment.
+	select {
+	case <-backgroundDone:
+	case <-time.After(5 * time.Second):
+		log.Warn("background jobs did not stop in time")
+	}
+	return err
 }
 
 func admin(log *slog.Logger, args []string) error {

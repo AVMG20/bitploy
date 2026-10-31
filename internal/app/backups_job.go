@@ -13,22 +13,39 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
+// errDeployBusy: a deployment of the app is about to swap containers, so the
+// volume must not be touched now.
+var errDeployBusy = errors.New("a deployment is running")
+
+// stopping reports whether the service is shutting down.
+func (s *Service) stopping() bool {
+	s.backup.mu.Lock()
+	base := s.backup.base
+	s.backup.mu.Unlock()
+	return base != nil && base.Err() != nil
+}
+
 // finishBackup makes the archive for the (running) row backupID and records
-// the outcome on the row. It returns the error, already recorded.
-func (s *Service) finishBackup(ctx context.Context, app db.App, backupID string, room int64) error {
-	size, err := s.makeBackup(ctx, app, backupID, room)
-	st, msg := backupReady, ""
-	if err != nil {
-		st, msg, size = backupFailed, backupErrText(err), 0
+// the outcome on the row. appLocked says that the caller holds the app lock
+// already (a restore does). It returns the error, already recorded.
+func (s *Service) finishBackup(ctx context.Context, app db.App, owner db.User, backupID string, room int64, appLocked bool) error {
+	_, err := s.makeBackup(ctx, app, owner, backupID, room, appLocked)
+	if err == nil {
+		return nil
 	}
+	// A stop of bitploy is not the backup's fault and does not use up the
+	// slot of an automatic backup.
+	interrupted := errors.Is(err, context.Canceled) && s.stopping() || errors.Is(err, errDeployBusy)
 	if uerr := s.Q.FinishBackup(context.WithoutCancel(ctx), db.FinishBackupParams{
-		Status: st, SizeBytes: size, Error: msg, FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: backupID,
+		Status: backupFailed, Error: backupErrText(err), Interrupted: b2i(interrupted),
+		FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: backupID,
 	}); uerr != nil {
 		s.Log.Error("recording backup result failed", "backup", backupID, "err", uerr)
 	}
@@ -43,8 +60,12 @@ func backupErrText(err error) string {
 		return "This app has no data yet. Start the app once, then try again."
 	case errors.Is(err, errBackupNoRoom):
 		return "There was not enough storage left. Delete an old backup or lower the /data limit of an app."
-	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+	case errors.Is(err, errDeployBusy):
+		return "A new version of the app was being deployed. Try again when it is done."
+	case errors.Is(err, context.DeadlineExceeded):
 		return "The backup took too long and was stopped."
+	case errors.Is(err, context.Canceled):
+		return "bitploy was stopped while this backup was being made."
 	case errors.As(err, &tp):
 		return tp.msg
 	}
@@ -56,9 +77,10 @@ func backupErrText(err error) string {
 }
 
 // makeBackup writes <backups>/<app>/<id>.tar.gz from the app's volume and
-// returns its size. A running app is paused while its files are being read, so
-// the copy is consistent; it is always resumed.
-func (s *Service) makeBackup(ctx context.Context, app db.App, id string, room int64) (int64, error) {
+// records the row as ready. A running app is paused while its files are being
+// read, so the copy is consistent; it is always resumed. The helper container
+// (and the image it needs) is made before the pause: that is the slow part.
+func (s *Service) makeBackup(ctx context.Context, app db.App, owner db.User, id string, room int64, appLocked bool) (int64, error) {
 	vs, aerr := s.volumes()
 	if aerr != nil {
 		return 0, aerr
@@ -74,16 +96,32 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, id string, room in
 	}
 	size, err := func() (int64, error) {
 		defer f.Close()
+		arch, err := vs.PrepareArchive(ctx, appVolumeName(app))
+		if err != nil {
+			return 0, err
+		}
+		defer arch.Close()
+		if !appLocked {
+			// The same lock a deploy takes to swap containers and the
+			// reconciler to restart them: nothing else touches the app while
+			// it is paused.
+			al := s.appLock(app.ID)
+			al.Lock()
+			defer al.Unlock()
+			if s.appBusy(app.ID) {
+				return 0, errDeployBusy
+			}
+		}
 		resume := s.pauseApp(ctx, app)
 		defer resume()
-		rc, err := vs.ArchiveVolume(ctx, appVolumeName(app))
+		rc, err := arch.Open(ctx)
 		if err != nil {
 			return 0, err
 		}
 		defer rc.Close()
 		gz := gzip.NewWriter(&limitWriter{w: f, left: room})
 		tw := tar.NewWriter(gz)
-		if _, err := sanitizeTar(tw, tar.NewReader(rc), tarLimits{SkipSpecial: true}); err != nil {
+		if _, err := sanitizeTar(tw, tar.NewReader(rc), tarLimits{SkipSpecial: true, Trusted: true, Ctx: ctx}); err != nil {
 			return 0, err
 		}
 		resume() // everything has been read; do not hold the app for the gzip tail
@@ -103,7 +141,11 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, id string, room in
 		return fi.Size(), nil
 	}()
 	if err == nil {
-		err = os.Rename(tmp, final)
+		err = s.commitBackup(ctx, owner, tmp, final, size, func() error {
+			return s.Q.FinishBackup(ctx, db.FinishBackupParams{
+				Status: backupReady, SizeBytes: size, FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: id,
+			})
+		})
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
@@ -113,32 +155,19 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, id string, room in
 }
 
 // pauseApp freezes the running containers of the app and returns the func that
-// thaws them (safe to call more than once).
+// thaws them (safe to call more than once). Thawing never depends on ctx: a
+// cancelled backup must still unfreeze the app. If bitploy dies in between,
+// the next start thaws everything (dockerx.CleanupHelpers).
 func (s *Service) pauseApp(ctx context.Context, app db.App) func() {
 	if s.Docker == nil || s.backup.vol != nil {
 		return func() {}
 	}
-	cs, err := s.Docker.ListAppContainers(ctx, app.ID)
-	if err != nil {
-		s.Log.Warn("backup: listing containers failed", "app", app.Slug, "err", err)
-		return func() {}
-	}
 	var paused []string
-	for _, c := range cs {
-		if string(c.State) != "running" {
-			continue
-		}
-		name := dockerx.SummaryName(c)
-		if err := s.Docker.PauseContainer(ctx, name); err != nil {
-			s.Log.Warn("backup: pausing failed", "app", app.Slug, "container", name, "err", err)
-			continue
-		}
-		paused = append(paused, name)
-	}
 	var once sync.Once
-	return func() {
+	resume := func() {
 		once.Do(func() {
-			bg := context.WithoutCancel(ctx)
+			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
 			for _, name := range paused {
 				if err := s.Docker.UnpauseContainer(bg, name); err != nil {
 					s.Log.Error("backup: resuming failed", "app", app.Slug, "container", name, "err", err)
@@ -146,9 +175,31 @@ func (s *Service) pauseApp(ctx context.Context, app db.App) func() {
 			}
 		})
 	}
+	cs, err := s.Docker.ListAppContainers(ctx, app.ID)
+	if err != nil {
+		s.Log.Warn("backup: listing containers failed", "app", app.Slug, "err", err)
+		return resume
+	}
+	for _, c := range cs {
+		if string(c.State) != "running" {
+			continue
+		}
+		name := dockerx.SummaryName(c)
+		// Counted before the call: a pause that failed half-way is thawed too.
+		paused = append(paused, name)
+		if err := s.Docker.PauseContainer(ctx, name); err != nil {
+			s.Log.Warn("backup: pausing failed", "app", app.Slug, "container", name, "err", err)
+		}
+	}
+	return resume
 }
 
 // ---- restore ----
+
+// restartsApp says whether a restore stops the app and starts it again.
+func (s *Service) restartsApp(app db.App) bool {
+	return s.Docker != nil && s.backup.vol == nil && app.DesiredState == "running" && app.CurrentDeploymentID.Valid
+}
 
 // RestoreBackup puts a backup back into /data. A backup of the current data
 // is made first, the app is stopped while the files are swapped and started
@@ -175,8 +226,14 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if _, err := os.Stat(s.backupPath(row.ID, b.ID)); err != nil {
 		return BackupRestore{}, apperr.NotFound("backup_file_missing", "The file of this backup is gone from the server.", "Delete this backup and pick another one.")
 	}
-	if _, err := s.volumes(); err != nil {
+	vs, err := s.volumes()
+	if err != nil {
 		return BackupRestore{}, err
+	}
+	if has, err := vs.HasVolume(ctx, appVolumeName(row)); err != nil {
+		return BackupRestore{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+	} else if !has {
+		return BackupRestore{}, volumeNotReadyErr()
 	}
 	if !s.settled(row.ID) {
 		return BackupRestore{}, busyErr()
@@ -200,27 +257,19 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if !lock.TryLock() {
 		return BackupRestore{}, backupBusyErr()
 	}
-	st := &BackupRestore{BackupID: b.ID, State: "running", StartedAt: s.Now()}
+	st := &BackupRestore{BackupID: b.ID, State: "running", StartedAt: s.Now(), AppRestarts: s.restartsApp(row)}
 	s.setRestore(row.ID, st)
 	started := *st // the job below updates st
 	s.Audit(ctx, a, "backup.restore", "app", row.ID, map[string]any{"backup": b.ID})
 	s.backupGo(func() {
 		defer lock.Unlock()
-		ctx, cancel := backgroundCtx()
+		ctx, cancel := s.backupCtx()
 		defer cancel()
-		err := s.runRestore(ctx, row, b, room)
-		fin := s.Now()
-		s.backup.mu.Lock()
-		st.FinishedAt = &fin
-		if err != nil {
-			st.State, st.Error = "failed", err.Error()
-		} else {
-			st.State = "done"
-		}
-		s.backup.mu.Unlock()
+		err := s.runRestore(ctx, row, owner, b, room, st)
+		s.finishRestoreState(row.ID, st, err)
 		if err != nil {
 			s.Log.Warn("restore failed", "app", row.Slug, "err", err)
-			s.Audit(ctx, System, "backup.restore_failed", "app", row.ID, map[string]any{"backup": b.ID, "error": err.Error()})
+			s.Audit(context.WithoutCancel(ctx), System, "backup.restore_failed", "app", row.ID, map[string]any{"backup": b.ID, "error": err.Error()})
 		}
 	})
 	return started, nil
@@ -235,11 +284,78 @@ func (s *Service) setRestore(appID string, r *BackupRestore) {
 	s.backup.restore[appID] = r
 }
 
-// runRestore does the restore under the app lock. The error is in plain words.
-func (s *Service) runRestore(ctx context.Context, row db.App, b db.AppBackup, room int64) (rerr error) {
+func (s *Service) finishRestoreState(appID string, st *BackupRestore, err error) {
+	fin := s.Now()
+	s.backup.mu.Lock()
+	defer s.backup.mu.Unlock()
+	st.FinishedAt = &fin
+	if err != nil {
+		st.State, st.Error = "failed", err.Error()
+	} else {
+		st.State = "done"
+	}
+}
+
+// restoreLimits are the tar rules for putting backup b back: what bitploy made
+// itself from the volume is trusted, an uploaded file is not.
+func restoreLimits(ctx context.Context, app db.App, b db.AppBackup) tarLimits {
+	if b.Kind == BackupUploaded {
+		return tarLimits{MaxBytes: app.VolumeMb * mib, Ctx: ctx}
+	}
+	return tarLimits{Trusted: true, Ctx: ctx}
+}
+
+// checkBackupFile reads the whole backup once without writing anything, so a
+// damaged or invalid file is found before the volume is emptied.
+func (s *Service) checkBackupFile(ctx context.Context, app db.App, b db.AppBackup) error {
+	f, err := os.Open(s.backupPath(app.ID, b.ID))
+	if err != nil {
+		return errors.New("the file of the backup is gone")
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return problem("the backup file is damaged")
+	}
+	defer gz.Close()
+	_, err = sanitizeTar(nil, tar.NewReader(gz), restoreLimits(ctx, app, b))
+	if errors.Is(err, errTarTooBig) {
+		return problem("the files in the backup are bigger than the /data limit of the app")
+	}
+	return err
+}
+
+// setRestoreMarker records on the app that a restore is under way, so that a
+// restart of bitploy in the middle of it is noticed (recoverRestores).
+func (s *Service) setRestoreMarker(ctx context.Context, appID, backupID, safeID string, resume bool) {
+	if err := s.Q.SetRestoreMarker(context.WithoutCancel(ctx), db.SetRestoreMarkerParams{
+		RestoreBackupID: backupID, RestoreSafeID: safeID, RestoreResume: b2i(resume), ID: appID,
+	}); err != nil {
+		s.Log.Error("restore: saving restore state failed", "app", appID, "err", err)
+	}
+}
+
+// runRestore does the restore. The error is in plain words. Its steps, with
+// what a crash after each one leaves (recoverRestores handles those):
+//
+//  0. the backup file is read once without writing (nothing to undo)
+//  1. the app is stopped, the marker is written
+//  2. a before-restore backup of the current data is made; the marker gets its id
+//  3. the volume is emptied and the backup unpacked; a failure puts the
+//     before-restore backup back
+//  4. the marker is cleared and the app started again
+//
+// When the old data could not be put back either, the app stays stopped.
+func (s *Service) runRestore(ctx context.Context, row db.App, owner db.User, b db.AppBackup, room int64, st *BackupRestore) (rerr error) {
 	vs, err := s.volumes()
 	if err != nil {
 		return err
+	}
+	if err := s.checkBackupFile(ctx, row, b); err != nil {
+		if ctx.Err() != nil {
+			return errors.New("The restore was stopped. Nothing was changed.")
+		}
+		return errors.New("This backup cannot be restored, so nothing was changed: " + restoreErrText(err) + ".")
 	}
 	al := s.appLock(row.ID)
 	al.Lock()
@@ -248,45 +364,80 @@ func (s *Service) runRestore(ctx context.Context, row db.App, b db.AppBackup, ro
 	if err != nil {
 		return errors.New("The app no longer exists.")
 	}
-	wasRunning := s.Docker != nil && s.backup.vol == nil && app.DesiredState == "running" && app.CurrentDeploymentID.Valid
-	if wasRunning {
-		s.stopForRestoreLocked(ctx, app)
+	if s.appBusy(app.ID) {
+		return errors.New("A new version of the app is being deployed, so nothing was restored. Try again when it is done.")
 	}
+	wasRunning := s.restartsApp(app)
+	s.backup.mu.Lock()
+	st.AppRestarts = wasRunning
+	s.backup.mu.Unlock()
+
+	keepStopped := false
+	s.setRestoreMarker(ctx, app.ID, b.ID, "", wasRunning)
+	defer func() {
+		if s.stopping() {
+			return // the marker stays: the next start finishes the job
+		}
+		s.setRestoreMarker(ctx, app.ID, "", "", false)
+		if !wasRunning || keepStopped {
+			return
+		}
+		msg := s.startAfterRestoreLocked(ctx, row.ID)
+		switch {
+		case msg == "":
+		case rerr == nil:
+			rerr = errors.New("The backup was restored, but the app did not start again: " + msg)
+		default:
+			rerr = errors.New(rerr.Error() + " The app did not start again: " + msg)
+		}
+	}()
+
 	if wasRunning {
-		defer func() {
-			msg := s.startAfterRestoreLocked(ctx, row.ID)
-			switch {
-			case msg == "":
-			case rerr == nil:
-				rerr = errors.New("The backup was restored, but the app did not start again: " + msg)
-			default:
-				rerr = errors.New(rerr.Error() + " The app did not start again: " + msg)
-			}
-		}()
+		if err := s.stopForRestoreLocked(ctx, app); err != nil {
+			return errors.New("The app could not be stopped, so nothing was restored.")
+		}
 	}
 
-	// 1. A backup of what is there now, so a restore can be undone.
+	// A backup of what is there now, so a restore can be undone.
 	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore)
 	if err != nil {
 		return errors.New("Something went wrong on the server. Nothing was restored.")
 	}
-	if err := s.finishBackup(ctx, app, safe.ID, room); err != nil {
+	if err := s.finishBackup(ctx, app, owner, safe.ID, room, true); err != nil {
 		if errors.Is(err, dockerx.ErrNoVolume) {
 			return errors.New("This app has no data folder yet, so there is nothing to restore into. Start the app once and try again.")
 		}
 		return errors.New("The current data could not be backed up first, so nothing was restored. " + backupErrText(err))
 	}
+	s.setRestoreMarker(ctx, app.ID, b.ID, safe.ID, wasRunning)
 
-	// 2. Swap the files.
+	// Swap the files.
 	if err := s.replaceFrom(ctx, vs, app, b); err != nil {
+		if s.stopping() {
+			return errors.New("bitploy was stopped during the restore. It will finish putting the old data back when it starts again.")
+		}
 		msg := capFirst(restoreErrText(err)) + "."
-		if rerr := s.replaceFrom(ctx, vs, app, db.AppBackup{ID: safe.ID, AppID: app.ID, Kind: BackupBeforeRestore}); rerr != nil {
-			return errors.New(msg + " Putting the old data back failed too: use the backup marked \"before restore\" to recover it.")
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Hour)
+		defer cancel()
+		safeRow := db.AppBackup{ID: safe.ID, AppID: app.ID, Kind: BackupBeforeRestore}
+		if ferr := s.replaceFrom(fctx, vs, app, safeRow); ferr != nil {
+			keepStopped = true
+			s.keepStoppedLocked(ctx, app.ID, "The restore failed and the old data could not be put back, so the app was left stopped. Restore the backup marked \"before restore\" from the Storage tab, then start the app.")
+			return errors.New(msg + " Putting the old data back failed too, so the app was left stopped: restore the backup marked \"before restore\", then start the app.")
 		}
 		return errors.New(msg + " The old data was put back.")
 	}
 	s.pruneLocked(ctx, app)
 	return nil
+}
+
+// keepStoppedLocked leaves the app stopped, with a message on its page.
+func (s *Service) keepStoppedLocked(ctx context.Context, appID, msg string) {
+	if err := s.Q.SetAppDesiredState(context.WithoutCancel(ctx), db.SetAppDesiredStateParams{
+		DesiredState: "stopped", Status: "stopped", StatusMessage: msg, UpdatedAt: s.now(), ID: appID,
+	}); err != nil {
+		s.Log.Warn("restore: marking app stopped failed", "app", appID, "err", err)
+	}
 }
 
 func capFirst(s string) string {
@@ -323,7 +474,7 @@ func (s *Service) replaceFrom(ctx context.Context, vs volumeStore, app db.App, b
 	go func() {
 		defer close(done)
 		tw := tar.NewWriter(pw)
-		_, err := sanitizeTar(tw, tar.NewReader(gz), tarLimits{})
+		_, err := sanitizeTar(tw, tar.NewReader(gz), restoreLimits(ctx, app, b))
 		if err == nil {
 			err = tw.Close()
 		}
@@ -337,23 +488,29 @@ func (s *Service) replaceFrom(ctx context.Context, vs volumeStore, app db.App, b
 }
 
 // stopForRestoreLocked takes the app offline like stop_app does, so that no
-// container writes to /data and the crash detection leaves it alone.
-func (s *Service) stopForRestoreLocked(ctx context.Context, app db.App) {
+// container writes to /data and the crash detection leaves it alone. It fails
+// when a container could not be stopped: the volume must not be emptied under
+// a running app.
+func (s *Service) stopForRestoreLocked(ctx context.Context, app db.App) error {
 	if err := s.Q.SetAppDesiredState(ctx, db.SetAppDesiredStateParams{
 		DesiredState: "stopped", Status: "stopped", StatusMessage: "Restoring a backup.", UpdatedAt: s.now(), ID: app.ID,
 	}); err != nil {
-		s.Log.Warn("restore: marking app stopped failed", "app", app.Slug, "err", err)
+		return err
 	}
 	if err := s.syncRouteLocked(ctx, app.ID); err != nil {
 		s.Log.Warn("restore: removing route failed", "app", app.Slug, "err", err)
 	}
-	if cs, err := s.Docker.ListAppContainers(ctx, app.ID); err == nil {
-		for _, c := range cs {
-			if err := s.Docker.StopContainerGrace(ctx, dockerx.SummaryName(c), 10); err != nil {
-				s.Log.Warn("restore: stopping container failed", "app", app.Slug, "err", err)
-			}
+	cs, err := s.Docker.ListAppContainers(ctx, app.ID)
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if err := s.Docker.StopContainerGrace(ctx, dockerx.SummaryName(c), 10); err != nil {
+			s.Log.Warn("restore: stopping container failed", "app", app.Slug, "err", err)
+			return err
 		}
 	}
+	return nil
 }
 
 // startAfterRestoreLocked starts the app again. It returns a plain-words
@@ -379,6 +536,76 @@ func (s *Service) startAfterRestoreLocked(ctx context.Context, appID string) str
 	delete(s.deployRT.restore, appID)
 	s.deployRT.mu.Unlock()
 	return ""
+}
+
+// ---- recovery after a crash or restart ----
+
+// recoverRestores finishes restores that bitploy's stop interrupted. A restore
+// that had not touched the volume yet only needs the app started again; one
+// that had is undone from its before-restore backup. When even that is not
+// possible the app stays stopped, with a message on its page.
+func (s *Service) recoverRestores(ctx context.Context) {
+	apps, err := s.Q.ListRestoringApps(ctx)
+	if err != nil {
+		s.Log.Warn("looking for interrupted restores failed", "err", err)
+		return
+	}
+	for _, app := range apps {
+		s.recoverRestore(ctx, app)
+	}
+}
+
+func (s *Service) recoverRestore(ctx context.Context, app db.App) {
+	lock := s.backupLock(app.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	al := s.appLock(app.ID)
+	al.Lock()
+	defer al.Unlock()
+
+	st := &BackupRestore{BackupID: app.RestoreBackupID, State: "failed", StartedAt: s.Now(), AppRestarts: app.RestoreResume != 0}
+	fin := s.Now()
+	st.FinishedAt = &fin
+	keepStopped := false
+	switch {
+	case app.RestoreSafeID == "":
+		st.Error = "bitploy was restarted before the restore began. Nothing was changed."
+	default:
+		if err := s.undoRestore(ctx, app); err != nil {
+			keepStopped = true
+			st.Error = "bitploy was restarted in the middle of the restore and the old data could not be put back, so the app was left stopped. Restore the backup marked \"before restore\" from the Storage tab, then start the app."
+			s.Log.Error("recovering an interrupted restore failed", "app", app.Slug, "err", err)
+		} else {
+			st.Error = "bitploy was restarted in the middle of the restore. The old data was put back."
+		}
+	}
+	s.setRestore(app.ID, st)
+	s.setRestoreMarker(ctx, app.ID, "", "", false)
+	if keepStopped {
+		s.keepStoppedLocked(ctx, app.ID, st.Error)
+		return
+	}
+	if app.RestoreResume != 0 {
+		if msg := s.startAfterRestoreLocked(ctx, app.ID); msg != "" {
+			s.backup.mu.Lock()
+			st.Error += " The app did not start again: " + msg
+			s.backup.mu.Unlock()
+		}
+	}
+	s.Audit(ctx, System, "backup.restore_recovered", "app", app.ID, map[string]any{"backup": app.RestoreBackupID, "undone": app.RestoreSafeID != ""})
+}
+
+// undoRestore puts the before-restore backup of an interrupted restore back.
+func (s *Service) undoRestore(ctx context.Context, app db.App) error {
+	vs, err := s.volumes()
+	if err != nil {
+		return err
+	}
+	safe, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: app.RestoreSafeID, AppID: app.ID})
+	if err != nil || safe.Status != backupReady {
+		return errors.New("the before-restore backup is not usable")
+	}
+	return s.replaceFrom(ctx, vs, app, safe)
 }
 
 // ---- delete ----
@@ -415,7 +642,7 @@ func (s *Service) removeBackup(ctx context.Context, appID, id string) error {
 	return s.Q.DeleteBackup(ctx, id)
 }
 
-// removeAppBackups deletes every backup of an app (files; the rows go with the
+// removeAppBackups deletes every backup file of an app (the rows go with the
 // app). The caller holds the backup lock.
 func (s *Service) removeAppBackups(appID string) error {
 	return os.RemoveAll(s.backupDir(appID))

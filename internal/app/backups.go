@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/ids"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
@@ -39,27 +40,54 @@ const (
 	backupFailed  = "failed"
 )
 
-// Defaults and bounds of the retention setting.
+// Bounds of the retention setting.
 const (
-	defaultBackupKeep = 7
 	maxBackupKeepLast = 100
 	maxBackupKeepDays = 365
 )
 
 // volumeStore reads and replaces the contents of a data volume. The Docker
-// client does it for real; tests use a fake.
+// client does it for real (dockerVolumes); tests use a fake.
 type volumeStore interface {
-	ArchiveVolume(ctx context.Context, volume string) (io.ReadCloser, error)
+	HasVolume(ctx context.Context, volume string) (bool, error)
+	// PrepareArchive does the slow setup of reading a volume, so that an app is
+	// only paused for the reading itself.
+	PrepareArchive(ctx context.Context, volume string) (volumeArchive, error)
 	ReplaceVolume(ctx context.Context, volume string, archive io.Reader, fixOwner bool) error
 }
 
+type volumeArchive interface {
+	Open(ctx context.Context) (io.ReadCloser, error)
+	Close() error
+}
+
+type dockerVolumes struct{ c *dockerx.Client }
+
+func (d dockerVolumes) HasVolume(ctx context.Context, volume string) (bool, error) {
+	return d.c.VolumeExists(ctx, volume)
+}
+
+func (d dockerVolumes) PrepareArchive(ctx context.Context, volume string) (volumeArchive, error) {
+	return d.c.PrepareArchive(ctx, volume)
+}
+
+func (d dockerVolumes) ReplaceVolume(ctx context.Context, volume string, archive io.Reader, fixOwner bool) error {
+	return d.c.ReplaceVolume(ctx, volume, archive, fixOwner)
+}
+
+// backupConcurrency is how many automatic backups run at the same time.
+const backupConcurrency = 2
+
 // backupState is the in-memory part of the backup feature on Service.
 type backupState struct {
-	mu      sync.Mutex
-	locks   map[string]*sync.Mutex    // appID -> held while a backup, upload or restore runs
-	restore map[string]*BackupRestore // appID -> latest restore
-	vol     volumeStore               // tests replace it; nil means Docker
-	wg      sync.WaitGroup            // running jobs (tests wait for them)
+	mu       sync.Mutex
+	locks    map[string]*sync.Mutex    // appID -> held while a backup, upload or restore runs
+	restore  map[string]*BackupRestore // appID -> latest restore
+	base     context.Context           // ends when the service shuts down; nil until RunBackground
+	vol      volumeStore               // tests replace it; nil means Docker
+	wg       sync.WaitGroup            // running jobs
+	commitMu sync.Mutex                // one backup at a time checks the storage allowance and lands
+	sem      chan struct{}             // limits automatic backups that run at once
 }
 
 // backupLock is the "one backup or restore per app at a time" lock. Use TryLock.
@@ -76,6 +104,14 @@ func (s *Service) backupLock(appID string) *sync.Mutex {
 		b.locks[appID] = l
 	}
 	return l
+}
+
+// forgetBackupState drops what is kept in memory for a deleted app.
+func (s *Service) forgetBackupState(appID string) {
+	s.backup.mu.Lock()
+	defer s.backup.mu.Unlock()
+	delete(s.backup.locks, appID)
+	delete(s.backup.restore, appID)
 }
 
 func (s *Service) backupBusy(appID string) bool {
@@ -100,7 +136,7 @@ func (s *Service) volumes() (volumeStore, error) {
 	if s.Docker == nil {
 		return nil, apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Try again in a minute. If it keeps happening, tell the bitploy admin.")
 	}
-	return s.Docker, nil
+	return dockerVolumes{s.Docker}, nil
 }
 
 func (s *Service) backupDir(appID string) string { return s.Cfg.Path("backups", appID) }
@@ -122,7 +158,13 @@ func volumeOffErr() *apperr.Error {
 		"Turn /data on first (update_app with volume=true, or the Storage tab in the dashboard).")
 }
 
-// backupApp loads the app and, for changes, its active owner.
+func volumeNotReadyErr() *apperr.Error {
+	return apperr.Conflict("volume_not_ready", "This app has no /data folder yet.",
+		"Restart or redeploy the app once so that /data is created, then try again.")
+}
+
+// backupApp loads the app and its owner. Everything that changes something, and
+// everything that hands out the files, needs the deploy scope or a session.
 func (s *Service) backupApp(ctx context.Context, a Actor, ref string, write bool) (db.App, db.User, error) {
 	row, err := s.LoadApp(ctx, a, ref, write)
 	if err != nil {
@@ -168,7 +210,7 @@ func (s *Service) checkBackupDisk() error {
 	return nil
 }
 
-// backupGo runs a job in the background; it ends with the job.
+// backupGo runs a job in the background; RunBackground waits for it at shutdown.
 func (s *Service) backupGo(fn func()) {
 	s.backup.wg.Add(1)
 	go func() {
@@ -177,10 +219,46 @@ func (s *Service) backupGo(fn func()) {
 	}()
 }
 
+// backupCtx is the context of a background job: it ends at shutdown, or after
+// three hours.
+func (s *Service) backupCtx() (context.Context, context.CancelFunc) {
+	s.backup.mu.Lock()
+	base := s.backup.base
+	s.backup.mu.Unlock()
+	if base == nil {
+		base = context.Background()
+	}
+	return context.WithTimeout(base, 3*time.Hour)
+}
+
+// commitBackup is the last step of every backup and upload: under one lock for
+// all of them it checks that the finished file still fits the owner's storage
+// allowance (several backups of one user may have been written at the same
+// time), moves it into place and records it. Nothing is left behind on failure.
+func (s *Service) commitBackup(ctx context.Context, owner db.User, tmp, final string, size int64, record func() error) error {
+	s.backup.commitMu.Lock()
+	defer s.backup.commitMu.Unlock()
+	room, err := s.backupRoom(ctx, owner)
+	if err != nil {
+		return err
+	}
+	if room >= 0 && size > room {
+		return errBackupNoRoom
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		return err
+	}
+	if err := record(); err != nil {
+		_ = os.Remove(final)
+		return err
+	}
+	return nil
+}
+
 // ---- list and settings ----
 
 func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupList, error) {
-	row, _, err := s.backupApp(ctx, a, ref, false)
+	row, owner, err := s.backupApp(ctx, a, ref, false)
 	if err != nil {
 		return BackupList{}, err
 	}
@@ -193,6 +271,7 @@ func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupL
 		out.Items = append(out.Items, backupView(r))
 		out.TotalBytes += r.SizeBytes
 	}
+	out.UploadMaxBytes, _ = s.uploadLimit(ctx, row, owner)
 	s.backup.mu.Lock()
 	if r := s.backup.restore[row.ID]; r != nil {
 		c := *r
@@ -200,6 +279,17 @@ func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupL
 	}
 	s.backup.mu.Unlock()
 	return out, nil
+}
+
+// uploadLimit is the biggest backup file that may be uploaded: no more than
+// the /data limit of the app and no more than the owner's free storage.
+// roomBound says it is the free storage that sets the limit.
+func (s *Service) uploadLimit(ctx context.Context, row db.App, owner db.User) (limit int64, roomBound bool) {
+	limit = row.VolumeMb * mib
+	if room, err := s.backupRoom(ctx, owner); err == nil && room >= 0 && room < limit {
+		return room, true
+	}
+	return limit, false
 }
 
 func (s *Service) backupSettings(ctx context.Context, row db.App) BackupSettings {
@@ -262,8 +352,17 @@ func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string) (Backup
 	if row.VolumeEnabled == 0 {
 		return Backup{}, volumeOffErr()
 	}
-	if _, err := s.volumes(); err != nil {
+	vs, err := s.volumes()
+	if err != nil {
 		return Backup{}, err
+	}
+	if has, err := vs.HasVolume(ctx, appVolumeName(row)); err != nil {
+		return Backup{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+	} else if !has {
+		return Backup{}, volumeNotReadyErr()
+	}
+	if s.appBusy(row.ID) {
+		return Backup{}, busyErr()
 	}
 	if err := s.checkBackupDisk(); err != nil {
 		return Backup{}, err
@@ -287,17 +386,13 @@ func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string) (Backup
 	s.Audit(ctx, a, "backup.create", "app", row.ID, map[string]any{"backup": b.ID, "kind": BackupManual})
 	s.backupGo(func() {
 		defer lock.Unlock()
-		ctx, cancel := backgroundCtx()
+		ctx, cancel := s.backupCtx()
 		defer cancel()
-		if err := s.finishBackup(ctx, row, b.ID, room); err != nil {
+		if err := s.finishBackup(ctx, row, owner, b.ID, room, false); err != nil {
 			s.Log.Warn("backup failed", "app", row.Slug, "err", err)
 		}
 	})
 	return backupView(b), nil
-}
-
-func backgroundCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 3*time.Hour)
 }
 
 func (s *Service) insertBackup(ctx context.Context, appID, kind string) (db.AppBackup, error) {
@@ -313,9 +408,10 @@ func (s *Service) insertBackup(ctx context.Context, appID, kind string) (db.AppB
 // ---- download ----
 
 // OpenBackup opens a finished backup for download and gives the file name to
-// offer. Only the owner may download: the files are the user's data.
+// offer. The files are the user's data: only the owner may download, and a
+// read-only token may not.
 func (s *Service) OpenBackup(ctx context.Context, a Actor, ref, id string) (*os.File, string, error) {
-	row, _, err := s.backupApp(ctx, a, ref, false)
+	row, _, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -421,20 +517,21 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 
 	// Neither the file nor what is in it may be bigger than the /data limit.
 	volBytes := row.VolumeMb * mib
-	limit, roomBound := volBytes, false
-	if room >= 0 && room < limit {
-		limit, roomBound = room, true
+	limit, roomBound := s.uploadLimit(ctx, row, owner)
+	problems := uploadProblems{
+		unpacked: apperr.New(413, "backup_too_large",
+			fmt.Sprintf("The files in this backup add up to more than the %d MB /data limit of this app.", row.VolumeMb),
+			"Upload a smaller backup, or raise the /data limit of the app first."),
 	}
-	tooBig := func() error {
-		if roomBound {
-			return s.noRoomErr(owner)
-		}
-		return apperr.New(413, "backup_too_large",
-			fmt.Sprintf("This backup is larger than the %d MB /data limit of this app.", row.VolumeMb),
+	if roomBound {
+		problems.file = s.noRoomErr(owner)
+	} else {
+		problems.file = apperr.New(413, "backup_too_large",
+			fmt.Sprintf("This backup file is larger than the %d MB /data limit of this app.", row.VolumeMb),
 			"Upload a smaller backup, or raise the /data limit of the app first.")
 	}
 	if contentLength > limit {
-		return Backup{}, tooBig()
+		return Backup{}, problems.file
 	}
 
 	if err := os.MkdirAll(s.backupDir(row.ID), 0o750); err != nil {
@@ -455,7 +552,7 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 		}
 		gzw := gzip.NewWriter(&limitWriter{w: f, left: limit})
 		tw := tar.NewWriter(gzw)
-		stats, err := sanitizeTar(tw, tar.NewReader(gzr), tarLimits{MaxBytes: volBytes})
+		stats, err := sanitizeTar(tw, tar.NewReader(gzr), tarLimits{MaxBytes: volBytes, Ctx: ctx})
 		if err == nil {
 			err = tw.Close()
 		}
@@ -475,25 +572,27 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 		if fi, err := os.Stat(tmp); err == nil {
 			size = fi.Size()
 		}
-		werr = os.Rename(tmp, final)
+		now := s.now()
+		werr = s.commitBackup(ctx, owner, tmp, final, size, func() error {
+			return s.Q.InsertBackup(ctx, db.InsertBackupParams{
+				ID: id, AppID: row.ID, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: now,
+				FinishedAt: sql.NullInt64{Int64: now, Valid: true},
+			})
+		})
 	}
 	if werr != nil {
 		_ = os.Remove(tmp)
-		return Backup{}, s.uploadErr(werr, tooBig)
+		return Backup{}, s.uploadErr(werr, problems)
 	}
-	b := db.AppBackup{ID: id, AppID: row.ID, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: s.now()}
-	if err := s.Q.InsertBackup(ctx, db.InsertBackupParams{
-		ID: b.ID, AppID: b.AppID, Kind: b.Kind, Status: b.Status, SizeBytes: b.SizeBytes, CreatedAt: b.CreatedAt,
-		FinishedAt: sql.NullInt64{Int64: b.CreatedAt, Valid: true},
-	}); err != nil {
-		_ = os.Remove(final)
-		return Backup{}, apperr.Internal(err)
-	}
-	s.Audit(ctx, a, "backup.upload", "app", row.ID, map[string]any{"backup": b.ID, "bytes": size})
-	return backupView(b), nil
+	s.Audit(ctx, a, "backup.upload", "app", row.ID, map[string]any{"backup": id, "bytes": size})
+	return Backup{ID: id, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}, nil
 }
 
-func (s *Service) uploadErr(err error, tooBig func() error) error {
+// uploadProblems are the answers for an upload that is too big: the unpacked
+// files over the /data limit, or the file over the limit or the free storage.
+type uploadProblems struct{ unpacked, file error }
+
+func (s *Service) uploadErr(err error, p uploadProblems) error {
 	var tp *tarProblem
 	var re *readErr
 	const hint = "Upload a .tar.gz of the contents of the /data folder, for example one you downloaded here."
@@ -502,10 +601,31 @@ func (s *Service) uploadErr(err error, tooBig func() error) error {
 		return apperr.BadRequest("upload_interrupted", "The upload was cut off before it finished.", "Try again.")
 	case errors.As(err, &tp):
 		return apperr.Unprocessable("backup_invalid", tp.msg, hint)
-	case errors.Is(err, errTarTooBig), errors.Is(err, errUploadTooLarge), errors.Is(err, errBackupNoRoom):
-		return tooBig()
+	case errors.Is(err, errTarTooBig):
+		return p.unpacked
+	case errors.Is(err, errUploadTooLarge), errors.Is(err, errBackupNoRoom):
+		return p.file
+	case errors.Is(err, context.Canceled):
+		return apperr.BadRequest("upload_interrupted", "The upload was cut off before it finished.", "Try again.")
 	case isCorrupt(err):
 		return apperr.Unprocessable("backup_invalid", "The file is damaged or is not a .tar.gz archive.", hint)
 	}
 	return apperr.Internal(err)
+}
+
+// DismissRestore forgets a finished restore, so its result is not shown again.
+func (s *Service) DismissRestore(ctx context.Context, a Actor, ref string) error {
+	row, _, err := s.backupApp(ctx, a, ref, true)
+	if err != nil {
+		return err
+	}
+	s.backup.mu.Lock()
+	defer s.backup.mu.Unlock()
+	if r := s.backup.restore[row.ID]; r != nil {
+		if r.State == "running" {
+			return apperr.Conflict("backup_busy", "The restore is still running.", "Wait until it has finished.")
+		}
+		delete(s.backup.restore, row.ID)
+	}
+	return nil
 }

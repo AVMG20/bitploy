@@ -76,6 +76,13 @@ const RuntimeContract = `## Runtime contract
 
 add_domain returns DNS records. Tell the user in plain words: "Open the place where you bought the domain (GoDaddy, Namecheap, Cloudflare, TransIP...), find DNS settings, add these records exactly, wait 5 to 30 minutes, then tell me." Then call check_domain until the status is active. For a root domain (example.com) the records are A records; for www.example.com a CNAME. On Cloudflare the record must be DNS only (grey cloud).
 
+## Backups of /data
+
+- create_backup(app) saves the /data folder of an app that has the volume on and has been deployed. It runs in the background (the app is frozen for a moment while its files are read): call list_backups until the backup is ready or failed (error says why). Backups count towards the account's storage allowance. Offer one before a risky change to an app that keeps data in /data; do not make them in a loop.
+- list_backups(app) shows the backups, the automatic backup settings, whether something is running (busy) and how the latest restore went.
+- Restoring is deliberately dashboard-only: it replaces every file in /data and stops the app for a moment. When the user wants to go back to a backup, tell them to open the app, go to the Storage tab and press Restore there. Downloading and uploading backup files and the automatic schedule are in the same tab.
+- backup_busy: one backup or restore per app at a time; wait and try again. volume_not_ready: /data is on but the app was not started since, so restart_app first. storage_quota_exceeded: no room left for a backup; the user can delete an old backup or app.
+
 ## Dockerfile checks (validate_dockerfile)
 
 Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_unknown, port_ambiguous, port_reserved, base_image_forbidden, image_too_large.

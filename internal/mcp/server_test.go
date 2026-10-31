@@ -178,7 +178,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	}
 	wantTools := strings.Fields(`whoami get_deploy_rules get_template validate_dockerfile list_apps get_app create_app update_app
 		deploy_files create_upload set_git_source deploy get_deployment list_deployments get_logs set_env
-		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics`)
+		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics create_backup list_backups`)
 	for _, n := range wantTools {
 		if got[n] == nil {
 			t.Errorf("tool %s missing", n)
@@ -187,7 +187,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	if len(got) != len(wantTools) {
 		t.Errorf("got %d tools, want %d", len(got), len(wantTools))
 	}
-	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile list_apps get_app get_deployment list_deployments get_logs get_metrics")
+	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups")
 	for _, n := range readOnly {
 		if a := got[n].Annotations; a == nil || !a.ReadOnlyHint {
 			t.Errorf("%s should be readOnly", n)
@@ -203,7 +203,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 			t.Errorf("%s should be idempotent", n)
 		}
 	}
-	for _, n := range []string{"create_app", "deploy", "deploy_files", "restart_app"} {
+	for _, n := range []string{"create_app", "deploy", "deploy_files", "restart_app", "create_backup"} {
 		a := got[n].Annotations
 		if a == nil || a.ReadOnlyHint || a.DestructiveHint == nil || *a.DestructiveHint {
 			t.Errorf("%s should be a non-destructive write: %+v", n, a)
@@ -296,10 +296,11 @@ func TestReadOnlyTokenCannotDeploy(t *testing.T) {
 	e := newEnv(t)
 	cs := e.connect(t, e.readToken)
 	for name, args := range map[string]map[string]any{
-		"create_app":   {"name": "x"},
-		"deploy_files": {"app": "x", "files": []map[string]any{{"path": "index.html", "content": "hi"}}},
-		"delete_app":   {"app": "x", "confirm_slug": "x"},
-		"stop_app":     {"app": "x"},
+		"create_app":    {"name": "x"},
+		"deploy_files":  {"app": "x", "files": []map[string]any{{"path": "index.html", "content": "hi"}}},
+		"delete_app":    {"app": "x", "confirm_slug": "x"},
+		"stop_app":      {"app": "x"},
+		"create_backup": {"app": "x"},
 	} {
 		res := call(t, cs, name, args)
 		if !res.IsError {

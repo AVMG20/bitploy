@@ -50,17 +50,21 @@ type App struct {
 	BackupSchedule      string
 	BackupKeepMode      string
 	BackupKeep          int64
+	RestoreBackupID     string
+	RestoreSafeID       string
+	RestoreResume       int64
 }
 
 type AppBackup struct {
-	ID         string
-	AppID      string
-	Kind       string
-	Status     string
-	SizeBytes  int64
-	Error      string
-	CreatedAt  int64
-	FinishedAt sql.NullInt64
+	ID          string
+	AppID       string
+	Kind        string
+	Status      string
+	SizeBytes   int64
+	Error       string
+	Interrupted int64
+	CreatedAt   int64
+	FinishedAt  sql.NullInt64
 }
 
 type AppDisk struct {

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"mime"
 	"net/http"
 	"time"
@@ -57,6 +58,17 @@ func (a *API) backupRoutes() {
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *backupRef) (*Out[app.BackupRestore], error) {
 		return okOrNil(a.svc.RestoreBackup(ctx, act, in.App, in.ID))
+	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "dismissBackupRestore", Method: http.MethodDelete, Path: "/apps/{app}/backup-restore", Tags: []string{"Backups"},
+		Summary:       "Dismiss the result of the latest restore",
+		Description:   "Forgets a finished restore (done or failed), so `restore` of the backup list is empty again. A restore that is still running cannot be dismissed.",
+		DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Empty, error) {
+		if err := a.svc.DismissRestore(ctx, act, in.App); err != nil {
+			return nil, err
+		}
+		return &Empty{}, nil
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "updateBackupSettings", Method: http.MethodPut, Path: "/apps/{app}/backup-settings", Tags: []string{"Backups"},
@@ -114,10 +126,26 @@ func (a *API) backupUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := a.svc.UploadBackup(r.Context(), act, r.PathValue("app"), r.Body, r.ContentLength)
 	if err != nil {
+		// An answer sent while the browser is still sending is often never
+		// seen (the connection is reset): let the rest of a reasonable upload
+		// arrive first.
+		drainBody(w, r)
 		auth.WriteError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(b)
+}
+
+// Most of a rejected upload that is read and thrown away, and for how long.
+const (
+	drainMaxBytes = 256 << 20
+	drainMaxTime  = 30 * time.Second
+)
+
+// drainBody reads and discards what is left of the request body, within limits.
+func drainBody(w http.ResponseWriter, r *http.Request) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(drainMaxTime))
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, drainMaxBytes))
 }

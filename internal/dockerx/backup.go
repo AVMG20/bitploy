@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
@@ -22,32 +23,63 @@ var ErrNoVolume = errors.New("the data volume does not exist")
 // helperCaps lets the helper root user delete and chown files of any owner.
 var helperCaps = []string{"CHOWN", "DAC_OVERRIDE", "FOWNER"}
 
-// ArchiveVolume returns the contents of the volume as a tar stream (paths
-// relative to /data, possibly with a leading "./"). A helper container is
-// created, never started, only to read the volume; closing the stream removes
-// it. The volume is mounted read-only.
-func (c *Client) ArchiveVolume(ctx context.Context, volume string) (io.ReadCloser, error) {
+// VolumeArchive is a throwaway helper container that can read a volume as a
+// tar stream. It is created (never started) first, so that the slow parts, the
+// image pull and the container create, happen before an app is paused.
+type VolumeArchive struct {
+	c    *Client
+	name string
+}
+
+// PrepareArchive creates the read-only helper for a volume. Close removes it.
+func (c *Client) PrepareArchive(ctx context.Context, volume string) (*VolumeArchive, error) {
 	name, err := c.createHelper(ctx, volume, true, []string{"true"})
 	if err != nil {
 		return nil, err
 	}
-	res, err := c.API.CopyFromContainer(ctx, name, client.CopyFromContainerOptions{SourcePath: DataMount + "/."})
+	return &VolumeArchive{c: c, name: name}, nil
+}
+
+// Open returns the contents of the volume as a tar stream (paths relative to
+// /data, possibly with a leading "./").
+func (a *VolumeArchive) Open(ctx context.Context) (io.ReadCloser, error) {
+	res, err := a.c.API.CopyFromContainer(ctx, a.name, client.CopyFromContainerOptions{SourcePath: DataMount + "/."})
 	if err != nil {
-		_ = c.RemoveContainer(context.WithoutCancel(ctx), name)
 		return nil, err
 	}
-	return &helperStream{ReadCloser: res.Content, remove: func() { _ = c.RemoveContainer(context.WithoutCancel(ctx), name) }}, nil
+	return res.Content, nil
 }
 
-type helperStream struct {
-	io.ReadCloser
-	remove func()
+// Close removes the helper container.
+func (a *VolumeArchive) Close() error {
+	return a.c.RemoveContainer(context.Background(), a.name)
 }
 
-func (h *helperStream) Close() error {
-	err := h.ReadCloser.Close()
-	h.remove()
-	return err
+// HelperPrefix starts the name of every volume helper container.
+const HelperPrefix = "bp-copy-"
+
+// CleanupHelpers removes helper containers a crash left behind and resumes
+// paused app containers (an app is only ever paused by a backup, and a crash
+// in between would leave it frozen). It returns how many of each it fixed.
+func (c *Client) CleanupHelpers(ctx context.Context) (removed, resumed int, err error) {
+	cs, err := c.ListManagedContainers(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, it := range cs {
+		name := SummaryName(it)
+		switch {
+		case strings.HasPrefix(name, HelperPrefix):
+			if c.RemoveContainer(ctx, name) == nil {
+				removed++
+			}
+		case it.Labels[LabelAppID] != "" && string(it.State) == "paused":
+			if c.UnpauseContainer(ctx, name) == nil {
+				resumed++
+			}
+		}
+	}
+	return removed, resumed, nil
 }
 
 // ReplaceVolume empties the volume (the /data folder itself stays) and
@@ -105,7 +137,7 @@ func (c *Client) createHelper(ctx context.Context, volume string, readOnly bool,
 	if err := c.ensureInitImage(ctx); err != nil {
 		return "", err
 	}
-	name := "bp-copy-" + ids.Hex(10)
+	name := HelperPrefix + ids.Hex(10)
 	pids, mem := int64(32), int64(64<<20)
 	_, err := c.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,

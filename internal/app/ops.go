@@ -64,6 +64,12 @@ func (s *Service) opsSyncRoute(ctx context.Context, appID string) error {
 // It returns when ctx ends. It works without Docker (s.Docker == nil): then
 // only the domain checker and the nightly database jobs run.
 func (s *Service) RunBackground(ctx context.Context) {
+	// Backups and restores started from the API or the schedule stop with ctx;
+	// they thaw their app before they end, and RunBackground waits for that.
+	s.backup.mu.Lock()
+	s.backup.base = ctx
+	s.backup.mu.Unlock()
+	defer s.backup.wg.Wait()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

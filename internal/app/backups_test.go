@@ -24,16 +24,51 @@ import (
 type fakeVol struct {
 	mu         sync.Mutex
 	files      map[string]string
+	extra      []tent // entries added to every archive (links, special files)
+	noVolume   bool   // the volume does not exist yet
 	archiveErr error
-	gate       chan struct{} // ArchiveVolume waits for it to be closed
+	gate       chan struct{} // Open waits for it to be closed (the app is paused then)
+	prepared   int           // PrepareArchive calls
+	opened     int           // Open calls
+	closed     int           // Close calls
+	events     []string      // "prepare", "open", "close" in order
 	replaceN   int
 	failAt     map[int]bool // ReplaceVolume calls (1-based) that fail
 	fixOwner   []bool
 }
 
-func (f *fakeVol) ArchiveVolume(_ context.Context, _ string) (io.ReadCloser, error) {
-	if f.gate != nil {
-		<-f.gate
+func (f *fakeVol) HasVolume(_ context.Context, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.noVolume, nil
+}
+
+func (f *fakeVol) PrepareArchive(_ context.Context, _ string) (volumeArchive, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.noVolume {
+		return nil, dockerx.ErrNoVolume
+	}
+	f.prepared++
+	f.events = append(f.events, "prepare")
+	return &fakeArchive{f}, nil
+}
+
+type fakeArchive struct{ f *fakeVol }
+
+func (a *fakeArchive) Open(ctx context.Context) (io.ReadCloser, error) {
+	f := a.f
+	f.mu.Lock()
+	f.opened++
+	f.events = append(f.events, "open")
+	gate := f.gate
+	f.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	if f.archiveErr != nil {
 		return nil, f.archiveErr
@@ -47,8 +82,29 @@ func (f *fakeVol) ArchiveVolume(_ context.Context, _ string) (io.ReadCloser, err
 		_ = tw.WriteHeader(&tar.Header{Name: "./" + name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body)), Uid: 1000, Gid: 1000})
 		_, _ = tw.Write([]byte(body))
 	}
+	for _, e := range f.extra {
+		h := &tar.Header{Name: e.name, Typeflag: e.typ, Mode: 0o644, Linkname: e.link, Size: int64(len(e.body))}
+		if h.Typeflag == 0 {
+			h.Typeflag = tar.TypeReg
+		}
+		if h.Typeflag != tar.TypeReg {
+			h.Size = 0
+		}
+		_ = tw.WriteHeader(h)
+		if h.Typeflag == tar.TypeReg {
+			_, _ = tw.Write([]byte(e.body))
+		}
+	}
 	_ = tw.Close()
 	return io.NopCloser(&buf), nil
+}
+
+func (a *fakeArchive) Close() error {
+	a.f.mu.Lock()
+	defer a.f.mu.Unlock()
+	a.f.closed++
+	a.f.events = append(a.f.events, "close")
+	return nil
 }
 
 func (f *fakeVol) ReplaceVolume(_ context.Context, _ string, archive io.Reader, fixOwner bool) error {
@@ -111,6 +167,12 @@ func newBkEnv(t *testing.T) *bkEnv {
 }
 
 func (e *bkEnv) wait() { e.s.backup.wg.Wait() }
+
+// runDue runs the automatic backups that are due and waits for them to end.
+func (e *bkEnv) runDue(ctx context.Context) {
+	e.s.runDueBackups(ctx)
+	e.wait()
+}
 
 func (e *bkEnv) list(t *testing.T) BackupList {
 	t.Helper()
@@ -751,19 +813,19 @@ func TestScheduledBackups(t *testing.T) {
 	ctx := context.Background()
 	e.exec(t, `UPDATE apps SET backup_schedule = 'daily', backup_keep_mode = 'last', backup_keep = 2 WHERE id = ?`, e.app.ID)
 
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 1 || got[0].Status != "ready" {
 		t.Fatalf("first run: %+v", got)
 	}
 	// Not due again until the next 03:00.
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 1 {
 		t.Fatalf("second run made another: %+v", got)
 	}
 	manual := e.makeBackup(t)
 	for day := 1; day <= 3; day++ {
 		e.clock = e.clock.Add(24 * time.Hour)
-		e.s.runDueBackups(ctx)
+		e.runDue(ctx)
 	}
 	got := e.backupsOfKind(t, "scheduled")
 	if len(got) != 2 {
@@ -793,8 +855,8 @@ func TestScheduledBackupsSkipAndReport(t *testing.T) {
 
 	// No room: skipped, with the reason, and not retried every ten minutes.
 	e.exec(t, `UPDATE users SET quota_volume_mb = 100 WHERE id = ?`, e.user.UserID)
-	e.s.runDueBackups(ctx)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
+	e.runDue(ctx)
 	got := e.backupsOfKind(t, "scheduled")
 	if len(got) != 1 || got[0].Status != "failed" || !strings.Contains(got[0].Error, "no storage left") {
 		t.Fatalf("skipped run: %+v", got)
@@ -802,7 +864,7 @@ func TestScheduledBackupsSkipAndReport(t *testing.T) {
 	// The next night tries again.
 	e.exec(t, `UPDATE users SET quota_volume_mb = 25600 WHERE id = ?`, e.user.UserID)
 	e.clock = e.clock.Add(24 * time.Hour)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 2 || got[0].Status != "ready" {
 		t.Fatalf("next night: %+v", got)
 	}
@@ -814,30 +876,31 @@ func TestScheduledBackupsSkipAndReport(t *testing.T) {
 	} {
 		e.exec(t, q, e.app.ID)
 		e.clock = e.clock.Add(24 * time.Hour)
-		e.s.runDueBackups(ctx)
+		e.runDue(ctx)
 		if got := e.backupsOfKind(t, "scheduled"); len(got) != 2 {
 			t.Fatalf("%s: %+v", q, got)
 		}
 	}
 	e.exec(t, `UPDATE apps SET current_deployment_id = 'dep_seed' WHERE id = ?`, e.app.ID)
 	e.exec(t, `UPDATE users SET status = 'suspended' WHERE id = ?`, e.user.UserID)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 2 {
 		t.Fatalf("suspended: %+v", got)
 	}
 	e.exec(t, `UPDATE users SET status = 'active' WHERE id = ?`, e.user.UserID)
 
 	// A volume that does not exist yet is not an error worth showing.
-	e.vol.archiveErr = dockerx.ErrNoVolume
+	e.vol.noVolume = true
 	e.clock = e.clock.Add(24 * time.Hour)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 2 {
 		t.Fatalf("no volume: %+v", got)
 	}
 	// An error is shown, in plain words.
+	e.vol.noVolume = false
 	e.vol.archiveErr = errors.New("Error response from daemon: boom")
 	e.clock = e.clock.Add(24 * time.Hour)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 3 || got[0].Status != "failed" || !strings.Contains(got[0].Error, "boom") {
 		t.Fatalf("daemon error: %+v", got)
 	}
@@ -856,7 +919,7 @@ func TestRetentionByDays(t *testing.T) {
 	}
 	e.exec(t, `UPDATE app_backups SET kind = 'manual' WHERE id = ?`, ids[4]) // old, but manual
 	e.exec(t, `INSERT INTO app_backups (id, app_id, kind, status, error, created_at) VALUES ('bak_old', ?, 'scheduled', 'failed', 'x', ?)`, e.app.ID, e.clock.Unix()-30*86400)
-	e.s.runDueBackups(ctx)
+	e.runDue(ctx)
 	var left []string
 	for _, it := range e.list(t).Items {
 		left = append(left, it.ID)
@@ -883,7 +946,7 @@ func TestStaleBackupsAreCleaned(t *testing.T) {
 	if err := os.WriteFile(tmp, []byte("half"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	e.s.cleanStaleBackups(ctx)
+	e.s.recoverAfterCrash(ctx)
 	l := e.list(t)
 	if len(l.Items) != 1 || l.Items[0].Status != "failed" || !strings.Contains(l.Items[0].Error, "restarted") {
 		t.Errorf("list = %+v", l)

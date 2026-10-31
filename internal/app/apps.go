@@ -513,9 +513,6 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 		_ = os.RemoveAll(s.Cfg.BuildDir(d.ID))
 		_ = os.Remove(s.sourceZip(d.ID))
 	}
-	if err := s.removeAppBackups(row.ID); err != nil {
-		s.Log.Warn("removing backups of deleted app failed", "app", row.Slug, "err", err)
-	}
 	if err := s.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.DeleteAppRow(ctx, row.ID); err != nil {
 			return err
@@ -526,6 +523,12 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 	}); err != nil {
 		return apperr.Internal(err)
 	}
+	// The backup files go only now that the rows are gone for good: a failed
+	// transaction must not leave an app whose backups are missing.
+	if err := s.removeAppBackups(row.ID); err != nil {
+		s.Log.Warn("removing backups of deleted app failed", "app", row.Slug, "err", err)
+	}
+	s.forgetBackupState(row.ID)
 	for _, d := range deps {
 		s.NotifyDeployment(d.ID)
 	}

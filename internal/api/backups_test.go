@@ -123,6 +123,21 @@ func TestBackupEndpoints(t *testing.T) {
 		t.Errorf("read-only upload: %d %s", w.Code, w.Body)
 	}
 
+	// The files are the user's data: a read-only token may list, not download.
+	if w := e.req("GET", base+"/"+b.ID+"/download", nil, readOnly); w.Code != 403 || decode[errResp](t, w).Error.Code != "token_read_only" {
+		t.Errorf("read-only download: %d %s", w.Code, w.Body)
+	}
+	if w := e.req("GET", base, nil, readOnly); w.Code != 200 {
+		t.Errorf("read-only list: %d", w.Code)
+	}
+	// A finished restore can be dismissed (there is none here, which is fine).
+	if w := e.asSession("DELETE", "/api/v1/apps/photos/backup-restore", nil); w.Code != 204 {
+		t.Errorf("dismiss: %d %s", w.Code, w.Body)
+	}
+	if l := decode[app.BackupList](t, e.asSession("GET", base, nil)); l.UploadMaxBytes <= 0 {
+		t.Errorf("upload_max_bytes = %d", l.UploadMaxBytes)
+	}
+
 	// An archive bigger than the 8 MB the JSON API accepts still goes through.
 	big := make([]byte, 9<<20)
 	_, _ = rand.Read(big)

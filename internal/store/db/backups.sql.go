@@ -29,7 +29,7 @@ func (q *Queries) DeleteBackupsByApp(ctx context.Context, appID string) error {
 }
 
 const failRunningBackups = `-- name: FailRunningBackups :exec
-UPDATE app_backups SET status = 'failed', error = ?, finished_at = ? WHERE status = 'running'
+UPDATE app_backups SET status = 'failed', error = ?, interrupted = 1, finished_at = ? WHERE status = 'running'
 `
 
 type FailRunningBackupsParams struct {
@@ -43,15 +43,16 @@ func (q *Queries) FailRunningBackups(ctx context.Context, arg FailRunningBackups
 }
 
 const finishBackup = `-- name: FinishBackup :exec
-UPDATE app_backups SET status = ?, size_bytes = ?, error = ?, finished_at = ? WHERE id = ?
+UPDATE app_backups SET status = ?, size_bytes = ?, error = ?, interrupted = ?, finished_at = ? WHERE id = ?
 `
 
 type FinishBackupParams struct {
-	Status     string
-	SizeBytes  int64
-	Error      string
-	FinishedAt sql.NullInt64
-	ID         string
+	Status      string
+	SizeBytes   int64
+	Error       string
+	Interrupted int64
+	FinishedAt  sql.NullInt64
+	ID          string
 }
 
 func (q *Queries) FinishBackup(ctx context.Context, arg FinishBackupParams) error {
@@ -59,6 +60,7 @@ func (q *Queries) FinishBackup(ctx context.Context, arg FinishBackupParams) erro
 		arg.Status,
 		arg.SizeBytes,
 		arg.Error,
+		arg.Interrupted,
 		arg.FinishedAt,
 		arg.ID,
 	)
@@ -66,7 +68,7 @@ func (q *Queries) FinishBackup(ctx context.Context, arg FinishBackupParams) erro
 }
 
 const getBackup = `-- name: GetBackup :one
-SELECT id, app_id, kind, status, size_bytes, error, created_at, finished_at FROM app_backups WHERE id = ? AND app_id = ?
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at FROM app_backups WHERE id = ? AND app_id = ?
 `
 
 type GetBackupParams struct {
@@ -84,6 +86,7 @@ func (q *Queries) GetBackup(ctx context.Context, arg GetBackupParams) (AppBackup
 		&i.Status,
 		&i.SizeBytes,
 		&i.Error,
+		&i.Interrupted,
 		&i.CreatedAt,
 		&i.FinishedAt,
 	)
@@ -123,10 +126,11 @@ func (q *Queries) InsertBackup(ctx context.Context, arg InsertBackupParams) erro
 }
 
 const latestScheduledBackupAt = `-- name: LatestScheduledBackupAt :one
-SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM app_backups WHERE app_id = ? AND kind = 'scheduled'
+SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM app_backups WHERE app_id = ? AND kind = 'scheduled' AND interrupted = 0
 `
 
 // The newest automatic attempt, successful or not: a failed night is not retried every few minutes.
+// Attempts cut short by a restart do not count.
 func (q *Queries) LatestScheduledBackupAt(ctx context.Context, appID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, latestScheduledBackupAt, appID)
 	var column_1 int64
@@ -135,7 +139,7 @@ func (q *Queries) LatestScheduledBackupAt(ctx context.Context, appID string) (in
 }
 
 const listBackupsByApp = `-- name: ListBackupsByApp :many
-SELECT id, app_id, kind, status, size_bytes, error, created_at, finished_at FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBackup, error) {
@@ -154,6 +158,7 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 			&i.Status,
 			&i.SizeBytes,
 			&i.Error,
+			&i.Interrupted,
 			&i.CreatedAt,
 			&i.FinishedAt,
 		); err != nil {
@@ -168,6 +173,85 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRestoringApps = `-- name: ListRestoringApps :many
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume FROM apps WHERE restore_backup_id != ''
+`
+
+func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listRestoringApps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []App{}
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Slug,
+			&i.Name,
+			&i.Type,
+			&i.Port,
+			&i.HealthPath,
+			&i.DockerfilePath,
+			&i.ContextDir,
+			&i.VolumeEnabled,
+			&i.MemoryMb,
+			&i.CpuMillis,
+			&i.GitRepoUrl,
+			&i.GitBranch,
+			&i.GitSubdir,
+			&i.DesiredState,
+			&i.Status,
+			&i.StatusMessage,
+			&i.CurrentDeploymentID,
+			&i.DeploySeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VolumeMb,
+			&i.VolumeName,
+			&i.BackupSchedule,
+			&i.BackupKeepMode,
+			&i.BackupKeep,
+			&i.RestoreBackupID,
+			&i.RestoreSafeID,
+			&i.RestoreResume,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setRestoreMarker = `-- name: SetRestoreMarker :exec
+UPDATE apps SET restore_backup_id = ?, restore_safe_id = ?, restore_resume = ? WHERE id = ?
+`
+
+type SetRestoreMarkerParams struct {
+	RestoreBackupID string
+	RestoreSafeID   string
+	RestoreResume   int64
+	ID              string
+}
+
+func (q *Queries) SetRestoreMarker(ctx context.Context, arg SetRestoreMarkerParams) error {
+	_, err := q.db.ExecContext(ctx, setRestoreMarker,
+		arg.RestoreBackupID,
+		arg.RestoreSafeID,
+		arg.RestoreResume,
+		arg.ID,
+	)
+	return err
 }
 
 const sumBackupBytesByApp = `-- name: SumBackupBytesByApp :one

@@ -665,6 +665,51 @@ func (s *srv) registerTools() {
 			}
 			return metricsResult(in.App, w, m), nil
 		})
+
+	addTool(s, "create_backup", "Back up /data",
+		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. Returns a backup with status running: call list_backups until it is ready or failed. Backups count towards the account's storage allowance (whoami). Good practice before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
+		write(), true, nil,
+		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
+			b, err := svc.CreateBackup(ctx, a, in.App)
+			if err != nil {
+				return nil, err
+			}
+			return &result{
+				Summary: "Started a backup of /data of " + in.App + ".",
+				Data:    data("backup", b),
+				Next: []string{
+					"Call list_backups with this app in a few seconds, until the backup has status ready (or failed: then its error says why).",
+					"To restore a backup the user opens the app in the dashboard, Storage tab, and picks Restore. Do not try to do that for them.",
+				},
+			}, nil
+		})
+
+	addTool(s, "list_backups", "List backups",
+		"The /data backups of an app, newest first: id, kind (manual, scheduled, uploaded, before_restore), status (running, ready, failed), size, error. Also the automatic backup settings, whether a backup or restore is running (busy) and how the latest restore went (restore: running, done or failed, with the reason). Use it to follow create_backup, or to tell the user what backups exist. Downloading and restoring are done by the user in the dashboard.",
+		readOnly(), false, nil,
+		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
+			l, err := svc.ListBackups(ctx, a, in.App)
+			if err != nil {
+				return nil, err
+			}
+			l.Items = nonNil(l.Items)
+			next := []string{"The user manages the files in the dashboard: Storage tab of the app (download, upload, restore, delete)."}
+			switch {
+			case l.Restore != nil && l.Restore.State == "running":
+				next = []string{"A restore is running. Wait and call list_backups again; tell the user the app is stopped for a moment."}
+			case l.Restore != nil && l.Restore.State == "failed":
+				next = append([]string{"The latest restore failed: " + oneLine(l.Restore.Error) + " Tell the user, and that they can look at it in the Storage tab."}, next...)
+			case l.Busy:
+				next = []string{"A backup is being made. Call list_backups again in a few seconds."}
+			case len(l.Items) == 0:
+				next = []string{"There are no backups yet. Call create_backup if the user wants one."}
+			}
+			return &result{
+				Summary: fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App),
+				Data:    toMap(l),
+				Next:    next,
+			}, nil
+		})
 }
 
 // ---- result helpers ----

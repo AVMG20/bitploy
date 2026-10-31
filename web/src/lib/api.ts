@@ -66,6 +66,7 @@ export const paths = {
   appBackupRestore: (slug: string, id: string) => `${V1}/apps/${enc(slug)}/backups/${enc(id)}/restore`,
   appBackupUpload: (slug: string) => `${V1}/apps/${enc(slug)}/backups/upload`,
   appBackupSettings: (slug: string) => `${V1}/apps/${enc(slug)}/backup-settings`,
+  appBackupRestoreState: (slug: string) => `${V1}/apps/${enc(slug)}/backup-restore`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
@@ -197,7 +198,7 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
 }
 
 /** POSTs a file as the raw request body, with upload progress (fetch cannot report it). */
-function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number) => void): Promise<T> {
+function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', path)
@@ -208,6 +209,8 @@ function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total)
     }
+    // Everything has been sent: the server may still need a while to check it.
+    xhr.upload.onload = () => onSent?.()
     xhr.onerror = () =>
       reject(new ApiError(0, { code: 'network_error', message: 'Cannot reach bitploy.', hint: 'Check your internet connection and try again.' }))
     xhr.onload = () => {
@@ -339,8 +342,9 @@ export const api = {
   restoreBackup: (slug: string, id: string) => request<BackupRestore>('POST', paths.appBackupRestore(slug, id)),
   updateBackupSettings: (slug: string, input: Partial<Pick<BackupSettings, 'schedule' | 'keep_mode' | 'keep'>>) =>
     request<BackupSettings>('PUT', paths.appBackupSettings(slug), { body: input }),
-  uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void) =>
-    uploadFile<Backup>(paths.appBackupUpload(slug), file, onProgress),
+  dismissBackupRestore: (slug: string) => request<void>('DELETE', paths.appBackupRestoreState(slug)),
+  uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void) =>
+    uploadFile<Backup>(paths.appBackupUpload(slug), file, onProgress, onSent),
 
   // admin
   async adminUsers(): Promise<AdminUser[]> {

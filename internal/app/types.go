@@ -388,6 +388,9 @@ type BackupRestore struct {
 	Error      string     `json:"error,omitempty"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// AppRestarts is true when the app was running and is stopped for the
+	// restore and started again after it.
+	AppRestarts bool `json:"app_restarts"`
 }
 
 // BackupList is GET /apps/{app}/backups.
@@ -399,6 +402,8 @@ type BackupList struct {
 	// Busy is true while a backup, upload or restore of this app is in progress.
 	Busy       bool  `json:"busy"`
 	TotalBytes int64 `json:"total_bytes"` // what all backups of this app take
+	// UploadMaxBytes is the biggest backup file that can be uploaded right now.
+	UploadMaxBytes int64 `json:"upload_max_bytes"`
 }
 
 // BackupSettingsInput: nil fields are left unchanged.

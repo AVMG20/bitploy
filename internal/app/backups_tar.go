@@ -9,6 +9,7 @@ import (
 	"archive/tar"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,15 +17,25 @@ import (
 )
 
 const (
-	maxTarEntries  = 300_000
-	maxTarNameLen  = 4096
-	whiteoutPrefix = ".wh." // Docker's archive code treats these as "delete this file"
+	maxTarEntries        = 300_000
+	maxTrustedTarEntries = 5_000_000
+	maxTarNameLen        = 1024
+	maxTrustedNameLen    = 4096
+	maxTarNameBytes      = 32 << 20 // all names together: they are held in memory while checking
+	maxSkippedNames      = 100_000
+	whiteoutPrefix       = ".wh." // Docker's archive code treats these as "delete this file"
 )
 
 // tarLimits bound what sanitizeTar accepts.
 type tarLimits struct {
-	MaxBytes    int64 // total size of all files in the archive; 0 means no limit
+	MaxBytes    int64 // total size of all entries in the archive; 0 means no limit
 	SkipSpecial bool  // skip fifos and devices instead of refusing (reading a live volume)
+	// Trusted is for archives that bitploy made from an app's own volume
+	// (backups, and restoring them): absolute symlinks are normal there
+	// (/data/current -> /data/releases/1) and there can be millions of files.
+	// Uploads are never trusted. Nothing may be placed below a symlink either way.
+	Trusted bool
+	Ctx     context.Context // stops the copy when it ends (a client that went away); nil: never
 }
 
 type tarStats struct {
@@ -50,7 +61,7 @@ func isCorrupt(err error) bool {
 
 // cleanTarName turns an archive path into a path relative to /data. It returns
 // "" for the root itself and an error for absolute paths and "..".
-func cleanTarName(name string) (string, error) {
+func cleanTarName(name string, maxLen int) (string, error) {
 	if strings.ContainsRune(name, 0) {
 		return "", problem("The archive contains a file name that is not allowed.")
 	}
@@ -68,7 +79,7 @@ func cleanTarName(name string) (string, error) {
 		}
 	}
 	clean := strings.Join(out, "/")
-	if len(clean) > maxTarNameLen {
+	if len(clean) > maxLen {
 		return "", problem("The archive contains a file name that is too long.")
 	}
 	return clean, nil
@@ -78,7 +89,7 @@ func cleanTarName(name string) (string, error) {
 // any ".." only at the start and no deeper than the link itself.
 func checkSymlink(name, target string) error {
 	bad := problem("The archive contains a link that points outside the folder (%s).", shorten(name))
-	if target == "" || strings.ContainsRune(target, 0) || strings.HasPrefix(target, "/") {
+	if target == "" || len(target) > maxTrustedNameLen || strings.ContainsRune(target, 0) || strings.HasPrefix(target, "/") {
 		return bad
 	}
 	depth := strings.Count(name, "/")
@@ -118,14 +129,49 @@ func parentsOf(name string) []string {
 	return out
 }
 
+// ctxReader fails reads once ctx is done.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
+}
+
 // sanitizeTar copies src to dst (nil: only check) entry by entry. Only
 // directories, regular files, symlinks and hardlinks are kept. dst is not closed.
 func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, error) {
 	var st tarStats
-	seen := map[string]struct{}{}
-	links := map[string]struct{}{} // symlinks and regular files: nothing may be placed below them
-	files := map[string]struct{}{} // regular files: the only valid hardlink targets
+	ctx := lim.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxEntries, maxName := maxTarEntries, maxTarNameLen
+	if lim.Trusted {
+		maxEntries, maxName = maxTrustedTarEntries, maxTrustedNameLen
+	}
+	var nameBytes int
+	seen := map[string]struct{}{}    // strict only: duplicates
+	links := map[string]struct{}{}   // symlinks (strict: also files): nothing may be placed below them
+	files := map[string]struct{}{}   // strict only: regular files, the only valid hardlink targets
+	skipped := map[string]struct{}{} // names left out (.wh.*): links to them are left out too
+	addName := func(name string) error {
+		if lim.Trusted {
+			return nil // names are not kept in memory in this mode
+		}
+		if nameBytes += len(name); nameBytes > maxTarNameBytes {
+			return problem("The archive has too many or too long file names.")
+		}
+		return nil
+	}
 	for {
+		if err := ctx.Err(); err != nil {
+			return st, err
+		}
 		h, err := src.Next()
 		if errors.Is(err, io.EOF) {
 			return st, nil
@@ -136,9 +182,27 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 			}
 			return st, err
 		}
-		switch h.Typeflag {
-		case tar.TypeXGlobalHeader:
+		if h.Typeflag == tar.TypeXGlobalHeader {
 			continue
+		}
+		// Everything below counts, also what is left out: a million skipped
+		// entries cost time and memory like any other.
+		if st.Entries++; st.Entries > maxEntries {
+			return st, problem("The archive has more than %d files.", maxEntries)
+		}
+		if h.Size < 0 {
+			return st, problem("The archive is damaged: an entry has a negative size.")
+		}
+		if lim.MaxBytes > 0 && h.Size > lim.MaxBytes-st.Bytes {
+			return st, errTarTooBig
+		}
+		st.Bytes += h.Size
+		for k := range h.PAXRecords {
+			if strings.HasPrefix(k, "GNU.sparse.") {
+				return st, problem("The archive contains sparse files (%s), which are not supported.", shorten(h.Name))
+			}
+		}
+		switch h.Typeflag {
 		case tar.TypeReg, tar.TypeDir, tar.TypeSymlink, tar.TypeLink:
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
 			if lim.SkipSpecial {
@@ -148,7 +212,7 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 		default:
 			return st, problem("The archive contains an entry of a kind that is not supported (%s).", shorten(h.Name))
 		}
-		name, err := cleanTarName(h.Name)
+		name, err := cleanTarName(h.Name, maxName)
 		if err != nil {
 			return st, err
 		}
@@ -158,16 +222,21 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 			}
 			return st, problem("The archive contains an entry without a name.")
 		}
+		if err := addName(name); err != nil {
+			return st, err
+		}
 		if i := strings.LastIndexByte(name, '/'); strings.HasPrefix(name[i+1:], whiteoutPrefix) {
+			if len(skipped) < maxSkippedNames {
+				skipped[name] = struct{}{}
+			}
 			continue
 		}
-		if st.Entries++; st.Entries > maxTarEntries {
-			return st, problem("The archive has more than %d files.", maxTarEntries)
+		if !lim.Trusted {
+			if _, dup := seen[name]; dup {
+				return st, problem("The archive contains the same path twice (%s).", shorten(name))
+			}
+			seen[name] = struct{}{}
 		}
-		if _, dup := seen[name]; dup {
-			return st, problem("The archive contains the same path twice (%s).", shorten(name))
-		}
-		seen[name] = struct{}{}
 		for _, p := range parentsOf(name) {
 			if _, bad := links[p]; bad {
 				return st, problem("The archive puts a file below a link or file (%s).", shorten(name))
@@ -182,29 +251,40 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 		case tar.TypeDir:
 			nh.Name += "/"
 		case tar.TypeSymlink:
-			if err := checkSymlink(name, h.Linkname); err != nil {
+			if lim.Trusted {
+				if h.Linkname == "" || len(h.Linkname) > maxTrustedNameLen || strings.ContainsRune(h.Linkname, 0) {
+					return st, problem("The archive contains a link that is not valid (%s).", shorten(name))
+				}
+			} else if err := checkSymlink(name, h.Linkname); err != nil {
 				return st, err
 			}
 			nh.Linkname = h.Linkname
 			links[name] = struct{}{}
 		case tar.TypeLink:
-			target, err := cleanTarName(h.Linkname)
+			target, err := cleanTarName(h.Linkname, maxName)
 			if err != nil {
 				return st, err
 			}
-			if _, ok := files[target]; !ok || target == "" {
-				return st, problem("The archive contains a hard link to a file that is not in it (%s).", shorten(name))
+			if _, gone := skipped[target]; gone {
+				continue // a link to a file that was left out
+			}
+			if lim.Trusted {
+				if target == "" {
+					return st, problem("The archive contains a hard link to nothing (%s).", shorten(name))
+				}
+			} else {
+				if _, ok := files[target]; !ok || target == "" {
+					return st, problem("The archive contains a hard link to a file that is not in it (%s).", shorten(name))
+				}
+				links[name] = struct{}{}
 			}
 			nh.Linkname = target
-			links[name] = struct{}{}
 		case tar.TypeReg:
-			if lim.MaxBytes > 0 && st.Bytes+h.Size > lim.MaxBytes {
-				return st, errTarTooBig
-			}
-			st.Bytes += h.Size
 			nh.Size = h.Size
-			files[name] = struct{}{}
-			links[name] = struct{}{}
+			if !lim.Trusted {
+				files[name] = struct{}{}
+				links[name] = struct{}{}
+			}
 		}
 		if dst != nil {
 			if err := dst.WriteHeader(nh); err != nil {
@@ -216,7 +296,7 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 			if dst != nil {
 				w = dst
 			}
-			if _, err := io.Copy(w, src); err != nil {
+			if _, err := io.Copy(w, &ctxReader{ctx: ctx, r: src}); err != nil {
 				if isCorrupt(err) {
 					return st, problem("The file is damaged or is not a .tar.gz archive.")
 				}

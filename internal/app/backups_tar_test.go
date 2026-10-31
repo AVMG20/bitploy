@@ -91,7 +91,7 @@ func TestSanitizeTarAccepts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Entries != 6 || st.Bytes != 10 {
+	if st.Entries != 7 || st.Bytes != 10 {
 		t.Errorf("stats = %+v", st)
 	}
 	var names []string
@@ -162,7 +162,7 @@ func TestSanitizeTarSkips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Entries != 1 || len(hs) != 1 || hs[0].Name != "ok" {
+	if st.Entries != 5 || st.Bytes != 3 || len(hs) != 1 || hs[0].Name != "ok" {
 		t.Errorf("stats %+v, headers %v", st, hs)
 	}
 }
@@ -228,12 +228,12 @@ func TestSanitizeTarPassesReaderErrors(t *testing.T) {
 
 func TestCleanTarName(t *testing.T) {
 	for in, want := range map[string]string{"a/b": "a/b", "./a//b/": "a/b", "./": "", ".": "", "a/./b": "a/b"} {
-		if got, err := cleanTarName(in); err != nil || got != want {
+		if got, err := cleanTarName(in, maxTarNameLen); err != nil || got != want {
 			t.Errorf("cleanTarName(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
 	for _, in := range []string{"/a", "a/../b", "..", "a\x00b", strings.Repeat("a/", 3000)} {
-		if _, err := cleanTarName(in); err == nil {
+		if _, err := cleanTarName(in, maxTarNameLen); err == nil {
 			t.Errorf("cleanTarName(%q) accepted", in)
 		}
 	}

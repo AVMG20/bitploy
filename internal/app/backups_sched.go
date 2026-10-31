@@ -161,8 +161,10 @@ func (s *Service) dropBackup(ctx context.Context, app db.App, id string) {
 	s.Log.Info("old backup removed", "app", app.Slug, "backup", id)
 }
 
-// runDueBackups makes the automatic backups that are due, one app at a time,
-// and applies retention to every app.
+// runDueBackups starts the automatic backups that are due and applies
+// retention to every app. The backups run in goroutines of their own, at most
+// backupConcurrency at a time, so a slow one does not hold up the others or
+// the next check.
 func (s *Service) runDueBackups(ctx context.Context) {
 	apps, err := s.Q.ListAllApps(ctx)
 	if err != nil {
@@ -181,14 +183,14 @@ func (s *Service) runDueBackups(ctx context.Context) {
 		if err != nil || !backupDue(app.BackupSchedule, last, s.Now()) {
 			continue
 		}
-		s.runScheduledBackup(ctx, app)
+		s.startScheduledBackup(ctx, app)
 	}
 }
 
-// runScheduledBackup makes one automatic backup. A backup that cannot be made
-// is recorded as failed, with the reason, so the user can see it; that also
-// counts as this period's attempt.
-func (s *Service) runScheduledBackup(ctx context.Context, app db.App) {
+// startScheduledBackup queues one automatic backup. The app's backup lock is
+// taken here and held until the job is done, so the next check does not queue
+// the same app twice while it waits for a free slot.
+func (s *Service) startScheduledBackup(ctx context.Context, app db.App) {
 	owner, err := s.Q.GetUser(ctx, app.UserID)
 	if err != nil || owner.Status != "active" {
 		return
@@ -200,13 +202,50 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App) {
 	if !l.TryLock() {
 		return
 	}
-	defer l.Unlock()
+	s.backupGo(func() {
+		defer l.Unlock()
+		sem := s.backupSem()
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-ctx.Done():
+			return
+		}
+		jctx, cancel := s.backupCtx()
+		defer cancel()
+		s.runScheduledBackup(jctx, app, owner)
+	})
+}
+
+func (s *Service) backupSem() chan struct{} {
+	s.backup.mu.Lock()
+	defer s.backup.mu.Unlock()
+	if s.backup.sem == nil {
+		s.backup.sem = make(chan struct{}, backupConcurrency)
+	}
+	return s.backup.sem
+}
+
+// runScheduledBackup makes one automatic backup; the caller holds the backup
+// lock. A backup that cannot be made is recorded as failed, with the reason, so
+// the user can see it; that also counts as this period's attempt, unless it was
+// cut short (bitploy stopped, or a deployment was in the way): those are tried
+// again at the next check.
+func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.User) {
+	// What the loop read may be minutes old.
+	fresh, err := s.Q.GetApp(ctx, app.ID)
+	if err != nil || fresh.VolumeEnabled == 0 || fresh.BackupSchedule == "off" {
+		return
+	}
+	app = fresh
 	b, err := s.insertBackup(ctx, app.ID, BackupScheduled)
 	if err != nil {
 		return
 	}
 	fail := func(msg string) {
-		_ = s.Q.FinishBackup(ctx, db.FinishBackupParams{Status: backupFailed, Error: msg, FinishedAt: nullInt(s.now(), true), ID: b.ID})
+		_ = s.Q.FinishBackup(context.WithoutCancel(ctx), db.FinishBackupParams{
+			Status: backupFailed, Error: msg, FinishedAt: nullInt(s.now(), true), ID: b.ID,
+		})
 	}
 	if err := s.checkBackupDisk(); err != nil {
 		fail("The server is almost out of disk space.")
@@ -221,11 +260,9 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App) {
 		fail("Skipped: there is no storage left for a backup. Delete an old backup or lower the /data limit of an app.")
 		return
 	}
-	bctx, cancel := context.WithTimeout(ctx, 3*time.Hour)
-	defer cancel()
-	if err := s.finishBackup(bctx, app, b.ID, room); err != nil {
-		if errors.Is(err, dockerx.ErrNoVolume) {
-			_ = s.Q.DeleteBackup(ctx, b.ID) // not started yet: nothing to back up, nothing to report
+	if err := s.finishBackup(ctx, app, owner, b.ID, room, false); err != nil {
+		if errors.Is(err, dockerx.ErrNoVolume) || errors.Is(err, errDeployBusy) {
+			_ = s.Q.DeleteBackup(context.WithoutCancel(ctx), b.ID) // not started: nothing to report, tried again at the next check
 			return
 		}
 		s.Log.Warn("automatic backup failed", "app", app.Slug, "err", err)
@@ -237,7 +274,7 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App) {
 // runBackups is the background loop of automatic backups. It also repairs what
 // a crash left behind.
 func (s *Service) runBackups(ctx context.Context) {
-	s.cleanStaleBackups(ctx)
+	s.recoverAfterCrash(ctx)
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 	for {
@@ -251,11 +288,13 @@ func (s *Service) runBackups(ctx context.Context) {
 	}
 }
 
-// cleanStaleBackups marks backups that were running when bitploy stopped as
-// failed and removes their half-written files.
-func (s *Service) cleanStaleBackups(ctx context.Context) {
+// recoverAfterCrash repairs what a stop of bitploy in the middle of a backup or
+// restore left behind: backups that were running are marked failed (and do not
+// count as an automatic attempt), half-written files and helper containers are
+// removed, frozen apps thawed, and interrupted restores finished.
+func (s *Service) recoverAfterCrash(ctx context.Context) {
 	if err := s.Q.FailRunningBackups(ctx, db.FailRunningBackupsParams{
-		Error: "bitploy restarted while this backup was being made.", FinishedAt: nullInt(s.now(), true),
+		Error: "bitploy was restarted while this backup was being made.", FinishedAt: nullInt(s.now(), true),
 	}); err != nil {
 		s.Log.Warn("cleaning stale backups failed", "err", err)
 	}
@@ -268,4 +307,13 @@ func (s *Service) cleanStaleBackups(ctx context.Context) {
 			}
 		}
 	}
+	if s.Docker != nil && s.backup.vol == nil {
+		removed, resumed, err := s.Docker.CleanupHelpers(ctx)
+		if err != nil {
+			s.Log.Warn("cleaning up backup helpers failed", "err", err)
+		} else if removed+resumed > 0 {
+			s.Log.Warn("repaired after an interrupted backup", "helpers_removed", removed, "apps_resumed", resumed)
+		}
+	}
+	s.recoverRestores(ctx)
 }

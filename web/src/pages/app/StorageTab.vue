@@ -174,21 +174,36 @@ const createBackup = useMutation({
 const fileInput = ref<HTMLInputElement | null>(null)
 const progress = ref(0)
 const uploading = ref(false)
+const processing = ref(false) // everything is sent, the server is checking the archive
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = '' // so the same file can be picked again
   if (!file) return
+  // The server says no to a file that is too big as well, but only after it has
+  // arrived: say so before sending it.
+  const max = list.value?.upload_max_bytes
+  if (max && file.size > max) {
+    toastError(new Error(`That file is too big. Backups can be up to ${formatBytes(max)} here.`))
+    return
+  }
   uploading.value = true
+  processing.value = false
   progress.value = 0
   try {
-    await api.uploadBackup(props.slug, file, (f) => (progress.value = f))
+    await api.uploadBackup(
+      props.slug,
+      file,
+      (f) => (progress.value = f),
+      () => (processing.value = true),
+    )
     toastOk('Backup uploaded', 'You can restore it from the list.')
     refreshBackups()
   } catch (err) {
     toastError(err)
   } finally {
     uploading.value = false
+    processing.value = false
   }
 }
 
@@ -231,20 +246,28 @@ const remove = useMutation({
   },
 })
 
+// Whether a restore now would stop the app and start it again.
+const appWillRestart = computed(() => !!data.value && data.value.desired_state === 'running' && !!data.value.current_deployment)
+
 // Tell the result of a restore once, when it finishes while this page is open.
-const dismissedRestore = ref('')
 watch(
-  () => list.value?.restore?.state,
+  () => list.value?.restore,
   (now, before) => {
-    if (before !== 'running' || !now || now === 'running') return
-    if (now === 'done') toastOk('Backup restored', 'The app is running again.')
+    if (before?.state !== 'running' || !now || now.state === 'running') return
+    if (now.state === 'done') toastOk('Backup restored', now.app_restarts ? 'The app is running again.' : undefined)
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
 )
 const failedRestore = computed(() => {
   const r = list.value?.restore
-  return r && r.state === 'failed' && r.started_at !== dismissedRestore.value ? r : null
+  return r && r.state === 'failed' ? r : null
+})
+// The result stays on the server until it is dismissed, so it does not come back on reload.
+const dismissRestore = useMutation({
+  mutationFn: () => api.dismissBackupRestore(props.slug),
+  onSuccess: refreshBackups,
+  onError: (e) => toastError(e),
 })
 
 const kindLabel: Record<BackupKind, string> = {
@@ -311,7 +334,7 @@ const kindLabel: Record<BackupKind, string> = {
           <input ref="fileInput" type="file" accept=".gz,.tgz,application/gzip,application/x-gzip" class="hidden" @change="onFile" />
           <Button variant="outline" :disabled="working" @click="fileInput?.click()">
             <Loader2 v-if="uploading" class="animate-spin" /><Upload v-else />
-            {{ uploading ? `Uploading ${Math.round(progress * 100)}%` : 'Upload backup' }}
+            {{ uploading ? (processing ? 'Processing...' : `Uploading ${Math.round(progress * 100)}%`) : 'Upload backup' }}
           </Button>
           <Button :disabled="working" @click="createBackup.mutate()">
             <Loader2 v-if="createBackup.isPending.value || backingUp" class="animate-spin" /><Archive v-else />
@@ -323,13 +346,13 @@ const kindLabel: Record<BackupKind, string> = {
         <Alert v-if="restoring">
           <Loader2 class="animate-spin" />
           <AlertTitle>Restoring a backup...</AlertTitle>
-          <AlertDescription>The app restarts when it is done. This can take a few minutes.</AlertDescription>
+          <AlertDescription>{{ list?.restore?.app_restarts ? 'The app restarts when it is done. ' : '' }}This can take a few minutes.</AlertDescription>
         </Alert>
         <Alert v-else-if="failedRestore" variant="destructive">
           <AlertTitle>The backup was not restored.</AlertTitle>
           <AlertDescription>
             <p>{{ failedRestore.error }}</p>
-            <button type="button" class="w-fit underline" @click="dismissedRestore = failedRestore.started_at">Dismiss</button>
+            <button type="button" class="w-fit underline" :disabled="dismissRestore.isPending.value" @click="dismissRestore.mutate()">Dismiss</button>
           </AlertDescription>
         </Alert>
 
@@ -449,7 +472,7 @@ const kindLabel: Record<BackupKind, string> = {
     <ConfirmDialog
       v-model:open="restoreOpen"
       title="Restore this backup?"
-      description="The app restarts. A backup of the current data is made first, so you can undo this."
+      :description="`${appWillRestart ? 'The app restarts. ' : ''}A backup of the current data is made first, so you can undo this.`"
       confirm-label="Restore"
       :destructive="false"
       :loading="restore.isPending.value"
