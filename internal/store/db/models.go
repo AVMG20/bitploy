@@ -193,6 +193,13 @@ type TrafficCountry struct {
 	Visitors int64
 }
 
+type TrafficCursor struct {
+	ID       int64
+	Pos      int64
+	HeadLen  int64
+	HeadHash string
+}
+
 type TrafficDaily struct {
 	AppID     string
 	Day       string

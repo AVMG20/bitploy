@@ -119,7 +119,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_TRAEFIK_INTERNAL_URL` | `http://bitploy-traefik:8081` | Traefik's unpublished entrypoint, for health checks before a swap |
 | `BITPLOY_INTERNAL_URL` | `http://bitploy:8080` | How Traefik reaches bitploy (dashboard route, "No app here" page) |
 | `BITPLOY_APPS_SCHEME`, `BITPLOY_APPS_PORT` | `https`, empty | Scheme and port of app URLs (development uses `http` and `8000`) |
-| `BITPLOY_GEOIP` | `off` | Traffic stats look up visitor countries with DB-IP's free country database, downloaded into `<data dir>/geoip`. `off` skips the download (country is then only known when Cloudflare sends it). Default on |
+| `BITPLOY_GEOIP` | `on` | Traffic stats look up visitor countries with DB-IP's free country database, downloaded into `<data dir>/geoip`. Default `on`; `off` skips the download (country is then only known when Cloudflare sends it) |
 | `BITPLOY_DEV` | `1` | Local development only: plain HTTP, no `Secure` cookies, no Docker cache pruning |
 | `BITPLOY_IMAGE` | `ghcr.io/avmg20/bitploy:1.2.0` | Used by `docker-compose.yml`, not by bitploy itself. Pin a version here. |
 

@@ -53,7 +53,18 @@ CREATE TABLE traffic_referrers (
 ) WITHOUT ROWID;
 CREATE INDEX traffic_referrers_day ON traffic_referrers(day);
 
+-- Where bitploy stopped reading Traefik's access log, saved with the counts it
+-- belongs to, so a restart does not count the same lines twice. The head is a
+-- hash of the first bytes of the file: when it differs, the file is a new one.
+CREATE TABLE traffic_cursor (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),
+    pos       INTEGER NOT NULL,
+    head_len  INTEGER NOT NULL,
+    head_hash TEXT NOT NULL
+);
+
 -- +goose Down
+DROP TABLE traffic_cursor;
 DROP TABLE traffic_referrers;
 DROP TABLE traffic_countries;
 DROP TABLE traffic_paths;

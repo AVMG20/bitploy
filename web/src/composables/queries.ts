@@ -11,7 +11,7 @@ export const keys = {
   apps: ['apps'] as const,
   app: (slug: string) => ['app', slug] as const,
   metrics: (slug: string, window: MetricWindow) => ['metrics', slug, window] as const,
-  traffic: (slug: string, window: TrafficWindow) => ['traffic', slug, window] as const,
+  traffic: (slug: string, window: TrafficWindow | 'today') => ['traffic', slug, window] as const,
   deployments: (slug: string) => ['deployments', slug] as const,
   env: (slug: string) => ['env', slug] as const,
   domains: (slug: string) => ['domains', slug] as const,
@@ -45,6 +45,15 @@ export function useAppTraffic(slug: MaybeRefOrGetter<string>, window: MaybeRefOr
   return useQuery({
     queryKey: computed(() => keys.traffic(toValue(slug), toValue(window))),
     queryFn: () => api.traffic(toValue(slug), toValue(window)),
+    refetchInterval: 30_000,
+  })
+}
+
+/** Only today's numbers (no chart, no lists): cheap enough for the Overview. */
+export function useAppVisitorsToday(slug: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => keys.traffic(toValue(slug), 'today')),
+    queryFn: () => api.traffic(toValue(slug), 'today'),
     refetchInterval: 30_000,
   })
 }

@@ -188,6 +188,23 @@ func (q *Queries) TrafficDailySince(ctx context.Context, arg TrafficDailySincePa
 	return items, nil
 }
 
+const trafficGetCursor = `-- name: TrafficGetCursor :one
+SELECT pos, head_len, head_hash FROM traffic_cursor WHERE id = 1
+`
+
+type TrafficGetCursorRow struct {
+	Pos      int64
+	HeadLen  int64
+	HeadHash string
+}
+
+func (q *Queries) TrafficGetCursor(ctx context.Context) (TrafficGetCursorRow, error) {
+	row := q.db.QueryRowContext(ctx, trafficGetCursor)
+	var i TrafficGetCursorRow
+	err := row.Scan(&i.Pos, &i.HeadLen, &i.HeadHash)
+	return i, err
+}
+
 const trafficHourlySince = `-- name: TrafficHourlySince :many
 SELECT hour, requests, errors_4xx, errors_5xx, visitors
 FROM traffic_hourly WHERE app_id = ? AND hour >= ? ORDER BY hour
@@ -343,6 +360,22 @@ DELETE FROM traffic_referrers WHERE day < ?
 
 func (q *Queries) TrafficPruneReferrers(ctx context.Context, day string) error {
 	_, err := q.db.ExecContext(ctx, trafficPruneReferrers, day)
+	return err
+}
+
+const trafficSetCursor = `-- name: TrafficSetCursor :exec
+INSERT INTO traffic_cursor (id, pos, head_len, head_hash) VALUES (1, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET pos = excluded.pos, head_len = excluded.head_len, head_hash = excluded.head_hash
+`
+
+type TrafficSetCursorParams struct {
+	Pos      int64
+	HeadLen  int64
+	HeadHash string
+}
+
+func (q *Queries) TrafficSetCursor(ctx context.Context, arg TrafficSetCursorParams) error {
+	_, err := q.db.ExecContext(ctx, trafficSetCursor, arg.Pos, arg.HeadLen, arg.HeadHash)
 	return err
 }
 

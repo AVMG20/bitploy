@@ -367,7 +367,7 @@ func (a *API) appRoutes() {
 		Summary: "Visitors, top pages, countries and referrers",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Window string `query:"window" default:"24h" enum:"24h,7d,30d"`
+		Window string `query:"window" default:"24h" enum:"24h,7d,30d,today"`
 	}) (*Out[app.Traffic], error) {
 		return okOrNil(a.svc.GetTraffic(ctx, act, in.App, in.Window))
 	})

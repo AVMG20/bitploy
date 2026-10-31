@@ -118,3 +118,24 @@ func TestIsBot(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIP(t *testing.T) {
+	for in, want := range map[string]string{
+		"203.0.113.7":               "203.0.113.7",
+		"203.0.113.7, 198.51.100.2": "198.51.100.2", // X-Forwarded-For: the last entry is the client
+		"1.1.1.1,  2001:db8::1 ":    "2001:db8::1",
+		"::ffff:203.0.113.7":        "203.0.113.7",
+		"203.0.113.7:5000":          "203.0.113.7",
+		"[2001:db8::1]:443":         "2001:db8::1",
+		"unknown":                   "unknown", // not an address: kept as it is
+		"":                          "",
+	} {
+		if got := clientIP(in); got != want {
+			t.Errorf("clientIP(%q) = %q, want %q", in, got, want)
+		}
+	}
+	line := `{"RouterName":"app-x@file","ClientHost":"9.9.9.9, 203.0.113.7","DownstreamStatus":200}`
+	if e, _ := ParseLine([]byte(line)); e.IP != "203.0.113.7" {
+		t.Errorf("ParseLine IP = %q", e.IP)
+	}
+}

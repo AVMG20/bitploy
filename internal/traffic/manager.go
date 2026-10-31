@@ -2,6 +2,8 @@ package traffic
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -36,6 +38,9 @@ type Manager struct {
 	routesAt    time.Time
 	routesTried time.Time
 	lastWarn    time.Time
+
+	cursorLoaded bool
+	savedPos     Position // the position stored with the last flush
 }
 
 // New returns a Manager reading logPath.
@@ -78,6 +83,17 @@ func (m *Manager) Run(ctx context.Context) {
 
 // Poll reads the new log lines into memory.
 func (m *Manager) Poll(ctx context.Context) {
+	if !m.cursorLoaded {
+		m.cursorLoaded = true
+		c, err := m.Store.Q.TrafficGetCursor(ctx)
+		switch {
+		case err == nil:
+			m.savedPos = Position{Offset: c.Pos, HeadLen: int(c.HeadLen), Head: c.HeadHash}
+			m.tail.Resume(m.savedPos)
+		case !errors.Is(err, sql.ErrNoRows):
+			m.Log.Warn("traffic: reading the saved position failed", "err", err)
+		}
+	}
 	err := m.tail.Poll(func(line []byte) { m.handle(ctx, line) })
 	if err != nil && m.Now().Sub(m.lastWarn) > time.Hour {
 		m.lastWarn = m.Now()
@@ -144,12 +160,56 @@ func (m *Manager) loadRoutes(ctx context.Context) {
 // Forget drops the unsaved counts of a deleted app.
 func (m *Manager) Forget(appID string) { m.agg.Forget(appID) }
 
-// Flush writes the counts gathered since the last flush. An app that was
-// deleted in the meantime fails its own transaction and is skipped.
+// Flush saves the counts gathered since the last flush, and how far the log has
+// been read, in one transaction. If that fails the counts go back into memory
+// and are saved with the next flush; the saved position then stays behind, so
+// a restart in between reads those lines again instead of losing them.
 func (m *Manager) Flush(ctx context.Context) {
-	for appID, d := range m.agg.Flush() {
-		if err := m.Store.Tx(ctx, func(q *db.Queries) error { return write(ctx, q, appID, d) }); err != nil {
-			m.Log.Warn("traffic: saving counts failed", "app", appID, "err", err)
+	snap := m.agg.Flush()
+	m.dropDeleted(ctx, snap)
+	pos, havePos := m.tail.Position()
+	save := havePos && pos != m.savedPos
+	if len(snap) == 0 && !save {
+		return
+	}
+	err := m.Store.Tx(ctx, func(q *db.Queries) error {
+		for appID, d := range snap {
+			if err := write(ctx, q, appID, d); err != nil {
+				return err
+			}
+		}
+		if save {
+			return q.TrafficSetCursor(ctx, db.TrafficSetCursorParams{Pos: pos.Offset, HeadLen: int64(pos.HeadLen), HeadHash: pos.Head})
+		}
+		return nil
+	})
+	if err != nil {
+		m.Log.Warn("traffic: saving counts failed, will try again", "err", err)
+		m.agg.Restore(snap)
+		return
+	}
+	if save {
+		m.savedPos = pos
+	}
+}
+
+// dropDeleted removes apps that no longer exist from a snapshot: saving their
+// counts would fail on the foreign key and take everyone else's down with it.
+func (m *Manager) dropDeleted(ctx context.Context, snap Snapshot) {
+	if len(snap) == 0 {
+		return
+	}
+	apps, err := m.Store.Q.TrafficListApps(ctx)
+	if err != nil {
+		return
+	}
+	exists := make(map[string]bool, len(apps))
+	for _, a := range apps {
+		exists[a.ID] = true
+	}
+	for id := range snap {
+		if !exists[id] {
+			delete(snap, id)
 		}
 	}
 }

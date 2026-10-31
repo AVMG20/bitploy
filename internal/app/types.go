@@ -253,7 +253,7 @@ type Metrics struct {
 // Visitors are unique per UTC day: over several days a returning visitor counts once per day.
 type Traffic struct {
 	App           string           `json:"app"`
-	Window        string           `json:"window"`      // 24h | 7d | 30d
+	Window        string           `json:"window"`      // 24h | 7d | 30d | today (totals only)
 	Granularity   string           `json:"granularity"` // hour for 24h, day otherwise
 	VisitorsToday int64            `json:"visitors_today"`
 	Totals        TrafficTotals    `json:"totals"`

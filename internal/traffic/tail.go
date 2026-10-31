@@ -2,6 +2,8 @@ package traffic
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -20,6 +22,7 @@ type Tailer struct {
 	SkipKeep   int64 // ...keeping only this many bytes from its end
 	MaxRead    int64 // most bytes read per poll; the rest waits for the next one
 
+	resume  *Position // where to continue at the first poll
 	started bool
 	offset  int64
 	pending []byte // an unfinished last line
@@ -56,7 +59,11 @@ func (t *Tailer) Poll(fn func(line []byte)) error {
 	switch {
 	case !t.started:
 		t.started = true
-		if st.Size() > t.SkipOver {
+		if p := t.resume; p != nil && p.Offset > 0 && p.Offset <= st.Size() && p.matches(f) {
+			t.offset = p.Offset
+		}
+		t.resume = nil
+		if st.Size()-t.offset > t.SkipOver {
 			t.offset, t.skip = st.Size()-t.SkipKeep, true
 		}
 	case !os.SameFile(t.info, st) || st.Size() < t.offset:
@@ -89,6 +96,52 @@ func (t *Tailer) Poll(fn func(line []byte)) error {
 	}
 	return nil
 }
+
+// headBytes is how much of the start of the file identifies it.
+const headBytes = 256
+
+// Position is how far the Tailer has handled the file, as bytes up to the end of
+// the last complete line, plus a hash of the start of the file to tell it from a
+// new file. Save it together with the counts it produced.
+type Position struct {
+	Offset  int64
+	HeadLen int
+	Head    string
+}
+
+func (p Position) matches(f *os.File) bool {
+	h, ok := headHash(f, p.HeadLen)
+	return ok && h == p.Head
+}
+
+func headHash(f *os.File, n int) (string, bool) {
+	buf := make([]byte, n)
+	if _, err := f.ReadAt(buf, 0); err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:]), true
+}
+
+// Position reports how far the file has been handled (false when it cannot tell).
+func (t *Tailer) Position() (Position, bool) {
+	off := t.offset - int64(len(t.pending))
+	if off <= 0 {
+		return Position{}, true
+	}
+	f, err := os.Open(t.Path)
+	if err != nil {
+		return Position{}, false
+	}
+	defer f.Close()
+	n := int(min(off, headBytes))
+	h, ok := headHash(f, n)
+	return Position{Offset: off, HeadLen: n, Head: h}, ok
+}
+
+// Resume makes the first Poll continue at p instead of the start, if the file
+// is still the one p was taken from.
+func (t *Tailer) Resume(p Position) { t.resume = &p }
 
 func (t *Tailer) reset() {
 	t.started, t.offset, t.pending, t.skip, t.info = false, 0, nil, false, nil

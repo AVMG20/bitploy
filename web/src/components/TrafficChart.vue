@@ -49,7 +49,7 @@ function fmtTick(ms: number): string {
   const d = new Date(ms)
   return props.granularity === 'hour'
     ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }) // days are UTC midnights
 }
 
 const template = componentToString(config, ChartTooltipContent, {
@@ -57,7 +57,7 @@ const template = componentToString(config, ChartTooltipContent, {
     const date = d instanceof Date ? d : new Date(d)
     return props.granularity === 'hour'
       ? date.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
-      : date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+      : date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
   },
 })
 </script>

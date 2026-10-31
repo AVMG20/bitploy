@@ -13,6 +13,8 @@ accessLog:
   bufferingSize: 100
   fields:
     defaultMode: drop
+    queryParameters:
+      defaultMode: drop    # no ?query strings in RequestPath
     names:
       StartUTC: keep
       RouterName: keep

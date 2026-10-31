@@ -5,6 +5,7 @@ package traffic
 
 import (
 	"encoding/json"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func ParseLine(b []byte) (Entry, bool) {
 		Method:     r.RequestMethod,
 		Path:       CleanPath(r.RequestPath),
 		Status:     r.Status,
-		IP:         r.ClientHost,
+		IP:         clientIP(r.ClientHost),
 		UserAgent:  r.UserAgent,
 		Referer:    r.Referer,
 		Country:    cleanCountry(r.Country),
@@ -69,6 +70,21 @@ func ParseLine(b []byte) (Entry, bool) {
 		e.Time = t.UTC()
 	}
 	return e, true
+}
+
+// clientIP reads ClientHost. When a proxy sent X-Forwarded-For, Traefik logs the
+// raw header ("1.2.3.4, 5.6.7.8"); the last entry is the one the nearest trusted
+// proxy added, so it is the real client. A value that is not an address is
+// returned as it is.
+func clientIP(host string) string {
+	last := strings.TrimSpace(host[strings.LastIndexByte(host, ',')+1:])
+	if a, err := netip.ParseAddr(last); err == nil {
+		return a.Unmap().String()
+	}
+	if ap, err := netip.ParseAddrPort(last); err == nil {
+		return ap.Addr().Unmap().String()
+	}
+	return host
 }
 
 // CleanPath drops the query string and fragment, decodes %XX when that gives

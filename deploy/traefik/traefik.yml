@@ -13,13 +13,15 @@ log:
 # Every request, as one JSON line in a file that bitploy reads for its traffic stats
 # (docker-compose.yml mounts <data dir>/traefik/logs here). Traefik cannot rotate the
 # file; bitploy truncates it as it reads. Only the fields the stats need are kept: no
-# cookies or other headers. bitploy never stores the IP address, user agent or query string.
+# cookies, other headers or query strings. bitploy never stores the IP address or user agent.
 accessLog:
   filePath: /var/log/traefik/access.log
   format: json
   bufferingSize: 100
   fields:
     defaultMode: drop
+    queryParameters:
+      defaultMode: drop    # no ?query strings in RequestPath
     names:
       StartUTC: keep
       RouterName: keep

@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useApp, useAppMetrics, useAppTraffic } from '@/composables/queries'
+import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { channelLabel, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
@@ -31,8 +31,7 @@ const points = computed(() => metrics.data.value?.points ?? [])
 
 const data = computed(() => app.data.value)
 const isWeb = computed(() => data.value?.type === 'web')
-// Same query as the Traffic tab's 24 hours view, so it is already cached when you open it.
-const traffic = useAppTraffic(() => props.slug, '24h')
+const traffic = useAppVisitorsToday(() => props.slug)
 const dep = computed(() => data.value?.current_deployment ?? null)
 const running = computed(() => data.value?.status === 'running')
 // The newest 15-second sample, only while the app runs.

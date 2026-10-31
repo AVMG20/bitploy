@@ -36,7 +36,9 @@ func (s *Service) trafficMgr() *traffic.Manager {
 }
 
 // GetTraffic returns visitors, requests, top pages, countries and referrers
-// for window 24h | 7d | 30d. 24h is hourly; the others are daily.
+// for window 24h | 7d | 30d. 24h is hourly; the others are daily. Window
+// "today" is the cheap one for the Overview: today's totals and visitors_today,
+// no series and no lists.
 func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (Traffic, error) {
 	app, err := s.LoadApp(ctx, a, ref, false)
 	if err != nil {
@@ -46,7 +48,7 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 	if window == "" {
 		window = "24h"
 	}
-	days := map[string]int{"24h": 2, "7d": 7, "30d": 30}[window]
+	days := map[string]int{"today": 1, "24h": 2, "7d": 7, "30d": 30}[window]
 	if days == 0 {
 		return Traffic{}, apperr.BadRequest("invalid_window",
 			"The window "+quote(window)+" is not supported.", "Use 24h, 7d or 30d.")
@@ -75,6 +77,10 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 	out.VisitorsToday = byDay[today.Format(dayFormat)].Visitors
 	out.Totals = TrafficTotals{Requests: dayTotals.Requests, Visitors: dayTotals.Visitors, Errors: dayTotals.Errors5xx}
 
+	if window == "today" {
+		out.Points, out.Pages, out.Countries, out.Referrers = []TrafficPoint{}, []TrafficItem{}, []TrafficCountry{}, []TrafficItem{}
+		return out, nil
+	}
 	if window == "24h" {
 		out.Granularity = "hour"
 		start := now.Truncate(time.Hour).Add(-(trafficHours - 1) * time.Hour)

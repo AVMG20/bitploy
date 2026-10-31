@@ -22,6 +22,10 @@ type Counts struct {
 	Requests, Errors4xx, Errors5xx, Visitors int64
 }
 
+func (c Counts) add(o Counts) Counts {
+	return Counts{c.Requests + o.Requests, c.Errors4xx + o.Errors4xx, c.Errors5xx + o.Errors5xx, c.Visitors + o.Visitors}
+}
+
 // CountryCounts are the numbers per country and day.
 type CountryCounts struct{ Requests, Visitors int64 }
 
@@ -71,6 +75,67 @@ type dayAgg struct {
 	countries  map[string]CountryCounts
 }
 
+func (a *Aggregator) app(id string) *appAgg {
+	ap := a.apps[id]
+	if ap == nil {
+		ap = &appAgg{hours: map[int64]*hourAgg{}, days: map[string]*dayAgg{}}
+		a.apps[id] = ap
+	}
+	return ap
+}
+
+func (ap *appAgg) hour(h int64) *hourAgg {
+	v := ap.hours[h]
+	if v == nil {
+		v = &hourAgg{seen: map[uint64]struct{}{}}
+		ap.hours[h] = v
+	}
+	return v
+}
+
+func (ap *appAgg) day(day string) *dayAgg {
+	d := ap.days[day]
+	if d == nil {
+		d = &dayAgg{
+			seen: map[uint64]struct{}{}, paths: map[string]int64{}, knownPaths: map[string]struct{}{},
+			refs: map[string]int64{}, knownRefs: map[string]struct{}{}, countries: map[string]CountryCounts{},
+		}
+		ap.days[day] = d
+	}
+	return d
+}
+
+// Restore adds a snapshot back, after it could not be saved.
+func (a *Aggregator) Restore(snap Snapshot) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for id, delta := range snap {
+		ap := a.app(id)
+		for hour, c := range delta.Hours {
+			h := ap.hour(hour)
+			h.delta = h.delta.add(c)
+		}
+		for day, dd := range delta.Days {
+			d := ap.day(day)
+			d.delta = d.delta.add(dd.Counts)
+			for p, n := range dd.Paths {
+				d.paths[p] += n
+				d.knownPaths[p] = struct{}{}
+			}
+			for r, n := range dd.Referrers {
+				d.refs[r] += n
+				d.knownRefs[r] = struct{}{}
+			}
+			for c, n := range dd.Countries {
+				cc := d.countries[c]
+				cc.Requests += n.Requests
+				cc.Visitors += n.Visitors
+				d.countries[c] = cc
+			}
+		}
+	}
+}
+
 func NewAggregator(now func() time.Time) *Aggregator {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
@@ -94,24 +159,8 @@ func (a *Aggregator) Add(appID string, e Entry) {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	ap := a.apps[appID]
-	if ap == nil {
-		ap = &appAgg{hours: map[int64]*hourAgg{}, days: map[string]*dayAgg{}}
-		a.apps[appID] = ap
-	}
-	h := ap.hours[hour]
-	if h == nil {
-		h = &hourAgg{seen: map[uint64]struct{}{}}
-		ap.hours[hour] = h
-	}
-	d := ap.days[day]
-	if d == nil {
-		d = &dayAgg{
-			seen: map[uint64]struct{}{}, paths: map[string]int64{}, knownPaths: map[string]struct{}{},
-			refs: map[string]int64{}, knownRefs: map[string]struct{}{}, countries: map[string]CountryCounts{},
-		}
-		ap.days[day] = d
-	}
+	ap := a.app(appID)
+	h, d := ap.hour(hour), ap.day(day)
 
 	h.delta.Requests++
 	d.delta.Requests++

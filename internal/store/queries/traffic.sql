@@ -38,6 +38,13 @@ ON CONFLICT (app_id, day, country) DO UPDATE SET
 INSERT INTO traffic_referrers (app_id, day, host, visits) VALUES (?, ?, ?, ?)
 ON CONFLICT (app_id, day, host) DO UPDATE SET visits = visits + excluded.visits;
 
+-- name: TrafficGetCursor :one
+SELECT pos, head_len, head_hash FROM traffic_cursor WHERE id = 1;
+
+-- name: TrafficSetCursor :exec
+INSERT INTO traffic_cursor (id, pos, head_len, head_hash) VALUES (1, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET pos = excluded.pos, head_len = excluded.head_len, head_hash = excluded.head_hash;
+
 -- name: TrafficHourlySince :many
 SELECT hour, requests, errors_4xx, errors_5xx, visitors
 FROM traffic_hourly WHERE app_id = ? AND hour >= ? ORDER BY hour;

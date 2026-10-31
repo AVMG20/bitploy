@@ -132,7 +132,11 @@ func serve(log *slog.Logger) error {
 
 	go svc.RunReconciler(ctx)
 	go svc.RunWorker(ctx)
-	go svc.RunBackground(ctx)
+	bgDone := make(chan struct{})
+	go func() {
+		defer close(bgDone)
+		svc.RunBackground(ctx)
+	}()
 	go svc.RunAccountsMaintenance(ctx)
 
 	srv := &http.Server{
@@ -150,16 +154,28 @@ func serve(log *slog.Logger) error {
 		log.Info("bitploy listening", "version", version, "addr", srv.Addr, "public_url", svc.Cfg.PublicURL)
 		errCh <- srv.ListenAndServe()
 	}()
+	var serveErr error
 	select {
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return err
+			serveErr = err
 		}
 	case <-ctx.Done():
 	}
+	stop() // also when the server failed: the background jobs end and save what they hold
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	shutdownErr := srv.Shutdown(shutdownCtx)
+	// Let the background jobs finish, so the traffic counts in memory are saved.
+	select {
+	case <-bgDone:
+	case <-time.After(5 * time.Second):
+		log.Warn("background jobs did not stop in time")
+	}
+	if serveErr != nil {
+		return serveErr
+	}
+	return shutdownErr
 }
 
 func admin(log *slog.Logger, args []string) error {

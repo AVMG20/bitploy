@@ -280,7 +280,7 @@ export const api = {
     request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset } }),
   metrics: (slug: string, window: MetricWindow) =>
     request<Metrics>('GET', paths.appMetrics(slug), { query: { window } }),
-  traffic: (slug: string, window: TrafficWindow) =>
+  traffic: (slug: string, window: TrafficWindow | 'today') =>
     request<Traffic>('GET', paths.appTraffic(slug), { query: { window } }),
 
   // domains

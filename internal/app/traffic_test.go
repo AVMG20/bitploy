@@ -78,6 +78,24 @@ func TestGetTraffic(t *testing.T) {
 	}
 }
 
+func TestGetTrafficToday(t *testing.T) {
+	e := newOpsEnv(t)
+	e.addApp(t, "app_t", "traffic-app", "usr_owner", "web")
+	e.exec(t, `INSERT INTO traffic_daily (app_id, day, requests, visitors) VALUES ('app_t', ?, 10, 4), ('app_t', ?, 99, 50)`,
+		e.now.Format("2006-01-02"), e.now.AddDate(0, 0, -1).Format("2006-01-02"))
+	e.exec(t, `INSERT INTO traffic_paths (app_id, day, path, views) VALUES ('app_t', ?, '/', 10)`, e.now.Format("2006-01-02"))
+	tr, err := e.svc.GetTraffic(context.Background(), e.owner, "traffic-app", "today")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.VisitorsToday != 4 || tr.Totals.Requests != 10 || tr.Totals.Visitors != 4 {
+		t.Errorf("today: %+v", tr)
+	}
+	if len(tr.Points) != 0 || len(tr.Pages) != 0 || tr.Points == nil || tr.Pages == nil {
+		t.Errorf("today must carry no series or lists, as empty arrays: %+v", tr)
+	}
+}
+
 func TestGetTrafficEmptyAndErrors(t *testing.T) {
 	e := newOpsEnv(t)
 	ctx := context.Background()
