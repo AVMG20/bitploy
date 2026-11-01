@@ -2,37 +2,44 @@ import { api, fetchLogLines } from './api'
 import { describeSource, shortSha } from './format'
 import type { App, Deployment } from './types'
 
+// "Copy for AI": a short text about a failure to paste into an AI assistant.
+// It names the app and deployment the way bitploy's tools do (slug, dep_ id),
+// says what failed, and ends with the log tail. It never fetches environment
+// variables, so no values from there end up in it.
+
 /** How many of the last log lines go into the text. */
 const LOG_LINES = 70
 const MAX_LINE = 400
 
-/** What went wrong with a deployment, in a few plain words. */
+/** A log tail; lines is null when the log could not be loaded. */
+type Log = { title: string; lines: string[] | null }
+
+/** What went wrong with a deployment, in a few words. */
 function deploymentFailure(d: Deployment): string {
   switch (d.error?.code) {
     case 'build_failed':
-      return 'The build failed'
+      return 'the build failed'
     case 'unhealthy':
-      return 'The health check failed: the app started but did not answer in time'
+      return 'the app started but failed the health check'
     case 'app_crashed':
-      return 'The app crashed right after it started'
+      return 'the app crashed right after starting'
     case 'out_of_memory':
-      return 'The app ran out of memory'
+      return 'the app ran out of memory'
     case 'start_failed':
-      return 'The app could not start'
+      return 'the container could not start'
     default:
-      return 'The deployment failed'
+      return 'the deployment failed'
   }
 }
 
 function sourceLine(d: Deployment, app: App): string {
-  if (d.source_kind === 'git') {
-    const gs = app.git_source
-    const repo = gs ? (gs.repo ?? gs.repo_url.replace(/^https?:\/\//, '').replace(/\.git$/, '')) : 'a git repository'
-    const at = d.commit_sha ? `@${shortSha(d.commit_sha)}` : ''
-    const msg = d.commit_message ? ` "${d.commit_message.split('\n')[0]}"` : ''
-    return `git ${repo}${at}${gs ? ` (branch ${gs.branch})` : ''}${msg}`
-  }
-  return describeSource(d, app)
+  if (d.source_kind !== 'git') return describeSource(d, app)
+  const gs = app.git_source
+  const repo = gs ? (gs.repo ?? gs.repo_url.replace(/^https?:\/\//, '').replace(/\.git$/, '')) : 'a git repository'
+  const at = d.commit_sha ? `@${shortSha(d.commit_sha)}` : ''
+  const branch = gs ? `, branch ${gs.branch}` : ''
+  const msg = d.commit_message ? `: "${d.commit_message.split('\n')[0]}"` : ''
+  return `git ${repo}${at}${branch}${msg}`
 }
 
 /** A code fence that the log itself cannot close. */
@@ -44,82 +51,77 @@ function fenced(lines: string[]): string {
 }
 
 function tidy(lines: string[]): string[] {
-  return lines
-    .map((l) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + ' ...' : l))
-    .slice(-LOG_LINES)
+  return lines.slice(-LOG_LINES).map((l) => (l.length > MAX_LINE ? l.slice(0, MAX_LINE) + ' ...' : l))
 }
 
-/** The log tail for a failed deployment: its build log, which also holds the start and health check steps. */
-async function deploymentLog(d: Deployment): Promise<{ title: string; lines: string[] } | null> {
-  const title = d.error?.code === 'build_failed' ? 'Last lines of the build log' : 'Last lines of the deployment log'
+/** The deployment log holds the build, the start and, on failure, the app's own output. */
+async function deploymentLog(d: Deployment): Promise<Log> {
+  const title = d.error?.code === 'build_failed' ? 'Build log' : 'Deployment log'
   try {
     const lines = await fetchLogLines({ slug: d.app_slug, kind: 'build', deploymentId: d.id })
     if (lines.length) return { title, lines: tidy(lines) }
   } catch {
     // fall back to the short tail kept with the deployment
   }
-  return d.log_tail?.length ? { title, lines: tidy(d.log_tail) } : null
+  return { title, lines: d.log_tail?.length ? tidy(d.log_tail) : null }
 }
 
-async function runtimeLog(app: App): Promise<{ title: string; lines: string[] } | null> {
+async function runtimeLog(app: App): Promise<Log> {
   try {
-    const lines = await fetchLogLines({ slug: app.slug, kind: 'runtime' })
-    if (lines.length) return { title: 'Last lines of the app log', lines: tidy(lines) }
+    return { title: 'App log', lines: tidy(await fetchLogLines({ slug: app.slug, kind: 'runtime' })) }
   } catch {
-    // the text still helps without the log
+    return { title: 'App log', lines: null } // the text still helps without the log
   }
-  return null
 }
 
-function header(app: App): string[] {
-  const out = [`App: ${app.name}`]
-  if (app.type === 'web' && app.url) out.push(`URL: ${app.url}`)
-  return out
+function appLine(app: App): string {
+  return `App: ${app.slug} ("${app.name}")${app.type === 'web' && app.url ? `, ${app.url}` : ', background worker'}`
 }
 
-const CLOSING = 'Please find out what is wrong, fix it, and deploy the app again with bitploy.'
+function logBlock(log: Log): string[] {
+  if (!log.lines) return [`The ${log.title.toLowerCase()} could not be loaded. Read it with bitploy's get_logs tool.`]
+  if (!log.lines.length) return [`The ${log.title.toLowerCase()} is empty.`]
+  return [`${log.title}, last ${log.lines.length} lines:`, fenced(log.lines)]
+}
 
-function failedDeploymentText(app: App, d: Deployment, log: { title: string; lines: string[] } | null): string {
-  const lines = [`My app "${app.name}" failed to deploy on bitploy.`, '', ...header(app)]
-  lines.push(`What failed: ${deploymentFailure(d)} (version #${d.seq})`)
-  lines.push(`Source: ${sourceLine(d, app)}`)
+function failedDeploymentText(app: App, d: Deployment, log: Log): string {
+  const lines = [
+    'My app on bitploy failed to deploy. Please find the cause, fix it, and deploy again.',
+    '',
+    appLine(app),
+    `Deployment: ${d.id} (#${d.seq}), ${deploymentFailure(d)}`,
+    `Source: ${sourceLine(d, app)}`,
+  ]
   if (d.error?.message) lines.push(`Error: ${d.error.message}`)
-  if (d.error?.hint) lines.push(`Hint: ${d.error.hint}`)
-  const next = d.next_steps?.length ? d.next_steps.join(' ') : d.error?.next_tool ? `use the ${d.error.next_tool} tool` : ''
-  if (next) lines.push(`Next step suggested by bitploy: ${next}`)
-  lines.push('')
-  lines.push(log ? `${log.title}:` : 'The log could not be loaded. Read it with the get_logs tool.')
-  if (log) lines.push(fenced(log.lines))
-  lines.push('', CLOSING)
+  if (d.error?.hint) lines.push(`Hint from bitploy: ${d.error.hint}`)
+  lines.push('', ...logBlock(log))
   return lines.join('\n')
 }
 
-function crashText(app: App, dep: Deployment | null, log: { title: string; lines: string[] } | null): string {
-  const what = app.status === 'crashed' ? 'The app keeps crashing and restarting' : 'The app stopped working'
-  const lines = [`My app "${app.name}" on bitploy is not running.`, '', ...header(app)]
-  lines.push(`What failed: ${what}${app.restart_count > 0 ? ` (restarted ${app.restart_count} ${app.restart_count === 1 ? 'time' : 'times'} by itself)` : ''}`)
-  if (dep) lines.push(`Source: ${sourceLine(dep, app)}`)
+function crashText(app: App, dep: Deployment | null, log: Log): string {
+  const what = app.status === 'crashed' ? 'keeps crashing' : 'stopped working'
+  const lines = [`My app on bitploy ${what}. Please find the cause, fix it, and deploy again.`, '', appLine(app)]
   if (app.status_message) lines.push(`Status: ${app.status_message}`)
-  lines.push('Next step suggested by bitploy: read the app log, fix the cause, then deploy again')
-  lines.push('')
-  lines.push(log ? `${log.title}:` : 'The log could not be loaded. Read it with the get_logs tool.')
-  if (log) lines.push(fenced(log.lines))
-  lines.push('', CLOSING)
+  if (app.restart_count > 0) lines.push(`Restarts: ${app.restart_count}`)
+  if (dep) lines.push(`Current deployment: ${dep.id} (#${dep.seq})`, `Source: ${sourceLine(dep, app)}`)
+  lines.push('', ...logBlock(log))
   return lines.join('\n')
 }
 
 /**
  * The text to paste into an AI assistant when something failed. Never rejects:
- * if the log cannot be loaded the text says so. It holds no environment values.
+ * if the log cannot be loaded the text says so.
  *
  * With a deployment it describes that failed deployment. Without one it
- * describes the running app: a crash, or (when nothing ever ran) the newest failed deployment.
+ * describes the app: the newest deployment if that is the one that failed
+ * (an app whose last deploy failed), otherwise the crash of the running version.
  */
 export async function buildFailureText(app: App, deployment?: Deployment | null): Promise<string> {
   let d = deployment ?? null
-  if (!d && !app.current_deployment) {
+  if (!d && app.status === 'failed') {
     try {
-      d = (await api.deployments(app.slug)).find((x) => x.state === 'failed') ?? null
+      const newest = (await api.deployments(app.slug))[0]
+      if (newest?.state === 'failed' && newest.id !== app.current_deployment?.id) d = newest
     } catch {
       d = null
     }

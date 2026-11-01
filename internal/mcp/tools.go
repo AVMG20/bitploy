@@ -112,8 +112,8 @@ type setEnvIn struct {
 type setPasswordIn struct {
 	App      string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Enabled  bool    `json:"enabled" jsonschema:"true puts the login prompt in front of the app, false removes it. Only when the user asks."`
-	Username *string `json:"username,omitempty" jsonschema:"The login name the user wants: 1-64 letters, digits and . _ - @ + (no spaces), like team. Needed when turning it on; leave out to keep the current one."`
-	Password *string `json:"password,omitempty" jsonschema:"The password: 8-72 characters. Needed when turning it on; leave out to keep the current one. Never reuse a password from elsewhere."`
+	Username *string `json:"username,omitempty" jsonschema:"1 to 64 letters, digits and . _ - @ + (no spaces), like team. Needed when turning it on; leave out to keep the current one."`
+	Password *string `json:"password,omitempty" jsonschema:"8 to 72 characters. Needed when turning it on; leave out to keep the current one."`
 }
 
 type rollbackIn struct {
@@ -547,7 +547,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_password_protection", "Password-protect an app",
-		"Turns a browser login prompt (username and password) on or off in front of an app's web addresses, for example while it is not ready to be public. ONLY call this when the user asks for it; never turn it on or off by yourself, and never use it to hide a problem. enabled=true needs a username and a password the first time; later you can send only one of them to change just that. enabled=false removes the prompt and forgets the login. Take the username and password from the user. If they have none in mind, suggest one (a few words and a number) and tell them once, in your answer, so they can save it. Never reuse a password from elsewhere. The password is never stored readable and never shown again. Works at once, no restart or deploy, and later deploys keep it. Not for workers. get_app shows protected and the username.",
+		"Puts a browser login prompt (username and password) in front of an app's web addresses, including its custom domains, or removes it. ONLY call this when the user asks for it; never on your own, and never to hide a problem. enabled=true needs a username and a password the first time; after that, send only the one to change. enabled=false removes the prompt and forgets the login. Use the login the user gives you. If they have none, suggest a new password (a few words and a number) and tell them once in your answer: nobody can read it back later. Takes effect at once, no deploy needed, and later deploys keep it. Web apps only.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setPasswordIn) (*result, error) {
 			ap, err := svc.SetPasswordProtection(ctx, a, in.App, app.ProtectionInput{Enabled: in.Enabled, Username: in.Username, Password: in.Password})
@@ -565,8 +565,8 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("%s now asks for a username and password (username %s).", ap.Slug, ap.ProtectedUsername),
 				Data:    data("app", ap),
 				Next: []string{
-					"Tell the user the app now asks for the username " + ap.ProtectedUsername + " and the password they chose (or the one you suggested, if you said it to them). It works within a couple of seconds. Nobody, you included, can read the password back later.",
-					"Deploys and restarts keep the password. To remove it, call set_password_protection with enabled=false, only if the user asks.",
+					"Tell the user the app now asks for the username " + ap.ProtectedUsername + " and the password. If you suggested the password, say it once so they can save it: nobody can read it back later.",
+					"To remove the prompt later, call set_password_protection with enabled=false, only when the user asks.",
 				},
 			}, nil
 		})

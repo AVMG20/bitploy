@@ -71,7 +71,7 @@ function stop() {
             <template v-if="data.type === 'web'">
               <a :href="data.url" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] text-foreground hover:underline">{{ hostOf(data.url) }}</a>
               <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="-ml-1 size-6 text-muted-foreground" />
-              <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Visitors need the login for ${data.protected_username}`">
+              <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Password-protected. Visitors sign in as ${data.protected_username}.`">
                 <Lock class="size-3.5" aria-hidden="true" /> Private
               </span>
             </template>

@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +62,28 @@ func TestLoginPromptIsNotCountedAsTraffic(t *testing.T) {
 	}
 	if got := e.count(`SELECT COALESCE(SUM(errors_4xx), 0) FROM traffic_hourly WHERE app_id = 'app_2'`); got != 1 {
 		t.Errorf("app_2 4xx errors = %d, want 1 (a 401 the app sent itself)", got)
+	}
+}
+
+// Lines written by a real Traefik v3.7.17 with the route file bitploy renders
+// for a protected app: no login, a wrong login, the right login, a 401 the app
+// sent itself, the custom domain's prompt, and the internal live router.
+func TestParseRealTraefikAuthLines(t *testing.T) {
+	for _, c := range []struct {
+		line    string
+		status  int
+		blocked bool
+	}{
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":401,"Duration":170308,"OriginStatus":0,"RequestHost":"shop.localhost","RequestMethod":"GET","RequestPath":"/","RouterName":"app-shop@file","StartUTC":"2026-11-01T07:25:45.283319029Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 401, true},
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":401,"Duration":19276686,"OriginStatus":0,"RequestHost":"shop.localhost","RequestMethod":"GET","RequestPath":"/","RouterName":"app-shop@file","StartUTC":"2026-11-01T07:25:45.336332166Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 401, true},
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":200,"Duration":23038186,"OriginStatus":200,"RequestHost":"shop.localhost","RequestMethod":"GET","RequestPath":"/hello","RouterName":"app-shop@file","StartUTC":"2026-11-01T07:25:45.299276149Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 200, false},
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":401,"Duration":29329857,"OriginStatus":401,"RequestHost":"shop.localhost","RequestMethod":"GET","RequestPath":"/secret","RouterName":"app-shop@file","StartUTC":"2026-11-01T07:25:45.373378806Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 401, false},
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":401,"Duration":174445,"OriginStatus":0,"RequestHost":"shop.example.test","RequestMethod":"GET","RequestPath":"/","RouterName":"app-shop-shop-example-test@file","StartUTC":"2026-11-01T07:25:45.418745372Z","entryPointName":"websecure","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 401, true},
+		{`{"ClientHost":"127.0.0.1","DownstreamStatus":200,"Duration":3111937,"OriginStatus":200,"RequestHost":"live.shop.bitploy.internal","RequestMethod":"GET","RequestPath":"/live","RouterName":"app-shop-live@file","StartUTC":"2026-11-01T07:25:45.601194783Z","entryPointName":"internal","level":"info","msg":"","request_User-Agent":"curl/8.5.0","time":"2026-11-01T07:25:45Z"}`, 200, false},
+	} {
+		e, ok := ParseLine([]byte(c.line))
+		if !ok || e.Status != c.status || e.Blocked != c.blocked || e.Time.IsZero() || !strings.HasPrefix(e.Router, "app-shop") {
+			t.Errorf("%+v ok=%v, want status %d blocked %v\n%s", e, ok, c.status, c.blocked, c.line)
+		}
 	}
 }

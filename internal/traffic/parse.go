@@ -22,12 +22,12 @@ type Entry struct {
 	Status     int
 	// Blocked is true when Traefik itself answered 401 (the password prompt of a
 	// protected app) and the request never reached the app. It is not traffic.
-	Blocked bool
-	IP         string
-	UserAgent  string
-	Referer    string
-	Country    string // ISO code from Cf-Ipcountry, or empty
-	Time       time.Time
+	Blocked   bool
+	IP        string
+	UserAgent string
+	Referer   string
+	Country   string // ISO code from Cf-Ipcountry, or empty
+	Time      time.Time
 }
 
 // rawLine holds the fields bitploy asks Traefik to keep (deploy/traefik/traefik.yml).

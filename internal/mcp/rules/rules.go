@@ -77,7 +77,7 @@ const RuntimeContract = `## Runtime contract
 
 ## Password protection
 
-set_password_protection(app, enabled, username, password) puts a browser login prompt in front of the app's web addresses (its bitploy address and every custom domain). Use it only when the user asks, for example "keep this private until it is ready". Get the username and password from the user; if they have none, suggest a password of a few words and a number and say it once in your answer. It works at once and survives deploys and restarts; get_app shows protected and the username. Nobody can read the password back, so to change it call the tool again. A protected app answers 401 to anyone without the login: that is not a failure, and bitploy's own health checks are not affected. enabled=false removes the prompt.
+set_password_protection(app, enabled, username, password) puts a browser login prompt in front of the app's web addresses (its bitploy address and every custom domain). Use it only when the user asks, for example "keep this private until it is ready". Get the username and password from the user; if they have none, suggest a password of a few words and a number and say it once in your answer. Nobody can read the password back; to change it, call the tool again. A protected app answers 401 to anyone without the login. That is not a failure, and bitploy's own health checks still work. enabled=false removes the prompt.
 
 ## Custom domains
 

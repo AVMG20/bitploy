@@ -13,7 +13,7 @@ func routers(t *testing.T, b []byte) (map[string][]string, map[string]any) {
 	var f struct {
 		HTTP struct {
 			Routers     map[string]struct{ Middlewares []string } `yaml:"routers"`
-			Middlewares map[string]any                           `yaml:"middlewares"`
+			Middlewares map[string]any                            `yaml:"middlewares"`
 		} `yaml:"http"`
 	}
 	if err := yaml.Unmarshal(b, &f); err != nil {

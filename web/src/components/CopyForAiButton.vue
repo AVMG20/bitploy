@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Check, ClipboardCopy, Loader2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { buildFailureText } from '@/lib/copyForAi'
-import { copyTextLater } from '@/lib/notify'
+import { copyText, copyTextLater } from '@/lib/notify'
 import type { App, Deployment } from '@/lib/types'
 
 // Copies a short description of what failed, with the end of the log, to paste
@@ -12,14 +12,34 @@ const props = defineProps<{ app: App; deployment?: Deployment | null; variant?: 
 
 const busy = ref(false)
 const done = ref(false)
+// The last text, kept briefly: if the browser refused the first copy (plain
+// http), a second click copies it at once, inside the click.
+let cached: { text: string; at: number } | null = null
+watch(
+  () => [props.app.id, props.app.status, props.deployment?.id],
+  () => (cached = null),
+)
+
+const what = 'Copied. Paste it into your AI assistant.'
 
 async function copy() {
   if (busy.value) return
   busy.value = true
   try {
-    await copyTextLater(() => buildFailureText(props.app, props.deployment), 'Copied. Paste it into your AI assistant.')
-    done.value = true
-    setTimeout(() => (done.value = false), 2000)
+    let ok: boolean
+    if (cached && Date.now() - cached.at < 60_000) {
+      ok = await copyText(cached.text, what)
+    } else {
+      const text = buildFailureText(props.app, props.deployment).then((t) => {
+        cached = { text: t, at: Date.now() }
+        return t
+      })
+      ok = await copyTextLater(() => text, what)
+    }
+    if (ok) {
+      done.value = true
+      setTimeout(() => (done.value = false), 2000)
+    }
   } finally {
     busy.value = false
   }
