@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { History, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
@@ -95,6 +96,7 @@ function canRollback(d: Deployment): boolean {
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
             <pre class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs whitespace-pre-wrap">{{ d.log_tail.join('\n') }}</pre>
           </details>
+          <CopyForAiButton v-if="d.state === 'failed' && app.data.value" class="mt-3" :app="app.data.value" :deployment="d" />
         </div>
         <ul v-if="d.warnings?.length" class="grid gap-1 text-sm">
           <li
