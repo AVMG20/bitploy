@@ -131,7 +131,8 @@ func (a *API) appRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "createUpload", Method: http.MethodPost, Path: "/apps/{app}/uploads", Tags: []string{"Deployments"},
-		Summary: "Create a one-time upload URL", Description: "POST the raw zip to the returned URL (95 MB max, 15 minutes). Accepts an Idempotency-Key header.",
+		Summary: "Create a one-time upload URL", Description: "POST the raw zip to the returned URL (95 MB max, 15 minutes). Accepts an Idempotency-Key header. " +
+			"With a session or token you can skip this and the deploy call: POST the raw zip to /apps/{app}/upload, which stores it and queues the deployment (202, a deployment).",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.Upload], error) {
 		return okOrNil(a.svc.CreateUpload(ctx, act, in.App))

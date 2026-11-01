@@ -2,8 +2,11 @@
 
 -- name: InsertApp :exec
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
+                  build_mode, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
+
+-- name: SetAppBuildMode :exec
+UPDATE apps SET build_mode = ?, updated_at = ? WHERE id = ?;
 
 -- name: UpdateAppSettings :exec
 UPDATE apps

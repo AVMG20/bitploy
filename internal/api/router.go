@@ -48,12 +48,15 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	// GitHub's webhook: no session or token, the signature is the credential.
 	mux.Handle("POST "+prefix+"/github/webhook", readDeadline(apiReadTimeout, http.HandlerFunc(a.githubWebhook)))
 	// File streams below /api/v1: same authentication, no 8 MB body cap.
-	a.backupFileRoutes(mux, func(next http.Handler) http.Handler {
+	fileWrap := func(next http.Handler) http.Handler {
 		next = annotate(next)
 		next = limiter.middleware(next)
 		next = auth.Middleware(svc, auth.Options{Channel: app.ChannelAPI, AllowCookie: true, CheckOrigin: true})(next)
 		return withMeta(svc.Cfg, next)
-	})
+	}
+	a.backupFileRoutes(mux, fileWrap)
+	// Upload a zip and deploy it in one request (the dashboard's upload).
+	mux.Handle("POST "+prefix+"/apps/{app}/upload", fileWrap(readDeadline(uploadReadTimeout, http.HandlerFunc(a.appUpload))))
 
 	if mcpHandler != nil {
 		// /mcp takes bearer tokens only (never cookies). The actor is in the

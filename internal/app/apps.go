@@ -39,6 +39,19 @@ const (
 	slugReserveDays  = 30
 )
 
+// normalizeBuildMode validates a build mode; empty means dockerfile.
+func normalizeBuildMode(m string) (string, error) {
+	m = strings.ToLower(strings.TrimSpace(m))
+	if m == "" {
+		return deploy.BuildModeDockerfile, nil
+	}
+	if !deploy.ValidBuildMode(m) {
+		return "", apperr.BadRequest("build_mode_invalid", "The build mode "+quote(m)+" is not known.",
+			"Use dockerfile (the source needs a Dockerfile, the default), auto (a Dockerfile, else a plain website with an index.html) or static (always a plain website).")
+	}
+	return m, nil
+}
+
 // ---- apps ----
 
 func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (App, error) {
@@ -72,6 +85,10 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		cpu = *in.CPUMillis
 	}
 	if err := validResources(mem, cpu); err != nil {
+		return App{}, err
+	}
+	buildMode, err := normalizeBuildMode(in.BuildMode)
+	if err != nil {
 		return App{}, err
 	}
 	volMB := int64(defaultVolumeMB)
@@ -164,7 +181,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
-			MemoryMb: mem, CpuMillis: cpu, CreatedAt: now, UpdatedAt: now,
+			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -181,7 +198,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		return App{}, apperr.Internal(err)
 	}
-	s.Audit(ctx, a, "app.create", "app", id, map[string]any{"slug": slug, "type": typ})
+	s.Audit(ctx, a, "app.create", "app", id, map[string]any{"slug": slug, "type": typ, "build_mode": buildMode})
 	row, err := s.Q.GetApp(ctx, id)
 	if err != nil {
 		return App{}, apperr.Internal(err)
@@ -290,6 +307,15 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		p.ContextDir = path.Clean(cd)
 		changed["context_dir"] = p.ContextDir
 	}
+	buildMode := row.BuildMode
+	if in.BuildMode != nil {
+		bm, err := normalizeBuildMode(*in.BuildMode)
+		if err != nil {
+			return App{}, err
+		}
+		buildMode = bm
+		changed["build_mode"] = bm
+	}
 	if in.Volume != nil {
 		p.VolumeEnabled = b2i(*in.Volume)
 		changed["volume"] = *in.Volume
@@ -358,6 +384,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		}
 	} else if err := s.Q.UpdateAppSettings(ctx, p); err != nil {
 		return App{}, apperr.Internal(err)
+	}
+	if buildMode != row.BuildMode {
+		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+			return App{}, apperr.Internal(err)
+		}
 	}
 	if len(changed) > 0 {
 		changed["old_slug"] = row.Slug
@@ -797,7 +828,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
-		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir,
+		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}

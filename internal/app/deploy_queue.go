@@ -64,7 +64,12 @@ func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []
 		byPath[f.Path] = f.Data
 		paths[i] = f.Path
 	}
-	res, ctxFiles := s.runChecks(row, paths, func(p string) []byte { return byPath[p] })
+	// The build mode decides between the app's Dockerfile and a static site.
+	effApp, _, allPaths, read, perr := planBuild(row, paths, func(p string) []byte { return byPath[p] })
+	if perr != nil {
+		return Deployment{}, perr
+	}
+	res, ctxFiles := s.runChecks(effApp, allPaths, read)
 	if cerr := checkError(res, ctxFiles); cerr != nil {
 		return Deployment{}, cerr
 	}
@@ -788,4 +793,46 @@ func checkError(res deploy.CheckResult, files []string) error {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// UploadAndDeploy takes a zip as the request body and deploys it in one step:
+// the same as create_upload, the upload and deploy, for callers that already
+// have a session (the dashboard). All the usual checks apply: git-linked apps
+// refuse it, a full disk, the deploys per hour and the storage and start
+// quotas are checked before the body is read where they can be, and the zip
+// itself is inspected as for any upload.
+func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body io.Reader) (Deployment, error) {
+	row, err := s.LoadApp(ctx, a, ref, true)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := gitLinkedErr(row); err != nil {
+		return Deployment{}, err
+	}
+	if err := s.checkDiskRoom(); err != nil {
+		return Deployment{}, err
+	}
+	user, err := s.activeUser(ctx, row.UserID)
+	if err != nil {
+		return Deployment{}, err
+	}
+	// Refuse before a large body is read, not after.
+	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
+		return Deployment{}, err
+	}
+	if err := s.checkStorageRoom(ctx, user); err != nil {
+		return Deployment{}, err
+	}
+	if err := s.checkStartQuota(ctx, row); err != nil {
+		return Deployment{}, err
+	}
+	up, err := s.CreateUpload(ctx, a, ref)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if _, err := s.ReceiveUpload(ctx, up.ID, body); err != nil {
+		_ = s.Q.DeleteUpload(ctx, up.ID)
+		return Deployment{}, err
+	}
+	return s.Deploy(ctx, a, ref, up.ID)
 }

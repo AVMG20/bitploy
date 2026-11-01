@@ -52,8 +52,10 @@ type Me struct {
 	Quota      Quota  `json:"quota"`
 	Usage      Usage  `json:"usage"`
 	AppsDomain string `json:"apps_domain"`
-	PublicURL  string `json:"public_url"`
-	Scope      Scope  `json:"scope"`
+	// AppURLTemplate is the address of an app with {slug} in place of its subdomain, for previews.
+	AppURLTemplate string `json:"app_url_template"`
+	PublicURL      string `json:"public_url"`
+	Scope          Scope  `json:"scope"`
 }
 
 type SessionInfo struct {
@@ -139,6 +141,7 @@ type App struct {
 	HealthPath     string `json:"health_path"`
 	DockerfilePath string `json:"dockerfile_path"`
 	ContextDir     string `json:"context_dir"`
+	BuildMode      string `json:"build_mode"` // dockerfile | auto | static
 	Volume         bool   `json:"volume"`
 	VolumeMB       int64  `json:"volume_mb"` // storage limit of /data
 	// VolumeUsedMB is what /data holds, measured hourly; nil when the volume is
@@ -376,6 +379,8 @@ type CreateAppInput struct {
 	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
 	MemoryMB  *int64 `json:"memory_mb,omitempty"`
 	CPUMillis *int64 `json:"cpu_millis,omitempty"`
+	// BuildMode is how the source is built: dockerfile (default), auto or static.
+	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else a plain website (index.html at the top). static: always a plain website."`
 }
 
 // UpdateAppInput: nil fields are left unchanged.
@@ -387,6 +392,7 @@ type UpdateAppInput struct {
 	HealthPath     *string `json:"health_path,omitempty"`
 	DockerfilePath *string `json:"dockerfile_path,omitempty"`
 	ContextDir     *string `json:"context_dir,omitempty"`
+	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile, auto or static (see create app)"`
 	Volume         *bool   `json:"volume,omitempty"`
 	VolumeMB       *int64  `json:"volume_mb,omitempty"`
 	MemoryMB       *int64  `json:"memory_mb,omitempty"`

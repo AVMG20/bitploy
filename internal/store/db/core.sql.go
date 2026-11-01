@@ -22,7 +22,7 @@ func (q *Queries) CountAllApps(ctx context.Context) (int64, error) {
 }
 
 const getApp = `-- name: GetApp :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps WHERE id = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, build_mode FROM apps WHERE id = ?
 `
 
 func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
@@ -61,12 +61,13 @@ func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
 		&i.RestoreResume,
 		&i.GitAutoDeploy,
 		&i.GitLastPushAt,
+		&i.BuildMode,
 	)
 	return i, err
 }
 
 const getAppBySlug = `-- name: GetAppBySlug :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps WHERE slug = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, build_mode FROM apps WHERE slug = ?
 `
 
 func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
@@ -105,6 +106,7 @@ func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
 		&i.RestoreResume,
 		&i.GitAutoDeploy,
 		&i.GitLastPushAt,
+		&i.BuildMode,
 	)
 	return i, err
 }
@@ -235,7 +237,7 @@ func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error 
 }
 
 const listAllApps = `-- name: ListAllApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps ORDER BY created_at DESC
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, build_mode FROM apps ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
@@ -280,6 +282,7 @@ func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
 			&i.RestoreResume,
 			&i.GitAutoDeploy,
 			&i.GitLastPushAt,
+			&i.BuildMode,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +298,7 @@ func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
 }
 
 const listAppsByUser = `-- name: ListAppsByUser :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at FROM apps WHERE user_id = ? ORDER BY created_at DESC
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, build_mode FROM apps WHERE user_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAppsByUser(ctx context.Context, userID string) ([]App, error) {
@@ -340,6 +343,7 @@ func (q *Queries) ListAppsByUser(ctx context.Context, userID string) ([]App, err
 			&i.RestoreResume,
 			&i.GitAutoDeploy,
 			&i.GitLastPushAt,
+			&i.BuildMode,
 		); err != nil {
 			return nil, err
 		}

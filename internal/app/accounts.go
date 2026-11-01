@@ -336,12 +336,13 @@ func (s *Service) Me(ctx context.Context, a Actor) (Me, error) {
 		return Me{}, apperr.As(err)
 	}
 	return Me{
-		User:       acctUserFromRow(u),
-		Quota:      acctQuotaFromRow(u),
-		Usage:      usage,
-		AppsDomain: s.Cfg.AppsDomain,
-		PublicURL:  s.Cfg.PublicURL,
-		Scope:      a.Scope,
+		User:           acctUserFromRow(u),
+		Quota:          acctQuotaFromRow(u),
+		Usage:          usage,
+		AppsDomain:     s.Cfg.AppsDomain,
+		AppURLTemplate: s.Cfg.AppURL("{slug}"),
+		PublicURL:      s.Cfg.PublicURL,
+		Scope:          a.Scope,
 	}, nil
 }
 
