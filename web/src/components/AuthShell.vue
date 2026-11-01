@@ -5,9 +5,9 @@ import ThemeToggle from './ThemeToggle.vue'
 defineProps<{ title: string; description?: string }>()
 
 const steps = [
-  { title: 'Connect your AI assistant', text: 'Add bitploy to Claude, Cursor or another AI tool. It takes a minute.' },
-  { title: 'Ask it to put your app online', text: 'It builds the app on this server and gives you a link.' },
-  { title: 'Change it any time', text: 'Ask again or push to GitHub. Every version is kept, so you can go back.' },
+  { title: 'Add your app', text: 'Ask your AI assistant, pick a GitHub repo, or upload the files. A single HTML file works too.' },
+  { title: 'Get a link', text: 'bitploy builds it on this server and gives you an address to share.' },
+  { title: 'Change it any time', text: 'Push to GitHub, upload a new version or ask your AI again. Every version is kept, so you can go back.' },
 ]
 </script>
 
@@ -19,8 +19,8 @@ const steps = [
         bitploy
       </div>
       <div class="my-auto max-w-md">
-        <h2 class="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">Put your apps online by asking your AI.</h2>
-        <p class="mt-3 text-muted-foreground">bitploy hosts websites and small apps on your own server. Your AI assistant does the deploying.</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">Put your apps online.</h2>
+        <p class="mt-3 text-muted-foreground">bitploy hosts websites and small apps on your own server.</p>
         <ol class="mt-10 grid gap-6">
           <li v-for="(step, i) in steps" :key="step.title" class="flex gap-4">
             <span class="font-mono text-sm text-primary tabular-nums">0{{ i + 1 }}</span>
