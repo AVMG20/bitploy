@@ -267,11 +267,6 @@ const del = useMutation({
       </CardContent>
     </Card>
 
-    <template v-if="app.data.value">
-      <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
-      <GitConnect v-else :app="app.data.value" />
-    </template>
-
     <PasswordProtection v-if="app.data.value" :app="app.data.value" />
 
     <Card>
@@ -350,6 +345,11 @@ const del = useMutation({
         </FormScope>
       </CardContent>
     </Card>
+
+    <template v-if="app.data.value">
+      <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
+      <GitConnect v-else :app="app.data.value" />
+    </template>
 
     <Card class="border-destructive/40">
       <CardHeader>
