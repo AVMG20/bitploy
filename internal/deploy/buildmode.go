@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -18,7 +19,8 @@ const (
 	// and the rule of SPEC "The Dockerfile rule".
 	BuildModeDockerfile = "dockerfile"
 	// BuildModeAuto builds the Dockerfile when there is one, else serves a plain
-	// website (index.html at the top) with the static template.
+	// website (index.html at the top, or another single page) with the static
+	// template.
 	BuildModeAuto = "auto"
 	// BuildModeStatic always serves the source as a plain website with the
 	// static template, even when the source holds a Dockerfile of its own.
@@ -52,17 +54,89 @@ type BuildPlan struct {
 	// own .dockerignore (if any) followed by the template's, so .env, .git and
 	// node_modules never end up in the image.
 	Inject map[string][]byte
+	// HomePage is set when a static site has no index.html but one page to
+	// open at "/": a root file such as "Planning tool v3.html". It is copied to
+	// index.html in the build context (see app.writeInjected), so the name never
+	// reaches the Dockerfile or the nginx config, and it still answers at its
+	// own path too.
+	HomePage string
 	// Why says in one plain sentence which way was chosen (shown in the build log).
 	Why string
+}
+
+// Codes for a static site without index.html whose home page is not clear.
+const (
+	CodeHomePageUnclear = "home_page_unclear"
+	CodeHomePageMissing = "home_page_missing"
+)
+
+// IsHTMLName reports whether name ends in .html or .htm (any case).
+func IsHTMLName(name string) bool {
+	ext := strings.ToLower(path.Ext(name))
+	return ext == ".html" || ext == ".htm"
+}
+
+// rootPages lists the .html and .htm files at the top of the source, sorted.
+func rootPages(has map[string]bool) []string {
+	var out []string
+	for f := range has {
+		if !strings.Contains(f, "/") && IsHTMLName(f) {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// homePage picks the page to serve at "/" when there is no index.html: the
+// app's choice when the source has it, else the only page at the top. ok is
+// false when there is no page at all; err is set when there are several and
+// none is chosen (or the chosen one is gone).
+func homePage(has map[string]bool, chosen string) (page string, ok bool, err *apperr.Error) {
+	pages := rootPages(has)
+	if strings.Contains(chosen, "/") || !IsHTMLName(chosen) {
+		chosen = "" // only a page at the top can be the home page
+	}
+	if chosen != "" && has[chosen] {
+		return chosen, true, nil
+	}
+	switch len(pages) {
+	case 0:
+		return "", false, nil
+	case 1:
+		return pages[0], true, nil
+	}
+	if other := otherCase(has, "index.html"); other != "" && chosen == "" {
+		return "", false, renameErr(CodeHomePageUnclear, other, "index.html")
+	}
+	list := strings.Join(pages, ", ")
+	if len(pages) > 5 {
+		list = strings.Join(pages[:5], ", ") + fmt.Sprintf(" and %d more", len(pages)-5)
+	}
+	var e *apperr.Error
+	if chosen != "" {
+		e = apperr.Unprocessable(CodeHomePageMissing,
+			fmt.Sprintf("The home page %s is not in these files. There are several pages at the top (%s) and no index.html.", chosen, list),
+			"Rename the page people should see first to index.html, or choose the home page again when you upload in the dashboard.")
+	} else {
+		e = apperr.Unprocessable(CodeHomePageUnclear,
+			fmt.Sprintf("There are several pages at the top (%s) and no index.html, so it is not clear which one people should see first.", list),
+			"Rename the page people should see first to index.html, or choose it as the home page when you upload in the dashboard.")
+	}
+	e.WithDetail("pages", pages)
+	return "", false, e
 }
 
 // PlanBuild decides how a source is built. files are all file paths of the
 // source relative to its root; dockerfilePath is the app's setting; dockerignore
 // is the content of the source's own .dockerignore, or nil.
 //
+// homePage is the app's choice of page for "/" when a static site has no
+// index.html and several pages; it is only used in auto and static mode.
+//
 // With mode dockerfile (or an unknown mode) the plan is always a Dockerfile
 // build: a missing Dockerfile is reported by CheckDockerfile as before.
-func PlanBuild(mode, dockerfilePath string, files []string, dockerignore []byte) (BuildPlan, *apperr.Error) {
+func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dockerignore []byte) (BuildPlan, *apperr.Error) {
 	if dockerfilePath == "" {
 		dockerfilePath = "Dockerfile"
 	}
@@ -76,12 +150,16 @@ func PlanBuild(mode, dockerfilePath string, files []string, dockerignore []byte)
 	switch mode {
 	case BuildModeStatic:
 		if !hasIndex {
-			if other := otherCase(has, "index.html"); other != "" {
-				return BuildPlan{}, renameErr("static_index_missing", other, "index.html")
+			page, ok, herr := homePage(has, homePageChoice)
+			if herr != nil {
+				return BuildPlan{}, herr
+			}
+			if ok {
+				return homePlan(dockerignore, page), nil
 			}
 			return BuildPlan{}, apperr.Unprocessable("static_index_missing",
-				"There is no index.html at the top of the project, so there is no website to show.",
-				"Put index.html in the top folder, next to your other website files, then deploy again.")
+				"There is no .html page at the top of the project, so there is no website to show.",
+				"Put index.html, or your page, in the top folder next to your other website files, then deploy again.")
 		}
 		return staticPlan(dockerignore, "The app is set to be a static site, so it is served as plain website files with nginx."), nil
 	case BuildModeAuto:
@@ -95,10 +173,16 @@ func PlanBuild(mode, dockerfilePath string, files []string, dockerignore []byte)
 		if other := otherCase(has, path.Clean(dockerfilePath)); other != "" {
 			return BuildPlan{}, renameErr(CodeNothingToBuild, other, path.Clean(dockerfilePath))
 		}
-		if other := otherCase(has, "index.html"); other != "" && !hasIndex && stack == "static" {
-			return BuildPlan{}, renameErr(CodeNothingToBuild, other, "index.html")
+		if !hasIndex && stack == "static" {
+			page, ok, herr := homePage(has, homePageChoice)
+			if herr != nil {
+				return BuildPlan{}, herr
+			}
+			if ok {
+				return homePlan(dockerignore, page), nil
+			}
 		}
-		return BuildPlan{}, nothingToBuild(files, hasIndex)
+		return BuildPlan{}, nothingToBuild(files, len(rootPages(has)) > 0)
 	}
 	return BuildPlan{Kind: BuildKindDockerfile}, nil
 }
@@ -119,6 +203,13 @@ func renameErr(code, got, want string) *apperr.Error {
 	return apperr.Unprocessable(code,
 		fmt.Sprintf("Found %s, but the name must be exactly %s: upper and lower case matter.", got, want),
 		fmt.Sprintf("Rename %s to %s, then deploy again.", got, want))
+}
+
+// homePlan is a static plan whose page for "/" is a root file not named index.html.
+func homePlan(userIgnore []byte, page string) BuildPlan {
+	p := staticPlan(userIgnore, "No Dockerfile or index.html: serving the files as a static site with nginx. The home page is "+page+".")
+	p.HomePage = page
+	return p
 }
 
 func staticPlan(userIgnore []byte, why string) BuildPlan {
@@ -145,19 +236,20 @@ func staticPlan(userIgnore []byte, why string) BuildPlan {
 
 // nothingToBuild is the plain-words error for auto mode. The details carry the
 // matching template, so an AI assistant can fix the project without asking.
-func nothingToBuild(files []string, hasIndex bool) *apperr.Error {
+func nothingToBuild(files []string, hasPage bool) *apperr.Error {
 	stack := DetectStack(files)
 	name := templateStackFor(stack)
 	tpl, _ := templates.Get(name)
 	msg := "No Dockerfile or index.html found."
-	if hasIndex {
+	hint := "Add a Dockerfile, or an index.html for a plain website, at the top of the project. Your AI assistant can set this up for you."
+	if hasPage {
 		msg = "No Dockerfile found."
 		if lang := stackLanguage(stack); lang != "" {
-			msg = fmt.Sprintf("No Dockerfile found. This is a %s project, so it cannot be shown as a plain website.", lang)
+			msg = fmt.Sprintf("No Dockerfile found. This is a %s project, so it has to be built before it can be shown.", lang)
+			hint = "Add a Dockerfile (your AI assistant can write one), or upload the built website instead, usually the dist or build folder."
 		}
 	}
-	e := apperr.Unprocessable(CodeNothingToBuild, msg,
-		"Add a Dockerfile, or an index.html for a plain website, at the top of the project. Your AI assistant can set this up for you.")
+	e := apperr.Unprocessable(CodeNothingToBuild, msg, hint)
 	e.WithDetail("stack", stack)
 	e.WithDetail("template", name)
 	e.WithDetail("dockerfile", tpl.Dockerfile)

@@ -728,10 +728,12 @@ func sortFindings(fs []Finding) {
 // Only top-level files count. index.html alone (plus assets) means static.
 func DetectStack(files []string) string {
 	top := map[string]bool{}
+	page := false
 	for _, f := range files {
 		f = cleanRel(f)
 		if !strings.Contains(f, "/") {
 			top[strings.ToLower(f)] = true
+			page = page || IsHTMLName(f)
 		}
 	}
 	switch {
@@ -743,7 +745,7 @@ func DetectStack(files []string) string {
 		return "python"
 	case top["composer.json"] || top["index.php"]:
 		return "php"
-	case top["index.html"]:
+	case page: // index.html, or any other page at the top
 		return "static"
 	}
 	return ""

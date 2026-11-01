@@ -512,6 +512,9 @@ func TestDetectStack(t *testing.T) {
 		{[]string{"sub/index.html"}, ""},
 		{[]string{"README.md"}, ""},
 		{[]string{"Index.HTML"}, "static"},
+		{[]string{"Planning tool v3.html"}, "static"},
+		{[]string{"report.htm", "a.png"}, "static"},
+		{[]string{"tool.html", "package.json"}, "node"},
 	}
 	for _, tc := range tests {
 		if got := DetectStack(tc.files); got != tc.want {

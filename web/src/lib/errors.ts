@@ -10,6 +10,7 @@ export interface FriendlyError {
 // person can run into on the New app form or in a first deploy, say it in
 // dashboard words.
 const HINTS: Record<string, string> = {
+  github_access_missing: 'Check which repositories bitploy may read in Settings > GitHub, then try again.',
   dockerfile_missing: 'Add a Dockerfile at the top of your project, or set Build as to Static site if it is a plain website.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
   server_app_limit: 'Delete an app you no longer need, or ask your admin to raise the limit.',

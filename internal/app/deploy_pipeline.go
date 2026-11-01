@@ -286,13 +286,14 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		p.logf("%s", plan.Why)
 	}
 	if plan.Kind == deploy.BuildKindStatic {
-		if err := writeInjected(p.srcRoot, plan.Inject); err != nil {
+		if err := writeInjected(p.srcRoot, plan); err != nil {
 			return apperr.Unprocessable("source_invalid", "Bitploy could not prepare the files to serve them as a website.",
 				"Check that .dockerignore in the project is a plain file, then deploy again.").WithCause(err)
 		}
 		p.app = effApp // the build uses the generated Dockerfile at the source root
 	}
 	res, ctxFiles := p.s.runChecks(p.app, files, read)
+	res = templateFindings(plan, res)
 	for _, f := range res.Findings {
 		p.logf("check %s (%s): %s", f.Code, f.Severity, f.Message)
 	}

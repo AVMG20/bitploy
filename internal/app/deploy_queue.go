@@ -65,11 +65,12 @@ func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []
 		paths[i] = f.Path
 	}
 	// The build mode decides between the app's Dockerfile and a static site.
-	effApp, _, allPaths, read, perr := planBuild(row, paths, func(p string) []byte { return byPath[p] })
+	effApp, plan, allPaths, read, perr := planBuild(row, paths, func(p string) []byte { return byPath[p] })
 	if perr != nil {
 		return Deployment{}, perr
 	}
 	res, ctxFiles := s.runChecks(effApp, allPaths, read)
+	res = templateFindings(plan, res)
 	if cerr := checkError(res, ctxFiles); cerr != nil {
 		return Deployment{}, cerr
 	}

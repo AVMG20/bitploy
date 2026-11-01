@@ -72,15 +72,24 @@ const source = computed({
 const repo = ref<GitSourceInput | null>(null)
 const upload = ref<UploadChoice | null>(null)
 const mode = ref<BuildMode>('auto')
+const homePage = ref('')
 const volume = ref(false)
+
+// What the server will make of the files; null for GitHub or a zip this page could not read.
+const detected = computed(() => (source.value === 'upload' && upload.value?.paths ? detectSource(upload.value.paths, mode.value, homePage.value) : null))
 
 const sourceReady = computed(() => {
   if (source.value === 'github') return !!repo.value
   if (!upload.value) return false
   // Nothing to build: the person has to change something first. A zip this
   // page could not read is checked by the server.
-  const p = upload.value.paths
-  return p === null || detectSource(p, mode.value).kind !== 'none'
+  return detected.value === null || detected.value.kind !== 'none'
+})
+
+// What is missing before Deploy works, when it is not said elsewhere already.
+const waitingFor = computed(() => {
+  if (source.value === 'github') return canPick.value ? 'Pick a repository to continue.' : ''
+  return upload.value ? '' : 'Add your files to continue.'
 })
 
 // ---------------------------------------------------------------- submit
@@ -121,6 +130,8 @@ async function run(v: { name: string; slug: string }) {
       slug: v.slug,
       volume: volume.value,
       build_mode: source.value === 'upload' ? mode.value : 'auto',
+      // Only kept when there are several pages to choose from.
+      home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
     })
     slug = created.slug
     if (source.value === 'upload' && upload.value) {
@@ -222,13 +233,13 @@ const submit = form.handleSubmit(run)
             <p v-if="repo" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository, or an index.html for a plain website.</p>
           </template>
 
-          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" :disabled="busy" />
+          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :disabled="busy" />
         </CardContent>
       </Card>
 
       <Card>
         <CardContent>
-          <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+          <div class="flex items-center justify-between gap-4">
             <div class="grid gap-1">
               <Label for="new-volume">Keep files in /data</Label>
               <p class="text-[0.8rem] text-muted-foreground">
@@ -253,9 +264,7 @@ const submit = form.handleSubmit(run)
       <div class="flex flex-wrap items-center gap-3">
         <Button type="submit" :disabled="busy || !sourceReady">{{ buttonLabel }}</Button>
         <Button as-child variant="ghost" :disabled="busy"><RouterLink to="/">Cancel</RouterLink></Button>
-        <p v-if="!sourceReady && !busy" class="text-xs text-muted-foreground">
-          {{ source === 'github' ? 'Pick a repository to continue.' : 'Add your files to continue.' }}
-        </p>
+        <p v-if="!sourceReady && !busy && waitingFor" class="text-xs text-muted-foreground">{{ waitingFor }}</p>
       </div>
     </form>
   </div>

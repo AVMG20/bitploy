@@ -208,7 +208,8 @@ func TestAppUploadChecksSourceFirst(t *testing.T) {
 		code  string
 	}{
 		{"auto-app", map[string]string{"notes.txt": "x"}, "nothing_to_build"},
-		{"auto-app", map[string]string{"site/Index.html": "x", "site/a.css": "x"}, "nothing_to_build"},
+		{"auto-app", map[string]string{"site/Index.html": "x", "site/about.html": "x"}, "home_page_unclear"},
+		{"auto-app", map[string]string{"tool.html": "x", "package.json": "{}"}, "nothing_to_build"},
 		{"auto-app", map[string]string{"index.html": "x", "package.json": "{}"}, "nothing_to_build"},
 		{"strict-app", map[string]string{"index.html": "x"}, "dockerfile_missing"},
 		{"strict-app", map[string]string{"Dockerfile": "FROM\n"}, ""}, // any error code from the checks
@@ -230,6 +231,11 @@ func TestAppUploadChecksSourceFirst(t *testing.T) {
 	w := e.sessionRaw("POST", "/api/v1/apps/auto-app/upload", zipOf(t, map[string]string{"my-site/index.html": "x", "my-site/img/a.png": "x"}), true)
 	if w.Code != 202 {
 		t.Errorf("wrapped site: %d %s", w.Code, w.Body)
+	}
+	// So is one page with any name, in a folder.
+	w = e.sessionRaw("POST", "/api/v1/apps/auto-app/upload", zipOf(t, map[string]string{"export/Planning tool v3.html": "x"}), true)
+	if w.Code != 202 {
+		t.Errorf("one page: %d %s", w.Code, w.Body)
 	}
 }
 

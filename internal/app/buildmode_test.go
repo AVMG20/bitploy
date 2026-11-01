@@ -40,6 +40,25 @@ func TestBuildModeSetting(t *testing.T) {
 	if again.BuildMode != "static" {
 		t.Errorf("mode after a failed update = %q", again.BuildMode)
 	}
+
+	// The home page: a page name at the top, or empty.
+	hp := e.mustApp(t, CreateAppInput{BuildMode: "auto", HomePage: "Planning tool v3.html"})
+	if hp.HomePage != "Planning tool v3.html" {
+		t.Errorf("home page on create = %q", hp.HomePage)
+	}
+	for _, bad := range []string{"sub/page.html", `..\page.html`, "notes.txt", "..", " page.html", "page\n.html", strings.Repeat("a", 260) + ".html"} {
+		if _, err := e.s.UpdateApp(ctx, e.user, hp.Slug, UpdateAppInput{HomePage: ptr(bad)}); depCode(err) != "home_page_invalid" {
+			t.Errorf("home page %q: %v", bad, err)
+		}
+	}
+	got, err = e.s.UpdateApp(ctx, e.user, hp.Slug, UpdateAppInput{HomePage: ptr(`Café "plan" 'v2'.HTM`)})
+	if err != nil || got.HomePage != `Café "plan" 'v2'.HTM` || got.BuildMode != "auto" {
+		t.Fatalf("home page update: %+v %v", got, err)
+	}
+	got, err = e.s.UpdateApp(ctx, e.user, hp.Slug, UpdateAppInput{HomePage: ptr("")})
+	if err != nil || got.HomePage != "" {
+		t.Fatalf("clearing the home page: %+v %v", got, err)
+	}
 }
 
 func TestDeployFilesAutoMode(t *testing.T) {
@@ -141,6 +160,9 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 		if !strings.Contains(strings.Join(p.ring.Lines(), "\n"), "static site") {
 			t.Errorf("the log does not say what was chosen: %v", p.ring.Lines())
 		}
+		if strings.Contains(strings.Join(p.ring.Lines(), "\n"), deploy.CodeNoHealthcheck) {
+			t.Errorf("the log talks about the template's HEALTHCHECK: %v", p.ring.Lines())
+		}
 	})
 	t.Run("a Dockerfile is built as it is", func(t *testing.T) {
 		e := depTestSvc(t)
@@ -213,6 +235,103 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 		ign, _ := os.ReadFile(filepath.Join(p.srcRoot, ".dockerignore"))
 		if !strings.Contains(string(ign), "private/") || !strings.Contains(string(ign), "node_modules") {
 			t.Errorf(".dockerignore:\n%s", ign)
+		}
+	})
+}
+
+func TestPipelineHomePage(t *testing.T) {
+	// The page is copied to index.html in the build context; the original stays.
+	served := func(t *testing.T, p *pipeline, page, body string) {
+		t.Helper()
+		got, err := os.ReadFile(filepath.Join(p.srcRoot, "index.html"))
+		if err != nil || string(got) != body {
+			t.Errorf("index.html = %q, %v; want the content of %s", got, err, page)
+		}
+		orig, err := os.ReadFile(filepath.Join(p.srcRoot, page))
+		if err != nil || string(orig) != body {
+			t.Errorf("%s = %q, %v", page, orig, err)
+		}
+		df, _ := os.ReadFile(filepath.Join(p.srcRoot, deploy.StaticDockerfilePath))
+		if p.app.DockerfilePath != deploy.StaticDockerfilePath || strings.Contains(string(df), page) {
+			t.Errorf("app %q, Dockerfile:\n%s", p.app.DockerfilePath, df)
+		}
+		if !strings.Contains(strings.Join(p.ring.Lines(), "\n"), "The home page is "+page) {
+			t.Errorf("the log does not name the home page: %v", p.ring.Lines())
+		}
+	}
+
+	t.Run("one page with a random name", func(t *testing.T) {
+		e := depTestSvc(t)
+		page := "Planning tool v3.html"
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, map[string]string{page: "<h1>plan</h1>", "logo.png": "png"}))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		served(t, p, page, "<h1>plan</h1>")
+	})
+	t.Run("one .htm page in a wrapping folder", func(t *testing.T) {
+		e := depTestSvc(t)
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, map[string]string{"export/Report 2026.htm": "<p>r</p>"}))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		served(t, p, "Report 2026.htm", "<p>r</p>")
+	})
+	t.Run("names with quotes, unicode and shell characters", func(t *testing.T) {
+		e := depTestSvc(t)
+		page := `Plan "v3" – café's $(touch x) ; rm.html`
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "static"}), makeZipBytes(t, map[string]string{page: "odd"}))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		served(t, p, page, "odd")
+	})
+	t.Run("several pages need a choice", func(t *testing.T) {
+		e := depTestSvc(t)
+		files := map[string]string{"a.html": "a", "b.html": "b"}
+		if _, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, files)); ae == nil || ae.Code != deploy.CodeHomePageUnclear {
+			t.Fatalf("no choice: %v", ae)
+		}
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto", HomePage: "b.html"}), makeZipBytes(t, files))
+		if ae != nil {
+			t.Fatalf("chosen: %v", ae)
+		}
+		served(t, p, "b.html", "b")
+	})
+	t.Run("a later upload without the chosen page", func(t *testing.T) {
+		e := depTestSvc(t)
+		a := e.mustApp(t, CreateAppInput{BuildMode: "auto", HomePage: "old.html"})
+		if _, ae := e.runSource(t, a, makeZipBytes(t, map[string]string{"a.html": "a", "b.html": "b"})); ae == nil || ae.Code != deploy.CodeHomePageMissing || !strings.Contains(ae.Message, "old.html") {
+			t.Fatalf("several pages: %v", ae)
+		}
+		p, ae := e.runSource(t, a, makeZipBytes(t, map[string]string{"new.html": "n"}))
+		if ae != nil {
+			t.Fatalf("one page: %v", ae)
+		}
+		served(t, p, "new.html", "n")
+	})
+	t.Run("a real index.html is never overwritten", func(t *testing.T) {
+		e := depTestSvc(t)
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto", HomePage: "b.html"}), makeZipBytes(t, map[string]string{"index.html": "real", "b.html": "b"}))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if got, _ := os.ReadFile(filepath.Join(p.srcRoot, "index.html")); string(got) != "real" {
+			t.Errorf("index.html = %q", got)
+		}
+	})
+	t.Run("a page next to package.json is not a static site", func(t *testing.T) {
+		e := depTestSvc(t)
+		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, map[string]string{"tool.html": "x", "package.json": "{}"}))
+		if ae == nil || ae.Code != deploy.CodeNothingToBuild || !strings.Contains(ae.Message, "Node.js") {
+			t.Fatalf("validate: %v", ae)
+		}
+	})
+	t.Run("the default mode ignores pages", func(t *testing.T) {
+		e := depTestSvc(t)
+		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{HomePage: "tool.html"}), makeZipBytes(t, map[string]string{"tool.html": "x"}))
+		if ae == nil || ae.Code != "dockerfile_missing" {
+			t.Fatalf("validate: %v", ae)
 		}
 	})
 }

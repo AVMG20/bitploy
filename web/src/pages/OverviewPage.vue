@@ -23,7 +23,7 @@ const quota = computed(() => me.data.value?.quota)
 <template>
   <div class="grid gap-6">
     <PageHeader title="Your apps" description="Everything you have put online, and how it is doing.">
-      <Button as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New app</RouterLink></Button>
+      <Button v-if="apps.data.value?.length" as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New app</RouterLink></Button>
     </PageHeader>
 
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -66,7 +66,7 @@ const quota = computed(() => me.data.value?.quota)
       v-else-if="!apps.data.value?.length"
       :icon="Rocket"
       title="No apps yet."
-      description="Upload a folder or pick a repository from GitHub. Or open Connect AI and tell your assistant: deploy this folder."
+      description="Upload a folder or pick a GitHub repository. Or open Connect AI and tell your assistant: deploy this folder."
     >
       <Button as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New app</RouterLink></Button>
       <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>

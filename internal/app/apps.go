@@ -20,6 +20,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/deploy"
@@ -50,6 +52,28 @@ func normalizeBuildMode(m string) (string, error) {
 			"Use dockerfile (the source needs a Dockerfile, the default), auto (a Dockerfile, else a plain website with an index.html) or static (always a plain website).")
 	}
 	return m, nil
+}
+
+// normalizeHomePage validates the page served at "/" for a static site without
+// index.html: empty (decide from the files) or the name of an .html or .htm
+// file at the top of the source. The name is only ever compared with file
+// names and copied in Go (see writeInjected), never put in a Dockerfile.
+func normalizeHomePage(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	bad := len(p) > 255 || !utf8.ValidString(p) || strings.ContainsAny(p, "/\\") ||
+		p != strings.TrimSpace(p) || p == "." || p == ".." || !deploy.IsHTMLName(p)
+	for _, r := range p {
+		if unicode.IsControl(r) {
+			bad = true
+		}
+	}
+	if bad {
+		return "", apperr.BadRequest("home_page_invalid", "The home page "+quote(p)+" is not the name of a page.",
+			"Use the name of an .html or .htm file in the top folder, like Planning tool.html, or leave it empty.")
+	}
+	return p, nil
 }
 
 // ---- apps ----
@@ -88,6 +112,10 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		return App{}, err
 	}
 	buildMode, err := normalizeBuildMode(in.BuildMode)
+	if err != nil {
+		return App{}, err
+	}
+	homePage, err := normalizeHomePage(in.HomePage)
 	if err != nil {
 		return App{}, err
 	}
@@ -181,7 +209,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
-			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, CreatedAt: now, UpdatedAt: now,
+			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -316,6 +344,15 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		buildMode = bm
 		changed["build_mode"] = bm
 	}
+	homePage := row.HomePage
+	if in.HomePage != nil {
+		hp, err := normalizeHomePage(*in.HomePage)
+		if err != nil {
+			return App{}, err
+		}
+		homePage = hp
+		changed["home_page"] = hp
+	}
 	if in.Volume != nil {
 		p.VolumeEnabled = b2i(*in.Volume)
 		changed["volume"] = *in.Volume
@@ -385,8 +422,8 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	} else if err := s.Q.UpdateAppSettings(ctx, p); err != nil {
 		return App{}, apperr.Internal(err)
 	}
-	if buildMode != row.BuildMode {
-		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+	if buildMode != row.BuildMode || homePage != row.HomePage {
+		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, HomePage: homePage, UpdatedAt: s.now(), ID: row.ID}); err != nil {
 			return App{}, apperr.Internal(err)
 		}
 	}
@@ -828,7 +865,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
-		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode,
+		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, HomePage: r.HomePage,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}

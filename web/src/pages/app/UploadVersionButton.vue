@@ -24,6 +24,7 @@ const app = useApp(() => props.slug)
 const open = ref(false)
 const choice = ref<UploadChoice | null>(null)
 const mode = ref<BuildMode>('auto')
+const homePage = ref('')
 const busy = ref(false)
 const sent = ref(0)
 const checking = ref(false)
@@ -38,9 +39,11 @@ watch(open, (o) => {
   choice.value = null
   error.value = null
   mode.value = app.data.value?.build_mode ?? 'auto'
+  homePage.value = app.data.value?.home_page ?? ''
 })
 
-const ready = computed(() => !!choice.value && (choice.value.paths === null || detectSource(choice.value.paths, mode.value).kind !== 'none'))
+const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value) : null))
+const ready = computed(() => !!choice.value && detected.value?.kind !== 'none')
 const buttonLabel = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
 
 async function deploy() {
@@ -49,13 +52,15 @@ async function deploy() {
   checking.value = false
   sent.value = 0
   error.value = null
-  const before = app.data.value.build_mode
+  const before = { build_mode: app.data.value.build_mode, home_page: app.data.value.home_page }
+  // The home page is only saved when there are several pages to choose from.
+  const home = detected.value?.kind === 'static' && detected.value.choices ? (detected.value.home ?? '') : before.home_page
   let changed = false
   try {
-    // The deploy reads the app's build mode, so it is saved first, and put
-    // back when the upload is refused.
-    if (mode.value !== before) {
-      await api.updateApp(props.slug, { build_mode: mode.value })
+    // The deploy reads the app's build mode and home page, so they are saved
+    // first, and put back when the upload is refused.
+    if (mode.value !== before.build_mode || home !== before.home_page) {
+      await api.updateApp(props.slug, { build_mode: mode.value, home_page: home })
       changed = true
     }
     let d: Deployment
@@ -67,7 +72,7 @@ async function deploy() {
         () => (checking.value = true),
       )
     } catch (e) {
-      if (changed) await api.updateApp(props.slug, { build_mode: before }).catch(() => {})
+      if (changed) await api.updateApp(props.slug, before).catch(() => {})
       throw e
     }
     toastOk(`Deploying version #${d.seq}`, first.value ? 'Follow it on the Overview.' : 'Your app keeps running until the new version is ready.')
@@ -91,12 +96,12 @@ async function deploy() {
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{{ first ? 'Upload your files' : 'Upload a new version' }}</DialogTitle>
-          <DialogDescription v-if="first">Drop your project folder or a .zip. Bitploy builds it and puts it online.</DialogDescription>
+          <DialogDescription v-if="first">Drop your project folder, a .zip or a single .html page. Bitploy builds it and puts it online.</DialogDescription>
           <DialogDescription v-else>
             Drop the folder again, with your changes. The version that runs now stays available, so you can go back to it.
           </DialogDescription>
         </DialogHeader>
-        <SourceDropZone v-model="choice" v-model:mode="mode" :disabled="busy" />
+        <SourceDropZone v-model="choice" v-model:mode="mode" v-model:home-page="homePage" :disabled="busy" />
         <Alert v-if="error" variant="destructive">
           <AlertTitle>{{ error.message }}</AlertTitle>
           <AlertDescription v-if="error.hint">{{ error.hint }}</AlertDescription>

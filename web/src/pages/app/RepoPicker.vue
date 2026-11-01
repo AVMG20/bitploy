@@ -86,7 +86,8 @@ defineExpose({ canPick, configured, loading: computed(() => github.isPending.val
 
 <template>
   <div class="grid gap-4">
-    <div v-if="github.isPending.value" class="grid gap-2"><Skeleton class="h-8 w-full" /><Skeleton class="h-24 w-full" /></div>
+    <QueryError v-if="github.isError.value" :error="github.error.value" @retry="github.refetch()" />
+    <div v-else-if="github.isPending.value" class="grid gap-2"><Skeleton class="h-8 w-full" /><Skeleton class="h-24 w-full" /></div>
 
     <template v-else-if="!canPick">
       <p v-if="compact" class="text-sm text-muted-foreground">

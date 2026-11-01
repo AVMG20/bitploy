@@ -270,6 +270,8 @@ export interface App {
   context_dir: string
   /** dockerfile: needs a Dockerfile. auto: a Dockerfile, else a plain website. static: always a plain website. */
   build_mode: BuildMode
+  /** Page served at "/" when a static site has several pages and no index.html; "" means decided from the files. */
+  home_page: string
   volume: boolean
   /** Storage limit of /data. */
   volume_mb: number
@@ -300,6 +302,7 @@ export interface CreateAppInput {
   slug?: string
   volume?: boolean
   build_mode?: BuildMode
+  home_page?: string
 }
 
 export interface UpdateAppInput {
@@ -311,6 +314,7 @@ export interface UpdateAppInput {
   dockerfile_path?: string
   context_dir?: string
   build_mode?: BuildMode
+  home_page?: string
   volume?: boolean
   volume_mb?: number
   memory_mb?: number

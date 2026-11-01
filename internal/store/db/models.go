@@ -56,6 +56,7 @@ type App struct {
 	GitAutoDeploy       int64
 	GitLastPushAt       sql.NullInt64
 	BuildMode           string
+	HomePage            string
 }
 
 type AppBackup struct {
