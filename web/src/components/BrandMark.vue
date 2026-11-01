@@ -6,19 +6,21 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>()
 </script>
 
 <template>
+  <!-- A box (one app, one container) inside the hexagon shared by our apps. -->
   <svg
-    viewBox="0 0 32 32"
+    viewBox="0 0 100 100"
     aria-hidden="true"
-    :class="cn('size-7 shrink-0 text-primary', props.class)"
+    :class="cn('size-7 shrink-0 text-foreground', props.class)"
   >
-    <rect width="32" height="32" rx="8" fill="currentColor" />
-    <path
-      d="M10.5 22V10h6a3.6 3.6 0 0 1 0 7.2h-6m6 0a2.4 2.4 0 0 1 0 4.8h-6"
+    <polygon
+      points="50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29"
       fill="none"
-      stroke="var(--color-primary-foreground)"
-      stroke-width="2.4"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+      stroke="currentColor"
+      stroke-width="7"
     />
+    <g fill="none" stroke="currentColor" stroke-width="4.5">
+      <polygon points="50,31 66.5,40.5 66.5,59.5 50,69 33.5,59.5 33.5,40.5" />
+      <path d="M50 50V69M50 50L33.5 40.5M50 50L66.5 40.5" />
+    </g>
   </svg>
 </template>
