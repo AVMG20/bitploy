@@ -132,6 +132,9 @@ async function run(v: { name: string; slug: string }) {
       build_mode: source.value === 'upload' ? mode.value : 'auto',
       // Only kept when there are several pages to choose from.
       home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
+      // Plain website files need little memory (the server does the same for a
+      // static GitHub repo on its first deploy).
+      memory_mb: detected.value?.kind === 'static' ? 128 : undefined,
     })
     slug = created.slug
     if (source.value === 'upload' && upload.value) {

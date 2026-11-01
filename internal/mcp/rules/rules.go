@@ -29,7 +29,7 @@ const RuntimeContract = `## Runtime contract
 - Listen on 0.0.0.0:$PORT. Bitploy sets PORT, BITPLOY_APP and BITPLOY_URL. The port is the app's port setting, otherwise the single EXPOSE of the last stage of the Dockerfile.
 - Log to stdout and stderr; build and runtime logs come from get_deployment and get_logs.
 - Write persistent data only to /data, and only after turning the volume on with update_app (volume=true) and then restart_app. Everything else in the container is lost on redeploy. The app user must be able to write there: in the Dockerfile run mkdir /data and chown it to the app user before USER (for example RUN mkdir /data && chown node /data). Docker copies that ownership into the new volume. Each volume has a storage limit (volume_mb, default 5 GB) taken from the account's storage allowance, which also holds every app's own files (kept images and stored source); bitploy measures /data hourly, warns at 80% and stops the app above 100%.
-- Apps run as one locked-down container: 512 MB memory and 0.5 CPU by default, no root privileges, no access to the Docker socket or the host.
+- Apps run as one locked-down container: 512 MB memory (128 MB for a static site) and 0.5 CPU by default, no root privileges, no access to the Docker socket or the host.
 - A worker (type=worker: bot, queue consumer) has no route and no port check; it counts as healthy when it is still running after 30 seconds. Its process must keep running in the foreground.
 - A web app is healthy when its port is open and GET health_path (default /) answers with a status below 500 within 60 seconds. A Dockerfile HEALTHCHECK replaces this check.
 - A failed deploy never takes a working app down: the old version keeps serving until the new one is healthy.

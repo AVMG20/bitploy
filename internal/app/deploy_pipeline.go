@@ -291,6 +291,7 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 				"Check that .dockerignore in the project is a plain file, then deploy again.").WithCause(err)
 		}
 		p.app = effApp // the build uses the generated Dockerfile at the source root
+		p.shrinkStaticMemory(ctx)
 	}
 	res, ctxFiles := p.s.runChecks(p.app, files, read)
 	res = templateFindings(plan, res)
@@ -323,6 +324,27 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		return apperr.Internal(err)
 	}
 	return nil
+}
+
+// shrinkStaticMemory gives an app that turned out to be a static site 128 MB
+// instead of the default 512, so plain websites do not use up the memory
+// quota. Only before its first deploy goes live and while it still has the
+// default: a size someone chose is kept. start() reads the new size.
+func (p *pipeline) shrinkStaticMemory(ctx context.Context) {
+	if p.app.CurrentDeploymentID.Valid || p.app.MemoryMb != defaultMemoryMB {
+		return
+	}
+	n, err := p.s.Q.ShrinkStaticAppMemory(ctx, db.ShrinkStaticAppMemoryParams{
+		MemoryMb: staticMemoryMB, UpdatedAt: p.s.now(), ID: p.app.ID, OldMemoryMb: defaultMemoryMB,
+	})
+	if err != nil {
+		p.s.Log.Warn("shrink static app memory", "app", p.app.Slug, "err", err)
+		return
+	}
+	if n > 0 {
+		p.app.MemoryMb = staticMemoryMB
+		p.logf("A static site needs little memory, so the app now has %d MB instead of %d MB.", staticMemoryMB, defaultMemoryMB)
+	}
 }
 
 // ---- building ----

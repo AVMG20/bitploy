@@ -166,6 +166,24 @@ const removeEnv = useMutation({
 })
 
 // ---------------------------------------------------------------- resources
+// What this app may have: the quota minus what the user's other running apps
+// already have (same rule as the server when the app starts).
+const room = computed(() => {
+  const q = quota.value
+  const u = me.data.value?.usage
+  const a = app.data.value
+  if (!q || !u || !a) return null
+  const runs = a.desired_state === 'running' && !!a.current_deployment
+  const otherMem = Math.max(0, u.memory_reserved_mb - (runs ? a.memory_mb : 0))
+  const otherCPU = Math.max(0, u.cpu_reserved_millis - (runs ? a.cpu_millis : 0))
+  return {
+    otherMem,
+    otherCPU,
+    mem: Math.max(0, q.memory_mb - otherMem),
+    cpus: Math.max(0, q.cpu_millis - otherCPU) / 1000,
+  }
+})
+
 const resForm = useForm({
   validationSchema: computed(() =>
     toTypedSchema(
@@ -174,11 +192,11 @@ const resForm = useForm({
           .number({ invalid_type_error: 'Enter a number.' })
           .int('Use a whole number.')
           .min(64, 'At least 64 MB.')
-          .max(quota.value?.memory_mb || 100000, `Your plan allows up to ${quota.value?.memory_mb ?? ''} MB.`),
+          .max(room.value?.mem ?? 100000, `You have ${room.value?.mem ?? ''} MB left for this app.`),
         cpus: z.coerce
           .number({ invalid_type_error: 'Enter a number.' })
           .min(0.1, 'At least 0.1.')
-          .max((quota.value?.cpu_millis || 100000) / 1000, `Your plan allows up to ${(quota.value?.cpu_millis ?? 0) / 1000}.`),
+          .max(room.value?.cpus ?? 100, `You have ${room.value?.cpus ?? ''} CPUs left for this app.`),
       }),
     ),
   ),
@@ -327,7 +345,9 @@ const del = useMutation({
                 <FormItem>
                   <FormLabel>Memory (MB)</FormLabel>
                   <FormControl><Input type="number" min="64" step="64" inputmode="numeric" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="quota">Up to {{ formatMB(quota.memory_mb) }} in total across your apps.</FormDescription>
+                  <FormDescription v-if="room && quota">
+                    Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               </FormField>
@@ -335,7 +355,9 @@ const del = useMutation({
                 <FormItem>
                   <FormLabel>Processor (CPUs)</FormLabel>
                   <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="quota">Up to {{ quota.cpu_millis / 1000 }} CPUs in total across your apps.</FormDescription>
+                  <FormDescription v-if="room && quota">
+                    Up to {{ room.cpus }} CPUs<template v-if="room.otherCPU">. Your other running apps have {{ room.otherCPU / 1000 }} of your {{ quota.cpu_millis / 1000 }}.</template><template v-else>.</template>
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               </FormField>

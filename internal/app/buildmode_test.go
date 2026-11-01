@@ -225,6 +225,43 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 			t.Errorf("dockerfile %q", p.app.DockerfilePath)
 		}
 	})
+	t.Run("a static site gets 128 MB unless a size was chosen", func(t *testing.T) {
+		mem := func(e *depEnv, id string) int64 {
+			row, err := e.s.Q.GetApp(context.Background(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return row.MemoryMb
+		}
+		e := depTestSvc(t)
+		a := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
+		if _, ae := e.runSource(t, a, makeZipBytes(t, site)); ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if got := mem(e, a.ID); got != staticMemoryMB {
+			t.Errorf("auto static site: %d MB, want %d", got, staticMemoryMB)
+		}
+
+		chosen := e.mustApp(t, CreateAppInput{BuildMode: "auto", MemoryMB: ptr(int64(256))})
+		if _, ae := e.runSource(t, chosen, makeZipBytes(t, site)); ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if got := mem(e, chosen.ID); got != 256 {
+			t.Errorf("chosen size: %d MB, want 256", got)
+		}
+
+		df := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
+		if _, ae := e.runSource(t, df, makeZipBytes(t, docker)); ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if got := mem(e, df.ID); got != defaultMemoryMB {
+			t.Errorf("Dockerfile app: %d MB, want %d", got, defaultMemoryMB)
+		}
+
+		if st := e.mustApp(t, CreateAppInput{BuildMode: "static"}); st.MemoryMB != staticMemoryMB {
+			t.Errorf("new static app: %d MB, want %d", st.MemoryMB, staticMemoryMB)
+		}
+	})
 	t.Run("a .dockerignore of the user is kept and extended", func(t *testing.T) {
 		e := depTestSvc(t)
 		files := map[string]string{"index.html": "hi", ".dockerignore": "private/\n"}

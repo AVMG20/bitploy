@@ -307,6 +307,7 @@ export interface CreateAppInput {
   volume?: boolean
   build_mode?: BuildMode
   home_page?: string
+  memory_mb?: number
 }
 
 export interface UpdateAppInput {

@@ -102,3 +102,7 @@ DELETE FROM uploads WHERE id = ?;
 
 -- name: SetAppProtection :exec
 UPDATE apps SET protect_enabled = ?, protect_username = ?, protect_hash = ?, updated_at = ? WHERE id = ?;
+
+-- name: ShrinkStaticAppMemory :execrows
+UPDATE apps SET memory_mb = sqlc.arg(memory_mb), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND memory_mb = sqlc.arg(old_memory_mb) AND current_deployment_id IS NULL;

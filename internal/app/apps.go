@@ -32,6 +32,7 @@ import (
 
 const (
 	defaultMemoryMB  = 512
+	staticMemoryMB   = 128 // plain website files with nginx use a few MB
 	defaultCPUMillis = 500
 	minMemoryMB      = 64
 	minCPUMillis     = 50
@@ -101,7 +102,14 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		port = sql.NullInt64{Int64: *in.Port, Valid: true}
 	}
+	buildMode, err := normalizeBuildMode(in.BuildMode)
+	if err != nil {
+		return App{}, err
+	}
 	mem, cpu := int64(defaultMemoryMB), int64(defaultCPUMillis)
+	if buildMode == deploy.BuildModeStatic {
+		mem = staticMemoryMB
+	}
 	if in.MemoryMB != nil {
 		mem = *in.MemoryMB
 	}
@@ -109,10 +117,6 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		cpu = *in.CPUMillis
 	}
 	if err := validResources(mem, cpu); err != nil {
-		return App{}, err
-	}
-	buildMode, err := normalizeBuildMode(in.BuildMode)
-	if err != nil {
 		return App{}, err
 	}
 	homePage, err := normalizeHomePage(in.HomePage)

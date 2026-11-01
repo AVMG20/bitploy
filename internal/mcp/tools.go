@@ -55,7 +55,7 @@ type updateAppIn struct {
 	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the project root). Example: backend."`
 	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume, false turns it off. Call restart_app afterwards."`
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
-	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. Call restart_app afterwards."`
+	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, 128 for a static site, minimum 64), within the account quota. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
 }
 

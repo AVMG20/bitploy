@@ -428,6 +428,31 @@ func (q *Queries) SetAppProtection(ctx context.Context, arg SetAppProtectionPara
 	return err
 }
 
+const shrinkStaticAppMemory = `-- name: ShrinkStaticAppMemory :execrows
+UPDATE apps SET memory_mb = ?1, updated_at = ?2
+WHERE id = ?3 AND memory_mb = ?4 AND current_deployment_id IS NULL
+`
+
+type ShrinkStaticAppMemoryParams struct {
+	MemoryMb    int64
+	UpdatedAt   int64
+	ID          string
+	OldMemoryMb int64
+}
+
+func (q *Queries) ShrinkStaticAppMemory(ctx context.Context, arg ShrinkStaticAppMemoryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, shrinkStaticAppMemory,
+		arg.MemoryMb,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.OldMemoryMb,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const sumAppResourcesByUser = `-- name: SumAppResourcesByUser :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
