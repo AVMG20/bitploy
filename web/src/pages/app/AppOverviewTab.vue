@@ -18,6 +18,7 @@ import { nowMs } from '@/composables/useNow'
 import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
+import { plainHint } from '@/lib/errors'
 import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
@@ -50,7 +51,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <AlertTitle>{{ data.status === 'crashed' ? 'This app keeps crashing.' : 'This app stopped working.' }}</AlertTitle>
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
-        <p v-if="dep?.error">{{ dep.error.message }} <span v-if="dep.error.hint" class="font-medium">{{ dep.error.hint }}</span></p>
+        <p v-if="dep?.error">{{ dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>
         <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
           <CopyForAiButton :app="data" />
           <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Open the logs</RouterLink>
@@ -61,7 +62,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <AlertDescription>{{ data.status_message }}</AlertDescription>
     </Alert>
 
-    <DeployProgress v-if="!dep" :slug="slug">
+    <DeployProgress v-if="!dep" :slug="slug" :app="data">
       <EmptyState
         :icon="Rocket"
         title="Nothing deployed yet."

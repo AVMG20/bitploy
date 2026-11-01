@@ -107,6 +107,22 @@ func RunBuild(ctx context.Context, b BuildSpec, onLine func(string)) error {
 
 // BuildFailureSummary picks the most useful single line from a failed build's
 // output: the last line that looks like an error, else the last line.
+// BuildOutOfMemory reports whether a failed build's log shows that it ran out
+// of memory: BuildKit's ResourceExhausted, ENOMEM, or a step killed with 137.
+func BuildOutOfMemory(lines []string) bool {
+	for _, l := range lines {
+		low := strings.ToLower(l)
+		if strings.Contains(low, "cannot allocate memory") || strings.Contains(low, "resourceexhausted") ||
+			strings.Contains(low, "out of memory") || strings.Contains(low, "exit code: 137") {
+			return true
+		}
+	}
+	return false
+}
+
+// MemoryLimit is the builder's memory limit as configured, such as "6g".
+func (b *Builder) MemoryLimit() string { return b.memory() }
+
 func BuildFailureSummary(lines []string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := strings.TrimSpace(lines[i])

@@ -368,6 +368,11 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		case errors.As(err, &ae):
 			return ae
 		}
+		if deploy.BuildOutOfMemory(p.failTail) {
+			return apperr.Unprocessable("build_failed",
+				"The build ran out of memory. Builds on this server can use up to "+bld.MemoryLimit()+".",
+				"Make the build use less memory, for example by building fewer things at once, or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
+		}
 		summary := deploy.BuildFailureSummary(p.failTail)
 		msg := "The build failed."
 		if summary != "" {

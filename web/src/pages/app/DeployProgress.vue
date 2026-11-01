@@ -2,20 +2,25 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Check, LoaderCircle } from 'lucide-vue-next'
+import { Check, LoaderCircle, RefreshCw } from 'lucide-vue-next'
+import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys } from '@/composables/queries'
+import { useAppActions } from '@/composables/useAppActions'
 import { api } from '@/lib/api'
 import { plainHint } from '@/lib/errors'
 import { deploymentStateInfo } from '@/lib/format'
+import type { App } from '@/lib/types'
 
 // The first deploy of an app, live: the step it is on, the build log, and the
 // reason in plain words when it fails. Shown on the Overview while the app has
 // no running version yet; with no deployment at all the slot is shown instead.
-const props = defineProps<{ slug: string }>()
+const props = defineProps<{ slug: string; app?: App }>()
 const qc = useQueryClient()
+const { redeploy } = useAppActions(() => props.slug)
 
 const STEPS = [
   { state: 'queued', label: 'Waiting' },
@@ -91,6 +96,13 @@ watch(
       <div v-if="log.length" class="grid gap-1.5">
         <p class="text-xs font-medium text-muted-foreground">{{ failed ? 'The last lines of the log' : 'Log' }}</p>
         <pre ref="logEl" class="max-h-56 overflow-auto rounded-lg border bg-background/60 p-3 font-mono text-xs whitespace-pre-wrap">{{ log.join('\n') }}</pre>
+      </div>
+
+      <div v-if="failed" class="flex flex-wrap items-center gap-2">
+        <Button :disabled="redeploy.isPending.value" @click="redeploy.mutate()">
+          <RefreshCw :class="redeploy.isPending.value && 'animate-spin'" /> Try again
+        </Button>
+        <CopyForAiButton v-if="app" :app="app" :deployment="latest" variant="outline" />
       </div>
 
       <p class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

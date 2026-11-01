@@ -15,7 +15,7 @@ import (
 // Defaults for the isolated BuildKit container.
 const (
 	DefaultBuilderCPUs   = "2"
-	DefaultBuilderMemory = "3g"
+	DefaultBuilderMemory = "6g"
 )
 
 var memoryRe = regexp.MustCompile(`^[0-9]+([kKmMgG][bB]?)?$`)

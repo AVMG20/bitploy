@@ -133,7 +133,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
 | `BITPLOY_ADMIN_PASSWORD` | — | Password for `bitploy admin create-user` without a prompt (scripts only) |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
-| `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `3g` | Limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network) |
+| `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `6g` | Limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network) |
 | `BITPLOY_MAX_APPS` | `100` | Most apps on the server, all users together. Each user can have 10 by default; change that per user in Admin, Users |
 | `BITPLOY_LISTEN` | `:8080` | Listen address |
 | `BITPLOY_TRAEFIK_CONTAINER` | `bitploy-traefik` | Traefik's container name; joined to every app network |

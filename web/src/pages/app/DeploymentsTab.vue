@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { History, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
+import { plainHint } from '@/lib/errors'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
@@ -95,7 +96,7 @@ function canRollback(d: Deployment): boolean {
         </div>
         <div v-if="d.error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           <p class="font-medium">{{ d.error.message }}</p>
-          <p v-if="d.error.hint" class="mt-1">{{ d.error.hint }}</p>
+          <p v-if="plainHint(d.error.code, d.error.hint)" class="mt-1">{{ plainHint(d.error.code, d.error.hint) }}</p>
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
             <pre class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs whitespace-pre-wrap">{{ d.log_tail.join('\n') }}</pre>

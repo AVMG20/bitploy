@@ -63,7 +63,7 @@ func TestBuilderDriverOpts(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%v", got)
 	}
-	if def, _ := (&Builder{}).driverOpts(); def[1] != "memory=3g" || def[4] != "cpu-quota=200000" {
+	if def, _ := (&Builder{}).driverOpts(); def[1] != "memory=6g" || def[4] != "cpu-quota=200000" {
 		t.Errorf("defaults: %v", def)
 	}
 	for _, bad := range []struct{ c, m string }{{"0", "3g"}, {"abc", "3g"}, {"2", "lots"}, {"2", "0g"}, {"2", ""}} {
