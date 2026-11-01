@@ -20,6 +20,9 @@ type Entry struct {
 	Method     string
 	Path       string // no query string, trailing slash trimmed, capped
 	Status     int
+	// Blocked is true when Traefik itself answered 401 (the password prompt of a
+	// protected app) and the request never reached the app. It is not traffic.
+	Blocked bool
 	IP         string
 	UserAgent  string
 	Referer    string
@@ -35,6 +38,7 @@ type rawLine struct {
 	RequestPath    string `json:"RequestPath"`
 	RequestMethod  string `json:"RequestMethod"`
 	Status         int    `json:"DownstreamStatus"`
+	OriginStatus   *int   `json:"OriginStatus"`
 	ClientHost     string `json:"ClientHost"`
 	StartUTC       string `json:"StartUTC"`
 	UserAgent      string `json:"request_User-Agent"`
@@ -63,6 +67,10 @@ func ParseLine(b []byte) (Entry, bool) {
 		Referer:    r.Referer,
 		Country:    cleanCountry(r.Country),
 	}
+	// OriginStatus is 0 when Traefik answered by itself. The only 401 it sends
+	// on an app router is the basic-auth prompt. A 401 from the app has its own
+	// OriginStatus. Without the field (an older traefik.yml) nothing is blocked.
+	e.Blocked = r.Status == 401 && r.OriginStatus != nil && *r.OriginStatus == 0
 	if name, provider, ok := strings.Cut(r.RouterName, "@"); ok && provider == "file" {
 		e.Router = name
 	}

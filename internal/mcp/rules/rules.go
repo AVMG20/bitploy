@@ -75,6 +75,10 @@ const RuntimeContract = `## Runtime contract
 - git_source_linked: the app deploys from a repository. Push your change instead (get_deployment with app=<slug> follows the deployment it starts). Only when the user wants uploads again, call set_git_source with remove=true first.
 - After 3 failures with the same code, stop and explain the problem to the user in plain words.
 
+## Password protection
+
+set_password_protection(app, enabled, username, password) puts a browser login prompt in front of the app's web addresses (its bitploy address and every custom domain). Use it only when the user asks, for example "keep this private until it is ready". Get the username and password from the user; if they have none, suggest a password of a few words and a number and say it once in your answer. It works at once and survives deploys and restarts; get_app shows protected and the username. Nobody can read the password back, so to change it call the tool again. A protected app answers 401 to anyone without the login: that is not a failure, and bitploy's own health checks are not affected. enabled=false removes the prompt.
+
 ## Custom domains
 
 add_domain returns DNS records. Tell the user in plain words: "Open the place where you bought the domain (GoDaddy, Namecheap, Cloudflare, TransIP...), find DNS settings, add these records exactly, wait 5 to 30 minutes, then tell me." Then call check_domain until the status is active. For a root domain (example.com) the records are A records; for www.example.com a CNAME. On Cloudflare the record must be DNS only (grey cloud).

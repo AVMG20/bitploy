@@ -96,6 +96,7 @@ type appBrief struct {
 	Healthy           bool             `json:"healthy"`
 	Problem           string           `json:"problem,omitempty"`
 	Source            string           `json:"source,omitempty"`
+	Protected         bool             `json:"protected"`
 	Volume            bool             `json:"volume"`
 	VolumeMB          int64            `json:"volume_limit_mb,omitempty"`
 	VolumeUsedMB      *float64         `json:"volume_used_mb,omitempty"`
@@ -111,7 +112,7 @@ type appBrief struct {
 
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	b := appBrief{
-		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage,
+		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage, Protected: ap.Protected,
 		Volume: ap.Volume, VolumeUsedMB: ap.VolumeUsedMB, FilesMB: ap.FilesMB, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
 	}
 	if ap.Volume {
@@ -200,6 +201,9 @@ func appLine(ap app.App) string {
 		url = "no web address"
 	}
 	s := fmt.Sprintf("%s (%s, %s): status %s, %s", ap.Slug, ap.Name, ap.Type, ap.Status, url)
+	if ap.Protected {
+		s += ", password-protected"
+	}
 	if ap.Current != nil {
 		s += ", deployment " + ap.Current.ID + " " + ap.Current.State
 	}

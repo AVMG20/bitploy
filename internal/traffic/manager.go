@@ -108,6 +108,11 @@ func (m *Manager) handle(ctx context.Context, line []byte) {
 	if !ok || !strings.HasPrefix(e.Router, "app-") || e.EntryPoint == "internal" {
 		return
 	}
+	// The login prompt of a password-protected app answers every first request
+	// with 401 before the app sees it: not a visit, not an error of the app.
+	if e.Blocked {
+		return
+	}
 	id, ok := m.appFor(ctx, e.Router)
 	if !ok {
 		return

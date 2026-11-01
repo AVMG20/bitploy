@@ -109,6 +109,13 @@ type setEnvIn struct {
 	Unset []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 }
 
+type setPasswordIn struct {
+	App      string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Enabled  bool    `json:"enabled" jsonschema:"true puts the login prompt in front of the app, false removes it. Only when the user asks."`
+	Username *string `json:"username,omitempty" jsonschema:"The login name the user wants: 1-64 letters, digits and . _ - @ + (no spaces), like team. Needed when turning it on; leave out to keep the current one."`
+	Password *string `json:"password,omitempty" jsonschema:"The password: 8-72 characters. Needed when turning it on; leave out to keep the current one. Never reuse a password from elsewhere."`
+}
+
 type rollbackIn struct {
 	App          string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	DeploymentID string `json:"deployment_id,omitempty" jsonschema:"The earlier deployment (dep_...) to run again, from list_deployments (state running or superseded, one of the newest 3). Leave out to use the newest older deployment that ran."`
@@ -267,7 +274,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
@@ -536,6 +543,31 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("%s now has %d variable(s): %s.", in.App, len(vars), strings.Join(names, ", ")),
 				Data:    data("env", nonNil(vars)),
 				Next:    setEnvNext(in.App, cur),
+			}, nil
+		})
+
+	addTool(s, "set_password_protection", "Password-protect an app",
+		"Turns a browser login prompt (username and password) on or off in front of an app's web addresses, for example while it is not ready to be public. ONLY call this when the user asks for it; never turn it on or off by yourself, and never use it to hide a problem. enabled=true needs a username and a password the first time; later you can send only one of them to change just that. enabled=false removes the prompt and forgets the login. Take the username and password from the user. If they have none in mind, suggest one (a few words and a number) and tell them once, in your answer, so they can save it. Never reuse a password from elsewhere. The password is never stored readable and never shown again. Works at once, no restart or deploy, and later deploys keep it. Not for workers. get_app shows protected and the username.",
+		idempotent(), true, nil,
+		func(ctx context.Context, a app.Actor, in setPasswordIn) (*result, error) {
+			ap, err := svc.SetPasswordProtection(ctx, a, in.App, app.ProtectionInput{Enabled: in.Enabled, Username: in.Username, Password: in.Password})
+			if err != nil {
+				return nil, err
+			}
+			if !ap.Protected {
+				return &result{
+					Summary: ap.Slug + " is open to everyone again.",
+					Data:    data("app", ap),
+					Next:    []string{"Tell the user anyone with the link can open the app again."},
+				}, nil
+			}
+			return &result{
+				Summary: fmt.Sprintf("%s now asks for a username and password (username %s).", ap.Slug, ap.ProtectedUsername),
+				Data:    data("app", ap),
+				Next: []string{
+					"Tell the user the app now asks for the username " + ap.ProtectedUsername + " and the password they chose (or the one you suggested, if you said it to them). It works within a couple of seconds. Nobody, you included, can read the password back later.",
+					"Deploys and restarts keep the password. To remove it, call set_password_protection with enabled=false, only if the user asks.",
+				},
 			}, nil
 		})
 

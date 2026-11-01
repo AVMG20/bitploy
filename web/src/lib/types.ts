@@ -279,6 +279,10 @@ export interface App {
   memory_mb: number
   cpu_millis: number
   git_source: GitSource | null
+  /** True while visitors must sign in with the app login first. */
+  protected: boolean
+  /** The login name while protected. The password is never returned. */
+  protected_username?: string
   current_deployment: Deployment | null
   domains: Domain[] | null
   started_at?: string | null

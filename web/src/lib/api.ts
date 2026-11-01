@@ -57,6 +57,7 @@ export const paths = {
   adminGithubManifest: `${V1}/admin/github/manifest`,
   adminGithubComplete: `${V1}/admin/github/manifest/complete`,
   appGitSource: (slug: string) => `${V1}/apps/${enc(slug)}/git-source`,
+  appPasswordProtection: (slug: string) => `${V1}/apps/${enc(slug)}/password-protection`,
   sessions: `${V1}/sessions`,
   sessionById: (id: string) => `${V1}/sessions/${enc(id)}`,
   sessionsRevokeOthers: `${V1}/sessions/revoke-others`,
@@ -316,6 +317,8 @@ export const api = {
   adminGithubDisconnect: () => request<void>('DELETE', paths.adminGithub),
   setGitSource: (slug: string, input: GitSourceInput) => request<App>('PUT', paths.appGitSource(slug), { body: input }),
   clearGitSource: (slug: string) => request<App>('DELETE', paths.appGitSource(slug)),
+  setPasswordProtection: (slug: string, input: { enabled: boolean; username?: string; password?: string }) =>
+    request<App>('PUT', paths.appPasswordProtection(slug), { body: input }),
   setAutoDeploy: (slug: string, autoDeploy: boolean) => request<App>('PATCH', paths.appGitSource(slug), { body: { auto_deploy: autoDeploy } }),
   async sessions(): Promise<Session[]> {
     return listAll<Session>(paths.sessions)

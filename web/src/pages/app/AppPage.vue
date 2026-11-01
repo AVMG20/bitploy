@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ArrowLeft, ExternalLink, GitBranch, Play, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, GitBranch, Lock, Play, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
@@ -71,6 +71,9 @@ function stop() {
             <template v-if="data.type === 'web'">
               <a :href="data.url" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] text-foreground hover:underline">{{ hostOf(data.url) }}</a>
               <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="-ml-1 size-6 text-muted-foreground" />
+              <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Visitors need the login for ${data.protected_username}`">
+                <Lock class="size-3.5" aria-hidden="true" /> Private
+              </span>
             </template>
             <span v-else>Background worker</span>
             <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />

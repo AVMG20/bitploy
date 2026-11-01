@@ -380,6 +380,29 @@ func (q *Queries) SetAppDesiredState(ctx context.Context, arg SetAppDesiredState
 	return err
 }
 
+const setAppProtection = `-- name: SetAppProtection :exec
+UPDATE apps SET protect_enabled = ?, protect_username = ?, protect_hash = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppProtectionParams struct {
+	ProtectEnabled  int64
+	ProtectUsername string
+	ProtectHash     string
+	UpdatedAt       int64
+	ID              string
+}
+
+func (q *Queries) SetAppProtection(ctx context.Context, arg SetAppProtectionParams) error {
+	_, err := q.db.ExecContext(ctx, setAppProtection,
+		arg.ProtectEnabled,
+		arg.ProtectUsername,
+		arg.ProtectHash,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
 const sumAppResourcesByUser = `-- name: SumAppResourcesByUser :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis

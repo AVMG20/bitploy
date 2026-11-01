@@ -134,6 +134,10 @@ type App struct {
 	OwnerID        string `json:"owner_id"`
 	Status         string `json:"status"` // new | deploying | running | stopped | failed | crashed
 	StatusMessage  string `json:"status_message,omitempty"`
+	// Protected is true while a login prompt (username and password) stands in
+	// front of the app's public addresses. The password itself is never returned.
+	Protected         bool   `json:"protected"`
+	ProtectedUsername string `json:"protected_username,omitempty" doc:"The username of the login prompt, while it is on"`
 	DesiredState   string `json:"desired_state"`
 	Port           *int64 `json:"port"`
 	HealthPath     string `json:"health_path"`

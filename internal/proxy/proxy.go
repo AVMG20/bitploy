@@ -22,6 +22,17 @@ type Route struct {
 	// It is exposed only on the internal entrypoint under CandidateHost(slug),
 	// so bitploy can probe it through Traefik before the swap.
 	Candidate string
+	// Auth, when set, puts a basic-auth login in front of every public router
+	// of the app (its own hostname and each custom hostname). The candidate and
+	// live routers on the internal entrypoint never get it: bitploy's health
+	// checks and swap checks send no credentials.
+	Auth *BasicAuth
+}
+
+// BasicAuth is one login for an app. Hash is a bcrypt hash made by HashPassword.
+type BasicAuth struct {
+	User string
+	Hash string
 }
 
 // CandidateHost is the Host header bitploy uses to health-check a new
@@ -53,6 +64,12 @@ type Writer struct {
 
 func routerName(slug string) string { return "app-" + slug }
 
+// AuthMiddlewareName is the basic-auth middleware of a protected app.
+func AuthMiddlewareName(slug string) string { return "app-" + slug + "-auth" }
+
+// AuthRealm is the realm of the login prompt. Some browsers show it.
+const AuthRealm = "Private app"
+
 // RouterName is the Traefik router of an app's own hostname. It is what the
 // access log shows (with an "@file" suffix), so traffic stats can find the app.
 func RouterName(slug string) string { return routerName(slug) }
@@ -81,10 +98,24 @@ type router struct {
 	Middlewares []string `yaml:"middlewares,omitempty"`
 }
 
+// middleware is a Traefik middleware: either response headers or basic auth.
 type middleware struct {
-	Headers struct {
-		CustomResponseHeaders map[string]string `yaml:"customResponseHeaders"`
-	} `yaml:"headers"`
+	Headers   *headersConf   `yaml:"headers,omitempty"`
+	BasicAuth *basicAuthConf `yaml:"basicAuth,omitempty"`
+}
+
+type headersConf struct {
+	CustomResponseHeaders map[string]string `yaml:"customResponseHeaders"`
+}
+
+type basicAuthConf struct {
+	Users        []string `yaml:"users"`
+	Realm        string   `yaml:"realm,omitempty"`
+	RemoveHeader bool     `yaml:"removeHeader"`
+}
+
+func headerMiddleware(name, value string) middleware {
+	return middleware{Headers: &headersConf{CustomResponseHeaders: map[string]string{name: value}}}
 }
 
 type tlsConf struct {
@@ -109,9 +140,7 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 		cname := name + "-candidate"
 		f.HTTP.Services[cname] = newService(r.Candidate)
 		ep := w.internal()
-		var mw middleware
-		mw.Headers.CustomResponseHeaders = map[string]string{CandidateHeader: r.Slug}
-		f.HTTP.Middlewares = map[string]middleware{cname: mw}
+		f.HTTP.Middlewares = map[string]middleware{cname: headerMiddleware(CandidateHeader, r.Slug)}
 		f.HTTP.Routers[cname] = router{Rule: fmt.Sprintf("Host(`%s`)", CandidateHost(r.Slug)), EntryPoints: []string{ep}, Service: cname, Middlewares: []string{cname}}
 	}
 	if r.Upstream == "" {
@@ -119,23 +148,30 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 	}
 	f.HTTP.Services[name] = newService(r.Upstream)
 
-	rt := router{Rule: fmt.Sprintf("Host(`%s`)", r.Host), EntryPoints: []string{w.entry()}, Service: name}
+	if f.HTTP.Middlewares == nil {
+		f.HTTP.Middlewares = map[string]middleware{}
+	}
+	var public []string // middlewares of every public router
+	if r.Auth != nil {
+		aname := AuthMiddlewareName(r.Slug)
+		f.HTTP.Middlewares[aname] = middleware{BasicAuth: &basicAuthConf{
+			Users: []string{r.Auth.User + ":" + r.Auth.Hash}, Realm: AuthRealm, RemoveHeader: true,
+		}}
+		public = []string{aname}
+	}
+
+	rt := router{Rule: fmt.Sprintf("Host(`%s`)", r.Host), EntryPoints: []string{w.entry()}, Service: name, Middlewares: public}
 	if w.TLS {
 		rt.TLS = &tlsConf{}
 	}
 	f.HTTP.Routers[name] = rt
 	lname := name + "-live"
-	var lmw middleware
-	lmw.Headers.CustomResponseHeaders = map[string]string{UpstreamHeader: r.Upstream}
-	if f.HTTP.Middlewares == nil {
-		f.HTTP.Middlewares = map[string]middleware{}
-	}
-	f.HTTP.Middlewares[lname] = lmw
+	f.HTTP.Middlewares[lname] = headerMiddleware(UpstreamHeader, r.Upstream)
 	f.HTTP.Routers[lname] = router{Rule: fmt.Sprintf("Host(`%s`)", LiveHost(r.Slug)), EntryPoints: []string{w.internal()}, Service: name, Middlewares: []string{lname}}
 	custom := append([]string(nil), r.Custom...)
 	sort.Strings(custom)
 	for _, h := range custom {
-		cr := router{Rule: fmt.Sprintf("Host(`%s`)", h), EntryPoints: []string{w.entry()}, Service: name}
+		cr := router{Rule: fmt.Sprintf("Host(`%s`)", h), EntryPoints: []string{w.entry()}, Service: name, Middlewares: public}
 		if w.TLS {
 			cr.TLS = &tlsConf{CertResolver: "letsencrypt"}
 		}

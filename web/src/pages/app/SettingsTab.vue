@@ -12,6 +12,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import GitConnect from './GitConnect.vue'
 import GitLinked from './GitLinked.vue'
+import PasswordProtection from './PasswordProtection.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -270,6 +271,8 @@ const del = useMutation({
       <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
       <GitConnect v-else :app="app.data.value" />
     </template>
+
+    <PasswordProtection v-if="app.data.value" :app="app.data.value" />
 
     <Card>
       <CardHeader>

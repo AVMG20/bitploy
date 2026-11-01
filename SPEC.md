@@ -220,7 +220,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    you did. Assume the user is not technical.
 8. Files that must survive a redeploy go in /data, and only after turning the
    volume on with update_app.
-9. Never stop, delete or roll back an app the user did not name.
+9. Never stop, delete or roll back an app the user did not name. Turn password
+   protection (set_password_protection) on or off only when the user asks.
 ```
 
 **Tools**
@@ -242,6 +243,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `list_deployments(app)` | History, newest first | read | read-only |
 | `get_logs(app, kind, tail?, since?)` | `build` or `runtime` logs, max 1,000 lines | read | read-only |
 | `set_env(app, set, unset)` | Encrypted env vars; values are never returned | deploy | idempotent |
+| `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume | deploy | destructive |
@@ -317,6 +319,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET /api/v1/deployments/{id}/log[?follow=1]` | Build log as text or SSE |
 | `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1]` | `get_logs` |
 | `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read) |
+| `PUT /api/v1/apps/{app}/password-protection` | `set_password_protection` (`{enabled, username?, password?}`; apps report `protected` and `protected_username`, never the password) |
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
 | `GET /api/v1/apps/{app}/metrics?window=24h` | `get_metrics` |
@@ -380,6 +383,21 @@ http:
 
 Traefik joins each app network `bp-<slug>` so it can reach `bp-<slug>-<n>` by name. A swap rewrites only the server URL.
 
+**Password protection.** When an app has it on, the route file also holds a `basicAuth` middleware and the subdomain router and every custom domain router list it:
+
+```yaml
+    app-quiet-otter-3f9a:
+      middlewares: [app-quiet-otter-3f9a-auth]
+  middlewares:
+    app-quiet-otter-3f9a-auth:
+      basicAuth:
+        users: ["team:$2a$08$..."]   # bcrypt hash, cost 8; the password itself is never stored
+        realm: Private app
+        removeHeader: true           # the app never sees the login
+```
+
+The internal candidate and live routers (`*.bitploy.internal`) never get it, so health checks and the deploy swap work as before. The middleware is part of the one route file, so deploys, rollbacks, restarts and the reconciler keep it. Usernames are limited to `A-Za-z0-9._@+-` because Traefik reads route files as templates and splits `user:hash` on `:`. The 401 a visitor gets before the browser sends the login is not counted as traffic (Traefik's access log keeps `OriginStatus`, which is 0 when Traefik answered itself).
+
 ## Dashboard
 
 The dashboard is read-mostly: people watch their apps, read logs, manage tokens and do a few safe actions. Deploying is the agent's job, though a Redeploy button is fine. It calls only `/api/v1`, never a private endpoint.
@@ -390,11 +408,11 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | --- | --- | --- |
 | Login, Accept invite | Email and password form | Log in, set password |
 | Overview `/` | Cards: apps running of total, memory used of quota, CPU now, deploys this week. Table: name + URL, status badge, CPU %, memory MB, uptime, last deploy | Open an app |
-| App `/apps/:slug` → Overview | URL with copy, status, uptime, current deployment and its source, CPU and memory charts for 1 h / 24 h / 7 d | Redeploy, restart, stop, start |
-| App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row |
+| App `/apps/:slug` → Overview | URL with copy (and a "Private" lock while password-protected), status, uptime, current deployment and its source, CPU and memory charts for 1 h / 24 h / 7 d | Redeploy, restart, stop, start; Copy for AI when the app failed or keeps crashing |
+| App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row; Copy for AI on a failed row (short text with the error and the last 70 log lines, to paste into an assistant) |
 | App → Logs | Build and runtime logs, live tail, filter box | Download |
 | App → Domains | Subdomain; custom domains with the DNS records to copy and their status | Add, check now, remove |
-| App → Settings | Source (linked repo, branch, folder, deploy on every push), env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |
+| App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
 | Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos) | Change, connect or disconnect GitHub, sign out everywhere |
