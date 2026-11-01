@@ -16,11 +16,13 @@ const props = defineProps<{ slug: string }>()
 
 const MAX_LINES = 5000
 
-// ?kind=build opens the build log (the first-deploy card on the Overview links here).
-const kind = ref<LogKind>(useRoute().query.kind === 'build' ? 'build' : 'runtime')
+// ?kind=build opens the build log (the first-deploy card on the Overview links
+// here), ?deployment=<id> that of one deployment (the Deployments tab).
+const route = useRoute()
+const kind = ref<LogKind>(route.query.kind === 'build' ? 'build' : 'runtime')
 const live = ref(true)
 const filter = ref('')
-const chosenDeployment = ref<string | undefined>(undefined)
+const chosenDeployment = ref<string | undefined>(typeof route.query.deployment === 'string' ? route.query.deployment : undefined)
 const lines = shallowRef<string[]>([])
 const status = ref<'idle' | 'connecting' | 'live' | 'reconnecting' | 'ended' | 'snapshot' | 'failed'>('idle')
 const streamError = ref('')

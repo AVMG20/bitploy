@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { History, Undo2 } from 'lucide-vue-next'
+import { History, ScrollText, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import { plainHint } from '@/lib/errors'
@@ -81,9 +81,14 @@ function canRollback(d: Deployment): boolean {
           <span v-if="d.id === app.data.value?.current_deployment?.id" class="text-xs font-medium text-success">Current version</span>
           <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /></span>
           <span v-if="d.duration_seconds !== null" class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
-          <Button v-if="canRollback(d)" class="ml-auto" size="sm" variant="outline" @click="target = d">
-            <Undo2 /> Go back to this version
-          </Button>
+          <div class="ml-auto flex flex-wrap gap-2">
+            <Button as-child size="sm" variant="ghost">
+              <RouterLink :to="{ name: 'app-logs', params: { slug }, query: { kind: 'build', deployment: d.id } }"><ScrollText /> Build log</RouterLink>
+            </Button>
+            <Button v-if="canRollback(d)" size="sm" variant="outline" @click="target = d">
+              <Undo2 /> Go back to this version
+            </Button>
+          </div>
         </div>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <span>Via {{ channelLabel(d.channel) }}</span>
