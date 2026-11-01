@@ -163,6 +163,15 @@ function dosDateTime(ms: number): { time: number; date: number } {
   }
 }
 
+/**
+ * Whether a file is probably meant to be run (the browser does not say): a
+ * script starting with #! or a .sh file. Such files get the executable bit, so
+ * `RUN ./start.sh` in a Dockerfile works as it does after `zip -r`.
+ */
+export function isScript(path: string, data: Uint8Array): boolean {
+  return /\.sh$/i.test(path) || (data.length > 2 && data[0] === 0x23 && data[1] === 0x21)
+}
+
 export interface ZipProgress {
   done: number
   total: number
@@ -233,7 +242,7 @@ export async function buildZip(files: PickedFile[], onProgress?: (p: ZipProgress
     cd.setUint32(20, data.length, true)
     cd.setUint32(24, raw.length, true)
     cd.setUint16(28, name.length, true)
-    cd.setUint32(38, (0o100644 << 16) >>> 0, true) // a regular file, rw-r--r--
+    cd.setUint32(38, ((isScript(path, raw) ? 0o100755 : 0o100644) << 16) >>> 0, true) // a regular file, rw-r--r-- or rwxr-xr-x
     cd.setUint32(42, offset, true)
     const entry = new Uint8Array(46 + name.length)
     entry.set(new Uint8Array(cd.buffer), 0)
@@ -297,8 +306,40 @@ export async function listZipNames(file: Blob): Promise<string[] | null> {
       names.push(dec.decode(new Uint8Array(dir.buffer, dir.byteOffset + p + 46, nameLen)).replace(/\\/g, '/'))
       p += 46 + nameLen + extraLen + commentLen
     }
-    return names.filter((n) => n !== '' && !n.endsWith('/'))
+    return names.filter((n) => n !== '')
   } catch {
     return null
   }
+}
+
+/**
+ * The files of a zip as the server lays them out (internal/deploy/zip.go
+ * planZip and stripTopFolder): __MACOSX and .DS_Store dropped, and a single
+ * top-level folder removed when everything sits inside it. `names` are the
+ * entries from listZipNames, folders ending in "/".
+ */
+export function serverLayout(names: string[]): string[] {
+  const entries = names
+    .map((n) => ({ dir: n.endsWith('/'), rel: n.replace(/^\/+|\/+$/g, '') }))
+    .filter((e) => e.rel !== '' && e.rel.split('/')[0] !== '__MACOSX' && e.rel.split('/').pop() !== '.DS_Store')
+  let top = ''
+  let nested = false
+  let strip = true
+  for (const e of entries) {
+    const slash = e.rel.indexOf('/')
+    if (slash < 0 && !e.dir) {
+      strip = false
+      break
+    }
+    const first = slash < 0 ? e.rel : e.rel.slice(0, slash)
+    if (top === '') top = first
+    else if (top !== first) {
+      strip = false
+      break
+    }
+    if (slash >= 0) nested = true
+  }
+  const files = entries.filter((e) => !e.dir).map((e) => e.rel)
+  if (!strip || top === '' || !nested) return files
+  return files.filter((f) => f !== top).map((f) => f.slice(top.length + 1))
 }

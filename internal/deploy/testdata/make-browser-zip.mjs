@@ -6,6 +6,7 @@ const list = [
   mk('my-site/index.html', '<h1>héllo ✓</h1>'),
   mk('my-site/css/site.css', big),
   mk('my-site/empty.txt', ''),
+  mk('my-site/start.sh', '#!/bin/sh\necho hi\n'),
   mk('my-site/.env', 'SECRET=1'),
   mk('my-site/node_modules/x/index.js', 'x'),
   mk('my-site/.git/config', 'x'),

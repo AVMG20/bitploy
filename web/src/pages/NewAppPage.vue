@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { keys, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { detectSource } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { slugify, slugSchema } from '@/lib/slug'
@@ -76,9 +77,10 @@ const volume = ref(false)
 const sourceReady = computed(() => {
   if (source.value === 'github') return !!repo.value
   if (!upload.value) return false
-  // Nothing to build: the person has to change something first.
+  // Nothing to build: the person has to change something first. A zip this
+  // page could not read is checked by the server.
   const p = upload.value.paths
-  return p === null || !!p.length
+  return p === null || detectSource(p, mode.value).kind !== 'none'
 })
 
 // ---------------------------------------------------------------- submit

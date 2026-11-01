@@ -16,7 +16,7 @@ import {
   MAX_FILES,
   MAX_UNPACKED_BYTES,
   MAX_ZIP_BYTES,
-  stripWrapper,
+  serverLayout,
   ZipTooBigError,
 } from '@/lib/zip'
 import type { Collected } from '@/lib/zip'
@@ -91,7 +91,8 @@ async function takeFolder(c: Collected) {
       name: c.root || (c.files.length === 1 ? c.files[0]!.path : 'Your files'),
       from: 'folder',
       fileCount: c.files.length,
-      paths: c.files.map((f) => f.path),
+      // The server removes a single top folder from the zip once more.
+      paths: serverLayout(c.files.map((f) => f.path)),
       skipped: c.skipped,
     }
   } catch (e) {
@@ -108,8 +109,7 @@ async function takeZip(file: File) {
     return
   }
   const names = await listZipNames(file)
-  // The server drops these too; a single wrapping folder is removed there as well.
-  const kept = names?.filter((n) => !n.split('/').some((p) => p === '__MACOSX') && n.split('/').pop() !== '.DS_Store')
+  const kept = names ? serverLayout(names) : null
   if (kept && !kept.length) {
     error.value = 'That zip is empty.'
     return
@@ -119,7 +119,7 @@ async function takeZip(file: File) {
     name: file.name,
     from: 'zip',
     fileCount: kept ? kept.length : null,
-    paths: kept ? stripWrapper(kept.map((path) => ({ path }))).map((i) => i.path) : null,
+    paths: kept,
     skipped: [],
   }
 }

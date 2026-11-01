@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { plainHint } from '@/lib/errors'
 import { deploymentStateInfo } from '@/lib/format'
 
 // The first deploy of an app, live: the step it is on, the build log, and the
@@ -84,7 +85,7 @@ watch(
 
       <div v-if="latest.error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">
         <p class="font-medium">{{ latest.error.message }}</p>
-        <p v-if="latest.error.hint" class="mt-1">{{ latest.error.hint }}</p>
+        <p v-if="plainHint(latest.error.code, latest.error.hint)" class="mt-1">{{ plainHint(latest.error.code, latest.error.hint) }}</p>
       </div>
 
       <div v-if="log.length" class="grid gap-1.5">

@@ -830,9 +830,41 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 	if err != nil {
 		return Deployment{}, err
 	}
-	if _, err := s.ReceiveUpload(ctx, up.ID, body); err != nil {
+	drop := func() {
+		_ = os.Remove(s.uploadPath(up.ID))
 		_ = s.Q.DeleteUpload(ctx, up.ID)
+	}
+	if _, err := s.ReceiveUpload(ctx, up.ID, body); err != nil {
+		drop()
 		return Deployment{}, err
 	}
-	return s.Deploy(ctx, a, ref, up.ID)
+	// The same early checks as deploy_files (build mode, Dockerfile), so a
+	// source that cannot build is refused here and not by a failed deployment.
+	if err := s.checkUploadedSource(row, s.uploadPath(up.ID)); err != nil {
+		drop()
+		return Deployment{}, err
+	}
+	d, err := s.Deploy(ctx, a, ref, up.ID)
+	if err != nil {
+		drop()
+	}
+	return d, err
+}
+
+// checkUploadedSource runs planBuild and the Dockerfile checks on a stored zip
+// without extracting it: the file list as the pipeline will see it, and the
+// content of the few small files the checks read.
+func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
+	ctxDir := path.Clean(row.ContextDir)
+	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
+	files, contents, err := deploy.ZipSource(zipPath, true, func(rel string) bool { return wanted[rel] }, 1<<20)
+	if err != nil {
+		return err
+	}
+	effApp, _, all, read, perr := planBuild(row, files, func(rel string) []byte { return contents[path.Clean(rel)] })
+	if perr != nil {
+		return perr
+	}
+	res, ctxFiles := s.runChecks(effApp, all, read)
+	return checkError(res, ctxFiles)
 }

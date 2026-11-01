@@ -71,12 +71,26 @@ func TestDeployFilesAutoMode(t *testing.T) {
 
 // runSource queues an upload deployment and runs the fetch and validate steps
 // of the pipeline on it, like the worker does (without Docker).
+// runSource uploads a zip and runs the pipeline up to validation. An error of
+// the upload call itself (its early checks) is returned as the result.
 func (e *depEnv) runSource(t *testing.T, app App, zipBytes []byte) (*pipeline, *apperr.Error) {
+	return e.runSourceThen(t, app, zipBytes, nil)
+}
+
+// runSourceThen is runSource with a step between queueing and the pipeline.
+func (e *depEnv) runSourceThen(t *testing.T, app App, zipBytes []byte, between func()) (*pipeline, *apperr.Error) {
 	t.Helper()
 	ctx := context.Background()
 	d, err := e.s.UploadAndDeploy(ctx, e.user, app.Slug, bytes.NewReader(zipBytes))
 	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) {
+			return nil, ae
+		}
 		t.Fatalf("UploadAndDeploy: %v", err)
+	}
+	if between != nil {
+		between()
 	}
 	if d.SourceKind != "upload" || d.State != "queued" {
 		t.Fatalf("deployment: %+v", d)
@@ -167,6 +181,16 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{}), makeZipBytes(t, site))
 		if ae == nil || ae.Code != "dockerfile_missing" {
 			t.Fatalf("validate: %v", ae)
+		}
+	})
+	t.Run("the build uses the mode the app has when it runs", func(t *testing.T) {
+		e := depTestSvc(t)
+		a := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
+		_, ae := e.runSourceThen(t, a, makeZipBytes(t, site), func() {
+			e.exec(t, `UPDATE apps SET build_mode = 'dockerfile' WHERE id = ?`, a.ID)
+		})
+		if ae == nil || ae.Code != "dockerfile_missing" {
+			t.Fatalf("validate after switching to dockerfile: %v", ae)
 		}
 	})
 	t.Run("static mode ignores the Dockerfile", func(t *testing.T) {

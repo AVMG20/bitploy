@@ -9,14 +9,15 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { keys, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { detectSource } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastOk } from '@/lib/notify'
-import type { BuildMode } from '@/lib/types'
+import type { BuildMode, Deployment } from '@/lib/types'
 
 // "Upload new version": the same drop zone as the New app form, for an app
 // whose files were uploaded. Apps that build from git are updated by pushing.
-const props = defineProps<{ slug: string }>()
+const props = withDefaults(defineProps<{ slug: string; label?: string }>(), { label: 'Upload new version' })
 const qc = useQueryClient()
 const app = useApp(() => props.slug)
 
@@ -29,6 +30,7 @@ const checking = ref(false)
 const error = ref<FriendlyError | null>(null)
 
 const visible = computed(() => !!app.data.value && !app.data.value.git_source)
+const first = computed(() => !app.data.value?.current_deployment)
 
 // Start from the app's own setting each time the dialog opens.
 watch(open, (o) => {
@@ -38,8 +40,8 @@ watch(open, (o) => {
   mode.value = app.data.value?.build_mode ?? 'auto'
 })
 
-const ready = computed(() => !!choice.value && (choice.value.paths === null || choice.value.paths.length > 0))
-const label = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
+const ready = computed(() => !!choice.value && (choice.value.paths === null || detectSource(choice.value.paths, mode.value).kind !== 'none'))
+const buttonLabel = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
 
 async function deploy() {
   if (!choice.value || !app.data.value) return
@@ -47,15 +49,28 @@ async function deploy() {
   checking.value = false
   sent.value = 0
   error.value = null
+  const before = app.data.value.build_mode
+  let changed = false
   try {
-    if (mode.value !== app.data.value.build_mode) await api.updateApp(props.slug, { build_mode: mode.value })
-    const d = await api.uploadApp(
-      props.slug,
-      choice.value.zip,
-      (f) => (sent.value = f),
-      () => (checking.value = true),
-    )
-    toastOk(`Deploying version #${d.seq}`, 'Your app keeps running until the new version is ready.')
+    // The deploy reads the app's build mode, so it is saved first, and put
+    // back when the upload is refused.
+    if (mode.value !== before) {
+      await api.updateApp(props.slug, { build_mode: mode.value })
+      changed = true
+    }
+    let d: Deployment
+    try {
+      d = await api.uploadApp(
+        props.slug,
+        choice.value.zip,
+        (f) => (sent.value = f),
+        () => (checking.value = true),
+      )
+    } catch (e) {
+      if (changed) await api.updateApp(props.slug, { build_mode: before }).catch(() => {})
+      throw e
+    }
+    toastOk(`Deploying version #${d.seq}`, first.value ? 'Follow it on the Overview.' : 'Your app keeps running until the new version is ready.')
     open.value = false
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
@@ -71,12 +86,13 @@ async function deploy() {
 
 <template>
   <template v-if="visible">
-    <Button variant="outline" @click="open = true"><Upload /> Upload new version</Button>
+    <Button variant="outline" @click="open = true"><Upload /> {{ label }}</Button>
     <Dialog v-model:open="open">
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Upload a new version</DialogTitle>
-          <DialogDescription>
+          <DialogTitle>{{ first ? 'Upload your files' : 'Upload a new version' }}</DialogTitle>
+          <DialogDescription v-if="first">Drop your project folder or a .zip. Bitploy builds it and puts it online.</DialogDescription>
+          <DialogDescription v-else>
             Drop the folder again, with your changes. The version that runs now stays available, so you can go back to it.
           </DialogDescription>
         </DialogHeader>
@@ -87,7 +103,7 @@ async function deploy() {
         </Alert>
         <DialogFooter>
           <Button variant="ghost" :disabled="busy" @click="open = false">Cancel</Button>
-          <Button :disabled="busy || !ready" @click="deploy">{{ label }}</Button>
+          <Button :disabled="busy || !ready" @click="deploy">{{ buttonLabel }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

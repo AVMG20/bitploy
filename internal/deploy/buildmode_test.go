@@ -97,3 +97,22 @@ func TestStaticPlanDockerignore(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanBuildCaseMismatch(t *testing.T) {
+	_, err := PlanBuild(BuildModeStatic, "Dockerfile", []string{"Index.html"}, nil)
+	if err == nil || err.Code != "static_index_missing" || !strings.Contains(err.Hint, "Rename Index.html to index.html") {
+		t.Errorf("static, Index.html: %+v", err)
+	}
+	_, err = PlanBuild(BuildModeAuto, "Dockerfile", []string{"INDEX.HTML", "a.css"}, nil)
+	if err == nil || err.Code != CodeNothingToBuild || !strings.Contains(err.Hint, "Rename INDEX.HTML to index.html") {
+		t.Errorf("auto, INDEX.HTML: %+v", err)
+	}
+	_, err = PlanBuild(BuildModeAuto, "Dockerfile", []string{"dockerfile", "main.go", "go.mod"}, nil)
+	if err == nil || err.Code != CodeNothingToBuild || !strings.Contains(err.Hint, "Rename dockerfile to Dockerfile") {
+		t.Errorf("auto, dockerfile: %+v", err)
+	}
+	// A real index.html still wins over a lowercase dockerfile.
+	if plan, err := PlanBuild(BuildModeAuto, "Dockerfile", []string{"dockerfile", "index.html"}, nil); err != nil || plan.Kind != BuildKindStatic {
+		t.Errorf("auto, dockerfile + index.html: %+v %v", plan, err)
+	}
+}

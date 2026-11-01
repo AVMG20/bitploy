@@ -15,7 +15,7 @@ import (
 func TestBrowserMadeZip(t *testing.T) {
 	zp := filepath.Join("testdata", "browser-made.zip")
 	n, err := InspectZip(zp, DefaultZipLimits)
-	if err != nil || n != 4 {
+	if err != nil || n != 5 {
 		t.Fatalf("InspectZip: %d files, %v", n, err)
 	}
 	dest := t.TempDir()
@@ -23,7 +23,7 @@ func TestBrowserMadeZip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractZip: %v", err)
 	}
-	want := []string{"css/site.css", "empty.txt", "img/ü ñ.bin", "index.html"}
+	want := []string{"css/site.css", "empty.txt", "img/ü ñ.bin", "index.html", "start.sh"}
 	if !reflect.DeepEqual(res.Files, want) {
 		t.Errorf("files = %v, want %v", res.Files, want)
 	}
@@ -37,5 +37,12 @@ func TestBrowserMadeZip(t *testing.T) {
 	fi, err := os.Stat(filepath.Join(dest, "index.html"))
 	if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o400 == 0 {
 		t.Errorf("mode: %v %v", fi, err)
+	}
+	if fi.Mode().Perm()&0o111 != 0 {
+		t.Errorf("index.html is executable: %v", fi.Mode())
+	}
+	// A script (#! or .sh) gets the executable bit the browser cannot see.
+	if fi, err := os.Stat(filepath.Join(dest, "start.sh")); err != nil || fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("start.sh mode: %v %v", fi, err)
 	}
 }

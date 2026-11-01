@@ -76,6 +76,9 @@ func PlanBuild(mode, dockerfilePath string, files []string, dockerignore []byte)
 	switch mode {
 	case BuildModeStatic:
 		if !hasIndex {
+			if other := otherCase(has, "index.html"); other != "" {
+				return BuildPlan{}, renameErr("static_index_missing", other, "index.html")
+			}
 			return BuildPlan{}, apperr.Unprocessable("static_index_missing",
 				"There is no index.html at the top of the project, so there is no website to show.",
 				"Put index.html in the top folder, next to your other website files, then deploy again.")
@@ -89,9 +92,33 @@ func PlanBuild(mode, dockerfilePath string, files []string, dockerignore []byte)
 		if hasIndex && stack == "static" {
 			return staticPlan(dockerignore, "No Dockerfile, but there is an index.html: serving the files as a static site with nginx."), nil
 		}
+		if other := otherCase(has, path.Clean(dockerfilePath)); other != "" {
+			return BuildPlan{}, renameErr(CodeNothingToBuild, other, path.Clean(dockerfilePath))
+		}
+		if other := otherCase(has, "index.html"); other != "" && !hasIndex && stack == "static" {
+			return BuildPlan{}, renameErr(CodeNothingToBuild, other, "index.html")
+		}
 		return BuildPlan{}, nothingToBuild(files, hasIndex)
 	}
 	return BuildPlan{Kind: BuildKindDockerfile}, nil
+}
+
+// otherCase returns a file whose name differs from want only in upper and
+// lower case ("Index.html" for "index.html"), or "". Linux, nginx and Docker
+// match names exactly, so such a file is not found.
+func otherCase(has map[string]bool, want string) string {
+	for f := range has {
+		if f != want && strings.EqualFold(f, want) {
+			return f
+		}
+	}
+	return ""
+}
+
+func renameErr(code, got, want string) *apperr.Error {
+	return apperr.Unprocessable(code,
+		fmt.Sprintf("Found %s, but the name must be exactly %s: upper and lower case matter.", got, want),
+		fmt.Sprintf("Rename %s to %s, then deploy again.", got, want))
 }
 
 func staticPlan(userIgnore []byte, why string) BuildPlan {

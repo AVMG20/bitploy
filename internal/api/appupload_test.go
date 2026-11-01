@@ -191,3 +191,53 @@ func TestAppUploadQuotasAndGitLinked(t *testing.T) {
 		t.Errorf("git-linked: %d %s", w.Code, w.Body)
 	}
 }
+
+// A source that cannot build is refused by the upload call itself, so the
+// dashboard can delete the app it just made instead of leaving a failed one.
+func TestAppUploadChecksSourceFirst(t *testing.T) {
+	e := newEnv(t)
+	e.login("owner@example.nl", false)
+	for slug, mode := range map[string]string{"auto-app": "auto", "strict-app": "dockerfile"} {
+		if w := e.asSession("POST", "/api/v1/apps", map[string]any{"name": slug, "slug": slug, "build_mode": mode}); w.Code != 201 {
+			t.Fatalf("create %s: %d %s", slug, w.Code, w.Body)
+		}
+	}
+	cases := []struct {
+		slug  string
+		files map[string]string
+		code  string
+	}{
+		{"auto-app", map[string]string{"notes.txt": "x"}, "nothing_to_build"},
+		{"auto-app", map[string]string{"site/Index.html": "x", "site/a.css": "x"}, "nothing_to_build"},
+		{"auto-app", map[string]string{"index.html": "x", "package.json": "{}"}, "nothing_to_build"},
+		{"strict-app", map[string]string{"index.html": "x"}, "dockerfile_missing"},
+		{"strict-app", map[string]string{"Dockerfile": "FROM\n"}, ""}, // any error code from the checks
+	}
+	for _, tc := range cases {
+		w := e.sessionRaw("POST", "/api/v1/apps/"+tc.slug+"/upload", zipOf(t, tc.files), true)
+		got := decode[errResp](t, w).Error.Code
+		if w.Code != 422 || (tc.code != "" && got != tc.code) {
+			t.Errorf("%s %v: %d %s", tc.slug, tc.files, w.Code, w.Body)
+		}
+	}
+	if n := countRows(t, e, `SELECT COUNT(*) FROM deployments`); n != 0 {
+		t.Errorf("refused uploads left %d deployments", n)
+	}
+	if n := countRows(t, e, `SELECT COUNT(*) FROM uploads`); n != 0 {
+		t.Errorf("refused uploads left %d upload rows", n)
+	}
+	// A wrapping folder is removed before the check, as when it is built.
+	w := e.sessionRaw("POST", "/api/v1/apps/auto-app/upload", zipOf(t, map[string]string{"my-site/index.html": "x", "my-site/img/a.png": "x"}), true)
+	if w.Code != 202 {
+		t.Errorf("wrapped site: %d %s", w.Code, w.Body)
+	}
+}
+
+func countRows(t *testing.T, e *env, q string) int {
+	t.Helper()
+	var n int
+	if err := e.svc.Store.DB.QueryRow(q).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}

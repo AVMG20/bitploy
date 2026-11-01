@@ -23,6 +23,22 @@ function language(top: Set<string>): string {
   return ''
 }
 
+// A file whose name differs only in upper and lower case ("Index.html"): the
+// server matches names exactly, so it says to rename it.
+function otherCase(files: Set<string>, want: string): string {
+  for (const f of files) if (f !== want && f.toLowerCase() === want.toLowerCase()) return f
+  return ''
+}
+
+function renamed(got: string, want: string): Detected {
+  return {
+    kind: 'none',
+    label: `Rename ${got}`,
+    message: `Found ${got}, but the name must be exactly ${want}: upper and lower case matter.`,
+    hint: `Rename ${got} to ${want}.`,
+  }
+}
+
 /**
  * What a source is built as. `paths` are the files relative to the project root
  * (a wrapping folder already removed). `mode` is "auto" (a Dockerfile, else an
@@ -37,6 +53,8 @@ export function detectSource(paths: string[], mode: BuildMode = 'auto', dockerfi
 
   if (mode === 'static') {
     if (hasIndex) return { kind: 'static', label: 'Static site' }
+    const other = otherCase(files, 'index.html')
+    if (other) return renamed(other, 'index.html')
     return {
       kind: 'none',
       label: 'No website found',
@@ -57,6 +75,10 @@ export function detectSource(paths: string[], mode: BuildMode = 'auto', dockerfi
   // is not shown as a plain website, because its index.html is usually unbuilt.
   const lang = language(top)
   if (hasIndex && lang === '') return { kind: 'static', label: 'Static site' }
+  const otherDockerfile = otherCase(files, dockerfilePath)
+  if (otherDockerfile) return renamed(otherDockerfile, dockerfilePath)
+  const otherIndex = otherCase(files, 'index.html')
+  if (otherIndex && lang === '' && top.has('index.html')) return renamed(otherIndex, 'index.html')
   let message = 'No Dockerfile or index.html found.'
   if (hasIndex) message = lang ? `No Dockerfile found. This is a ${lang} project, so it cannot be shown as a plain website.` : 'No Dockerfile found.'
   return { kind: 'none', label: 'Nothing to build', message, hint: NOTHING_HINT }
