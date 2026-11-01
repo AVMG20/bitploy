@@ -16,6 +16,7 @@ import { api } from '@/lib/api'
 import { channelLabel, commitUrl, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Deployment } from '@/lib/types'
+import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
 const qc = useQueryClient()
@@ -56,6 +57,9 @@ function canRollback(d: Deployment): boolean {
 
 <template>
   <div class="grid gap-3">
+    <div v-if="app.data.value && !app.data.value.git_source" class="flex justify-end">
+      <UploadVersionButton :slug="slug" />
+    </div>
     <QueryError v-if="list.isError.value" :error="list.error.value" @retry="list.refetch()" />
     <div v-else-if="list.isPending.value" class="grid gap-2">
       <Skeleton v-for="i in 3" :key="i" class="h-20 w-full" />

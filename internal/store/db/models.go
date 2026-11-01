@@ -58,6 +58,8 @@ type App struct {
 	ProtectEnabled      int64
 	ProtectUsername     string
 	ProtectHash         string
+	BuildMode           string
+	HomePage            string
 }
 
 type AppBackup struct {

@@ -339,3 +339,47 @@ func ListFiles(dir string, max int) ([]string, error) {
 	sort.Strings(out)
 	return out, err
 }
+
+// ZipSource lists the files of a zip as ExtractZip would lay them out (junk
+// dropped, a single top folder stripped when strip is set) and returns the
+// content of the files want accepts, up to max bytes each (larger ones are
+// left out). It lets an upload be checked like inline files before it is
+// queued; the pipeline checks the extracted source again.
+func ZipSource(zipPath string, strip bool, want func(rel string) bool, max int64) ([]string, map[string][]byte, error) {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, nil, zipErr("source_zip_invalid",
+			"The upload is not a valid zip file ("+err.Error()+").",
+			"Create it with `zip -r app.zip .` inside your project folder, then upload it again.")
+	}
+	defer zr.Close()
+	entries, err := planZip(zr.File)
+	if err != nil {
+		return nil, nil, err
+	}
+	if strip {
+		stripTopFolder(entries)
+	}
+	var files []string
+	contents := map[string][]byte{}
+	for _, e := range entries {
+		if e.isDir || e.rel == "" {
+			continue
+		}
+		files = append(files, e.rel)
+		if want == nil || !want(e.rel) || e.f.UncompressedSize64 > uint64(max) {
+			continue
+		}
+		rc, err := e.f.Open()
+		if err != nil {
+			continue
+		}
+		b, err := io.ReadAll(io.LimitReader(rc, max+1))
+		rc.Close()
+		if err == nil && int64(len(b)) <= max {
+			contents[e.rel] = b
+		}
+	}
+	sort.Strings(files)
+	return files, contents, nil
+}

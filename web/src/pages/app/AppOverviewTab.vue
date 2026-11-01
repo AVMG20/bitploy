@@ -17,6 +17,8 @@ import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/querie
 import { nowMs } from '@/composables/useNow'
 import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
+import DeployProgress from './DeployProgress.vue'
+import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
 const app = useApp(() => props.slug)
@@ -43,8 +45,9 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
 
 <template>
   <div v-if="data" class="grid gap-4">
-    <Alert v-if="data.status === 'failed' || data.status === 'crashed'" variant="destructive">
-      <AlertTitle>{{ data.status === 'crashed' ? 'This app keeps crashing.' : dep ? 'This app stopped working.' : 'The last deploy failed.' }}</AlertTitle>
+    <!-- Without a running version the deploy card below shows the failure. -->
+    <Alert v-if="(data.status === 'failed' && dep) || data.status === 'crashed'" variant="destructive">
+      <AlertTitle>{{ data.status === 'crashed' ? 'This app keeps crashing.' : 'This app stopped working.' }}</AlertTitle>
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
         <p v-if="dep?.error">{{ dep.error.message }} <span v-if="dep.error.hint" class="font-medium">{{ dep.error.hint }}</span></p>
@@ -54,18 +57,20 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
         </div>
       </AlertDescription>
     </Alert>
-    <Alert v-else-if="data.status_message">
+    <Alert v-else-if="data.status_message && data.status !== 'failed'">
       <AlertDescription>{{ data.status_message }}</AlertDescription>
     </Alert>
 
-    <EmptyState
-      v-if="!dep"
-      :icon="Rocket"
-      title="Nothing deployed yet."
-      description="Ask your AI assistant to deploy to this app. It can send the code, build it and put it online here."
-    >
-      <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
-    </EmptyState>
+    <DeployProgress v-if="!dep" :slug="slug">
+      <EmptyState
+        :icon="Rocket"
+        title="Nothing deployed yet."
+        :description="data.git_source ? 'Push to the linked branch to build it and put it online.' : 'Upload your files, or ask your AI assistant to deploy to this app.'"
+      >
+        <UploadVersionButton v-if="!data.git_source" :slug="slug" label="Upload files" />
+        <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
+      </EmptyState>
+    </DeployProgress>
 
     <template v-else>
       <!-- Live numbers: what the app uses right now, against its limits. -->

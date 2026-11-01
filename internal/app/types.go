@@ -52,8 +52,10 @@ type Me struct {
 	Quota      Quota  `json:"quota"`
 	Usage      Usage  `json:"usage"`
 	AppsDomain string `json:"apps_domain"`
-	PublicURL  string `json:"public_url"`
-	Scope      Scope  `json:"scope"`
+	// AppURLTemplate is the address of an app with {slug} in place of its subdomain, for previews.
+	AppURLTemplate string `json:"app_url_template"`
+	PublicURL      string `json:"public_url"`
+	Scope          Scope  `json:"scope"`
 }
 
 type SessionInfo struct {
@@ -143,8 +145,12 @@ type App struct {
 	HealthPath        string `json:"health_path"`
 	DockerfilePath    string `json:"dockerfile_path"`
 	ContextDir        string `json:"context_dir"`
-	Volume            bool   `json:"volume"`
-	VolumeMB          int64  `json:"volume_mb"` // storage limit of /data
+	BuildMode         string `json:"build_mode"` // dockerfile | auto | static
+	// HomePage is the page served at "/" when a static site has several pages
+	// and no index.html; empty means decided from the files.
+	HomePage string `json:"home_page"`
+	Volume   bool   `json:"volume"`
+	VolumeMB int64  `json:"volume_mb"` // storage limit of /data
 	// VolumeUsedMB is what /data holds, measured hourly; nil when the volume is
 	// off or not measured yet.
 	VolumeUsedMB *float64 `json:"volume_used_mb"`
@@ -380,6 +386,10 @@ type CreateAppInput struct {
 	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
 	MemoryMB  *int64 `json:"memory_mb,omitempty"`
 	CPUMillis *int64 `json:"cpu_millis,omitempty"`
+	// BuildMode is how the source is built: dockerfile (default), auto or static.
+	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else a plain website (index.html at the top). static: always a plain website."`
+	// HomePage is the page for "/" when a static site has no index.html and several pages.
+	HomePage string `json:"home_page,omitempty" doc:"Build modes auto and static only: the .html file at the top of the source to serve at / when there is no index.html and several pages. Empty: index.html, else the only page."`
 }
 
 // UpdateAppInput: nil fields are left unchanged.
@@ -391,6 +401,8 @@ type UpdateAppInput struct {
 	HealthPath     *string `json:"health_path,omitempty"`
 	DockerfilePath *string `json:"dockerfile_path,omitempty"`
 	ContextDir     *string `json:"context_dir,omitempty"`
+	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile, auto or static (see create app)"`
+	HomePage       *string `json:"home_page,omitempty" doc:"page for / of a static site without index.html (see create app); empty clears it"`
 	Volume         *bool   `json:"volume,omitempty"`
 	VolumeMB       *int64  `json:"volume_mb,omitempty"`
 	MemoryMB       *int64  `json:"memory_mb,omitempty"`

@@ -39,3 +39,34 @@ func tooLarge() *apperr.Error {
 		"The upload is larger than 95 MB.",
 		"Remove node_modules, .git, build output and other large folders from the zip, or deploy from a git repository.")
 }
+
+// appUpload handles POST /api/v1/apps/{app}/upload: the raw zip as the request
+// body, stored and deployed in one step. It sits behind the same authentication
+// as the JSON API (bearer token, or session cookie with Origin and CSRF checks)
+// but without its small body limit; the zip is capped at 95 MB.
+func (a *API) appUpload(w http.ResponseWriter, r *http.Request) {
+	act, err := auth.Require(r.Context())
+	if err != nil {
+		auth.WriteError(w, err)
+		return
+	}
+	if r.ContentLength > maxUploadBytes {
+		drainBody(w, r)
+		auth.WriteError(w, tooLarge())
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	d, err := a.svc.UploadAndDeploy(r.Context(), act, r.PathValue("app"), r.Body)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			err = tooLarge()
+		}
+		drainBody(w, r)
+		auth.WriteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(d)
+}
