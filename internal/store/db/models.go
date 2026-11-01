@@ -55,6 +55,9 @@ type App struct {
 	RestoreResume       int64
 	GitAutoDeploy       int64
 	GitLastPushAt       sql.NullInt64
+	ProtectEnabled      int64
+	ProtectUsername     string
+	ProtectHash         string
 }
 
 type AppBackup struct {

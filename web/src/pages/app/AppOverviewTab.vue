@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ArrowRight, Rocket } from 'lucide-vue-next'
+import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MetricChart from '@/components/MetricChart.vue'
 import QueryError from '@/components/QueryError.vue'
@@ -47,7 +48,10 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
         <p v-if="dep?.error">{{ dep.error.message }} <span v-if="dep.error.hint" class="font-medium">{{ dep.error.hint }}</span></p>
-        <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Open the logs</RouterLink>
+        <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <CopyForAiButton :app="data" />
+          <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Open the logs</RouterLink>
+        </div>
       </AlertDescription>
     </Alert>
     <Alert v-else-if="data.status_message">

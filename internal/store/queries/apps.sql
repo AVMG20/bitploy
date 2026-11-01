@@ -96,3 +96,6 @@ WHERE (status = 'pending' AND expires_at < sqlc.arg(now))
 
 -- name: DeleteUpload :exec
 DELETE FROM uploads WHERE id = ?;
+
+-- name: SetAppProtection :exec
+UPDATE apps SET protect_enabled = ?, protect_username = ?, protect_hash = ?, updated_at = ? WHERE id = ?;

@@ -16,10 +16,38 @@ export function toastOk(message: string, description?: string) {
   toast.success(message, { description })
 }
 
-export async function copyText(text: string, what = 'Copied') {
+/**
+ * Copy text that takes a moment to make (it needs a request first). Returns
+ * whether it was copied.
+ *
+ * Browsers only allow a copy right after a click. The ClipboardItem is created
+ * in the same tick as the click, with a promise for the text, so the copy
+ * keeps that permission while the text loads (Safari requires this; Chrome and
+ * Firefox 127+ accept it too). Without ClipboardItem or a secure context (plain
+ * http) it waits for the text and tries the plain path, which may be refused
+ * by then. `make` must not reject.
+ */
+export async function copyTextLater(make: () => Promise<string>, what = 'Copied'): Promise<boolean> {
+  const text = make()
+  if (window.isSecureContext && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+    try {
+      const blob = text.then((t) => new Blob([t], { type: 'text/plain' }))
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })])
+      toast.success(what)
+      return true
+    } catch {
+      // fall through to the text path
+    }
+  }
+  return copyText(await text, what)
+}
+
+/** Copy text to the clipboard and say so. Returns whether it was copied. */
+export async function copyText(text: string, what = 'Copied'): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
     toast.success(what)
+    return true
   } catch {
     // Clipboard API needs a secure context; fall back to a hidden textarea.
     const ta = document.createElement('textarea')
@@ -28,13 +56,17 @@ export async function copyText(text: string, what = 'Copied') {
     ta.style.opacity = '0'
     document.body.appendChild(ta)
     ta.select()
+    let ok: boolean
     try {
-      document.execCommand('copy')
-      toast.success(what)
+      // Returns false (rather than throwing) when the browser refuses.
+      ok = document.execCommand('copy')
     } catch {
-      toast.error('Could not copy', { description: 'Select the text and copy it by hand.' })
+      ok = false
     } finally {
       document.body.removeChild(ta)
     }
+    if (ok) toast.success(what)
+    else toast.error('Could not copy', { description: 'Your browser blocked it. Try again.' })
+    return ok
   }
 }

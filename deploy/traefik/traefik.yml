@@ -30,6 +30,7 @@ accessLog:
       RequestMethod: keep
       RequestPath: keep
       DownstreamStatus: keep
+      OriginStatus: keep
       Duration: keep
       ClientHost: keep
     headers:

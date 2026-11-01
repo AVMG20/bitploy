@@ -289,6 +289,19 @@ func (a *API) appRoutes() {
 		return pageOut(items, err, PageParams{Limit: 100})
 	})
 
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "setPasswordProtection", Method: http.MethodPut, Path: "/apps/{app}/password-protection", Tags: []string{"Apps"},
+		Summary: "Turn password protection on or off",
+		Description: "A login prompt (username and password) in front of the app's web addresses. enabled=true needs a username and a password " +
+			"the first time; send either one alone to change just that while it stays on. enabled=false removes the prompt and forgets the login. " +
+			"The password is never returned. Takes effect within a second or two. Needs the deploy scope.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		AppRef
+		Body app.ProtectionInput
+	}) (*Out[app.App], error) {
+		return okOrNil(a.svc.SetPasswordProtection(ctx, act, in.App, in.Body))
+	})
+
 	// ---- lifecycle ----
 	for _, lc := range []struct {
 		name, path, summary string

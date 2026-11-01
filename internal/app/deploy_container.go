@@ -142,6 +142,14 @@ func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
 			}
 		}
 		r.Candidate = s.candidate(app.ID)
+		if app.ProtectEnabled != 0 {
+			r.Auth = &proxy.BasicAuth{User: app.ProtectUsername, Hash: app.ProtectHash}
+			if r.Auth.User == "" || r.Auth.Hash == "" {
+				// Cannot happen through the service. Fail closed: nobody gets in
+				// until the owner sets a password again.
+				r.Auth = &proxy.BasicAuth{User: "locked", Hash: proxy.NeverMatchHash}
+			}
+		}
 	}
 	return r
 }

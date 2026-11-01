@@ -126,21 +126,25 @@ type GitSourceState struct {
 }
 
 type App struct {
-	ID             string `json:"id"`
-	Slug           string `json:"slug"`
-	Name           string `json:"name"`
-	Type           string `json:"type"` // web | worker
-	URL            string `json:"url"`
-	OwnerID        string `json:"owner_id"`
-	Status         string `json:"status"` // new | deploying | running | stopped | failed | crashed
-	StatusMessage  string `json:"status_message,omitempty"`
-	DesiredState   string `json:"desired_state"`
-	Port           *int64 `json:"port"`
-	HealthPath     string `json:"health_path"`
-	DockerfilePath string `json:"dockerfile_path"`
-	ContextDir     string `json:"context_dir"`
-	Volume         bool   `json:"volume"`
-	VolumeMB       int64  `json:"volume_mb"` // storage limit of /data
+	ID            string `json:"id"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	Type          string `json:"type"` // web | worker
+	URL           string `json:"url"`
+	OwnerID       string `json:"owner_id"`
+	Status        string `json:"status"` // new | deploying | running | stopped | failed | crashed
+	StatusMessage string `json:"status_message,omitempty"`
+	// Protected is true while a login prompt (username and password) stands in
+	// front of the app's public addresses. The password itself is never returned.
+	Protected         bool   `json:"protected"`
+	ProtectedUsername string `json:"protected_username,omitempty" doc:"The username of the login prompt, while it is on"`
+	DesiredState      string `json:"desired_state"`
+	Port              *int64 `json:"port"`
+	HealthPath        string `json:"health_path"`
+	DockerfilePath    string `json:"dockerfile_path"`
+	ContextDir        string `json:"context_dir"`
+	Volume            bool   `json:"volume"`
+	VolumeMB          int64  `json:"volume_mb"` // storage limit of /data
 	// VolumeUsedMB is what /data holds, measured hourly; nil when the volume is
 	// off or not measured yet.
 	VolumeUsedMB *float64 `json:"volume_used_mb"`

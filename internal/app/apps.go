@@ -815,6 +815,9 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	}
 	if r.Type == "web" {
 		v.URL = s.Cfg.AppURL(r.Slug)
+		if r.ProtectEnabled != 0 {
+			v.Protected, v.ProtectedUsername = true, r.ProtectUsername
+		}
 	}
 	if r.Port.Valid {
 		p := r.Port.Int64

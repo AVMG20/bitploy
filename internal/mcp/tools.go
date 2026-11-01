@@ -109,6 +109,13 @@ type setEnvIn struct {
 	Unset []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 }
 
+type setPasswordIn struct {
+	App      string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Enabled  bool    `json:"enabled" jsonschema:"true puts the login prompt in front of the app, false removes it. Only when the user asks."`
+	Username *string `json:"username,omitempty" jsonschema:"1 to 64 letters, digits and . _ - @ + (no spaces), like team. Needed when turning it on; leave out to keep the current one."`
+	Password *string `json:"password,omitempty" jsonschema:"8 to 72 characters. Needed when turning it on; leave out to keep the current one."`
+}
+
 type rollbackIn struct {
 	App          string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	DeploymentID string `json:"deployment_id,omitempty" jsonschema:"The earlier deployment (dep_...) to run again, from list_deployments (state running or superseded, one of the newest 3). Leave out to use the newest older deployment that ran."`
@@ -267,7 +274,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
@@ -536,6 +543,31 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("%s now has %d variable(s): %s.", in.App, len(vars), strings.Join(names, ", ")),
 				Data:    data("env", nonNil(vars)),
 				Next:    setEnvNext(in.App, cur),
+			}, nil
+		})
+
+	addTool(s, "set_password_protection", "Password-protect an app",
+		"Puts a browser login prompt (username and password) in front of an app's web addresses, including its custom domains, or removes it. ONLY call this when the user asks for it; never on your own, and never to hide a problem. enabled=true needs a username and a password the first time; after that, send only the one to change. enabled=false removes the prompt and forgets the login. Use the login the user gives you. If they have none, suggest a new password (a few words and a number) and tell them once in your answer: nobody can read it back later. Takes effect at once, no deploy needed, and later deploys keep it. Web apps only.",
+		idempotent(), true, nil,
+		func(ctx context.Context, a app.Actor, in setPasswordIn) (*result, error) {
+			ap, err := svc.SetPasswordProtection(ctx, a, in.App, app.ProtectionInput{Enabled: in.Enabled, Username: in.Username, Password: in.Password})
+			if err != nil {
+				return nil, err
+			}
+			if !ap.Protected {
+				return &result{
+					Summary: ap.Slug + " is open to everyone again.",
+					Data:    data("app", ap),
+					Next:    []string{"Tell the user anyone with the link can open the app again."},
+				}, nil
+			}
+			return &result{
+				Summary: fmt.Sprintf("%s now asks for a username and password (username %s).", ap.Slug, ap.ProtectedUsername),
+				Data:    data("app", ap),
+				Next: []string{
+					"Tell the user the app now asks for the username " + ap.ProtectedUsername + " and the password. If you suggested the password, say it once so they can save it: nobody can read it back later.",
+					"To remove the prompt later, call set_password_protection with enabled=false, only when the user asks.",
+				},
 			}, nil
 		})
 
