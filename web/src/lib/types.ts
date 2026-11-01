@@ -48,6 +48,8 @@ export interface Me {
   quota: Quota
   usage: Usage
   apps_domain: string
+  /** An app's address with {slug} in place of its subdomain, for previews. */
+  app_url_template: string
   public_url: string
   scope: Scope
 }
@@ -266,6 +268,8 @@ export interface App {
   health_path: string
   dockerfile_path: string
   context_dir: string
+  /** dockerfile: needs a Dockerfile. auto: a Dockerfile, else a plain website. static: always a plain website. */
+  build_mode: BuildMode
   volume: boolean
   /** Storage limit of /data. */
   volume_mb: number
@@ -289,6 +293,15 @@ export interface App {
   updated_at: string
 }
 
+export type BuildMode = 'dockerfile' | 'auto' | 'static'
+
+export interface CreateAppInput {
+  name: string
+  slug?: string
+  volume?: boolean
+  build_mode?: BuildMode
+}
+
 export interface UpdateAppInput {
   name?: string
   slug?: string
@@ -297,6 +310,7 @@ export interface UpdateAppInput {
   health_path?: string
   dockerfile_path?: string
   context_dir?: string
+  build_mode?: BuildMode
   volume?: boolean
   volume_mb?: number
   memory_mb?: number

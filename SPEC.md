@@ -158,6 +158,8 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 **The Dockerfile rule**: a deploy without a Dockerfile at `dockerfile_path` fails at validation with `dockerfile_missing`. There is no buildpack or auto-detect build path. Bitploy does detect the stack only to make the error helpful: `index.html` only → `static`, `package.json` → `node`, `requirements.txt` or `pyproject.toml` → `python`, `go.mod` → `go`, `composer.json` or `index.php` → `php`. The error names the matching template and includes its full text.
 
+**Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one and otherwise serves an `index.html` at the top of the project through the static template (nginx), and fails with `nothing_to_build` when it finds neither. `static` always uses the template. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto`. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
+
 **Pipeline**, one row per deployment state:
 
 | State | What happens | Fails with |
@@ -320,6 +322,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
 | `GET /api/v1/apps/{app}/metrics?window=24h` | `get_metrics` |
+| `POST /api/v1/apps/{app}/upload` | Raw zip body, upload and deploy in one call (session with CSRF, or a deploy token); the dashboard's "Upload new version" |
 | `GET` `POST /api/v1/apps/{app}/backups` | `list_backups`, `create_backup` (restore, download, upload and settings are dashboard and REST only) |
 | `/api/v1/admin/users`, `/invites`, `/quotas`, `/server` | Admin only |
 
@@ -382,16 +385,17 @@ Traefik joins each app network `bp-<slug>` so it can reach `bp-<slug>-<n>` by na
 
 ## Dashboard
 
-The dashboard is read-mostly: people watch their apps, read logs, manage tokens and do a few safe actions. Deploying is the agent's job, though a Redeploy button is fine. It calls only `/api/v1`, never a private endpoint.
+The dashboard is read-mostly: people watch their apps, read logs, manage tokens and do a few safe actions. Deploying is mostly the agent's job, but people can also make an app themselves (New app: upload a folder or zip, or pick a GitHub repository) and upload a new version of an uploaded app. It calls only `/api/v1`, never a private endpoint.
 
 Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins only) Admin; a top bar with the user menu and a light/dark toggle.
 
 | Page | Shows | Actions |
 | --- | --- | --- |
 | Login, Accept invite | Email and password form | Log in, set password |
-| Overview `/` | Cards: apps running of total, memory used of quota, CPU now, deploys this week. Table: name + URL, status badge, CPU %, memory MB, uptime, last deploy | Open an app |
+| Overview `/` | Cards: apps running of total, memory used of quota, CPU now, deploys this week. Table: name + URL, status badge, CPU %, memory MB, uptime, last deploy | Open an app, New app |
+| New app `/new` | Name (the address follows it, with a live preview and the slug rules), source (GitHub: repository and branch, deploys on every push; Upload: drop a folder or .zip), "Keep files in /data". For uploads it shows "Detected: Static site / Dockerfile" before deploying, with an override | Deploy: creates the app and opens its page with live progress |
 | App `/apps/:slug` → Overview | URL with copy, status, uptime, current deployment and its source, CPU and memory charts for 1 h / 24 h / 7 d | Redeploy, restart, stop, start |
-| App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row |
+| App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row; Upload new version (apps that are not linked to git) |
 | App → Logs | Build and runtime logs, live tail, filter box | Download |
 | App → Domains | Subdomain; custom domains with the DNS records to copy and their status | Add, check now, remove |
 | App → Settings | Source (linked repo, branch, folder, deploy on every push), env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |

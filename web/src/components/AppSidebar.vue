@@ -26,7 +26,7 @@ const { setOpenMobile } = useSidebar()
 
 const items = computed(() => {
   const list = [
-    { title: 'Apps', to: '/', icon: Box, active: route.path === '/' || route.path.startsWith('/apps/') },
+    { title: 'Apps', to: '/', icon: Box, active: route.path === '/' || route.path === '/new' || route.path.startsWith('/apps/') },
     { title: 'Connect AI', to: '/connect', icon: Sparkles, active: route.path.startsWith('/connect') },
     { title: 'Settings', to: '/settings', icon: Settings, active: route.path.startsWith('/settings') },
   ]

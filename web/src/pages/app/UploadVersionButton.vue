@@ -1,0 +1,95 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import { Upload } from 'lucide-vue-next'
+import SourceDropZone from '@/components/SourceDropZone.vue'
+import type { UploadChoice } from '@/components/SourceDropZone.vue'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { keys, useApp } from '@/composables/queries'
+import { api } from '@/lib/api'
+import { friendlyError } from '@/lib/errors'
+import type { FriendlyError } from '@/lib/errors'
+import { toastOk } from '@/lib/notify'
+import type { BuildMode } from '@/lib/types'
+
+// "Upload new version": the same drop zone as the New app form, for an app
+// whose files were uploaded. Apps that build from git are updated by pushing.
+const props = defineProps<{ slug: string }>()
+const qc = useQueryClient()
+const app = useApp(() => props.slug)
+
+const open = ref(false)
+const choice = ref<UploadChoice | null>(null)
+const mode = ref<BuildMode>('auto')
+const busy = ref(false)
+const sent = ref(0)
+const checking = ref(false)
+const error = ref<FriendlyError | null>(null)
+
+const visible = computed(() => !!app.data.value && !app.data.value.git_source)
+
+// Start from the app's own setting each time the dialog opens.
+watch(open, (o) => {
+  if (!o) return
+  choice.value = null
+  error.value = null
+  mode.value = app.data.value?.build_mode ?? 'auto'
+})
+
+const ready = computed(() => !!choice.value && (choice.value.paths === null || choice.value.paths.length > 0))
+const label = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
+
+async function deploy() {
+  if (!choice.value || !app.data.value) return
+  busy.value = true
+  checking.value = false
+  sent.value = 0
+  error.value = null
+  try {
+    if (mode.value !== app.data.value.build_mode) await api.updateApp(props.slug, { build_mode: mode.value })
+    const d = await api.uploadApp(
+      props.slug,
+      choice.value.zip,
+      (f) => (sent.value = f),
+      () => (checking.value = true),
+    )
+    toastOk(`Deploying version #${d.seq}`, 'Your app keeps running until the new version is ready.')
+    open.value = false
+    void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
+    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+    void qc.invalidateQueries({ queryKey: keys.apps })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    busy.value = false
+    checking.value = false
+  }
+}
+</script>
+
+<template>
+  <template v-if="visible">
+    <Button variant="outline" @click="open = true"><Upload /> Upload new version</Button>
+    <Dialog v-model:open="open">
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Upload a new version</DialogTitle>
+          <DialogDescription>
+            Drop the folder again, with your changes. The version that runs now stays available, so you can go back to it.
+          </DialogDescription>
+        </DialogHeader>
+        <SourceDropZone v-model="choice" v-model:mode="mode" :disabled="busy" />
+        <Alert v-if="error" variant="destructive">
+          <AlertTitle>{{ error.message }}</AlertTitle>
+          <AlertDescription v-if="error.hint">{{ error.hint }}</AlertDescription>
+        </Alert>
+        <DialogFooter>
+          <Button variant="ghost" :disabled="busy" @click="open = false">Cancel</Button>
+          <Button :disabled="busy || !ready" @click="deploy">{{ label }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </template>
+</template>

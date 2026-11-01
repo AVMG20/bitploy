@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   App,
   AuditEntry,
+  CreateAppInput,
   CreateTokenInput,
   Backup,
   BackupList,
@@ -64,6 +65,7 @@ export const paths = {
   tokenById: (id: string) => `${V1}/tokens/${enc(id)}`,
   apps: `${V1}/apps`,
   app: (slug: string) => `${V1}/apps/${enc(slug)}`,
+  appUpload: (slug: string) => `${V1}/apps/${enc(slug)}/upload`,
   appRedeploy: (slug: string) => `${V1}/apps/${enc(slug)}/redeploy`,
   appRestart: (slug: string) => `${V1}/apps/${enc(slug)}/restart`,
   appStart: (slug: string) => `${V1}/apps/${enc(slug)}/start`,
@@ -215,13 +217,20 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
 }
 
 /** POSTs a file as the raw request body, with upload progress (fetch cannot report it). */
-function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void): Promise<T> {
+function uploadFile<T>(
+  path: string,
+  file: Blob,
+  onProgress?: (fraction: number) => void,
+  onSent?: () => void,
+  contentType = 'application/gzip',
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', path)
     xhr.withCredentials = true
     xhr.setRequestHeader('Accept', 'application/json')
-    xhr.setRequestHeader('Content-Type', 'application/gzip')
+    xhr.setRequestHeader('Content-Type', contentType)
     if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total)
@@ -247,6 +256,8 @@ function uploadFile<T>(path: string, file: File, onProgress?: (fraction: number)
       if (xhr.status === 401 || body.code === 'account_suspended') unauthorizedHandler?.()
       reject(new ApiError(xhr.status, body))
     }
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true })
     xhr.send(file)
   })
 }
@@ -335,6 +346,12 @@ export const api = {
     return listAll<App>(paths.apps)
   },
   app: (slug: string) => request<App>('GET', paths.app(slug)),
+  createApp: (input: CreateAppInput) => request<App>('POST', paths.apps, { body: input }),
+  /** Stores a zip and queues a deployment from it (the app must not be linked to git). */
+  uploadApp: (slug: string, zip: Blob, onProgress?: (fraction: number) => void, onSent?: () => void, signal?: AbortSignal) =>
+    uploadFile<Deployment>(paths.appUpload(slug), zip, onProgress, onSent, 'application/zip', signal),
+  /** Queues a deployment from the app's git source. */
+  deployGit: (slug: string) => request<Deployment>('POST', paths.appDeployments(slug), { body: {} }),
   updateApp: (slug: string, input: UpdateAppInput) => request<App>('PATCH', paths.app(slug), { body: input }),
   deleteApp: (slug: string) =>
     request<void>('DELETE', paths.app(slug), { query: { confirm_slug: slug }, body: { confirm_slug: slug } }),

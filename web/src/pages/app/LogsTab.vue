@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { Download, Pause, Play, Search } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,8 @@ const props = defineProps<{ slug: string }>()
 
 const MAX_LINES = 5000
 
-const kind = ref<LogKind>('runtime')
+// ?kind=build opens the build log (the first-deploy card on the Overview links here).
+const kind = ref<LogKind>(useRoute().query.kind === 'build' ? 'build' : 'runtime')
 const live = ref(true)
 const filter = ref('')
 const chosenDeployment = ref<string | undefined>(undefined)

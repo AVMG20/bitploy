@@ -98,7 +98,7 @@ sudo grep BITPLOY_SECRET_KEY /etc/bitploy/bitploy.env
 
 ### Connect GitHub (optional)
 
-With GitHub connected, people pick a repository in an app's Settings and every push to its branch deploys the app. Uploading files keeps working for everyone, with or without GitHub.
+With GitHub connected, people pick a repository (in an app's Settings, or right away in New app) and every push to its branch deploys the app. Uploading files keeps working for everyone, with or without GitHub.
 
 **Admin, once.** Bitploy uses one GitHub App for the whole server, and you create it from the dashboard:
 

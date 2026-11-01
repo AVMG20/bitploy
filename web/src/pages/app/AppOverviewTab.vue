@@ -16,6 +16,7 @@ import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/querie
 import { nowMs } from '@/composables/useNow'
 import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
+import DeployProgress from './DeployProgress.vue'
 
 const props = defineProps<{ slug: string }>()
 const app = useApp(() => props.slug)
@@ -54,14 +55,15 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <AlertDescription>{{ data.status_message }}</AlertDescription>
     </Alert>
 
-    <EmptyState
-      v-if="!dep"
-      :icon="Rocket"
-      title="Nothing deployed yet."
-      description="Ask your AI assistant to deploy to this app. It can send the code, build it and put it online here."
-    >
-      <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
-    </EmptyState>
+    <DeployProgress v-if="!dep" :slug="slug">
+      <EmptyState
+        :icon="Rocket"
+        title="Nothing deployed yet."
+        description="Ask your AI assistant to deploy to this app. It can send the code, build it and put it online here."
+      >
+        <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
+      </EmptyState>
+    </DeployProgress>
 
     <template v-else>
       <!-- Live numbers: what the app uses right now, against its limits. -->
