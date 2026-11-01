@@ -425,7 +425,7 @@ func failureSteps(d app.Deployment) []string {
 	case "image_too_large":
 		out = append(out, "Shrink the image (smaller base, multi-stage build, a .dockerignore), then "+redo+".")
 	case "deploy_rate_limited":
-		out = append(out, "Wait as the hint says and tell the user; do not retry in a loop.")
+		out = append(out, "Wait as the hint says and tell the user; do not retry in a loop. Before the next deploy, fix and test as much as you can locally.")
 	default:
 		if strings.HasPrefix(e.Code, "source_") || strings.HasPrefix(e.Code, "github_") {
 			out = append(out, "Check the repository address, branch and subfolder with set_git_source, then call deploy with app="+slug+".")

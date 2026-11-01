@@ -609,8 +609,16 @@ func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.Us
 	}
 	return apperr.TooMany("deploy_rate_limited",
 		fmt.Sprintf("You have already started %d deployments in the last hour, which is the limit for your account.", n),
-		fmt.Sprintf("Wait about %d minutes before deploying again. Fix problems locally first instead of deploying every small change.", (wait+59)/60)).
+		deployAgainIn((wait+59)/60)).
 		WithNext("get_app").WithDetail("retry_after_seconds", wait)
+}
+
+// deployAgainIn is the rate limit hint, worded for people; the MCP adds its own advice for assistants.
+func deployAgainIn(mins int64) string {
+	if mins == 1 {
+		return "You can deploy again in about 1 minute."
+	}
+	return fmt.Sprintf("You can deploy again in about %d minutes.", mins)
 }
 
 // ---- read side ----

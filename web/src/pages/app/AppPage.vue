@@ -92,9 +92,14 @@ function stop() {
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <Button v-if="data.type === 'web'" as-child variant="outline">
-            <a :href="data.url" target="_blank" rel="noopener noreferrer">Open app <ExternalLink /></a>
-          </Button>
+          <template v-if="data.type === 'web'">
+            <Button v-if="dep" as-child variant="outline">
+              <a :href="data.url" target="_blank" rel="noopener noreferrer">Open app <ExternalLink /></a>
+            </Button>
+            <span v-else title="Available once the first deploy is live">
+              <Button variant="outline" disabled>Open app <ExternalLink /></Button>
+            </span>
+          </template>
           <Button variant="outline" :disabled="busy || !dep" @click="actions.restart.mutate()">
             <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
           </Button>
