@@ -28,7 +28,7 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
   }
 
   return {
-    redeploy: action(api.redeploy, 'Redeploy started', 'Your app keeps running until the new version is ready.'),
+    redeploy: action(api.redeploy, 'Redeploy started', 'A live version keeps running until the new one is ready.'),
     // Restart and start answer once the app runs again.
     restart: action(api.restart, 'App restarted', 'It is running again with a fresh start.'),
     stop: action(api.stop, 'App stopped', 'Its address now shows a "stopped" page. Start it again any time.'),

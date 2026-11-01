@@ -38,6 +38,8 @@ const notFound = computed(() => app.error.value instanceof ApiError && app.error
 const actions = useAppActions(() => props.slug)
 const data = computed(() => app.data.value)
 const dep = computed(() => data.value?.current_deployment ?? null)
+// A failed first deploy has no live version, but its source (or the linked repository) can be built again.
+const canRedeploy = computed(() => !!data.value && (!!dep.value || !!data.value.git_source || data.value.status !== 'new'))
 const canStart = computed(() => !!data.value && ['stopped', 'crashed', 'failed'].includes(data.value.status) && !!dep.value)
 const canStop = computed(() => !!data.value && ['running', 'deploying'].includes(data.value.status))
 const busy = computed(() => actions.redeploy.isPending.value || actions.restart.isPending.value || actions.start.isPending.value || actions.stop.isPending.value)
@@ -109,7 +111,7 @@ function stop() {
           <Button v-else-if="canStop" variant="outline" :disabled="busy" @click="confirmStop = true">
             <Square /> Stop
           </Button>
-          <Button :disabled="busy || !dep" @click="actions.redeploy.mutate()">
+          <Button :disabled="busy || !canRedeploy" @click="actions.redeploy.mutate()">
             <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Redeploy
           </Button>
         </div>
