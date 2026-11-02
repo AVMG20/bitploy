@@ -134,8 +134,8 @@ func (q *Queries) GetUpload(ctx context.Context, id string) (Upload, error) {
 const insertApp = `-- name: InsertApp :exec
 
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  build_mode, home_page, desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
+                  build_mode, home_page, output_dir, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
 `
 
 type InsertAppParams struct {
@@ -152,6 +152,7 @@ type InsertAppParams struct {
 	CpuMillis     int64
 	BuildMode     string
 	HomePage      string
+	OutputDir     string
 	CreatedAt     int64
 	UpdatedAt     int64
 }
@@ -172,6 +173,7 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) error {
 		arg.CpuMillis,
 		arg.BuildMode,
 		arg.HomePage,
+		arg.OutputDir,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -347,12 +349,13 @@ func (q *Queries) RewriteDeploymentNames(ctx context.Context, arg RewriteDeploym
 }
 
 const setAppBuildMode = `-- name: SetAppBuildMode :exec
-UPDATE apps SET build_mode = ?, home_page = ?, updated_at = ? WHERE id = ?
+UPDATE apps SET build_mode = ?, home_page = ?, output_dir = ?, updated_at = ? WHERE id = ?
 `
 
 type SetAppBuildModeParams struct {
 	BuildMode string
 	HomePage  string
+	OutputDir string
 	UpdatedAt int64
 	ID        string
 }
@@ -361,6 +364,7 @@ func (q *Queries) SetAppBuildMode(ctx context.Context, arg SetAppBuildModeParams
 	_, err := q.db.ExecContext(ctx, setAppBuildMode,
 		arg.BuildMode,
 		arg.HomePage,
+		arg.OutputDir,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -470,7 +474,7 @@ SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS memory_mb,
 FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
 WHERE a.user_id = ? AND a.id != ?
   AND a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL
-  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa')
+  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa', 'node-static')
 `
 
 type SumAppResourcesByUserParams struct {
@@ -485,7 +489,7 @@ type SumAppResourcesByUserRow struct {
 
 // Only apps that are meant to run and have a deployment reserve memory and CPU.
 // Static sites (live deployment built from bitploy's nginx templates: kinds
-// static and node-spa, see deploy.IsStaticKind) are free and not counted.
+// static, node-spa and node-static, see deploy.IsStaticKind) are free and not counted.
 func (q *Queries) SumAppResourcesByUser(ctx context.Context, arg SumAppResourcesByUserParams) (SumAppResourcesByUserRow, error) {
 	row := q.db.QueryRowContext(ctx, sumAppResourcesByUser, arg.UserID, arg.ID)
 	var i SumAppResourcesByUserRow

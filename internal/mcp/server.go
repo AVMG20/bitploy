@@ -314,6 +314,9 @@ func addTool[In any](s *srv, name, title, desc string, ann *mcp.ToolAnnotations,
 		if err != nil {
 			return s.errorResult(name, err), nil
 		}
+		if deploy {
+			s.publishChange(ctx, a, name, req.Params.Arguments)
+		}
 		return res.toolResult(), nil
 	})
 }
@@ -385,4 +388,24 @@ func openWorld(a *mcp.ToolAnnotations) *mcp.ToolAnnotations {
 
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// publishChange tells the owner's dashboard that a tool changed an app, so a
+// page that is open updates at once. The app is the "app" argument, or the
+// "slug" of create_app.
+func (s *srv) publishChange(ctx context.Context, a app.Actor, tool string, raw json.RawMessage) {
+	var args struct {
+		App  string `json:"app"`
+		Slug string `json:"slug"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	ref := args.App
+	if ref == "" {
+		ref = args.Slug
+	}
+	state := ""
+	if tool == "delete_app" {
+		state = "deleted"
+	}
+	s.svc.PublishAppChange(ctx, a, ref, "", state)
 }

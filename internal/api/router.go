@@ -28,11 +28,13 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.filesRoutes()
 	a.githubRoutes()
 	a.adminRoutes()
+	apiMux.HandleFunc("GET "+prefix+"/events", a.events)
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })
 
 	limiter := newRateLimiter()
 	// Innermost first: follow -> idempotency -> annotate -> rate limit -> auth.
 	var apiChain http.Handler = apiMux
+	apiChain = a.hints(apiChain)
 	apiChain = a.follow(apiChain)
 	apiChain = idempotency(svc, apiChain)
 	apiChain = annotate(apiChain)

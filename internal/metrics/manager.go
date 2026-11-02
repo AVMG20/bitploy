@@ -35,6 +35,8 @@ type Manager struct {
 
 	// Audit writes an audit row as the system actor.
 	Audit func(ctx context.Context, action, targetType, targetID string, details map[string]any)
+	// Notify tells the dashboard that an app's status changed. May be nil.
+	Notify func(ctx context.Context, appID string)
 	// SyncRoute rewrites an app's Traefik route (deploy agent). May be nil.
 	SyncRoute func(ctx context.Context, appID string) error
 

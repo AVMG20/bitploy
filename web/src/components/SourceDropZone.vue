@@ -5,7 +5,7 @@ import { CircleCheck, FileArchive, FileCode, FolderUp, TriangleAlert, X } from '
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { detectSource, guessHomePage } from '@/lib/detect'
+import { detectSource, guessHomePage, NEXT_CONFIG_NAMES } from '@/lib/detect'
 import { formatBytes } from '@/lib/format'
 import type { BuildMode } from '@/lib/types'
 import {
@@ -40,18 +40,40 @@ export interface UploadChoice {
   paths: string[] | null
   /** The text of package.json at the top of the project; null when there is none or it could not be read here. */
   packageJson: string | null
+  /** The text of the Next.js config at the top of the project; null when there is none or it could not be read here. */
+  nextConfig: string | null
   skipped: string[]
 }
 
-const props = withDefaults(defineProps<{ disabled?: boolean; allowOverride?: boolean }>(), { allowOverride: true })
+const props = defineProps<{ disabled?: boolean; /** The output folder chosen for a static build; empty: the detected one. */ outputDir?: string }>()
 const choice = defineModel<UploadChoice | null>({ default: null })
-/** How the source is read: auto, or an override of the user. */
+/** How the source is read: auto, or the type the person chose. */
 const mode = defineModel<BuildMode>('mode', { default: 'auto' })
 /** The page for "/" when there are several pages and no index.html. */
 const homePage = defineModel<string>('homePage', { default: '' })
 
 const MB = 1024 * 1024
 const MAX_PACKAGE_JSON = 1 << 20
+
+/** The text of the first Next.js config in the project, read from a folder. */
+async function folderNextConfig(files: Collected['files']): Promise<string | null> {
+  for (const name of NEXT_CONFIG_NAMES) {
+    const f = files.find((x) => x.path === name)
+    if (f) return f.file.size <= MAX_PACKAGE_JSON ? await f.file.text().catch(() => null) : null
+  }
+  return null
+}
+
+/** The same for a zip, whose entries may sit in one wrapping folder. */
+async function zipNextConfig(file: File, names: string[] | null, kept: string[] | null): Promise<string | null> {
+  if (!names || !kept) return null
+  for (const name of NEXT_CONFIG_NAMES) {
+    if (!kept.includes(name)) continue
+    const entry = zipNameAtTop(names, name)
+    return entry ? await readZipText(file, entry, MAX_PACKAGE_JSON) : null
+  }
+  return null
+}
 const folderInput = ref<HTMLInputElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const over = ref(false)
@@ -59,14 +81,15 @@ const error = ref('')
 const packing = ref<{ done: number; total: number } | null>(null)
 let abort: AbortController | null = null
 
-const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson) : null))
+const detected = computed(() =>
+  choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson, choice.value.nextConfig) : null,
+)
 const homeChoices = computed(() => (detected.value?.kind === 'none' || detected.value?.kind === 'static' ? (detected.value.choices ?? null) : null))
 // Several pages: start from a guess (or the page chosen before, when the new
 // files still have it), so the person only changes it when it is wrong.
 watch(homeChoices, (pages) => {
   if (pages && !pages.includes(homePage.value)) homePage.value = guessHomePage(pages)
 })
-const modeLabel: Record<BuildMode, string> = { auto: 'Detect automatically', static: 'Static site', dockerfile: 'Dockerfile' }
 
 function tooBig(e: ZipTooBigError): string {
   const leave = 'Leave out node_modules, build output, videos and other big files, then try again.'
@@ -103,6 +126,7 @@ async function takeFolder(c: Collected) {
     const zip = await buildZip(c.files, (p) => (packing.value = p), signal)
     const pkg = c.files.find((f) => f.path === 'package.json')
     const packageJson = pkg && pkg.file.size <= MAX_PACKAGE_JSON ? await pkg.file.text().catch(() => null) : null
+    const nextConfig = await folderNextConfig(c.files)
     const page = !c.root && c.files.length === 1 && isPage(c.files[0]!.path)
     choice.value = {
       zip,
@@ -112,6 +136,7 @@ async function takeFolder(c: Collected) {
       // The server removes a single top folder from the zip once more.
       paths: serverLayout(c.files.map((f) => f.path)),
       packageJson,
+      nextConfig,
       skipped: c.skipped,
     }
   } catch (e) {
@@ -135,6 +160,7 @@ async function takeZip(file: File) {
   }
   const pkgName = names && kept?.includes('package.json') ? zipNameAtTop(names, 'package.json') : null
   const packageJson = pkgName ? await readZipText(file, pkgName, MAX_PACKAGE_JSON) : null
+  const nextConfig = await zipNextConfig(file, names, kept)
   choice.value = {
     zip: file,
     name: file.name,
@@ -142,6 +168,7 @@ async function takeZip(file: File) {
     fileCount: kept ? kept.length : null,
     paths: kept,
     packageJson,
+    nextConfig,
     skipped: [],
   }
 }
@@ -266,23 +293,31 @@ onBeforeUnmount(() => abort?.abort())
       </p>
 
       <div v-if="detected" class="grid min-w-0 gap-2 rounded-lg border p-3 text-sm">
-        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <p class="flex items-center gap-2">
-            <CircleCheck v-if="detected.kind !== 'none'" class="size-4 shrink-0 text-success" />
-            <TriangleAlert v-else class="size-4 shrink-0 text-destructive" />
-            <span v-if="detected.kind !== 'none'"><span v-if="mode === 'auto'" class="text-muted-foreground">Detected: </span><span class="font-medium">{{ detected.label }}</span></span>
-            <span v-else class="font-medium">{{ detected.label }}</span>
-          </p>
-          <div v-if="allowOverride" class="flex items-center gap-2">
-            <span class="text-xs text-muted-foreground">Build as</span>
-            <Select v-model="mode">
-              <SelectTrigger size="sm" class="w-44" aria-label="Build as"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="(label, m) in modeLabel" :key="m" :value="m">{{ label }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        <p class="flex items-start gap-2">
+          <TriangleAlert v-if="detected.kind === 'none'" class="mt-0.5 size-4 shrink-0 text-destructive" />
+          <TriangleAlert v-else-if="detected.kind === 'template' && detected.unsure" class="mt-0.5 size-4 shrink-0 text-warning" />
+          <CircleCheck v-else class="mt-0.5 size-4 shrink-0 text-success" />
+          <span v-if="detected.kind === 'none'" class="font-medium">{{ detected.label }}</span>
+          <span v-else-if="detected.kind === 'template' && detected.unsure" class="font-medium">Not sure, check the type.</span>
+          <span v-else-if="detected.kind === 'template'">
+            <template v-if="detected.type === 'static_build'">
+              Builds the site and serves the <span class="font-mono font-medium">{{ outputDir || detected.output }}</span> folder.
+            </template>
+            <template v-else-if="detected.type === 'node'">{{ detected.build ? 'Builds it, then runs it as a Node.js app.' : 'Runs it as a Node.js app.' }}</template>
+            <template v-else>Bitploy reads package.json when you deploy and builds the project if it can.</template>
+          </span>
+          <span v-else-if="detected.kind === 'static' && homeChoices">Serves these files as a website. There is no index.html, so people see the home page first.</span>
+          <span v-else-if="detected.kind === 'static' && choice.from === 'page'">Serves this page as a website.</span>
+          <span v-else-if="detected.kind === 'static' && detected.home">
+            Serves these files as a website, with <span class="font-medium">{{ detected.home }}</span> as the home page.
+          </span>
+          <span v-else-if="detected.kind === 'static'">Serves these files as a website.</span>
+          <span v-else>Builds the Dockerfile at the top of your project.</span>
+        </p>
+        <p v-if="detected.kind === 'template' && detected.unsure" class="text-xs text-muted-foreground">
+          It could be a website or a server app. Choose the type below.
+        </p>
+        <p v-if="detected.kind === 'template' && detected.warn" class="text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">{{ detected.warn }}</p>
         <div v-if="homeChoices" class="flex min-w-0 items-center gap-2">
           <span class="shrink-0 text-xs text-muted-foreground">Home page</span>
           <Select v-model="homePage">
@@ -306,27 +341,6 @@ onBeforeUnmount(() => abort?.abort())
             Or ask your AI assistant to <RouterLink to="/connect" class="underline underline-offset-2 hover:text-foreground">deploy this folder</RouterLink>.
           </p>
         </template>
-        <p v-else-if="detected.kind === 'template' && detected.known && detected.label === 'Vite site'" class="text-xs text-muted-foreground">
-          Bitploy builds your site and serves the result as a website.
-        </p>
-        <p v-else-if="detected.kind === 'template' && detected.known && detected.build" class="text-xs text-muted-foreground">
-          Bitploy runs the build script from package.json, then starts your app with the start script.
-        </p>
-        <p v-else-if="detected.kind === 'template' && detected.known" class="text-xs text-muted-foreground">
-          Bitploy runs your app with the start script from package.json.
-        </p>
-        <p v-else-if="detected.kind === 'template'" class="text-xs text-muted-foreground">
-          There is no Dockerfile. Bitploy reads package.json when you deploy and builds the project if it can.
-        </p>
-        <p v-else-if="detected.kind === 'static' && homeChoices" class="text-xs text-muted-foreground">
-          Bitploy serves these files as a website. There is no index.html, so people see the home page first.
-        </p>
-        <p v-else-if="detected.kind === 'static' && choice.from === 'page'" class="text-xs text-muted-foreground">Bitploy serves this page as a website.</p>
-        <p v-else-if="detected.kind === 'static' && detected.home" class="text-xs text-muted-foreground">
-          Bitploy serves these files as a website, with <span class="font-medium text-foreground">{{ detected.home }}</span> as the home page.
-        </p>
-        <p v-else-if="detected.kind === 'static'" class="text-xs text-muted-foreground">Bitploy serves these files as a website.</p>
-        <p v-else class="text-xs text-muted-foreground">Bitploy builds the Dockerfile at the top of your project.</p>
       </div>
       <p v-else class="text-xs text-muted-foreground">Bitploy checks what is inside this zip when you deploy.</p>
     </template>

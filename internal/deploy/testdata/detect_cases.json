@@ -1,0 +1,1644 @@
+[
+ {
+  "name": "sveltekit adapter-static",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@sveltejs/kit",
+    "@sveltejs/adapter-static",
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "build",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "COPY --from=build /app/build /usr/share/nginx/html",
+   "=404"
+  ]
+ },
+ {
+  "name": "sveltekit adapter-node, no start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@sveltejs/kit",
+    "@sveltejs/adapter-node",
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"node\", \"build\"]",
+   "RUN npm run build",
+   "ENV PROTOCOL_HEADER=x-forwarded-proto"
+  ]
+ },
+ {
+  "name": "sveltekit adapter-node, start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "@sveltejs/kit",
+    "@sveltejs/adapter-node"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npm\", \"start\"]"
+  ]
+ },
+ {
+  "name": "sveltekit without adapter-node warns",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@sveltejs/kit",
+    "@sveltejs/adapter-auto"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": true
+  },
+  "why_has": "Add @sveltejs/adapter-node"
+ },
+ {
+  "name": "remix",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "@remix-run/node",
+    "@remix-run/serve",
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "remix, no start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@remix-run/react"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npx\", \"remix-serve\", \"./build/server/index.js\"]"
+  ]
+ },
+ {
+  "name": "react router framework mode",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "react-router",
+    "@react-router/dev",
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "nuxt, no start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "nuxt"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"node\", \".output/server/index.mjs\"]"
+  ]
+ },
+ {
+  "name": "nestjs",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "@nestjs/core"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "express",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "express"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "--omit=dev"
+  ],
+  "not_df": [
+   "npm run build"
+  ]
+ },
+ {
+  "name": "fastify",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "fastify"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "hono",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "hono"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "koa",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "koa"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "hapi",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "@hapi/hapi"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "express with a main and no start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [
+    "express"
+   ],
+   "main": "src/server.js"
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"node\", \"src/server.js\"]"
+  ]
+ },
+ {
+  "name": "express with an unsafe main and no start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [
+    "express"
+   ],
+   "main": "../x.js"
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "express without any way to start",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [
+    "express"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "@remix-run/router alone is not remix",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite",
+    "react-router-dom",
+    "@remix-run/router"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "next static export",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.mjs"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "export default { output: 'export' }",
+  "expect": {
+   "type": "static_build",
+   "output": "out",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "next static export, TS config, double quotes",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.ts"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "const c: NextConfig = { output: \"export\" }; export default c",
+  "expect": {
+   "type": "static_build",
+   "output": "out",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "next export commented out",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = {\n  // output: 'export',\n  /* output: 'export' */\n}",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npm\", \"start\"]",
+   "RUN chown -R node:node /app/.next"
+  ],
+  "not_df": [
+   "standalone"
+  ]
+ },
+ {
+  "name": "next standalone",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = { output: 'standalone' }",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   ".next/standalone",
+   "CMD [\"node\", \"server.js\"]"
+  ]
+ },
+ {
+  "name": "next without output falls back to next start",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = {}",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npm\", \"start\"]",
+   "RUN npm run build",
+   "ENV NODE_ENV=production"
+  ],
+  "not_df": [
+   ".next/standalone"
+  ]
+ },
+ {
+  "name": "next without a config file",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "not_df": [
+   ".next/standalone"
+  ]
+ },
+ {
+  "name": "next without a start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npx\", \"next\", \"start\"]"
+  ]
+ },
+ {
+  "name": "next standalone with a custom server is not standalone",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "next build",
+    "start": "node server.js"
+   },
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = { output: 'standalone' }",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"npm\", \"start\"]"
+  ],
+  "not_df": [
+   ".next/standalone"
+  ]
+ },
+ {
+  "name": "next export with a config in a sub folder is not seen",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "web/next.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = { output: 'export' }",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "astro static",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "astro.config.mjs"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "astro"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "=404"
+  ]
+ },
+ {
+  "name": "astro with the node adapter",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "astro.config.mjs"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "astro",
+    "@astrojs/node"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"node\", \"./dist/server/entry.mjs\"]",
+   "ENV HOST=0.0.0.0"
+  ]
+ },
+ {
+  "name": "vite site",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "$uri/ /index.html",
+   "COPY --from=build /app/dist /usr/share/nginx/html"
+  ]
+ },
+ {
+  "name": "vite site with a start script is a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "node server.js"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": true,
+   "warn": false
+  },
+  "why_has": "Static build"
+ },
+ {
+  "name": "vite site whose start script is vite",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "vite"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "unsure": false,
+   "warn": false,
+   "output": "dist",
+   "spa": true
+  }
+ },
+ {
+  "name": "vite site whose start script is vite preview with flags",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "vite preview --port 3000"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "unsure": false,
+   "warn": false,
+   "output": "dist",
+   "spa": true
+  }
+ },
+ {
+  "name": "vite site whose start script is npx vite",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "npx vite"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "unsure": false,
+   "warn": false,
+   "output": "dist",
+   "spa": true
+  }
+ },
+ {
+  "name": "vite site whose start script is vite --host",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "vite --host"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "unsure": false,
+   "warn": false,
+   "output": "dist",
+   "spa": true
+  }
+ },
+ {
+  "name": "vite site whose start script is vite-node (a runner, not the dev server)",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "vite-node server.ts"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": true,
+   "warn": false
+  },
+  "why_has": "Static build"
+ },
+ {
+  "name": "vite site whose start script builds and then runs a server",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": {
+    "build": "vite build",
+    "start": "vite build && node server.js"
+   },
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": true,
+   "warn": false
+  },
+  "why_has": "Static build"
+ },
+ {
+  "name": "vite without index.html and a start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "vite without index.html or a start script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "create react app",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "react-scripts"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "build",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "COPY --from=build /app/build /usr/share/nginx/html"
+  ]
+ },
+ {
+  "name": "start script only",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": []
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "build script only",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "webpack"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "neither script",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "test"
+   ],
+   "deps": []
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "own Dockerfile wins",
+  "mode": "auto",
+  "files": [
+   "Dockerfile",
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "dockerfile": true
+  }
+ },
+ {
+  "name": "output folder setting is used by a static build",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "output": "web/dist",
+  "go_only": true,
+  "expect": {
+   "type": "static_build",
+   "output": "web/dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "COPY --from=build /app/web/dist /usr/share/nginx/html"
+  ]
+ },
+ {
+  "name": "output folder setting is ignored by a node app",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "express"
+   ]
+  },
+  "output": "dist",
+  "go_only": true,
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "go.mod wins over package.json",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": []
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "laravel is not a node project",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "composer.json",
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite",
+    "laravel-vite-plugin"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "scripts is not an object",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "raw_package": "{\"scripts\":\"build\"}",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "malformed package.json",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "raw_package": "{\"scripts\": {",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "node mode ignores a Dockerfile",
+  "mode": "node",
+  "files": [
+   "Dockerfile",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "express"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "node mode forces a node app on a vite site",
+  "mode": "node",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "node mode without a package.json",
+  "mode": "node",
+  "files": [
+   "main.py"
+  ],
+  "expect": {
+   "none": true,
+   "code": "package_json_missing"
+  }
+ },
+ {
+  "name": "node mode with a broken package.json",
+  "mode": "node",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "raw_package": "{",
+  "expect": {
+   "none": true,
+   "code": "package_json_invalid"
+  }
+ },
+ {
+  "name": "node mode without a start script",
+  "mode": "node",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "webpack"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "start_script_missing"
+  }
+ },
+ {
+  "name": "node mode sveltekit with adapter-static",
+  "mode": "node",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@sveltejs/kit",
+    "@sveltejs/adapter-static"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "CMD [\"node\", \"build\"]"
+  ]
+ },
+ {
+  "name": "node mode next standalone",
+  "mode": "node",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js",
+   "next.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "next_config": "module.exports = { output: 'standalone' }",
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   ".next/standalone"
+  ]
+ },
+ {
+  "name": "static build, vite",
+  "mode": "static_build",
+  "files": [
+   "index.html",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build, no framework",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "webpack"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build, output folder chosen",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "webpack"
+   ]
+  },
+  "output": "public",
+  "go_only": true,
+  "expect": {
+   "type": "static_build",
+   "output": "public",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  },
+  "df": [
+   "COPY --from=build /app/public /usr/share/nginx/html"
+  ]
+ },
+ {
+  "name": "static build, astro",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "astro"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build, sveltekit",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "@sveltejs/kit"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "build",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build, next",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "next"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "out",
+   "spa": false,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build, create react app",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "start"
+   ],
+   "deps": [
+    "react-scripts"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "build",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build ignores a Dockerfile",
+  "mode": "static_build",
+  "files": [
+   "Dockerfile",
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "expect": {
+   "type": "static_build",
+   "output": "dist",
+   "spa": true,
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "static build without a package.json",
+  "mode": "static_build",
+  "files": [
+   "index.html"
+  ],
+  "expect": {
+   "none": true,
+   "code": "package_json_missing"
+  }
+ },
+ {
+  "name": "static build without a build script",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "start"
+   ],
+   "deps": [
+    "express"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "build_script_missing"
+  }
+ },
+ {
+  "name": "static build with an unsafe output folder",
+  "mode": "static_build",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "src/main.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "output": "../x",
+  "go_only": true,
+  "expect": {
+   "none": true,
+   "code": "output_dir_invalid"
+  }
+ }
+]

@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"github.com/AVMG20/bitploy/internal/apperr"
 	"strings"
 	"testing"
 )
@@ -29,7 +30,7 @@ func TestPlanBuild(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := PlanBuild(tc.mode, "Dockerfile", "", tc.files, nil, nil)
+			plan, err := planWith(tc.mode, "Dockerfile", "", tc.files, nil, nil)
 			if tc.wantCode != "" {
 				if err == nil || err.Code != tc.wantCode {
 					t.Fatalf("want error %s, got plan %+v err %v", tc.wantCode, plan, err)
@@ -60,33 +61,33 @@ func TestPlanBuild(t *testing.T) {
 }
 
 func TestPlanBuildMessages(t *testing.T) {
-	_, err := PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"notes.txt"}, nil, nil)
+	_, err := planWith(BuildModeAuto, "Dockerfile", "", []string{"notes.txt"}, nil, nil)
 	if err == nil || err.Message != "No Dockerfile or index.html found." {
 		t.Fatalf("plain miss: %+v", err)
 	}
 	if err.Next != "get_template" || err.Details["template"] == nil {
 		t.Errorf("an AI assistant needs the template: next=%q details=%v", err.Next, err.Details)
 	}
-	_, err = PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"index.html", "package.json"}, nil, nil)
+	_, err = planWith(BuildModeAuto, "Dockerfile", "", []string{"index.html", "package.json"}, nil, nil)
 	if err == nil || !strings.Contains(err.Message, "Node.js") {
 		t.Fatalf("project with index.html: %+v", err)
 	}
 }
 
 func TestPlanBuildCustomDockerfilePath(t *testing.T) {
-	plan, err := PlanBuild(BuildModeAuto, "docker/App.Dockerfile", "", []string{"docker/App.Dockerfile", "index.html"}, nil, nil)
+	plan, err := planWith(BuildModeAuto, "docker/App.Dockerfile", "", []string{"docker/App.Dockerfile", "index.html"}, nil, nil)
 	if err != nil || plan.Kind != BuildKindDockerfile {
 		t.Fatalf("custom path: %+v %v", plan, err)
 	}
 	// The default name is not the app's Dockerfile when another path is set.
-	plan, err = PlanBuild(BuildModeAuto, "docker/App.Dockerfile", "", []string{"Dockerfile", "index.html"}, nil, nil)
+	plan, err = planWith(BuildModeAuto, "docker/App.Dockerfile", "", []string{"Dockerfile", "index.html"}, nil, nil)
 	if err != nil || plan.Kind != BuildKindStatic {
 		t.Fatalf("other Dockerfile ignored: %+v %v", plan, err)
 	}
 }
 
 func TestStaticPlanDockerignore(t *testing.T) {
-	plan, err := PlanBuild(BuildModeStatic, "Dockerfile", "", []string{"index.html"}, []byte("secret.txt\r\n"), nil)
+	plan, err := planWith(BuildModeStatic, "Dockerfile", "", []string{"index.html"}, []byte("secret.txt\r\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,20 +102,20 @@ func TestStaticPlanDockerignore(t *testing.T) {
 func TestPlanBuildCaseMismatch(t *testing.T) {
 	// One page is served whatever its name, so only several pages without a
 	// choice ask for the rename.
-	_, err := PlanBuild(BuildModeStatic, "Dockerfile", "", []string{"Index.html", "about.html"}, nil, nil)
+	_, err := planWith(BuildModeStatic, "Dockerfile", "", []string{"Index.html", "about.html"}, nil, nil)
 	if err == nil || err.Code != CodeHomePageUnclear || !strings.Contains(err.Hint, "Rename Index.html to index.html") {
 		t.Errorf("static, Index.html: %+v", err)
 	}
-	_, err = PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"INDEX.HTML", "a.html", "a.css"}, nil, nil)
+	_, err = planWith(BuildModeAuto, "Dockerfile", "", []string{"INDEX.HTML", "a.html", "a.css"}, nil, nil)
 	if err == nil || err.Code != CodeHomePageUnclear || !strings.Contains(err.Hint, "Rename INDEX.HTML to index.html") {
 		t.Errorf("auto, INDEX.HTML: %+v", err)
 	}
-	_, err = PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"dockerfile", "main.go", "go.mod"}, nil, nil)
+	_, err = planWith(BuildModeAuto, "Dockerfile", "", []string{"dockerfile", "main.go", "go.mod"}, nil, nil)
 	if err == nil || err.Code != CodeNothingToBuild || !strings.Contains(err.Hint, "Rename dockerfile to Dockerfile") {
 		t.Errorf("auto, dockerfile: %+v", err)
 	}
 	// A real index.html still wins over a lowercase dockerfile.
-	if plan, err := PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"dockerfile", "index.html"}, nil, nil); err != nil || plan.Kind != BuildKindStatic {
+	if plan, err := planWith(BuildModeAuto, "Dockerfile", "", []string{"dockerfile", "index.html"}, nil, nil); err != nil || plan.Kind != BuildKindStatic {
 		t.Errorf("auto, dockerfile + index.html: %+v %v", plan, err)
 	}
 }
@@ -147,7 +148,7 @@ func TestPlanBuildHomePage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := PlanBuild(tc.mode, "Dockerfile", tc.choice, tc.files, nil, nil)
+			plan, err := planWith(tc.mode, "Dockerfile", tc.choice, tc.files, nil, nil)
 			if tc.wantCode != "" {
 				if err == nil || err.Code != tc.wantCode {
 					t.Fatalf("want %s, got %+v %v", tc.wantCode, plan, err)
@@ -188,7 +189,8 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 	files := []string{"package.json", "package-lock.json", "src/main.js"}
 	site := append([]string{"index.html"}, files...)
 	sveltekit := []byte(`{"scripts":{"build":"vite build","dev":"vite dev"},"devDependencies":{"vite":"^7","@sveltejs/kit":"^2"}}`)
-	viteStart := []byte(`{"scripts":{"build":"vite build","start":"vite"},"devDependencies":{"vite":"^7"}}`)
+	viteStart := []byte(`{"scripts":{"build":"vite build","start":"node server.js"},"devDependencies":{"vite":"^7"}}`)
+	viteDevStart := []byte(`{"scripts":{"build":"vite build","start":"vite preview"},"devDependencies":{"vite":"^7"}}`)
 	next := []byte(`{"scripts":{"build":"next build","start":"next start"},"dependencies":{"next":"^16"}}`)
 	laravel := []byte(`{"scripts":{"build":"vite build","dev":"vite"},"devDependencies":{"vite":"^7","laravel-vite-plugin":"^2"}}`)
 
@@ -203,8 +205,9 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 	}{
 		{"vite and build (devDependencies)", BuildModeAuto, site, vite, BuildKindNodeSPA, NodeSPADockerfilePath, ""},
 		{"vite and build (dependencies)", BuildModeAuto, site, viteDep, BuildKindNodeSPA, NodeSPADockerfilePath, ""},
-		{"vite site whose start script is the dev server", BuildModeAuto, site, viteStart, BuildKindNodeSPA, NodeSPADockerfilePath, ""},
-		{"vite without index.html is not a site (SvelteKit)", BuildModeAuto, files, sveltekit, "", "", CodeNothingToBuild},
+		{"vite with a start script is a guess: node", BuildModeAuto, site, viteStart, BuildKindNode, NodeDockerfilePath, ""},
+		{"vite whose start script is the Vite server is a website", BuildModeAuto, site, viteDevStart, BuildKindNodeSPA, NodeSPADockerfilePath, ""},
+		{"vite without index.html is not a site (SvelteKit is a node app)", BuildModeAuto, files, sveltekit, BuildKindNode, NodeDockerfilePath, ""},
 		{"vite app with a server is built and started", BuildModeAuto, files, viteStart, BuildKindNode, NodeDockerfilePath, ""},
 		{"next.js with next.config is built and started", BuildModeAuto, append([]string{"next.config.mjs"}, files...), next, BuildKindNode, NodeDockerfilePath, ""},
 		{"laravel is not a node project", BuildModeAuto, append([]string{"artisan", "composer.json", "index.html"}, files...), laravel, "", "", CodeNothingToBuild},
@@ -224,7 +227,7 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plan, err := PlanBuild(tc.mode, "Dockerfile", "", tc.files, nil, tc.pkg)
+			plan, err := planWith(tc.mode, "Dockerfile", "", tc.files, nil, tc.pkg)
 			if tc.wantCode != "" {
 				if err == nil || err.Code != tc.wantCode {
 					t.Fatalf("want error %s, got plan %+v err %v", tc.wantCode, plan, err)
@@ -262,7 +265,7 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 	}
 
 	t.Run("a build script runs before the start script", func(t *testing.T) {
-		plan, err := PlanBuild(BuildModeAuto, "Dockerfile", "", files, nil, both)
+		plan, err := planWith(BuildModeAuto, "Dockerfile", "", files, nil, both)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -271,21 +274,44 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 		if install < 0 || build < install || env < build || strings.Contains(df, "--omit=dev") {
 			t.Errorf("want all dependencies, the build, then NODE_ENV=production:\n%s", df)
 		}
-		plan, _ = PlanBuild(BuildModeAuto, "Dockerfile", "", []string{"package.json", "pnpm-lock.yaml"}, nil, both)
+		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", []string{"package.json", "pnpm-lock.yaml"}, nil, both)
 		df = string(plan.Inject[NodeDockerfilePath])
 		if !strings.Contains(df, "RUN corepack enable && pnpm install --frozen-lockfile\nCOPY") && !strings.Contains(df, "RUN corepack enable && pnpm install --frozen-lockfile\n\nCOPY . .\nRUN pnpm build\n") {
 			t.Errorf("pnpm with a build:\n%s", df)
 		}
-		plan, _ = PlanBuild(BuildModeAuto, "Dockerfile", "", files, nil, start)
+		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", files, nil, start)
 		if df := string(plan.Inject[NodeDockerfilePath]); strings.Contains(df, "npm run build") || !strings.Contains(df, "--omit=dev") {
 			t.Errorf("no build script, no build:\n%s", df)
 		}
 	})
 
 	t.Run("the user's .dockerignore is kept", func(t *testing.T) {
-		plan, err := PlanBuild(BuildModeAuto, "Dockerfile", "", files, []byte("secret.txt\r\n"), start)
+		plan, err := planWith(BuildModeAuto, "Dockerfile", "", files, []byte("secret.txt\r\n"), start)
 		if err != nil || !strings.HasPrefix(string(plan.Inject[".dockerignore"]), "secret.txt\n") {
 			t.Fatalf("%v %q", err, plan.Inject[".dockerignore"])
 		}
 	})
+}
+
+// planWith calls PlanBuild with the content of .dockerignore and package.json
+// (and any extra files) as the source has them.
+func planWith(mode, dockerfilePath, home string, files []string, ignore, pkg []byte, extra ...map[string]string) (BuildPlan, *apperr.Error) {
+	return PlanBuild(mode, dockerfilePath, home, "", files, readOf(ignore, pkg, extra...))
+}
+
+func readOf(ignore, pkg []byte, extra ...map[string]string) func(string) []byte {
+	return func(rel string) []byte {
+		switch rel {
+		case ".dockerignore":
+			return ignore
+		case "package.json":
+			return pkg
+		}
+		for _, m := range extra {
+			if s, ok := m[rel]; ok {
+				return []byte(s)
+			}
+		}
+		return nil
+	}
 }

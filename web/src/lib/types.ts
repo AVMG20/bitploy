@@ -268,8 +268,10 @@ export interface App {
   health_path: string
   dockerfile_path: string
   context_dir: string
-  /** dockerfile: needs a Dockerfile. auto: a Dockerfile, else a plain website. static: always a plain website. */
+  /** auto: detect what the project is. node: a Node.js app. static_build: build, then serve the output folder. static: plain website files. dockerfile: needs a Dockerfile. */
   build_mode: BuildMode
+  /** Folder a static build serves (dist, build, out); "" means the default of the detected framework. */
+  output_dir: string
   /** Page served at "/" when a static site has several pages and no index.html; "" means decided from the files. */
   home_page: string
   volume: boolean
@@ -285,7 +287,7 @@ export interface App {
   memory_mb: number
   cpu_millis: number
   /**
-   * A static site: the live version is a plain website or a Vite site that bitploy
+   * A static site: the live version is a plain website or a site (Vite, Astro, ...) that bitploy
    * builds itself, not the app's own Dockerfile. Fixed small size, no /data, and
    * it does not count towards the memory and CPU allowance.
    */
@@ -305,13 +307,14 @@ export interface App {
   updated_at: string
 }
 
-export type BuildMode = 'dockerfile' | 'auto' | 'static'
+export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfile'
 
 export interface CreateAppInput {
   name: string
   slug?: string
   volume?: boolean
   build_mode?: BuildMode
+  output_dir?: string
   home_page?: string
   memory_mb?: number
 }
@@ -325,6 +328,7 @@ export interface UpdateAppInput {
   dockerfile_path?: string
   context_dir?: string
   build_mode?: BuildMode
+  output_dir?: string
   home_page?: string
   volume?: boolean
   /** With volume: false, also delete the files in /data and all backups. Needed when there are any. */

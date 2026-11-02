@@ -2,11 +2,11 @@
 
 -- name: InsertApp :exec
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  build_mode, home_page, desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
+                  build_mode, home_page, output_dir, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
 
 -- name: SetAppBuildMode :exec
-UPDATE apps SET build_mode = ?, home_page = ?, updated_at = ? WHERE id = ?;
+UPDATE apps SET build_mode = ?, home_page = ?, output_dir = ?, updated_at = ? WHERE id = ?;
 
 -- name: UpdateAppSettings :exec
 UPDATE apps
@@ -23,13 +23,13 @@ SELECT COUNT(*) FROM apps WHERE user_id = ?;
 -- name: SumAppResourcesByUser :one
 -- Only apps that are meant to run and have a deployment reserve memory and CPU.
 -- Static sites (live deployment built from bitploy's nginx templates: kinds
--- static and node-spa, see deploy.IsStaticKind) are free and not counted.
+-- static, node-spa and node-static, see deploy.IsStaticKind) are free and not counted.
 SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS memory_mb,
        CAST(COALESCE(SUM(a.cpu_millis), 0) AS INTEGER) AS cpu_millis
 FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
 WHERE a.user_id = ? AND a.id != ?
   AND a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL
-  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa');
+  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa', 'node-static');
 
 -- name: SumVolumeMBByUser :one
 -- Every app with a volume reserves its storage limit, running or not: the files stay.

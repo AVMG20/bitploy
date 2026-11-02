@@ -131,6 +131,7 @@ func (p *pipeline) writeLog(line string) {
 	if p.logFile != nil {
 		_, _ = p.logFile.WriteString(line + "\n")
 	}
+	p.s.events.buildLine(p.app.UserID, p.app.Slug, p.dep.ID, line) // live build log, batched
 }
 
 func (p *pipeline) setState(ctx context.Context, state string) *apperr.Error {
@@ -780,6 +781,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		if p.buildDir != "" {
 			_ = os.RemoveAll(p.buildDir)
 		}
+		s.events.flushBuild(p.dep.ID)
 		s.NotifyDeployment(p.dep.ID)
 	}()
 
@@ -886,6 +888,7 @@ func shortSHA(s string) string {
 // was interrupted. Queueing moves a new or failed app to "deploying"; without
 // this it could stay there. A running app with a live version keeps its status.
 func (s *Service) settleStatusAfterFailure(ctx context.Context, appID, msg string) {
+	defer s.publishApp(ctx, appID)
 	app, err := s.Q.GetApp(ctx, appID)
 	if err != nil {
 		return

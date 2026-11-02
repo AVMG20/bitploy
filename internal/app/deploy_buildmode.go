@@ -20,7 +20,7 @@ import (
 // file list including injected files, and a reader that serves them. The source
 // itself is not changed here; see writeInjected.
 func planBuild(app db.App, files []string, read func(rel string) []byte) (db.App, deploy.BuildPlan, []string, func(rel string) []byte, *apperr.Error) {
-	plan, perr := deploy.PlanBuild(app.BuildMode, app.DockerfilePath, app.HomePage, files, read(".dockerignore"), read("package.json"))
+	plan, perr := deploy.PlanBuild(app.BuildMode, app.DockerfilePath, app.HomePage, app.OutputDir, files, read)
 	if perr != nil {
 		return app, plan, files, read, perr
 	}

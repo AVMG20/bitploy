@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { keys, REFRESH_MS } from '@/composables/queries'
+import { keys, livePoll, REFRESH_MS } from '@/composables/queries'
 import { api, fetchLogLines, logStreamUrl, parseLogLine } from '@/lib/api'
 import type { LogKind, LogTarget } from '@/lib/api'
 import { toastError } from '@/lib/notify'
@@ -31,7 +31,7 @@ const scroller = ref<HTMLElement | null>(null)
 const deployments = useQuery({
   queryKey: computed(() => keys.deployments(props.slug)),
   queryFn: () => api.deployments(props.slug),
-  refetchInterval: REFRESH_MS,
+  refetchInterval: livePoll(REFRESH_MS),
 })
 
 const deploymentId = computed(() => chosenDeployment.value ?? deployments.data.value?.[0]?.id)

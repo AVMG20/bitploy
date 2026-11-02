@@ -7,6 +7,7 @@ import FormScope from '@/components/FormScope.vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { KeyRound, Pencil, Trash2 } from 'lucide-vue-next'
+import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
@@ -22,10 +23,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { keys, useApp, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { outputDirError } from '@/lib/detect'
 import { formatMB } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
-import type { UpdateAppInput } from '@/lib/types'
+import type { BuildMode, UpdateAppInput } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
@@ -161,6 +163,35 @@ const removeEnv = useMutation({
     toastOk(`Removed ${name}`)
     envToRemove.value = null
     void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
+  },
+  onError: (e) => toastError(e),
+})
+
+// ---------------------------------------------------------------- type
+// How the files become an app. Read by the next deploy, not by the running app.
+const typeMode = ref<BuildMode>('auto')
+const typeOutput = ref('')
+let typeLoadedFor = ''
+watch(
+  () => app.data.value,
+  (a) => {
+    // Once per app, so a poll does not wipe unsaved edits.
+    if (a && typeLoadedFor !== a.id) {
+      typeLoadedFor = a.id
+      typeMode.value = a.build_mode
+      typeOutput.value = a.output_dir
+    }
+  },
+  { immediate: true },
+)
+const typeChanged = computed(() => !!app.data.value && (typeMode.value !== app.data.value.build_mode || typeOutput.value.trim() !== app.data.value.output_dir))
+const saveType = useMutation({
+  mutationFn: () => api.updateApp(props.slug, { build_mode: typeMode.value, output_dir: typeOutput.value.trim() }),
+  onSuccess: (updated) => {
+    toastOk('Type saved', 'It applies on the next deploy.')
+    typeOutput.value = updated.output_dir
+    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+    void qc.invalidateQueries({ queryKey: keys.apps })
   },
   onError: (e) => toastError(e),
 })
@@ -334,6 +365,19 @@ const del = useMutation({
             <Button type="submit" class="sm:mt-[1.375rem]" :disabled="saveEnv.isPending.value">{{ saveEnv.isPending.value ? 'Saving...' : 'Save variable' }}</Button>
           </form>
         </FormScope>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Type</CardTitle>
+        <CardDescription>What your files are. A change applies on the next deploy.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form class="grid gap-4" novalidate @submit.prevent="saveType.mutate()">
+          <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
+          <div><Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+        </form>
       </CardContent>
     </Card>
 

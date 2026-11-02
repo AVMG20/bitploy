@@ -84,7 +84,11 @@ func (a *API) appRoutes() {
 		Summary: "Create an app", Description: "Reserves a subdomain and returns the URL. Accepts an Idempotency-Key header.",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.CreateAppInput }) (*Out[app.App], error) {
-		return okOrNil(a.svc.CreateApp(ctx, act, in.Body))
+		created, err := a.svc.CreateApp(ctx, act, in.Body)
+		if err == nil {
+			a.svc.PublishAppChange(ctx, act, created.Slug, "", "")
+		}
+		return okOrNil(created, err)
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getApp", Method: http.MethodGet, Path: "/apps/{app}", Tags: []string{"Apps"},
@@ -99,7 +103,11 @@ func (a *API) appRoutes() {
 		AppRef
 		Body app.UpdateAppInput
 	}) (*Out[app.App], error) {
-		return okOrNil(a.svc.UpdateApp(ctx, act, in.App, in.Body))
+		updated, err := a.svc.UpdateApp(ctx, act, in.App, in.Body)
+		if err == nil && updated.Slug != "" && !strings.EqualFold(updated.Slug, in.App) && !strings.HasPrefix(in.App, "app_") {
+			a.svc.PublishAppChange(ctx, act, updated.Slug, strings.ToLower(in.App), "") // renamed: the old slug is in old_app
+		}
+		return okOrNil(updated, err)
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteApp", Method: http.MethodDelete, Path: "/apps/{app}", Tags: []string{"Apps"},

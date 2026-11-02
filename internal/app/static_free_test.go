@@ -117,7 +117,7 @@ func TestStaticSizeAndStorageAreFixed(t *testing.T) {
 
 	for name, in := range map[string]UpdateAppInput{
 		"memory": {MemoryMB: ptr(int64(512))},
-		"cpu":    {CPUMillis: ptr(int64(500))},
+		"cpu":    {CPUMillis: ptr(int64(1000))},
 		"both":   {MemoryMB: ptr(int64(128)), CPUMillis: ptr(int64(100))},
 	} {
 		if _, err := e.s.UpdateApp(ctx, e.user, a.Slug, in); depCode(err) != "static_fixed_size" {

@@ -322,6 +322,7 @@ func (s *Service) restoreApp(ctx context.Context, app db.App, dead bool) {
 				Status: "failed", StatusMessage: apperr.Redact("The container disappeared and could not be restored: " + ae.Message),
 				UpdatedAt: s.now(), ID: app.ID,
 			})
+			s.publishApp(ctx, app.ID)
 		}
 		return
 	}
@@ -330,6 +331,7 @@ func (s *Service) restoreApp(ctx context.Context, app db.App, dead bool) {
 	r.mu.Unlock()
 	if fresh.Status != "running" {
 		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "running", StatusMessage: "", UpdatedAt: s.now(), ID: app.ID})
+		s.publishApp(ctx, app.ID)
 	}
 	s.Audit(ctx, System, "app.restore", "app", app.ID, map[string]any{"slug": app.Slug})
 }

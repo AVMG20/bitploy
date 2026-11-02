@@ -157,6 +157,7 @@ func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) 
 		})
 	}
 	s.Audit(ctx, a, "domain.add", "domain", id, details)
+	s.publishDomain(ctx, app.ID)
 	row, err := s.Q.OpsGetDomainByHostname(ctx, host)
 	if err != nil {
 		return Domain{}, apperr.Internal(err)
@@ -211,6 +212,7 @@ func (s *Service) RemoveDomain(ctx context.Context, a Actor, ref, hostname strin
 		return apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "domain.remove", "domain", d.ID, map[string]any{"hostname": d.Hostname, "app_id": app.ID, "app": app.Slug})
+	s.publishDomain(ctx, app.ID)
 	if err := s.opsSyncRoute(ctx, app.ID); err != nil {
 		// The row is gone, so the next reconcile drops the router; do not fail the request.
 		s.Log.Warn("route sync after domain removal failed", "app", app.Slug, "domain", d.Hostname, "err", err)
@@ -293,6 +295,7 @@ func (s *Service) saveDomain(ctx context.Context, a Actor, d db.Domain, status, 
 		s.Audit(ctx, a, "domain."+status, "domain", d.ID, map[string]any{"hostname": d.Hostname, "app_id": d.AppID, "from": d.Status})
 	}
 	d.Status, d.LastError, d.CheckUntil, d.ActivatedAt = status, lastErr, checkUntil, activated
+	s.publishDomain(ctx, d.AppID)
 	d.LastCheckedAt = sql.NullInt64{Int64: now, Valid: true}
 	return d, nil
 }

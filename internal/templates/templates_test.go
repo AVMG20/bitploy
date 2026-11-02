@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -30,9 +31,17 @@ func TestAllStacksEmbedded(t *testing.T) {
 
 func TestStaticIsTheSpecExample(t *testing.T) {
 	tpl, _ := Get("static")
-	want := "FROM nginxinc/nginx-unprivileged:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 8080\n"
-	if tpl.Dockerfile != want {
-		t.Errorf("static Dockerfile = %q", tpl.Dockerfile)
+	spec, err := os.ReadFile("../../SPEC.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(spec), "```dockerfile\n"+tpl.Dockerfile+"```") {
+		t.Errorf("SPEC.md does not show the static Dockerfile:\n%s", tpl.Dockerfile)
+	}
+	for _, line := range []string{"listen 8080;", "absolute_redirect off;", "try_files $uri $uri/ $uri.html =404;", "COPY . /usr/share/nginx/html\n", "EXPOSE 8080\n"} {
+		if !strings.Contains(tpl.Dockerfile, line) {
+			t.Errorf("static Dockerfile lacks %q", line)
+		}
 	}
 }
 

@@ -402,6 +402,7 @@ func (s *Service) insertBackup(ctx context.Context, appID, kind string) (db.AppB
 	}); err != nil {
 		return db.AppBackup{}, apperr.Internal(err)
 	}
+	s.publishBackup(ctx, appID)
 	return b, nil
 }
 
@@ -585,6 +586,7 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 		return Backup{}, s.uploadErr(werr, problems)
 	}
 	s.Audit(ctx, a, "backup.upload", "app", row.ID, map[string]any{"backup": id, "bytes": size})
+	s.publishBackup(ctx, row.ID)
 	return Backup{ID: id, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}, nil
 }
 
@@ -619,6 +621,7 @@ func (s *Service) DismissRestore(ctx context.Context, a Actor, ref string) error
 	if err != nil {
 		return err
 	}
+	defer s.publishBackup(ctx, row.ID)
 	s.backup.mu.Lock()
 	defer s.backup.mu.Unlock()
 	if r := s.backup.restore[row.ID]; r != nil {

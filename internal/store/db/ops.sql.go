@@ -883,8 +883,8 @@ SELECT
     COUNT(*) AS apps,
     CAST(COALESCE(SUM(CASE WHEN a.status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
     -- Static sites (see SumAppResourcesByUser) do not count towards memory and CPU.
-    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa') THEN a.memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa') THEN a.cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
+    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa', 'node-static') THEN a.memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
+    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa', 'node-static') THEN a.cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
     CAST(COALESCE(SUM(CASE WHEN a.volume_enabled = 1 THEN a.volume_mb ELSE 0 END), 0) AS INTEGER) AS volume_mb
 FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
 WHERE a.user_id = ?

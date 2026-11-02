@@ -145,7 +145,10 @@ type App struct {
 	HealthPath        string `json:"health_path"`
 	DockerfilePath    string `json:"dockerfile_path"`
 	ContextDir        string `json:"context_dir"`
-	BuildMode         string `json:"build_mode"` // dockerfile | auto | static
+	BuildMode         string `json:"build_mode"` // dockerfile | auto | node | static_build | static
+	// OutputDir is the folder a static build serves; empty means the default of
+	// the detected framework (dist, build or out).
+	OutputDir string `json:"output_dir"`
 	// HomePage is the page served at "/" when a static site has several pages
 	// and no index.html; empty means decided from the files.
 	HomePage string `json:"home_page"`
@@ -392,8 +395,10 @@ type CreateAppInput struct {
 	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
 	MemoryMB  *int64 `json:"memory_mb,omitempty"`
 	CPUMillis *int64 `json:"cpu_millis,omitempty"`
-	// BuildMode is how the source is built: dockerfile (default), auto or static.
-	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else a plain website (index.html at the top). static: always a plain website."`
+	// BuildMode is how the source is built: dockerfile (default), auto, node, static_build or static.
+	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else detect: a Node.js app, a static build (Vite, Astro, SvelteKit with adapter-static, ...) or a plain website (index.html at the top). node: always a Node.js app from package.json. static_build: build with the build script and serve the output folder with nginx (a static site). static: always a plain website."`
+	// OutputDir is the folder a static build serves.
+	OutputDir string `json:"output_dir,omitempty" doc:"Build modes auto and static_build: the folder the build writes to and nginx serves, relative to the project, like dist, build or out. Empty: the default of the detected framework."`
 	// HomePage is the page for "/" when a static site has no index.html and several pages.
 	HomePage string `json:"home_page,omitempty" doc:"Build modes auto and static only: the .html file at the top of the source to serve at / when there is no index.html and several pages. Empty: index.html, else the only page."`
 }
@@ -407,7 +412,8 @@ type UpdateAppInput struct {
 	HealthPath     *string `json:"health_path,omitempty"`
 	DockerfilePath *string `json:"dockerfile_path,omitempty"`
 	ContextDir     *string `json:"context_dir,omitempty"`
-	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile, auto or static (see create app)"`
+	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static" doc:"dockerfile, auto, node, static_build or static (see create app). Applies on the next deploy."`
+	OutputDir      *string `json:"output_dir,omitempty" doc:"output folder of a static build (see create app); empty clears it. Applies on the next deploy."`
 	HomePage       *string `json:"home_page,omitempty" doc:"page for / of a static site without index.html (see create app); empty clears it"`
 	Volume         *bool   `json:"volume,omitempty"`
 	// DeleteData confirms that turning /data off (volume=false) may delete the

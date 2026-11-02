@@ -47,6 +47,7 @@ func (s *Service) metricsMgr() *metrics.Manager {
 			s.Audit(ctx, System, action, targetType, targetID, details)
 		}
 		m.SyncRoute = s.opsSyncRoute
+		m.Notify = s.publishApp
 		m.BuildxPrune = s.buildBuilder().Prune
 		s.ops.mgr = m
 	})

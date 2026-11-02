@@ -3,9 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { ChevronRight } from 'lucide-vue-next'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { useEvents } from '@/composables/useEvents'
 import AppSidebar from './AppSidebar.vue'
 
 const route = useRoute()
+// Live updates for everything below: opens when you are signed in, closes when you leave (logout).
+useEvents()
 
 // Where you are, shown next to the sidebar toggle: "Apps › my-app".
 const crumbs = computed(() => {

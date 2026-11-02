@@ -197,6 +197,9 @@ func (m *Manager) crashLoop(ctx context.Context, app db.App, ev dockerx.Event, c
 	}); err != nil {
 		m.Log.Error("marking crashed app as stopped failed", "app", app.ID, "err", err)
 	}
+	if m.Notify != nil {
+		m.Notify(ctx, app.ID) // desired_state changed after the status
+	}
 	m.crashes.Forget(ev.Name)
 	m.audit(ctx, "app.crashed", "app", app.ID, map[string]any{
 		"container": ev.Name, "deaths_in_window": count, "log_tail": tail,
@@ -265,5 +268,9 @@ func (m *Manager) setStatus(ctx context.Context, app db.App, status, msg string)
 	})
 	if err != nil {
 		m.Log.Error("setting app status failed", "app", app.ID, "status", status, "err", err)
+		return
+	}
+	if m.Notify != nil {
+		m.Notify(ctx, app.ID)
 	}
 }

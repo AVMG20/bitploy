@@ -134,6 +134,10 @@ func (m *Manager) setVolumeStatus(ctx context.Context, r db.OpsListVolumeUsageRo
 		Status: status, StatusMessage: msg, UpdatedAt: m.now().Unix(), ID: r.ID,
 	}); err != nil {
 		m.Log.Error("setting volume status failed", "app", r.ID, "err", err)
+		return
+	}
+	if m.Notify != nil {
+		m.Notify(ctx, r.ID)
 	}
 }
 

@@ -246,6 +246,7 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.U
 		_ = s.Q.FinishBackup(context.WithoutCancel(ctx), db.FinishBackupParams{
 			Status: backupFailed, Error: msg, FinishedAt: nullInt(s.now(), true), ID: b.ID,
 		})
+		s.publishBackup(ctx, app.ID)
 	}
 	if err := s.checkBackupDisk(); err != nil {
 		fail("The server is almost out of disk space.")

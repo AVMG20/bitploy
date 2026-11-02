@@ -60,6 +60,7 @@ type App struct {
 	ProtectHash         string
 	BuildMode           string
 	HomePage            string
+	OutputDir           string
 }
 
 type AppBackup struct {

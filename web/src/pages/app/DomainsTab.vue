@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FormControl, FormDescription, FormField, FormItem, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { keys, REFRESH_MS, useApp } from '@/composables/queries'
+import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { domainStatusInfo, hostOf } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
@@ -27,7 +27,7 @@ const app = useApp(() => props.slug)
 const domains = useQuery({
   queryKey: computed(() => keys.domains(props.slug)),
   queryFn: () => api.domains(props.slug),
-  refetchInterval: REFRESH_MS * 3,
+  refetchInterval: livePoll(REFRESH_MS * 3),
 })
 
 function refresh() {

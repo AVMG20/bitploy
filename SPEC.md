@@ -158,7 +158,7 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 **The Dockerfile rule**: a deploy without a Dockerfile at `dockerfile_path` fails at validation with `dockerfile_missing`. There is no buildpack or auto-detect build path. Bitploy does detect the stack only to make the error helpful: `index.html` only → `static`, `package.json` → `node`, `requirements.txt` or `pyproject.toml` → `python`, `go.mod` → `go`, `composer.json` or `index.php` → `php`. The error names the matching template and includes its full text.
 
-**Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one and otherwise serves an `index.html` at the top of the project through the static template (nginx), and otherwise builds a Node project from its `package.json`: a Vite site (build script, `vite`, `index.html` at the top) with the `node-spa` template, else a project with a start script with the `node` template (after its build script, if any). It fails with `nothing_to_build` when it finds none of these. `static` always uses the template. In both, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto`. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
+**Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one, otherwise serves an `index.html` at the top of the project through the static template (nginx), otherwise detects a Node project from its `package.json` (and the Next.js config): SvelteKit with `@sveltejs/adapter-static`, Astro without a server adapter, Next.js with `output: 'export'`, Create React App and a Vite site (build script, `vite`, `index.html` at the top, no start script) are built and their output folder is served with nginx (`node-spa`: unknown paths load `index.html`; `node-static`: real pages, 404 otherwise); SvelteKit with another adapter, Next.js, Remix, React Router, Nuxt, NestJS, Express, Fastify, Hono, Koa, hapi, Astro with `@astrojs/node` and anything else with a start script run as a Node app (`node` template, after the build script if there is one; `nextjs` template with `output: 'standalone'`). A Vite project with a start script is a guess: it runs as a Node app and says so. It fails with `nothing_to_build` when it finds none of these. The other modes force one answer: `node` (a Node.js app), `static_build` (build, then serve the output folder; a static site) and `static` (plain website files). `output_dir` is the folder a static build serves (empty: the default of the framework: `dist`, `build` or `out`). In `auto` and `static`, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto` and has a Type select for the others. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
 
 **Pipeline**, one row per deployment state:
 
@@ -278,10 +278,25 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 
 When `unhealthy` fires and the runtime log mentions `127.0.0.1` or `localhost`, set the hint to "Your app listens on localhost; make it listen on 0.0.0.0:$PORT". That is the most common noob failure.
 
-**Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node-spa`, `node-static`, `node`, `nextjs`, `python`, `django`, `go`, `php`, `laravel`, `generic` (`templates.Stacks`). `get_template` with `file_list` adapts the Node and Python ones to the lock file (`templates.ForFiles`: pnpm, yarn, bun, no lock; uv, Poetry, pyproject). The static one shows the style:
+**Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node-spa`, `node-static`, `node`, `nextjs`, `python`, `django`, `go`, `php`, `laravel`, `generic` (`templates.Stacks`). `get_template` with `file_list` adapts the Node and Python ones to the lock file (`templates.ForFiles`: pnpm, yarn, bun, no lock; uv, Poetry, pyproject). The static one shows the style (the nginx config keeps the proxy from seeing port 8080 in redirects, and serves `/about` from `about.html`):
 
 ```dockerfile
 FROM nginxinc/nginx-unprivileged:alpine
+COPY <<'NGINXCONF' /etc/nginx/conf.d/default.conf
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+    # Behind the proxy the port nginx listens on (8080) must not end up in redirects.
+    absolute_redirect off;
+    # Shows 404.html when the site has one.
+    error_page 404 /404.html;
+    location / {
+        # /about finds about.html, /docs finds docs/index.html. Unknown paths are a 404.
+        try_files $uri $uri/ $uri.html =404;
+    }
+}
+NGINXCONF
 COPY . /usr/share/nginx/html
 EXPOSE 8080
 ```
@@ -485,7 +500,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 | --- | --- |
 | Memory | 512 MB default; swap equal to memory, so no extra swap |
 | CPU | 0.5 CPU |
-| Static sites | A static site is an app whose live deployment was built from bitploy's own nginx templates (a plain website, or a Vite site built by auto mode), never from the user's own Dockerfile, even if that starts from nginx. It has a fixed 64 MB and 0.1 CPU (`cpu_millis` 100), cannot be changed, has no `/data` volume, and does not count towards the memory and CPU quota. It still counts as an app and for storage. The App JSON carries `"static": true`. A static site that is later deployed from the user's own Dockerfile becomes a normal app (default size, checked against the quota at deploy time) |
+| Static sites | A static site is an app whose live deployment was built from bitploy's own nginx templates (a plain website, or a Vite site built by auto mode), never from the user's own Dockerfile, even if that starts from nginx. It has a fixed 64 MB and 0.5 CPU (`cpu_millis` 500), cannot be changed, has no `/data` volume, and does not count towards the memory and CPU quota. It still counts as an app and for storage. The App JSON carries `"static": true`. A static site that is later deployed from the user's own Dockerfile becomes a normal app (default size, checked against the quota at deploy time) |
 | Processes | `pids-limit` 256; `nofile` 4096 |
 | Privileges | `no-new-privileges`, Docker's default seccomp and AppArmor profiles, drop `NET_RAW`; never `--privileged`, never added capabilities |
 | Mounts | Only the optional named volume at `/data`. Never `docker.sock`, never a host path |

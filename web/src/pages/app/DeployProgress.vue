@@ -8,7 +8,8 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { keys } from '@/composables/queries'
+import { keys, liveMs } from '@/composables/queries'
+import { liveBuildLogs } from '@/composables/useEvents'
 import { useAppActions } from '@/composables/useAppActions'
 import { api } from '@/lib/api'
 import { plainHint } from '@/lib/errors'
@@ -35,21 +36,28 @@ const STEPS = [
 const list = useQuery({
   queryKey: computed(() => keys.deployments(props.slug)),
   queryFn: () => api.deployments(props.slug),
-  // Quick while something is going on, so the log and the steps feel live.
+  // Live events keep it fresh; without them, quick while something is going on
+  // so the log and the steps still feel live.
   refetchInterval: (q) => {
     const s = q.state.data?.[0]?.state
-    return s && !['running', 'failed', 'superseded', 'cancelled'].includes(s) ? 1500 : 5000
+    return liveMs(s && !['running', 'failed', 'superseded', 'cancelled'].includes(s) ? 1500 : 5000)
   },
 })
 
 const latest = computed(() => list.data.value?.[0] ?? null)
 const step = computed(() => STEPS.findIndex((s) => s.state === latest.value?.state))
 const failed = computed(() => latest.value?.state === 'failed')
-const log = computed(() => (latest.value?.log_tail ?? []).slice(-14))
+const active = computed(() => !!latest.value && !['running', 'failed', 'superseded', 'cancelled'].includes(latest.value.state))
+// While the build runs, the lines come live from the event stream; the polled
+// log tail is the fallback, and what is shown once the deployment has ended.
+const log = computed(() => {
+  const live = latest.value && active.value ? liveBuildLogs.value[latest.value.id] : undefined
+  return (live?.length ? live : (latest.value?.log_tail ?? [])).slice(-14)
+})
 
 const logEl = ref<HTMLElement | null>(null)
 watch(
-  () => log.value.length,
+  log,
   async () => {
     await nextTick()
     if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight

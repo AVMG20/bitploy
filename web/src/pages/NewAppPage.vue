@@ -7,6 +7,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { ArrowLeft, Github, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
+import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -19,7 +20,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { keys, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { detectSource } from '@/lib/detect'
+import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { slugify, slugSchema } from '@/lib/slug'
@@ -72,13 +73,24 @@ const source = computed({
 const repo = ref<GitSourceInput | null>(null)
 const upload = ref<UploadChoice | null>(null)
 const mode = ref<BuildMode>('auto')
+const outputDir = ref('')
+// New files, new answer: the folder typed for the old ones does not carry over.
+watch(upload, () => (outputDir.value = ''))
 const homePage = ref('')
 const volume = ref(false)
 
 // What the server will make of the files; null for GitHub or a zip this page could not read.
-const detected = computed(() => (source.value === 'upload' && upload.value?.paths ? detectSource(upload.value.paths, mode.value, homePage.value, 'Dockerfile', upload.value.packageJson) : null))
+const detected = computed(() =>
+  source.value === 'upload' && upload.value?.paths
+    ? detectSource(upload.value.paths, mode.value, homePage.value, 'Dockerfile', upload.value.packageJson, upload.value.nextConfig)
+    : null,
+)
+// The type is chosen once there is something to build; the files are read later for GitHub and for a zip this page cannot open.
+const showType = computed(() => source.value === 'github' || !!upload.value)
+const typeLater = computed(() => source.value === 'github' || !upload.value?.paths)
 
 const sourceReady = computed(() => {
+  if (outputDirError(outputDir.value)) return false
   if (source.value === 'github') return !!repo.value
   if (!upload.value) return false
   // Nothing to build: the person has to change something first. A zip this
@@ -129,7 +141,8 @@ async function run(v: { name: string; slug: string }) {
       name: v.name,
       slug: v.slug,
       volume: volume.value,
-      build_mode: source.value === 'upload' ? mode.value : 'auto',
+      build_mode: mode.value,
+      output_dir: outputDir.value.trim() || undefined,
       // Only kept when there are several pages to choose from.
       home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
     })
@@ -230,10 +243,12 @@ const submit = form.handleSubmit(run)
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
           <template v-if="source === 'github'">
-            <p v-if="repo" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
+            <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
           </template>
 
-          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :disabled="busy" />
+          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
+
+          <BuildTypeFields v-if="showType" v-model:mode="mode" v-model:output-dir="outputDir" :detected="detected" :later="typeLater" :disabled="busy" id-prefix="new" />
         </CardContent>
       </Card>
 

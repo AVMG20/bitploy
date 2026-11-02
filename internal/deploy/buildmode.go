@@ -2,7 +2,6 @@ package deploy
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
@@ -26,27 +25,44 @@ const (
 	// BuildModeStatic always serves the source as a plain website with the
 	// static template, even when the source holds a Dockerfile of its own.
 	BuildModeStatic = "static"
+	// BuildModeNode always runs the source as a Node.js app with the node
+	// template (or nextjs), after its build script if it has one, even when the
+	// source holds a Dockerfile of its own.
+	BuildModeNode = "node"
+	// BuildModeStaticBuild always builds the source with its build script and
+	// serves the output folder with nginx (node-spa or node-static template).
+	BuildModeStaticBuild = "static_build"
 )
 
 // Kinds of build a plan can ask for.
 const (
 	BuildKindDockerfile = "dockerfile"
 	BuildKindStatic     = "static"
-	// BuildKindNodeSPA and BuildKindNode are auto mode's template builds for a
-	// Node project without a Dockerfile: a Vite site built and served with
-	// nginx, or an app started with its "start" script.
-	BuildKindNodeSPA = "node-spa"
-	BuildKindNode    = "node"
+	// BuildKindNodeSPA, BuildKindNodeStatic and BuildKindNode are the template
+	// builds for a Node project without a Dockerfile: a single-page app built
+	// and served with nginx (unknown paths load index.html), a site of real
+	// pages built and served with nginx (unknown paths are a 404), or an app
+	// started with its "start" script.
+	BuildKindNodeSPA    = "node-spa"
+	BuildKindNodeStatic = "node-static"
+	BuildKindNode       = "node"
 )
 
 // IsStaticKind reports whether a build kind runs only bitploy's own nginx
-// serving files (the static and node-spa templates). Such an app is a static
+// serving files (the static, node-spa and node-static templates). Such an app is a static
 // site: it uses a few MB, so it is free of the memory and CPU allowance. A
 // Dockerfile of the user never qualifies, even when it starts from nginx: it
 // can run anything. The SQL queries that leave static sites out of the quota
 // (SumAppResourcesByUser, OpsUsageAppTotals) list the same kinds.
 func IsStaticKind(kind string) bool {
-	return kind == BuildKindStatic || kind == BuildKindNodeSPA
+	return kind == BuildKindStatic || kind == BuildKindNodeSPA || kind == BuildKindNodeStatic
+}
+
+// AlwaysStaticMode reports whether an app in this build mode can only ever
+// build a static site (a plain website or a static build), so it is one from
+// the day it is created.
+func AlwaysStaticMode(mode string) bool {
+	return mode == BuildModeStatic || mode == BuildModeStaticBuild
 }
 
 // StaticDockerfilePath is where the static template is written in the source.
@@ -55,17 +71,22 @@ const StaticDockerfilePath = "Dockerfile.bitploy-static"
 
 // Where the Node templates are written in the source (see StaticDockerfilePath).
 const (
-	NodeSPADockerfilePath = "Dockerfile.bitploy-node-spa"
-	NodeDockerfilePath    = "Dockerfile.bitploy-node"
+	NodeSPADockerfilePath    = "Dockerfile.bitploy-node-spa"
+	NodeStaticDockerfilePath = "Dockerfile.bitploy-node-static"
+	NodeDockerfilePath       = "Dockerfile.bitploy-node"
 )
 
 // CodeNothingToBuild is the error code for a source in auto mode that has
 // neither a Dockerfile nor a plain website to serve.
 const CodeNothingToBuild = "nothing_to_build"
 
-// ValidBuildMode reports whether m is one of the three modes.
+// ValidBuildMode reports whether m is one of the build modes.
 func ValidBuildMode(m string) bool {
-	return m == BuildModeDockerfile || m == BuildModeAuto || m == BuildModeStatic
+	switch m {
+	case BuildModeDockerfile, BuildModeAuto, BuildModeStatic, BuildModeNode, BuildModeStaticBuild:
+		return true
+	}
+	return false
 }
 
 // BuildPlan is the outcome of PlanBuild.
@@ -84,6 +105,12 @@ type BuildPlan struct {
 	// reaches the Dockerfile or the nginx config, and it still answers at its
 	// own path too.
 	HomePage string
+	// OutputDir and SPA are set for a static build: the folder served and
+	// whether unknown paths load index.html.
+	OutputDir string
+	SPA       bool
+	// Unsure is set when auto mode guessed and the person should check the type.
+	Unsure bool
 	// Why says in one plain sentence which way was chosen (shown in the build log).
 	Why string
 }
@@ -152,17 +179,19 @@ func homePage(has map[string]bool, chosen string) (page string, ok bool, err *ap
 }
 
 // PlanBuild decides how a source is built. files are all file paths of the
-// source relative to its root; dockerfilePath is the app's setting; dockerignore
-// is the content of the source's own .dockerignore, or nil; packageJSON is the
-// content of package.json at the top of the source, or nil. Only auto mode
-// reads it, for a Node project without a Dockerfile.
+// source relative to its root; dockerfilePath is the app's setting; read
+// returns the content of a file of the source (nil when it has none): the
+// planner reads .dockerignore, and package.json and the Next.js config for a
+// Node project (modes auto, node and static_build). outputDir is the app's
+// setting for the folder a static build serves; empty means the default of the
+// detected framework.
 //
 // homePage is the app's choice of page for "/" when a static site has no
 // index.html and several pages; it is only used in auto and static mode.
 //
 // With mode dockerfile (or an unknown mode) the plan is always a Dockerfile
 // build: a missing Dockerfile is reported by CheckDockerfile as before.
-func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dockerignore, packageJSON []byte) (BuildPlan, *apperr.Error) {
+func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []string, read func(rel string) []byte) (BuildPlan, *apperr.Error) {
 	if dockerfilePath == "" {
 		dockerfilePath = "Dockerfile"
 	}
@@ -172,8 +201,13 @@ func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dock
 	}
 	hasDockerfile := has[path.Clean(dockerfilePath)]
 	hasIndex := has["index.html"]
+	dockerignore := read(".dockerignore")
 
 	switch mode {
+	case BuildModeNode:
+		return nodeModePlan(files, hasIndex, dockerignore, read)
+	case BuildModeStaticBuild:
+		return staticBuildPlan(files, hasIndex, dockerignore, outputDir, read)
 	case BuildModeStatic:
 		if !hasIndex {
 			page, ok, herr := homePage(has, homePageChoice)
@@ -200,7 +234,7 @@ func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dock
 			return BuildPlan{}, renameErr(CodeNothingToBuild, other, path.Clean(dockerfilePath))
 		}
 		if (stack == "node" || stack == "nextjs" || stack == "node-static") && has["package.json"] {
-			if plan, ok := nodePlan(files, hasIndex, dockerignore, packageJSON); ok {
+			if plan, ok := autoNodePlan(files, hasIndex, dockerignore, outputDir, read); ok {
 				return plan, nil
 			}
 		}
@@ -241,48 +275,6 @@ func homePlan(userIgnore []byte, page string) BuildPlan {
 	p := staticPlan(userIgnore, "No Dockerfile or index.html: serving the files as a static site with nginx. The home page is "+page+".")
 	p.HomePage = page
 	return p
-}
-
-// nodePlan is auto mode's way out for a Node project without a Dockerfile: a
-// Vite site (a build script, vite in the dependencies and its index.html at
-// the top) is built and served with nginx, else a project with a start script
-// is run with it, after its build script if it has one. ok is false for
-// anything else, including a package.json that cannot be read. Vite apps with
-// their own server (SvelteKit, Remix, React Router) have no index.html at the
-// top, so they are not taken for a site.
-func nodePlan(files []string, hasIndex bool, userIgnore, packageJSON []byte) (BuildPlan, bool) {
-	var pkg struct {
-		Scripts         map[string]any `json:"scripts"`
-		Dependencies    map[string]any `json:"dependencies"`
-		DevDependencies map[string]any `json:"devDependencies"`
-	}
-	if json.Unmarshal(packageJSON, &pkg) != nil {
-		return BuildPlan{}, false
-	}
-	script := func(name string) bool {
-		s, _ := pkg.Scripts[name].(string)
-		return strings.TrimSpace(s) != ""
-	}
-	_, vite := pkg.Dependencies["vite"]
-	if _, dev := pkg.DevDependencies["vite"]; dev {
-		vite = true
-	}
-	switch {
-	case script("build") && vite && hasIndex:
-		tpl, _ := templates.ForFiles("node-spa", files)
-		return templatePlan(BuildKindNodeSPA, NodeSPADockerfilePath, tpl, userIgnore,
-			"No Dockerfile, but package.json has a build script and uses Vite: building the site and serving it with nginx."), true
-	case script("start") && script("build"):
-		if tpl, ok := templates.NodeWithBuild(files); ok {
-			return templatePlan(BuildKindNode, NodeDockerfilePath, tpl, userIgnore,
-				"No Dockerfile, but package.json has a build and a start script: building it and running it as a Node.js app."), true
-		}
-	case script("start"):
-		tpl, _ := templates.ForFiles("node", files)
-		return templatePlan(BuildKindNode, NodeDockerfilePath, tpl, userIgnore,
-			"No Dockerfile, but package.json has a start script: running it as a Node.js app."), true
-	}
-	return BuildPlan{}, false
 }
 
 func staticPlan(userIgnore []byte, why string) BuildPlan {

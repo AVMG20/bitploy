@@ -2,46 +2,42 @@ import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { api } from '@/lib/api'
+import { keys } from '@/lib/live'
 import type { MetricWindow, TrafficWindow } from '@/lib/types'
+import { eventsConnected } from './useEvents'
 
 export const REFRESH_MS = 5_000
+/** While the live event stream is open, polling is only a safety net. */
+export const LIVE_FALLBACK_MS = 60_000
 
-export const keys = {
-  me: ['me'] as const,
-  apps: ['apps'] as const,
-  app: (slug: string) => ['app', slug] as const,
-  metrics: (slug: string, window: MetricWindow) => ['metrics', slug, window] as const,
-  traffic: (slug: string, window: TrafficWindow | 'today') => ['traffic', slug, window] as const,
-  deployments: (slug: string) => ['deployments', slug] as const,
-  env: (slug: string) => ['env', slug] as const,
-  domains: (slug: string) => ['domains', slug] as const,
-  backups: (slug: string) => ['backups', slug] as const,
-  tokens: ['tokens'] as const,
-  sessions: ['sessions'] as const,
-  github: ['github'] as const,
-  githubRepos: (query: string) => ['github', 'repos', query] as const,
-  githubBranches: (repo: string) => ['github', 'branches', repo] as const,
-  adminGithub: ['admin', 'github'] as const,
-  adminUsers: ['admin', 'users'] as const,
-  adminInvites: ['admin', 'invites'] as const,
-  adminServer: ['admin', 'server'] as const,
-  adminApps: ['admin', 'apps'] as const,
-  adminAudit: ['admin', 'audit'] as const,
+export { keys }
+
+/**
+ * The polling interval for a query that live events keep fresh: the given one
+ * while the event stream is down, a slow safety net while it is up. Use it as
+ * `refetchInterval: () => liveMs(5_000)`. Vue Query asks again after every
+ * fetch, so a change of the stream state applies at the next refresh.
+ */
+export function liveMs(ms: number): number {
+  return eventsConnected.value ? Math.max(ms, LIVE_FALLBACK_MS) : ms
 }
 
+/** `refetchInterval` for a query that live events keep fresh. */
+export const livePoll = (ms: number) => () => liveMs(ms)
+
 export function useMe() {
-  return useQuery({ queryKey: keys.me, queryFn: api.me, refetchInterval: REFRESH_MS })
+  return useQuery({ queryKey: keys.me, queryFn: api.me, refetchInterval: livePoll(REFRESH_MS) })
 }
 
 export function useApps() {
-  return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: REFRESH_MS })
+  return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }
 
 export function useApp(slug: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => keys.app(toValue(slug))),
     queryFn: () => api.app(toValue(slug)),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: livePoll(REFRESH_MS),
   })
 }
 
@@ -71,11 +67,11 @@ export function useAppMetrics(slug: MaybeRefOrGetter<string>, window: MaybeRefOr
   })
 }
 
-/** The backups of an app; refreshes every 2 seconds while one is being made or restored. */
+/** The backups of an app; refreshes every 2 seconds while one is being made or restored (and live events are not arriving). */
 export function useBackups(slug: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => keys.backups(toValue(slug))),
     queryFn: () => api.backups(toValue(slug)),
-    refetchInterval: (q) => (q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),
+    refetchInterval: (q) => liveMs(q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),
   })
 }

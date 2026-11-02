@@ -68,6 +68,7 @@ type Service struct {
 	Now    func() time.Time
 	wakeCh chan struct{} // nudges the deploy worker when a deployment is queued
 	hub    *hub          // deployment state change notifications for long-polls
+	events *Broker       // live events for the dashboard (events.go)
 
 	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
 	ops      opsState      // metrics manager and domain-check settings (ops.go)
@@ -85,6 +86,7 @@ func New(cfg *config.Config, st *store.Store, crypto *store.Crypto, dk *dockerx.
 		Now:      func() time.Time { return time.Now().UTC() },
 		wakeCh:   make(chan struct{}, 1),
 		hub:      newHub(),
+		events:   newBroker(),
 		lsRemote: deploy.LsRemoteInfo,
 	}
 }
@@ -102,8 +104,12 @@ func (s *Service) Wake() {
 // WakeCh is read by the deploy worker.
 func (s *Service) WakeCh() <-chan struct{} { return s.wakeCh }
 
-// NotifyDeployment wakes long-polls waiting on a deployment.
-func (s *Service) NotifyDeployment(id string) { s.hub.notify(id) }
+// NotifyDeployment is called after a deployment changed: it wakes long-polls
+// waiting on it and tells the owner's dashboard (live event "deployment").
+func (s *Service) NotifyDeployment(id string) {
+	s.hub.notify(id)
+	s.publishDeployment(id)
+}
 
 // WaitDeployment blocks until the deployment changes or ctx/timeout ends.
 func (s *Service) WaitDeployment(ctx context.Context, id string, d time.Duration) {

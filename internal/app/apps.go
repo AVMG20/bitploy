@@ -37,7 +37,7 @@ const (
 	// uses a few MB. It has these fixed limits and does not count towards the
 	// memory and CPU allowance of the account.
 	staticMemoryMB  = 64
-	staticCPUMillis = 100
+	staticCPUMillis = 500
 	minMemoryMB     = 64
 	minCPUMillis    = 50
 	defaultVolumeMB = 5120
@@ -54,9 +54,20 @@ func normalizeBuildMode(m string) (string, error) {
 	}
 	if !deploy.ValidBuildMode(m) {
 		return "", apperr.BadRequest("build_mode_invalid", "The build mode "+quote(m)+" is not known.",
-			"Use dockerfile (the source needs a Dockerfile, the default), auto (a Dockerfile, else a plain website with an index.html) or static (always a plain website).")
+			"Use dockerfile (the source needs a Dockerfile, the default), auto (detect what the source is), node (a Node.js app), static_build (build a site and serve the output folder) or static (always a plain website).")
 	}
 	return m, nil
+}
+
+// normalizeOutputDir validates the folder a static build serves: empty (the
+// default of the detected framework) or a relative folder such as dist.
+func normalizeOutputDir(d string) (string, error) {
+	clean, err := deploy.CleanOutputDir(d)
+	if err != nil {
+		return "", apperr.BadRequest("output_dir_invalid", "The output folder "+quote(d)+" is not allowed: "+err.Error()+".",
+			"Use the folder the build writes to, like dist, build or out, or leave it empty.")
+	}
+	return clean, nil
 }
 
 // normalizeHomePage validates the page served at "/" for a static site without
@@ -111,7 +122,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		return App{}, err
 	}
 	mem, cpu := int64(defaultMemoryMB), int64(defaultCPUMillis)
-	if buildMode == deploy.BuildModeStatic {
+	if deploy.AlwaysStaticMode(buildMode) {
 		// Always a static site: fixed limits, nothing to choose (see staticSizeErr).
 		mem, cpu = staticMemoryMB, staticCPUMillis
 	} else {
@@ -126,6 +137,10 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 	}
 	homePage, err := normalizeHomePage(in.HomePage)
+	if err != nil {
+		return App{}, err
+	}
+	outputDir, err := normalizeOutputDir(in.OutputDir)
 	if err != nil {
 		return App{}, err
 	}
@@ -219,7 +234,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
-			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, CreatedAt: now, UpdatedAt: now,
+			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -364,6 +379,15 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		homePage = hp
 		changed["home_page"] = hp
 	}
+	outputDir := row.OutputDir
+	if in.OutputDir != nil {
+		od, err := normalizeOutputDir(*in.OutputDir)
+		if err != nil {
+			return App{}, err
+		}
+		outputDir = od
+		changed["output_dir"] = od
+	}
 	turningOff := in.Volume != nil && !*in.Volume && row.VolumeEnabled != 0
 	if in.Volume != nil {
 		if *in.Volume && row.VolumeEnabled == 0 && isStatic {
@@ -454,8 +478,8 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	} else if err := s.Q.UpdateAppSettings(ctx, p); err != nil {
 		return App{}, apperr.Internal(err)
 	}
-	if buildMode != row.BuildMode || homePage != row.HomePage {
-		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, HomePage: homePage, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+	if buildMode != row.BuildMode || homePage != row.HomePage || outputDir != row.OutputDir {
+		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, UpdatedAt: s.now(), ID: row.ID}); err != nil {
 			return App{}, apperr.Internal(err)
 		}
 	}
@@ -786,7 +810,7 @@ func appConsumes(a db.App) bool {
 }
 
 // appIsStatic reports whether the live deployment of an app was built from one
-// of bitploy's own nginx templates (static or node-spa). Such an app is a static
+// of bitploy's own nginx templates (static, node-spa or node-static). Such an app is a static
 // site: fixed small limits, free of the memory and CPU allowance. An app built
 // from the user's own Dockerfile never is, even when it starts from nginx.
 // The kind is stored on the deployment, so a rollback changes it with the
@@ -937,7 +961,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
-		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, HomePage: r.HomePage,
+		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, HomePage: r.HomePage, OutputDir: r.OutputDir,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}

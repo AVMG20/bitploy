@@ -584,6 +584,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "deploying", StatusMessage: "", UpdatedAt: now, ID: app.ID})
 	}
 	s.Audit(ctx, a, "deployment.queue", "deployment", depID, map[string]any{"app": app.Slug, "seq": seq, "source": qs.kind})
+	s.publishDeployment(depID)
 	s.Wake()
 	d, err := s.Q.GetDeployment(ctx, depID)
 	if err != nil {
@@ -867,6 +868,9 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
 	ctxDir := path.Clean(row.ContextDir)
 	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, "package.json": true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
+	for _, n := range deploy.NextConfigNames {
+		wanted[n] = true
+	}
 	files, contents, err := deploy.ZipSource(zipPath, true, func(rel string) bool { return wanted[rel] }, 1<<20)
 	if err != nil {
 		return err

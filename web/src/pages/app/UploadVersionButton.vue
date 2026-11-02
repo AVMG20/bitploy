@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Upload } from 'lucide-vue-next'
+import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { keys, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { detectSource } from '@/lib/detect'
+import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastOk } from '@/lib/notify'
@@ -24,6 +25,7 @@ const app = useApp(() => props.slug)
 const open = ref(false)
 const choice = ref<UploadChoice | null>(null)
 const mode = ref<BuildMode>('auto')
+const outputDir = ref('')
 const homePage = ref('')
 const busy = ref(false)
 const sent = ref(0)
@@ -40,10 +42,13 @@ watch(open, (o) => {
   error.value = null
   mode.value = app.data.value?.build_mode ?? 'auto'
   homePage.value = app.data.value?.home_page ?? ''
+  outputDir.value = app.data.value?.output_dir ?? ''
 })
 
-const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson) : null))
-const ready = computed(() => !!choice.value && detected.value?.kind !== 'none')
+const detected = computed(() =>
+  choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson, choice.value.nextConfig) : null,
+)
+const ready = computed(() => !!choice.value && detected.value?.kind !== 'none' && !outputDirError(outputDir.value))
 const buttonLabel = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
 
 async function deploy() {
@@ -52,15 +57,16 @@ async function deploy() {
   checking.value = false
   sent.value = 0
   error.value = null
-  const before = { build_mode: app.data.value.build_mode, home_page: app.data.value.home_page }
+  const before = { build_mode: app.data.value.build_mode, home_page: app.data.value.home_page, output_dir: app.data.value.output_dir }
   // The home page is only saved when there are several pages to choose from.
   const home = detected.value?.kind === 'static' && detected.value.choices ? (detected.value.home ?? '') : before.home_page
   let changed = false
   try {
-    // The deploy reads the app's build mode and home page, so they are saved
-    // first, and put back when the upload is refused.
-    if (mode.value !== before.build_mode || home !== before.home_page) {
-      await api.updateApp(props.slug, { build_mode: mode.value, home_page: home })
+    // The deploy reads the app's build mode, output folder and home page, so
+    // they are saved first, and put back when the upload is refused.
+    const output = outputDir.value.trim()
+    if (mode.value !== before.build_mode || home !== before.home_page || output !== before.output_dir) {
+      await api.updateApp(props.slug, { build_mode: mode.value, home_page: home, output_dir: output })
       changed = true
     }
     let d: Deployment
@@ -101,7 +107,8 @@ async function deploy() {
             Drop the folder again, with your changes. The version that runs now stays available, so you can go back to it.
           </DialogDescription>
         </DialogHeader>
-        <SourceDropZone v-model="choice" v-model:mode="mode" v-model:home-page="homePage" :disabled="busy" />
+        <SourceDropZone v-model="choice" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
+        <BuildTypeFields v-if="choice" v-model:mode="mode" v-model:output-dir="outputDir" :detected="detected" :later="!choice.paths" :disabled="busy" id-prefix="upload" />
         <Alert v-if="error" variant="destructive">
           <AlertTitle>{{ error.message }}</AlertTitle>
           <AlertDescription v-if="error.hint">{{ error.hint }}</AlertDescription>

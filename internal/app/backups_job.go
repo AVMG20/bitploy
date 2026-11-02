@@ -36,6 +36,7 @@ func (s *Service) stopping() bool {
 // the outcome on the row. appLocked says that the caller holds the app lock
 // already (a restore does). It returns the error, already recorded.
 func (s *Service) finishBackup(ctx context.Context, app db.App, owner db.User, backupID string, room int64, appLocked bool) error {
+	defer s.publishBackup(ctx, app.ID)
 	_, err := s.makeBackup(ctx, app, owner, backupID, room, appLocked)
 	if err == nil {
 		return nil
@@ -276,6 +277,7 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 }
 
 func (s *Service) setRestore(appID string, r *BackupRestore) {
+	defer s.publishBackup(context.Background(), appID) // runs after the unlock below
 	s.backup.mu.Lock()
 	defer s.backup.mu.Unlock()
 	if s.backup.restore == nil {
@@ -285,6 +287,10 @@ func (s *Service) setRestore(appID string, r *BackupRestore) {
 }
 
 func (s *Service) finishRestoreState(appID string, st *BackupRestore, err error) {
+	defer func() {
+		s.publishBackup(context.Background(), appID)
+		s.publishApp(context.Background(), appID)
+	}()
 	fin := s.Now()
 	s.backup.mu.Lock()
 	defer s.backup.mu.Unlock()
@@ -506,6 +512,7 @@ func (s *Service) replaceFrom(ctx context.Context, vs volumeStore, app db.App, b
 // when a container could not be stopped: the volume must not be emptied under
 // a running app.
 func (s *Service) stopForRestoreLocked(ctx context.Context, app db.App) error {
+	defer s.publishApp(ctx, app.ID)
 	if err := s.Q.SetAppDesiredState(ctx, db.SetAppDesiredStateParams{
 		DesiredState: "stopped", Status: "stopped", StatusMessage: "Restoring a backup.", UpdatedAt: s.now(), ID: app.ID,
 	}); err != nil {
@@ -532,6 +539,7 @@ func (s *Service) stopForRestoreLocked(ctx context.Context, app db.App) error {
 // keeps trying).
 func (s *Service) startAfterRestoreLocked(ctx context.Context, appID string) string {
 	ctx = context.WithoutCancel(ctx)
+	defer s.publishApp(ctx, appID)
 	fresh, err := s.Q.GetApp(ctx, appID)
 	if err != nil {
 		return ""
@@ -646,6 +654,7 @@ func (s *Service) DeleteBackup(ctx context.Context, a Actor, ref, id string) err
 		return apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "backup.delete", "app", row.ID, map[string]any{"backup": b.ID, "kind": b.Kind})
+	s.publishBackup(ctx, row.ID)
 	return nil
 }
 

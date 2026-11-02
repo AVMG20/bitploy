@@ -12,7 +12,7 @@ import RelativeTime from '@/components/RelativeTime.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { keys, REFRESH_MS, useApp } from '@/composables/queries'
+import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { channelLabel, commitUrl, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
@@ -25,7 +25,7 @@ const app = useApp(() => props.slug)
 const list = useQuery({
   queryKey: computed(() => keys.deployments(props.slug)),
   queryFn: () => api.deployments(props.slug),
-  refetchInterval: REFRESH_MS,
+  refetchInterval: livePoll(REFRESH_MS),
 })
 
 const target = ref<Deployment | null>(null)

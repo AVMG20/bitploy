@@ -42,22 +42,29 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s: unknown stack", stack)
 			}
-			ctx := append([]string{"Dockerfile", ".dockerignore"}, files...)
-			res := CheckDockerfile(CheckInput{
-				Dockerfile: []byte(tpl.Dockerfile), DockerfilePath: "Dockerfile",
-				Files: ctx, Dockerignore: []byte(tpl.Dockerignore), AppType: "web",
-			})
-			if res.Port == 0 {
-				t.Errorf("%s / %s: no port found", stack, name)
-			}
-			for _, f := range res.Findings {
-				if f.Severity == sevError || f.Severity == sevWarning {
-					t.Errorf("%s / %s: %s %s: %s\n%s", stack, name, f.Severity, f.Code, f.Message, tpl.Dockerfile)
-				}
-			}
-			if strings.Contains(tpl.Dockerfile, "\r") {
-				t.Errorf("%s / %s: carriage return in the Dockerfile", stack, name)
-			}
+			checkTemplate(t, stack+" / "+name, tpl, files)
 		}
+	}
+}
+
+// checkTemplate runs bitploy's own Dockerfile checks on a template: a port, no
+// errors or warnings, no carriage returns.
+func checkTemplate(t *testing.T, name string, tpl templates.Template, files []string) {
+	t.Helper()
+	ctx := append([]string{"Dockerfile", ".dockerignore"}, files...)
+	res := CheckDockerfile(CheckInput{
+		Dockerfile: []byte(tpl.Dockerfile), DockerfilePath: "Dockerfile",
+		Files: ctx, Dockerignore: []byte(tpl.Dockerignore), AppType: "web",
+	})
+	if res.Port == 0 {
+		t.Errorf("%s: no port found", name)
+	}
+	for _, f := range res.Findings {
+		if f.Severity == sevError || f.Severity == sevWarning {
+			t.Errorf("%s: %s %s: %s\n%s", name, f.Severity, f.Code, f.Message, tpl.Dockerfile)
+		}
+	}
+	if strings.Contains(tpl.Dockerfile, "\r") {
+		t.Errorf("%s: carriage return in the Dockerfile", name)
 	}
 }
