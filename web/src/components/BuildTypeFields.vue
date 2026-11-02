@@ -84,7 +84,7 @@ const outputError = computed(() => outputDirError(outputDir.value))
         :aria-invalid="outputError ? true : undefined"
       />
       <p v-if="outputError" class="text-xs text-destructive" role="alert">{{ outputError }}</p>
-      <p v-else class="text-xs text-muted-foreground">The folder the build writes the site to. Leave it as it is unless the build uses another one.</p>
+      <p v-else class="text-xs text-muted-foreground">The folder the build writes the site to. Change it only if your build uses another one.</p>
     </div>
   </div>
 </template>

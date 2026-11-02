@@ -133,7 +133,7 @@ function onSwitch(on: boolean) {
 const confirmOffText = computed(() => {
   const n = backupCount.value
   const backups = n === 0 ? '' : ` and all ${n} ${n === 1 ? 'backup' : 'backups'}`
-  return `This deletes all files in /data${backups}. This can't be undone.`
+  return `This deletes all files in /data${backups}. This cannot be undone.`
 })
 
 const storageFree = computed(() => {
@@ -348,7 +348,7 @@ const kindLabel: Record<BackupKind, string> = {
             <div class="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
               <div class="grid gap-1">
                 <Label for="keep-data">Keep files in /data</Label>
-                <p v-if="isStatic && !data.volume" class="text-[0.8rem] text-muted-foreground">Static sites don't need storage.</p>
+                <p v-if="isStatic && !data.volume" class="text-[0.8rem] text-muted-foreground">Static sites do not need storage.</p>
                 <p v-else class="text-[0.8rem] text-muted-foreground">While this is on, each deploy takes the app offline for a few seconds.</p>
               </div>
               <div class="flex shrink-0 items-center gap-2">
@@ -470,7 +470,7 @@ const kindLabel: Record<BackupKind, string> = {
           v-else-if="!list.items.length && !data.volume"
           :icon="HardDrive"
           title="/data is off."
-          :description="isStatic ? `Static sites don't need storage.` : `Turn it on to keep your app's files between deploys and back them up.`"
+          :description="isStatic ? `Static sites do not need storage.` : `Turn it on to keep your app's files between deploys and back them up.`"
         >
           <Button v-if="!isStatic" :disabled="switching" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on /data' }}</Button>
         </EmptyState>

@@ -160,7 +160,7 @@ function onDrop(e: DragEvent) {
   if (!dt) return
   const items = Array.from(dt.items ?? [])
   if (items.some((i) => i.webkitGetAsEntry?.()?.isDirectory)) {
-    toastError(new Error('Folders cannot be uploaded. Drop the files inside it.'))
+    toastError(new Error('Folders cannot be uploaded. Drop the files in it instead.'))
     return
   }
   void uploadAll(Array.from(dt.files))
@@ -242,7 +242,7 @@ const remove = useMutation({
         v-else-if="notCreatedYet"
         :icon="Folder"
         title="No /data folder yet."
-        description="Restart or redeploy the app once, then the folder is there."
+        description="Restart or redeploy the app to create it."
       />
       <Skeleton v-else-if="!list" class="h-40 w-full" />
       <template v-else>
@@ -331,7 +331,7 @@ const remove = useMutation({
 
         <p v-if="list.truncated" class="text-sm text-muted-foreground">Showing the first {{ list.items.length }} items of this folder.</p>
         <p v-if="running && hasDatabase" class="text-sm text-muted-foreground">
-          Stop the app before replacing a database file, or the app may overwrite it. A copy taken while it runs can miss recent writes.
+          Stop the app before you replace a database file, or the app may overwrite it. A download while the app runs can miss recent changes.
         </p>
         <p v-if="uploading" class="text-sm text-muted-foreground">Uploading {{ uploadName }}...</p>
       </template>
@@ -363,7 +363,7 @@ const remove = useMutation({
   <ConfirmDialog
     v-model:open="overwriteOpen"
     :title="`Replace ${overwriteName ?? 'this file'}?`"
-    description="A file with this name is there already. The new file replaces it."
+    description="A file with this name already exists. The new one replaces it."
     confirm-label="Replace"
     @confirm="answerOverwrite(true)"
   />

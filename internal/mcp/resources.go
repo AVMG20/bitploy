@@ -125,9 +125,9 @@ func deployPrompt(app, instructions string) string {
 	return `Put the project in the current folder online with bitploy. Follow these steps in order, and do not skip validation.
 
 1. Look at the project: which files exist, what language, and what port the app listens on. Check for an existing Dockerfile and for a .bitploy file.
-2. No Dockerfile? Call get_template with the stack that fits (static for plain HTML, node-spa for a Vite/React/Vue build, node-static for Astro/Eleventy, nextjs, node, python, django, go, php, laravel, or generic) and pass file_list so it matches the package manager. Save its Dockerfile and .dockerignore into the project and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost. A bot with no web port: create the app with type=worker.
+2. No Dockerfile? Call get_template with the stack that fits and file_list. Save its Dockerfile and .dockerignore into the project and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost. A bot with no web port: create the app with type=worker.
 3. Call validate_dockerfile with the Dockerfile text and the list of project files. Fix every error. Read the warnings.
-4. ` + target + ` Data to keep (a database, uploads) goes in /data: an app is one container with no database server, so use SQLite in /data and create the app with create_app(volume=true). Existing app: update_app(volume=true), then restart_app.
+4. ` + target + ` An app that keeps data (SQLite, uploads) needs volume=true (rule 8).
 5. Secrets (API keys, passwords, bot tokens) never go into files. Set them with set_env. They reach the app after restart_app, or with the first deploy.
 6. Send the code. The project has a GitHub remote? Prefer git: commit and push, then set_git_source with the remote's HTTPS URL and deploy once; after that every push to the branch deploys by itself. A private repository needs the user to press Connect GitHub under Settings > GitHub in the dashboard; ask them, and upload instead if they cannot. No GitHub remote? Upload, which is fully supported: up to 2 MB and 200 files deploy_files with ALL files; bigger: zip the folder, call create_upload and run the curl command it returns, then deploy with the upload_id. Never ask the user to create a repository or install git just to deploy.
 7. deploy and deploy_files return at once, and a push to a linked repository starts a deployment too. Call get_deployment (id, or app=<slug> for the latest) with wait_seconds=30 until the state is running or failed. If it failed, read error.hint and the log tail, fix the cause and deploy again. After 3 failures with the same error code, stop and explain the problem to the user in plain words.
@@ -137,7 +137,7 @@ UPDATE path (the app already exists, also in a new session):
 - Find the app: the .bitploy file. Without it, only if the user says the project is already online: list_apps and confirm by name and url with the user. Never take an app just because its name looks similar. Never create a second app for a project that has a .bitploy.
 - Linked to a git repository (get_app shows git_source)? Commit and push: with push_ready true bitploy deploys it by itself, then follow it with get_deployment (app=<slug>). Call deploy only when push_ready is false or to rebuild. Uploads are refused for a linked app (git_source_linked).
 - Otherwise deploy_files again with app=<slug> and ALL files. It is a full snapshot that replaces the old source, not a patch. For a zip source: create_upload first, then deploy.
-- Only env vars or settings changed: set_env then restart_app (app running), or deploy with only app= (app failed or never ran). volume, memory and CPU (update_app) apply on restart_app.
+- Only env vars or settings changed: set_env then restart_app (app running), or deploy with only app= (app failed or never ran). volume=true, memory and CPU (update_app) apply on restart_app.
 - Then step 7 and 8 as above. The URL stays the same.
 
 Never stop, delete or roll back an app the user did not name.

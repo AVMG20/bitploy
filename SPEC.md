@@ -199,8 +199,8 @@ The MCP server is the product. It must let an agent that knows nothing about bit
 You are connected to bitploy. It deploys the user's code to https://<slug>.bitploy.nl.
 
 1. Every app is built from a Dockerfile. Bitploy refuses to deploy without one.
-   If the project has none, call get_template with the stack (static, node,
-   node-spa, node-static, nextjs, python, django, go, php, laravel, generic), adapt it, and add a .dockerignore.
+   If the project has none, call get_template with the stack and file_list,
+   adapt it, and add a .dockerignore.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.
@@ -220,10 +220,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    explain the problem to the user in plain words.
 7. When it runs, give the user the URL and one or two plain sentences on what
    you did. Assume the user is not technical.
-8. Files that must survive a redeploy go in /data. A new app gets it with
-   create_app volume=true; an existing app: update_app volume=true, then
-   restart_app.
-   An app is one container: use SQLite in /data, never a database server.
+8. Files that must survive a redeploy go in /data: create_app volume=true, or
+   for an existing app update_app volume=true, then restart_app. An app is one
+   container: keep a database as SQLite in /data, never run a database server.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
 ```

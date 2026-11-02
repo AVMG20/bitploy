@@ -180,7 +180,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
                   <TooltipTrigger as-child>
                     <button type="button" class="cursor-help underline decoration-dotted underline-offset-4">Static site</button>
                   </TooltipTrigger>
-                  <TooltipContent>Static sites don't count towards your memory and CPU allowance.</TooltipContent>
+                  <TooltipContent>Static sites do not count towards your memory and CPU allowance.</TooltipContent>
                 </Tooltip>
                 <template v-else>{{ data.type === 'worker' ? 'Worker' : 'App' }}</template>
               </dd>

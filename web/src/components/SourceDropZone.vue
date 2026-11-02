@@ -298,7 +298,7 @@ onBeforeUnmount(() => abort?.abort())
           <TriangleAlert v-else-if="detected.kind === 'template' && detected.unsure" class="mt-0.5 size-4 shrink-0 text-warning" />
           <CircleCheck v-else class="mt-0.5 size-4 shrink-0 text-success" />
           <span v-if="detected.kind === 'none'" class="font-medium">{{ detected.label }}</span>
-          <span v-else-if="detected.kind === 'template' && detected.unsure" class="font-medium">Not sure, check the type.</span>
+          <span v-else-if="detected.kind === 'template' && detected.unsure" class="font-medium">This could be a website or a server app.</span>
           <span v-else-if="detected.kind === 'template'">
             <template v-if="detected.type === 'static_build'">
               Builds the site and serves the <span class="font-mono font-medium">{{ outputDir || detected.output }}</span> folder.
@@ -315,7 +315,7 @@ onBeforeUnmount(() => abort?.abort())
           <span v-else>Builds the Dockerfile at the top of your project.</span>
         </p>
         <p v-if="detected.kind === 'template' && detected.unsure" class="text-xs text-muted-foreground">
-          It could be a website or a server app. Choose the type below.
+          Choose the type below.
         </p>
         <p v-if="detected.kind === 'template' && detected.warn" class="text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">{{ detected.warn }}</p>
         <div v-if="homeChoices" class="flex min-w-0 items-center gap-2">

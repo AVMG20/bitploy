@@ -1,6 +1,6 @@
 # node
 
-For a Node.js server (Express, Fastify, Hono, Next.js in server mode) or a bot.
+For a Node.js server (Express, Fastify, Hono) or a bot. Next.js: use the `nextjs` template.
 
 - `package.json` and `package-lock.json` must exist (the build runs `npm ci`). No lock file: change `npm ci` to `npm install`. For pnpm, yarn or bun the adapted template changes the install lines.
 - Needs a `start` script in `package.json`, or change `CMD` to `["node", "server.js"]`.
@@ -9,5 +9,5 @@ For a Node.js server (Express, Fastify, Hono, Next.js in server mode) or a bot.
 - Bot or queue worker without a web port (Discord, Telegram): create the app with `type=worker`. `EXPOSE` is then ignored. The process must stay running (for example `client.login(process.env.DISCORD_TOKEN)`). Store the token with `set_env`, never in a file.
 - If the app needs a build step (TypeScript, Next.js), add `RUN npm run build` after `COPY . .` and
   install dev dependencies first: replace `npm ci --omit=dev` with `npm ci` and set `NODE_ENV=production` after the build.
-- Keeping files (SQLite, uploads): turn on the volume (`create_app` with volume=true for a new app; an existing app: `update_app` volume=true, then `restart_app`), write only to `/data`, and add `RUN mkdir /data && chown node:node /data` before `USER node`. A database means SQLite in `/data`: one container per app, no Postgres or MySQL server.
+- Keeping files (SQLite, uploads): turn on the volume, write only to `/data`, and add `RUN mkdir /data && chown node:node /data` before `USER node`.
 - If `EXPOSE` is not your port, change both, or set the port with update_app.

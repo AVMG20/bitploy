@@ -28,7 +28,7 @@ const RuntimeContract = `## Runtime contract
 
 - Listen on 0.0.0.0:$PORT. Bitploy sets PORT, BITPLOY_APP and BITPLOY_URL. The port is the app's port setting, otherwise the single EXPOSE of the last stage of the Dockerfile.
 - Log to stdout and stderr; build and runtime logs come from get_deployment and get_logs.
-- Write persistent data only to /data. A new app gets it with create_app (volume=true); an existing app with update_app (volume=true) and then restart_app. Everything else in the container is lost on redeploy. Turning the volume off (update_app volume=false) deletes the files in /data and all backups: it is refused with volume_has_data unless you pass delete_data=true, which you do only after the user agrees. The app user must be able to write there: in the Dockerfile run mkdir /data and chown it to the app user before USER (for example RUN mkdir /data && chown node /data). Docker copies that ownership into the new volume. Each volume has a storage limit (volume_mb, default 5 GB) taken from the account's storage allowance, which also holds every app's own files (kept images and stored source); bitploy measures /data hourly, warns at 80% and stops the app above 100%.
+- Write persistent data only to /data, with the volume on (create_app volume=true, or update_app volume=true then restart_app). Everything else in the container is lost on redeploy. Turning the volume off (update_app volume=false) deletes the files in /data and all backups, so it needs delete_data=true, which you pass only after the user agrees. The app user must be able to write there: in the Dockerfile run mkdir /data and chown it to the app user before USER (for example RUN mkdir /data && chown node /data). Docker copies that ownership into the new volume. Each volume has a storage limit (volume_mb, default 5 GB) taken from the account's storage allowance, which also holds every app's own files (kept images and stored source); bitploy measures /data hourly, warns at 80% and stops the app above 100%.
 - Apps run as one locked-down container: 512 MB memory and 0.5 CPU by default, no root privileges, no access to the Docker socket or the host. A static site (plain files, or a site such as Vite or Astro that bitploy builds itself, not your own Dockerfile) has a fixed 64 MB and 0.5 CPU, no /data, and does not count towards the memory and CPU quota.
 - A worker (type=worker: bot, queue consumer) has no route and no port check; it counts as healthy when it is still running after 30 seconds. Its process must keep running in the foreground.
 - A web app is healthy when its port is open and GET health_path (default /) answers with a status below 500 within 60 seconds. A Dockerfile HEALTHCHECK replaces this check.
@@ -38,8 +38,8 @@ const RuntimeContract = `## Runtime contract
 
 ## Databases
 
-- An app is one container: there is no database server next to it. Use SQLite, with the file in /data (for example /data/app.db) and the volume on (create_app with volume=true for a new app).
-- The project expects Postgres or MySQL (docker-compose.yml, DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is usually one setting in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy). Ask the user first. If they want to keep Postgres or MySQL, use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
+- No database server runs next to the app. Use SQLite with the file in /data (for example /data/app.db) and the volume on.
+- The project expects Postgres or MySQL (docker-compose.yml, DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL, use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
 - Never install a database server (postgres, mysql, mariadb, redis) in the image or run several processes in one container.
 - Run migrations when the app starts, in CMD: for example sh -c "npx prisma migrate deploy && node server.js", php artisan migrate --force, python manage.py migrate.
 - SQLite is safe here: with a volume a deploy stops the old container before the new one starts (never two writers), and create_backup freezes the app while it copies, so backups are consistent.
@@ -65,7 +65,7 @@ const RuntimeContract = `## Runtime contract
 ## Applying changes
 
 - set_env: new values reach a running app only after restart_app (it recreates the container; no rebuild, a few seconds). If the app is failed, new or stopped-by-crash, call deploy (with only app=) instead, because restart_app needs a deployment that already ran.
-- update_app volume, memory_mb, cpu_millis: apply on restart_app. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
+- update_app volume=true, memory_mb, cpu_millis: apply on restart_app. volume=false applies at once. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
 - Code or Dockerfile changes: a push (linked repository), or a new deploy_files or deploy.
 - rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last 3 images exist). Roll back only when the user asks.
 
@@ -97,7 +97,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 - create_backup(app) saves the /data folder of an app that has the volume on and has been deployed. It runs in the background (the app is frozen for a moment while its files are read): call list_backups until the backup is ready or failed (error says why). Backups count towards the account's storage allowance. Offer one before a risky change to an app that keeps data in /data; do not make them in a loop.
 - list_backups(app) shows the backups, the automatic backup settings, whether something is running (busy) and how the latest restore went.
 - Restoring is deliberately dashboard-only: it replaces every file in /data and stops the app for a moment. When the user wants to go back to a backup, tell them to open the app, go to the Storage tab and press Restore there. Downloading and uploading backup files and the automatic schedule are in the same tab.
-- The Storage tab also has a file browser for /data: the user can download, upload or replace single files there (for example the SQLite database) and make or delete folders. Point the user there when they want one file out of /data or back in.
+- The Storage tab also has a file browser for /data (download, upload or replace single files such as the SQLite database; make or delete folders). Send the user there to get one file out of /data or put one back.
 - backup_busy: one backup or restore per app at a time; wait and try again. volume_not_ready: /data is on but the app was not started since, so restart_app first. storage_quota_exceeded: no room left for a backup; the user can delete an old backup or app.
 
 ## Dockerfile checks (validate_dockerfile)

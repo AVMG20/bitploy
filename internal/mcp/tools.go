@@ -27,7 +27,7 @@ type appIn struct {
 
 type templateIn struct {
 	Stack    string   `json:"stack" jsonschema:"One of: static, node, node-spa, node-static, nextjs, python, django, go, php, laravel, generic."`
-	FileList []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the project folder, relative with forward slashes, like [\"package.json\",\"pnpm-lock.yaml\"]. Lets bitploy match the Dockerfile to the project's package manager (npm, pnpm, yarn, bun)."`
+	FileList []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the project folder, relative with forward slashes, like [\"package.json\",\"pnpm-lock.yaml\"]. Lets bitploy match the Dockerfile to the package manager (npm, pnpm, yarn, bun, uv, Poetry)."`
 }
 
 type validateIn struct {
@@ -41,7 +41,7 @@ type createAppIn struct {
 	Type     string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
 	Slug     string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
 	Port     *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
-	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys. Use it for the SQLite database (for example /data/app.db) and uploads: an app is one container with no database server, so any app that stores data needs this. The app must then write its files to /data."`
+	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys, for the SQLite database (like /data/app.db) and uploads. Any app that stores data needs it, and must write its files to /data."`
 	VolumeMB *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
 }
 
@@ -54,8 +54,8 @@ type updateAppIn struct {
 	HealthPath     *string `json:"health_path,omitempty" jsonschema:"Path bitploy requests to see the app is healthy, like /healthz. Starts with /. Default /. Any status below 500 passes. Applies on the next deploy."`
 	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile inside the project, default Dockerfile. Example: docker/Dockerfile.prod."`
 	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the project root). Example: backend."`
-	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume (call restart_app afterwards), false turns it off at once. Not for static sites."`
-	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: also delete the files in /data and all backups of the app. Needed when /data holds files or the app has backups, else volume_has_data is returned. Ask the user first: this cannot be undone."`
+	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume (call restart_app afterwards). false turns it off at once and deletes its files and backups (see delete_data). Not for static sites."`
+	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: confirms deleting the files in /data and all backups. Needed when there is anything to delete, else volume_has_data is returned. Ask the user first: this cannot be undone."`
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
@@ -202,7 +202,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_template", "Get a Dockerfile template",
-		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build (single page, falls back to index.html). node-static: multi-page static build (Astro, Eleventy). node: Node server (Express, Fastify) or bot. nextjs: Next.js (standalone output). python: Flask/FastAPI. django. go. php: index.php or Composer site. laravel (SQLite in /data). generic: anything else (Ruby, Java, Deno). Pass file_list (all project paths) so the Dockerfile matches the project's package manager (npm, pnpm, yarn, bun). Save both files in the project root, adapt CMD and EXPOSE, then call validate_dockerfile.",
+		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build (single page, falls back to index.html). node-static: multi-page static build (Astro, Eleventy). node: Node server (Express, Fastify) or bot. nextjs: Next.js (standalone output). python: Flask/FastAPI. django. go. php: index.php or Composer site. laravel (SQLite in /data). generic: anything else (Ruby, Java, Deno). Pass file_list. Save both files in the project root, adapt CMD and EXPOSE, then call validate_dockerfile.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in templateIn) (*result, error) {
 			t, err := svc.GetTemplateForFiles(ctx, a, in.Stack, in.FileList)
@@ -315,7 +315,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume, memory_mb, cpu_millis apply on restart_app; volume_mb applies at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data. volume=false deletes /data and all backups and restarts the app: it is refused (volume_has_data) when there is anything to delete, unless you pass delete_data=true. Ask the user before you pass delete_data.",
+		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{

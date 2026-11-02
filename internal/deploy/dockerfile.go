@@ -937,7 +937,7 @@ func composeFinding(files []string) (Finding, bool) {
 				Code:     CodeComposeIgnored,
 				Severity: sevWarning,
 				Message:  fmt.Sprintf("The project has %s, but bitploy only builds the Dockerfile. Other services in it (a database, Redis) do not run.", f),
-				Hint:     "Run one container per app. Use SQLite in /data instead of a database server (create_app with volume=true), and an in-process or file cache instead of Redis.",
+				Hint:     "Use SQLite in /data (turn on /data for the app) instead of a database server, and an in-process or file cache instead of Redis.",
 			}, true
 		}
 	}
@@ -1015,8 +1015,8 @@ func (g *graph) databaseServers() []Finding {
 					Code:     CodeDatabaseInImage,
 					Severity: sevWarning,
 					Line:     firstLine(run.Location()),
-					Message:  fmt.Sprintf("The Dockerfile installs %s. An app is one container with one main process, so a database server in the image will not run next to the app.", p),
-					Hint:     "Use SQLite with the file in /data (create_app with volume=true; for example /data/app.db) and remove the install. For Redis use an in-process cache or a SQLite-backed queue. Or use an external hosted database and set its URL with set_env.",
+					Message:  fmt.Sprintf("The Dockerfile installs %s, but an app is one container with one process: a database server in the image does not run next to the app.", p),
+					Hint:     "Remove the install and use SQLite with the file in /data, like /data/app.db (turn on /data for the app). Instead of Redis, use an in-process cache or a SQLite-backed queue. Or use a hosted database and store its URL as an environment variable.",
 				})
 			}
 		}

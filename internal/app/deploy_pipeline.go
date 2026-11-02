@@ -357,7 +357,7 @@ func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
 	if deploy.IsStaticKind(p.kind) {
 		p.setSize, p.sizeMem, p.sizeCPU = true, staticMemoryMB, staticCPUMillis
 		if fresh.MemoryMb != staticMemoryMB || fresh.CpuMillis != staticCPUMillis {
-			p.logf("A static site does not count towards your memory and CPU allowance. It runs with %d MB of memory and %s CPU.", staticMemoryMB, cpuText(staticCPUMillis))
+			p.logf("A static site runs with %d MB of memory and %s CPU and does not count towards your memory and CPU allowance.", staticMemoryMB, cpuText(staticCPUMillis))
 		}
 		return nil
 	}
@@ -367,7 +367,7 @@ func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
 		err := p.s.checkConsumeQuota(ctx, fresh, defaultMemoryMB, defaultCPUMillis, defaultMemoryMB-staticMemoryMB)
 		var ae *apperr.Error
 		if errors.As(err, &ae) && (ae.Code == "memory_quota_exceeded" || ae.Code == "cpu_quota_exceeded") {
-			return apperr.Forbidden(ae.Code, "This app was a static site and is now built from your own Dockerfile, so it counts towards your memory and CPU allowance. "+ae.Message,
+			return apperr.Forbidden(ae.Code, "This app is no longer a static site, so it counts towards your memory and CPU allowance. "+ae.Message,
 				"Stop or delete another app, lower the memory of your other apps with update_app, or ask a bitploy admin for a bigger quota. Then deploy again.").WithNext("update_app")
 		}
 		if err != nil {

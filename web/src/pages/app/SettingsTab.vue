@@ -371,7 +371,7 @@ const del = useMutation({
     <Card>
       <CardHeader>
         <CardTitle>Type</CardTitle>
-        <CardDescription>What your files are. A change applies on the next deploy.</CardDescription>
+        <CardDescription>How bitploy builds your files. Changes apply on the next deploy.</CardDescription>
       </CardHeader>
       <CardContent>
         <form class="grid gap-4" novalidate @submit.prevent="saveType.mutate()">
@@ -384,7 +384,7 @@ const del = useMutation({
     <Card>
       <CardHeader>
         <CardTitle>Size</CardTitle>
-        <CardDescription v-if="app.data.value?.static">Static sites have a fixed size and don't count towards your memory and CPU allowance.</CardDescription>
+        <CardDescription v-if="app.data.value?.static">Static sites have a fixed size and do not count towards your memory and CPU allowance.</CardDescription>
         <CardDescription v-else>How much memory and processor power this app gets.</CardDescription>
       </CardHeader>
       <CardContent>

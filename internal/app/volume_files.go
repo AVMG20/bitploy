@@ -236,13 +236,13 @@ func filesErr(err error) error {
 		return apperr.Unprocessable("file_symlink", "This path goes through a symbolic link. bitploy does not follow links in /data.",
 			"Use the real folder, not the link.")
 	case errors.Is(err, dockerx.ErrExists):
-		return apperr.Conflict("file_exists", "A file or folder with this name exists already.", "Pick another name, or replace the file (overwrite=true).")
+		return apperr.Conflict("file_exists", "A file or folder with this name already exists.", "Choose another name.")
 	case errors.Is(err, dockerx.ErrWrongKind):
 		return apperr.Unprocessable("not_a_file", "Only regular files can be downloaded or replaced, not folders or special files.", "Pick a file.")
 	case errors.Is(err, context.Canceled):
 		return apperr.BadRequest("request_cancelled", "The request was cancelled.", "Try again.")
 	case errors.Is(err, context.DeadlineExceeded):
-		return apperr.Unavailable("files_timeout", "This took too long and was stopped.", "Try again, or with a smaller file.")
+		return apperr.Unavailable("files_timeout", "This took too long and was stopped.", "Try again, or try a smaller file.")
 	}
 	msg := apperr.Redact(dockerx.DescribeError(err))
 	if len([]rune(msg)) > 300 {
@@ -427,7 +427,7 @@ func (s *Service) DeleteFile(ctx context.Context, a Actor, ref, target string) e
 		return err
 	}
 	if rel == "" {
-		return apperr.BadRequest("path_invalid", "The /data folder itself can not be deleted.", "Choose a file or folder inside it.")
+		return apperr.BadRequest("path_invalid", "The /data folder itself cannot be deleted.", "Choose a file or folder inside it.")
 	}
 	row, _, fs, err := s.filesTarget(ctx, a, ref, true)
 	if err != nil {

@@ -16,13 +16,13 @@ import (
 )
 
 func staticStorageErr() *apperr.Error {
-	return apperr.Unprocessable("static_no_storage", "Static sites don't need storage, so /data cannot be turned on.",
-		"A static site only serves its files. To keep files between deploys, deploy the app with your own Dockerfile.")
+	return apperr.Unprocessable("static_no_storage", "Static sites do not need storage, so /data cannot be turned on.",
+		"To keep files between deploys, deploy the app from your own Dockerfile.")
 }
 
 func staticSizeErr() *apperr.Error {
-	return apperr.Unprocessable("static_fixed_size", fmt.Sprintf("A static site always has %d MB of memory and %d CPU millis, so its size cannot be changed.", staticMemoryMB, staticCPUMillis),
-		"Static sites do not count towards your memory and CPU allowance. To choose a size, deploy the app with your own Dockerfile.")
+	return apperr.Unprocessable("static_fixed_size", fmt.Sprintf("A static site always has %d MB of memory and %s CPU, so its size cannot be changed.", staticMemoryMB, cpuText(staticCPUMillis)),
+		"Static sites do not count towards your memory and CPU allowance. To choose a size, deploy the app from your own Dockerfile.")
 }
 
 func volumeHasDataErr(files bool, backups int) *apperr.Error {
@@ -34,7 +34,7 @@ func volumeHasDataErr(files bool, backups int) *apperr.Error {
 		what = fmt.Sprintf("%d %s of /data", backups, plural(backups, "backup", "backups"))
 	}
 	return apperr.Conflict("volume_has_data",
-		"Turning /data off deletes the "+what+" for good, and nothing was changed.",
+		"Turning /data off would delete the "+what+" for good. Nothing was changed.",
 		"Ask the user first. If they agree, call update_app again with volume=false and delete_data=true.").
 		WithNext("update_app").WithDetail("has_files", files).WithDetail("backups", backups)
 }

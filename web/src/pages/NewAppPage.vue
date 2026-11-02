@@ -258,7 +258,7 @@ const submit = form.handleSubmit(run)
             <div class="grid gap-1">
               <Label for="new-volume">Keep files in /data</Label>
               <p class="text-[0.8rem] text-muted-foreground">
-                Turn this on if your app uses a database. Bitploy apps use SQLite, a database kept as a file in <span class="font-mono">/data</span>. Uploads saved there are kept too. While this is on, each deploy takes the app offline for a few seconds.
+                Turn this on if your app has a database or saves uploads. Files in <span class="font-mono">/data</span>, like a SQLite database, are kept between deploys. While this is on, each deploy takes the app offline for a few seconds.
               </p>
             </div>
             <Switch id="new-volume" v-model="volume" :disabled="busy" />

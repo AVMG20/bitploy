@@ -366,7 +366,7 @@ export function detectSource(
       kind: 'none',
       label: 'No Dockerfile found',
       message: 'No Dockerfile found.',
-      hint: 'Add a Dockerfile at the top of the folder, or choose Plain website if this is a plain website.',
+      hint: 'Add a Dockerfile at the top of the folder, or choose Plain website as the type.',
     }
   }
   // auto: the same rule as the server. A project with a package.json and so on

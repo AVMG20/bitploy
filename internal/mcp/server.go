@@ -403,6 +403,11 @@ func (s *srv) publishChange(ctx context.Context, a app.Actor, tool string, raw j
 	if ref == "" {
 		ref = args.Slug
 	}
+	// update_app with a new slug renamed the app: the old one no longer exists.
+	if tool == "update_app" && args.Slug != "" && !strings.EqualFold(args.Slug, args.App) {
+		s.svc.PublishAppChange(ctx, a, args.Slug, strings.ToLower(args.App), "")
+		return
+	}
 	state := ""
 	if tool == "delete_app" {
 		state = "deleted"

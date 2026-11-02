@@ -178,7 +178,7 @@ func TestStaticSiteBecomesAnApp(t *testing.T) {
 	// 768 of 1024 MB are used by the other app: the default 512 MB does not fit.
 	p := e.pipelineFor(t, site, deploy.BuildKindDockerfile)
 	ae := p.settleResources(ctx)
-	if ae == nil || ae.Code != "memory_quota_exceeded" || !strings.Contains(ae.Message, "was a static site") || ae.Hint == "" {
+	if ae == nil || ae.Code != "memory_quota_exceeded" || !strings.Contains(ae.Message, "no longer a static site") || ae.Hint == "" {
 		t.Fatalf("no room: %v", ae)
 	}
 	if row, _ := e.s.Q.GetApp(ctx, site.ID); row.MemoryMb != staticMemoryMB {

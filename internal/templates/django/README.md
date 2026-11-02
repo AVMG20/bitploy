@@ -4,7 +4,7 @@ For a Django project served by gunicorn, with static files from whitenoise and S
 
 - `requirements.txt` must list `django`, `gunicorn` and `whitenoise`.
 - In `CMD`, replace `myproject` with the folder that contains `wsgi.py`. Migrations run on every start.
-- Turn on the volume before the first deploy (`create_app` with volume=true for a new app; an existing app: `update_app` volume=true, then `restart_app`). The database is `/data/db.sqlite3`; without the volume it is lost on every redeploy. One container per app, so no Postgres or MySQL server.
+- Turn on the volume before the first deploy. The database is `/data/db.sqlite3`; without the volume it is lost on every redeploy.
 - Bitploy sets `PORT`, `BITPLOY_APP` and `BITPLOY_URL` (the public https address). Store `DJANGO_SECRET_KEY` with `set_env`.
 - Changes in `settings.py`:
 
