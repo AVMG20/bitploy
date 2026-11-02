@@ -173,7 +173,8 @@ const room = computed(() => {
   const u = me.data.value?.usage
   const a = app.data.value
   if (!q || !u || !a) return null
-  const runs = a.desired_state === 'running' && !!a.current_deployment
+  // A static site is not part of the reserved totals, so there is nothing to take off.
+  const runs = a.desired_state === 'running' && !!a.current_deployment && !a.static
   const otherMem = Math.max(0, u.memory_reserved_mb - (runs ? a.memory_mb : 0))
   const otherCPU = Math.max(0, u.cpu_reserved_millis - (runs ? a.cpu_millis : 0))
   return {
@@ -183,6 +184,8 @@ const room = computed(() => {
     cpus: Math.max(0, q.cpu_millis - otherCPU) / 1000,
   }
 })
+
+const isStatic = computed(() => !!app.data.value?.static)
 
 const resForm = useForm({
   validationSchema: computed(() =>
@@ -208,8 +211,10 @@ watch(
   () => app.data.value,
   (a) => {
     // Fill the form once per app (not on every poll, which would wipe unsaved edits).
-    if (a && resLoadedFor !== a.id) {
-      resLoadedFor = a.id
+    // Again when the app turns into a static site or back: the size changes with it.
+    const key = a ? `${a.id}:${a.static}` : ''
+    if (a && resLoadedFor !== key) {
+      resLoadedFor = key
       resForm.resetForm({ values: { memory_mb: a.memory_mb, cpus: a.cpu_millis / 1000 } })
     }
   },
@@ -335,7 +340,8 @@ const del = useMutation({
     <Card>
       <CardHeader>
         <CardTitle>Size</CardTitle>
-        <CardDescription>How much memory and processor power this app gets.</CardDescription>
+        <CardDescription v-if="app.data.value?.static">Static sites have a fixed size and don't count towards your memory and CPU allowance.</CardDescription>
+        <CardDescription v-else>How much memory and processor power this app gets.</CardDescription>
       </CardHeader>
       <CardContent>
         <FormScope :form="resForm">
@@ -344,8 +350,8 @@ const del = useMutation({
               <FormField v-slot="{ componentField }" name="memory_mb">
                 <FormItem>
                   <FormLabel>Memory (MB)</FormLabel>
-                  <FormControl><Input type="number" min="64" step="64" inputmode="numeric" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="room && quota">
+                  <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                  <FormDescription v-if="room && quota && !isStatic">
                     Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
                   </FormDescription>
                   <FormMessage />
@@ -354,15 +360,15 @@ const del = useMutation({
               <FormField v-slot="{ componentField }" name="cpus">
                 <FormItem>
                   <FormLabel>Processor (CPUs)</FormLabel>
-                  <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="room && quota">
+                  <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                  <FormDescription v-if="room && quota && !isStatic">
                     Up to {{ room.cpus }} CPUs<template v-if="room.otherCPU">. Your other running apps have {{ room.otherCPU / 1000 }} of your {{ quota.cpu_millis / 1000 }}.</template><template v-else>.</template>
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               </FormField>
             </div>
-            <div><Button type="submit" :disabled="saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+            <div><Button type="submit" :disabled="isStatic || saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
           </form>
         </FormScope>
       </CardContent>

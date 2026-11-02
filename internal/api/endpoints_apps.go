@@ -94,7 +94,7 @@ func (a *API) appRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "updateApp", Method: http.MethodPatch, Path: "/apps/{app}", Tags: []string{"Apps"},
-		Summary: "Update app settings", Description: "Port, health path, volume, resources, name, slug. Fields left out stay unchanged.",
+		Summary: "Update app settings", Description: "Port, health path, volume, resources, name, slug. Fields left out stay unchanged. volume=false deletes /data and all backups: it needs delete_data=true when there is anything to delete (else 409 volume_has_data). A static site has a fixed size and no volume.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
 		Body app.UpdateAppInput

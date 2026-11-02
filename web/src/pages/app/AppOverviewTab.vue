@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
@@ -173,6 +174,16 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
                 <dt class="text-muted-foreground">Build took</dt>
                 <dd>{{ formatDuration(dep.duration_seconds) }}</dd>
               </template>
+              <dt class="text-muted-foreground">Type</dt>
+              <dd>
+                <Tooltip v-if="data.static">
+                  <TooltipTrigger as-child>
+                    <button type="button" class="cursor-help underline decoration-dotted underline-offset-4">Static site</button>
+                  </TooltipTrigger>
+                  <TooltipContent>Static sites don't count towards your memory and CPU allowance.</TooltipContent>
+                </Tooltip>
+                <template v-else>{{ data.type === 'worker' ? 'Worker' : 'App' }}</template>
+              </dd>
               <dt class="text-muted-foreground">Size</dt>
               <dd>{{ formatMB(data.memory_mb) }} memory, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </dl>

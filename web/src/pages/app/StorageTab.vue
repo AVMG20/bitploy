@@ -23,7 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { keys, useApp, useBackups, useMe } from '@/composables/queries'
 import DataFiles from '@/pages/app/DataFiles.vue'
-import { api, paths } from '@/lib/api'
+import { ApiError, api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Backup, BackupKind } from '@/lib/types'
@@ -38,11 +38,11 @@ const data = computed(() => app.data.value)
 const list = computed(() => backups.data.value)
 
 // ---------------------------------------------------------------- /data on or off, and its limit
+// The switch applies at once (no Save). The limit has its own Save button.
 const dataForm = useForm({
   validationSchema: computed(() =>
     toTypedSchema(
       z.object({
-        volume: z.boolean(),
         volume_gb: z.coerce
           .number({ invalid_type_error: 'Enter a number.' })
           .min(0.1, 'At least 0.1 GB.')
@@ -50,7 +50,7 @@ const dataForm = useForm({
       }),
     ),
   ),
-  initialValues: { volume: false, volume_gb: 5 },
+  initialValues: { volume_gb: 5 },
 })
 
 let dataLoadedFor = ''
@@ -60,35 +60,80 @@ watch(
     // Fill the form once per app (not on every poll, which would wipe unsaved edits).
     if (a && dataLoadedFor !== a.id) {
       dataLoadedFor = a.id
-      dataForm.resetForm({ values: { volume: a.volume, volume_gb: a.volume_mb / 1024 } })
+      dataForm.resetForm({ values: { volume_gb: a.volume_mb / 1024 } })
     }
   },
   { immediate: true },
 )
 
-const saveData = useMutation({
-  mutationFn: (v: { volume: boolean; volume_gb: number }) =>
-    api.updateApp(props.slug, { volume: v.volume, volume_mb: Math.round(v.volume_gb * 1024) }),
+function refreshApp() {
+  void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+  void qc.invalidateQueries({ queryKey: keys.backups(props.slug) })
+  void qc.invalidateQueries({ queryKey: keys.me })
+}
+
+const saveLimit = useMutation({
+  mutationFn: (v: { volume_gb: number }) => api.updateApp(props.slug, { volume_mb: Math.round(v.volume_gb * 1024) }),
   onSuccess: (updated) => {
-    if (updated.volume) toastOk('Saved', 'Restart or redeploy the app to start using /data.')
-    else toastOk('/data is off', 'Your backups are kept.')
-    dataForm.resetForm({ values: { volume: updated.volume, volume_gb: updated.volume_mb / 1024 } })
-    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
-    void qc.invalidateQueries({ queryKey: keys.me })
+    toastOk('Saved')
+    dataForm.resetForm({ values: { volume_gb: updated.volume_mb / 1024 } })
+    refreshApp()
   },
   onError: (e) => toastError(e),
 })
-const submitData = dataForm.handleSubmit((v) => saveData.mutate(v))
+const submitLimit = dataForm.handleSubmit((v) => saveLimit.mutate(v))
 
 const turnOn = useMutation({
   mutationFn: () => api.updateApp(props.slug, { volume: true }),
   onSuccess: (updated) => {
     toastOk('/data is on', 'Restart or redeploy the app to start using it.')
-    dataForm.resetForm({ values: { volume: updated.volume, volume_gb: updated.volume_mb / 1024 } })
-    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
-    void qc.invalidateQueries({ queryKey: keys.me })
+    dataForm.resetForm({ values: { volume_gb: updated.volume_mb / 1024 } })
+    refreshApp()
   },
   onError: (e) => toastError(e),
+})
+
+// Turning /data off removes the Docker volume and all backups. It goes ahead
+// at once when there is nothing to lose; otherwise the user types the app name.
+// The server is the judge: it refuses with volume_has_data when it finds files
+// (the "in use" figure is only measured hourly), and then the dialog opens.
+const confirmOffOpen = ref(false)
+const turnOff = useMutation({
+  mutationFn: (deleteData: boolean) => api.updateApp(props.slug, { volume: false, delete_data: deleteData }),
+  onSuccess: () => {
+    confirmOffOpen.value = false
+    toastOk('/data is off')
+    refreshApp()
+  },
+  onError: (e) => {
+    if (e instanceof ApiError && e.code === 'volume_has_data' && !confirmOffOpen.value) {
+      confirmOffOpen.value = true
+      refreshApp()
+      return
+    }
+    confirmOffOpen.value = false
+    toastError(e)
+  },
+})
+
+const switching = computed(() => turnOn.isPending.value || turnOff.isPending.value)
+const isStatic = computed(() => !!data.value?.static)
+const backupCount = computed(() => list.value?.items.length ?? 0)
+
+function onSwitch(on: boolean) {
+  if (on) {
+    turnOn.mutate()
+  } else if (backupCount.value > 0 || (data.value?.volume_used_mb ?? 0) > 0) {
+    confirmOffOpen.value = true
+  } else {
+    turnOff.mutate(false)
+  }
+}
+
+const confirmOffText = computed(() => {
+  const n = backupCount.value
+  const backups = n === 0 ? '' : ` and all ${n} ${n === 1 ? 'backup' : 'backups'}`
+  return `This deletes all files in /data${backups}. This can't be undone.`
 })
 
 const storageFree = computed(() => {
@@ -288,7 +333,7 @@ const kindLabel: Record<BackupKind, string> = {
       </CardHeader>
       <CardContent>
         <FormScope :form="dataForm">
-          <form class="grid gap-4" novalidate @submit.prevent="submitData">
+          <form class="grid gap-4" novalidate @submit.prevent="submitLimit">
             <div v-if="data.volume" class="grid gap-2">
               <div class="flex items-baseline justify-between gap-4 text-sm">
                 <span class="text-muted-foreground">In use</span>
@@ -300,24 +345,33 @@ const kindLabel: Record<BackupKind, string> = {
               <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
             </div>
 
-            <FormField v-slot="{ value, handleChange }" name="volume">
-              <FormItem class="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
-                <div class="grid gap-1">
-                  <FormLabel>Keep files in /data</FormLabel>
-                  <FormDescription>While this is on, each deploy takes the app offline for a few seconds.</FormDescription>
-                </div>
-                <FormControl><Switch :model-value="value" @update:model-value="handleChange" /></FormControl>
-              </FormItem>
-            </FormField>
-            <FormField v-if="dataForm.values.volume" v-slot="{ componentField }" name="volume_gb">
-              <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
-                <FormLabel>Limit (GB)</FormLabel>
-                <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
-                <FormDescription v-if="storageFree">{{ storageFree }}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-            <div><Button type="submit" :disabled="saveData.isPending.value">{{ saveData.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+            <div class="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
+              <div class="grid gap-1">
+                <Label for="keep-data">Keep files in /data</Label>
+                <p v-if="isStatic && !data.volume" class="text-[0.8rem] text-muted-foreground">Static sites don't need storage.</p>
+                <p v-else class="text-[0.8rem] text-muted-foreground">While this is on, each deploy takes the app offline for a few seconds.</p>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <Loader2 v-if="switching" class="size-4 animate-spin text-muted-foreground" />
+                <Switch
+                  id="keep-data"
+                  :model-value="data.volume"
+                  :disabled="switching || (isStatic && !data.volume)"
+                  @update:model-value="(v) => onSwitch(v === true)"
+                />
+              </div>
+            </div>
+            <template v-if="data.volume">
+              <FormField v-slot="{ componentField }" name="volume_gb">
+                <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
+                  <FormLabel>Limit (GB)</FormLabel>
+                  <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
+                  <FormDescription v-if="storageFree">{{ storageFree }}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              </FormField>
+              <div><Button type="submit" :disabled="saveLimit.isPending.value || !dataForm.meta.value.dirty">{{ saveLimit.isPending.value ? 'Saving...' : 'Save limit' }}</Button></div>
+            </template>
           </form>
         </FormScope>
       </CardContent>
@@ -329,8 +383,7 @@ const kindLabel: Record<BackupKind, string> = {
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>
-          <CardDescription v-if="!data.volume && list?.items.length">Your backups are kept while /data is off.</CardDescription>
-          <CardDescription v-else-if="data.volume && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
+          <CardDescription v-if="data.volume && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
           <CardDescription v-else>Copies of /data that you can download or restore.</CardDescription>
         </div>
         <div v-if="data.volume" class="flex flex-wrap gap-2">
@@ -417,9 +470,9 @@ const kindLabel: Record<BackupKind, string> = {
           v-else-if="!list.items.length && !data.volume"
           :icon="HardDrive"
           title="/data is off."
-          description="Turn it on to keep your app's files between deploys and back them up."
+          :description="isStatic ? `Static sites don't need storage.` : `Turn it on to keep your app's files between deploys and back them up.`"
         >
-          <Button :disabled="turnOn.isPending.value" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on /data' }}</Button>
+          <Button v-if="!isStatic" :disabled="switching" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on /data' }}</Button>
         </EmptyState>
         <EmptyState
           v-else-if="!list.items.length"
@@ -481,6 +534,15 @@ const kindLabel: Record<BackupKind, string> = {
       :destructive="false"
       :loading="restore.isPending.value"
       @confirm="toRestore && restore.mutate(toRestore.id)"
+    />
+    <ConfirmDialog
+      v-model:open="confirmOffOpen"
+      title="Turn off /data?"
+      :description="confirmOffText"
+      confirm-label="Delete and turn off"
+      :type-to-confirm="slug"
+      :loading="turnOff.isPending.value"
+      @confirm="turnOff.mutate(true)"
     />
     <ConfirmDialog
       v-model:open="deleteOpen"

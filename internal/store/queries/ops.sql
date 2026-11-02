@@ -102,11 +102,13 @@ FROM usage_daily WHERE user_id = ? AND day >= ?;
 -- name: OpsUsageAppTotals :one
 SELECT
     COUNT(*) AS apps,
-    CAST(COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
-    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
-    CAST(COALESCE(SUM(CASE WHEN desired_state = 'running' AND current_deployment_id IS NOT NULL THEN cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
-    CAST(COALESCE(SUM(CASE WHEN volume_enabled = 1 THEN volume_mb ELSE 0 END), 0) AS INTEGER) AS volume_mb
-FROM apps WHERE user_id = ?;
+    CAST(COALESCE(SUM(CASE WHEN a.status = 'running' THEN 1 ELSE 0 END), 0) AS INTEGER) AS apps_running,
+    -- Static sites (see SumAppResourcesByUser) do not count towards memory and CPU.
+    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa') THEN a.memory_mb ELSE 0 END), 0) AS INTEGER) AS memory_mb,
+    CAST(COALESCE(SUM(CASE WHEN a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa') THEN a.cpu_millis ELSE 0 END), 0) AS INTEGER) AS cpu_millis,
+    CAST(COALESCE(SUM(CASE WHEN a.volume_enabled = 1 THEN a.volume_mb ELSE 0 END), 0) AS INTEGER) AS volume_mb
+FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
+WHERE a.user_id = ?;
 
 -- name: OpsUserVolumeBytes :one
 SELECT CAST(COALESCE(SUM(x.volume_bytes), 0) AS INTEGER) AS bytes

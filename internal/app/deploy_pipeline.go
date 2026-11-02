@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,11 @@ type pipeline struct {
 	hasHC    bool
 	hcCfg    *container.HealthConfig
 	findings []deploy.Finding
+
+	kind    string // how this deployment is built (deploy.BuildKind*); a rollback has the kind of its target
+	setSize bool   // the app gets the limits below when this deployment goes live
+	sizeMem int64
+	sizeCPU int64
 
 	image      string
 	builtHere  bool   // we built the image, so a failure removes it
@@ -143,6 +149,7 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if p.dep.SourceKind == "rollback" {
 		p.releaseSlot()
 		p.image = p.dep.Image.String
+		p.kind = p.dep.BuildKind // copied from the target when the rollback was queued
 		// The port the target ran on: the app's port setting may have changed
 		// since, for newer code.
 		p.port = p.dep.Port.Int64
@@ -178,12 +185,11 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 		_ = os.RemoveAll(p.buildDir) // the context is no longer needed
 	}
 
-	// Several first deploys can be queued at once: check again when the app is
-	// about to start consuming, with the current state of the user's other apps.
-	if fresh, err := p.s.Q.GetApp(ctx, p.app.ID); err == nil {
-		if err := p.s.checkStartQuota(ctx, fresh); err != nil {
-			return apperr.As(err)
-		}
+	// The kind of build is known now: a static site is free and gets fixed
+	// limits, anything else needs room in the quota (several first deploys can
+	// be queued at once, and a static site may turn into an app).
+	if ae := p.settleResources(ctx); ae != nil {
+		return ae
 	}
 	if ae := p.setState(ctx, "starting"); ae != nil {
 		return ae
@@ -295,10 +301,8 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 				"Check that .dockerignore in the project is a plain file, then deploy again.").WithCause(err)
 		}
 		p.app = effApp // the build uses the generated Dockerfile at the source root
-		if plan.Kind == deploy.BuildKindStatic {
-			p.shrinkStaticMemory(ctx)
-		}
 	}
+	p.kind = plan.Kind
 	res, ctxFiles := p.s.runChecks(p.app, files, read)
 	res = templateFindings(plan, res)
 	for _, f := range res.Findings {
@@ -325,32 +329,59 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		warn = nullStr(mustJSON(nonErr))
 	}
 	if err := p.s.Q.SetDeploymentValidated(ctx, db.SetDeploymentValidatedParams{
-		Port: portOf(int(p.port)), HasHealthcheck: b2i(p.hasHC), Warnings: warn, ID: p.dep.ID,
+		Port: portOf(int(p.port)), HasHealthcheck: b2i(p.hasHC), Warnings: warn, BuildKind: p.kind, ID: p.dep.ID,
 	}); err != nil {
 		return apperr.Internal(err)
 	}
 	return nil
 }
 
-// shrinkStaticMemory gives an app that turned out to be a static site 128 MB
-// instead of the default 512, so plain websites do not use up the memory
-// quota. Only before its first deploy goes live and while it still has the
-// default: a size someone chose is kept. start() reads the new size.
-func (p *pipeline) shrinkStaticMemory(ctx context.Context) {
-	if p.app.CurrentDeploymentID.Valid || p.app.MemoryMb != defaultMemoryMB {
-		return
-	}
-	n, err := p.s.Q.ShrinkStaticAppMemory(ctx, db.ShrinkStaticAppMemoryParams{
-		MemoryMb: staticMemoryMB, UpdatedAt: p.s.now(), ID: p.app.ID, OldMemoryMb: defaultMemoryMB,
-	})
+// settleResources decides the limits this deployment starts with, once its
+// kind is known, and checks the quota where the app starts to count.
+//
+//   - A static site (deploy.IsStaticKind) gets the fixed limits and is free:
+//     no quota check, whatever the app had before.
+//   - An app that was a static site and is now built from another kind of
+//     source starts to count: it gets the default limits and they must fit.
+//   - Any other app keeps its limits; a new or stopped app must fit.
+//
+// The limits are written to the app when the deployment goes live (swap), so a
+// failed deployment leaves the live version as it was. start() uses them for
+// the new container.
+func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
+	fresh, err := p.s.Q.GetApp(ctx, p.app.ID)
 	if err != nil {
-		p.s.Log.Warn("shrink static app memory", "app", p.app.Slug, "err", err)
-		return
+		return errCancelled // app deleted
 	}
-	if n > 0 {
-		p.app.MemoryMb = staticMemoryMB
-		p.logf("A static site needs little memory, so the app now has %d MB instead of %d MB.", staticMemoryMB, defaultMemoryMB)
+	if deploy.IsStaticKind(p.kind) {
+		p.setSize, p.sizeMem, p.sizeCPU = true, staticMemoryMB, staticCPUMillis
+		if fresh.MemoryMb != staticMemoryMB || fresh.CpuMillis != staticCPUMillis {
+			p.logf("A static site does not count towards your memory and CPU allowance. It runs with %d MB of memory and %s CPU.", staticMemoryMB, cpuText(staticCPUMillis))
+		}
+		return nil
 	}
+	if p.s.appIsStatic(ctx, fresh) {
+		p.setSize, p.sizeMem, p.sizeCPU = true, defaultMemoryMB, defaultCPUMillis
+		p.logf("This app is no longer a static site, so it now counts towards your memory and CPU allowance: %d MB of memory and %s CPU.", defaultMemoryMB, cpuText(defaultCPUMillis))
+		err := p.s.checkConsumeQuota(ctx, fresh, defaultMemoryMB, defaultCPUMillis, defaultMemoryMB-staticMemoryMB)
+		var ae *apperr.Error
+		if errors.As(err, &ae) && (ae.Code == "memory_quota_exceeded" || ae.Code == "cpu_quota_exceeded") {
+			return apperr.Forbidden(ae.Code, "This app was a static site and is now built from your own Dockerfile, so it counts towards your memory and CPU allowance. "+ae.Message,
+				"Stop or delete another app, lower the memory of your other apps with update_app, or ask a bitploy admin for a bigger quota. Then deploy again.").WithNext("update_app")
+		}
+		if err != nil {
+			return apperr.As(err)
+		}
+		return nil
+	}
+	if err := p.s.checkStartQuota(ctx, fresh); err != nil {
+		return apperr.As(err)
+	}
+	return nil
+}
+
+func cpuText(millis int64) string {
+	return strconv.FormatFloat(float64(millis)/1000, 'f', -1, 64)
 }
 
 // ---- building ----
@@ -436,6 +467,9 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 		p.app = app // settings may have changed during the build
 	} else {
 		return errCancelled // app deleted
+	}
+	if p.setSize {
+		p.app.MemoryMb, p.app.CpuMillis = p.sizeMem, p.sizeCPU
 	}
 	if p.app.CurrentDeploymentID.Valid && p.app.CurrentDeploymentID.String != p.dep.ID {
 		if d, err := s.Q.GetDeployment(ctx, p.app.CurrentDeploymentID.String); err == nil && d.ContainerName.Valid {
@@ -666,6 +700,11 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 		}
 		if err := q.FinishDeployment(ctx, db.FinishDeploymentParams{State: "running", FinishedAt: sql.NullInt64{Int64: now, Valid: true}, ID: p.dep.ID}); err != nil {
 			return err
+		}
+		if p.setSize {
+			if err := q.SetAppResources(ctx, db.SetAppResourcesParams{MemoryMb: p.sizeMem, CpuMillis: p.sizeCPU, UpdatedAt: now, ID: p.app.ID}); err != nil {
+				return err
+			}
 		}
 		return q.SetAppCurrentDeployment(ctx, db.SetAppCurrentDeploymentParams{
 			CurrentDeploymentID: nullStr(p.dep.ID), UpdatedAt: now, ID: p.app.ID,

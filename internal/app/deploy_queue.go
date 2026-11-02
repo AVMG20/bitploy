@@ -454,7 +454,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
-		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: target.Warnings,
+		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: target.Warnings, buildKind: target.BuildKind,
 	})
 }
 
@@ -468,6 +468,7 @@ type queueSpec struct {
 	hasHC        bool
 	warnings     []deploy.Finding
 	warningsJSON sql.NullString
+	buildKind    string                   // a rollback has the kind of the deployment it returns to; others get theirs when validated
 	prepare      func(depID string) error // writes the source snapshot before the row exists
 	inTx         func(q *db.Queries) error
 	// commitSHA and commitMessage are known when a push started the deployment;
@@ -509,7 +510,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 			return Deployment{}, err
 		}
 	}
-	if err := s.checkStartQuota(ctx, app); err != nil { // first deploy of an app, or a stopped one
+	if err := s.checkDeployQuota(ctx, app, qs.buildKind); err != nil { // first deploy of an app, or a stopped one
 		return Deployment{}, err
 	}
 	depID := ids.New(ids.Deployment)
@@ -558,7 +559,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 		if err := q.InsertDeployment(ctx, db.InsertDeploymentParams{
 			ID: depID, AppID: app.ID, Seq: seq, SourceKind: qs.kind, SourceRef: qs.ref,
 			Channel: string(a.Channel), CreatedBy: nullStr(a.UserID), TokenID: nullStr(a.TokenID),
-			Image: nullStr(qs.image), Port: qs.port, HasHealthcheck: b2i(qs.hasHC), Warnings: warnings, QueuedAt: now,
+			Image: nullStr(qs.image), Port: qs.port, HasHealthcheck: b2i(qs.hasHC), Warnings: warnings, BuildKind: qs.buildKind, QueuedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -832,7 +833,7 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 	if err := s.checkStorageRoom(ctx, user); err != nil {
 		return Deployment{}, err
 	}
-	if err := s.checkStartQuota(ctx, row); err != nil {
+	if err := s.checkDeployQuota(ctx, row, ""); err != nil {
 		return Deployment{}, err
 	}
 	up, err := s.CreateUpload(ctx, a, ref)

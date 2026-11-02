@@ -421,7 +421,7 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | App → Deployments | State badge, duration, channel (MCP, API, dashboard), commit or upload, error and hint | Rollback to a row; Copy for AI on a failed row (short text with the error and the last 70 log lines, to paste into an assistant); Upload new version (apps that are not linked to git) |
 | App → Logs | Build and runtime logs, live tail, filter box | Download |
 | App → Domains | Subdomain; custom domains with the DNS records to copy and their status | Add, check now, remove |
-| App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), env var names with masked values, volume, memory and CPU within quota | Edit; delete app (type the slug to confirm) |
+| App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), env var names with masked values, memory and CPU within quota (fixed for a static site) | Edit; delete app (type the slug to confirm) |
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
 | Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos) | Change, connect or disconnect GitHub, sign out everywhere |
@@ -473,7 +473,7 @@ How to collect it:
 - Subscribe to the Docker events stream for `die`, `oom` and `health_status`. Update the app state at once and write an audit row. An OOM kill shows in the dashboard and in `get_app` as "Out of memory: raise the memory limit or use less".
 - Tables: `metric_samples(app_id, ts, cpu, mem, rx, tx)` and `metric_rollups` with the same columns plus max values. A nightly job prunes and rolls up.
 
-Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota, build minutes, running hours and deployments this calendar month, and disk used.
+Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, and disk used.
 
 ## Security & limits
 
@@ -485,6 +485,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 | --- | --- |
 | Memory | 512 MB default; swap equal to memory, so no extra swap |
 | CPU | 0.5 CPU |
+| Static sites | A static site is an app whose live deployment was built from bitploy's own nginx templates (a plain website, or a Vite site built by auto mode), never from the user's own Dockerfile, even if that starts from nginx. It has a fixed 64 MB and 0.1 CPU (`cpu_millis` 100), cannot be changed, has no `/data` volume, and does not count towards the memory and CPU quota. It still counts as an app and for storage. The App JSON carries `"static": true`. A static site that is later deployed from the user's own Dockerfile becomes a normal app (default size, checked against the quota at deploy time) |
 | Processes | `pids-limit` 256; `nofile` 4096 |
 | Privileges | `no-new-privileges`, Docker's default seccomp and AppArmor profiles, drop `NET_RAW`; never `--privileged`, never added capabilities |
 | Mounts | Only the optional named volume at `/data`. Never `docker.sock`, never a host path |

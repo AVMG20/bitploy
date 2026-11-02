@@ -156,16 +156,22 @@ type App struct {
 	VolumeUsedMB *float64 `json:"volume_used_mb"`
 	// FilesMB is the app's own files: its kept images (versions for rollback)
 	// and stored source, measured hourly and after each deploy; nil until measured.
-	FilesMB        *float64        `json:"files_mb"`
-	DiskMeasuredAt *time.Time      `json:"disk_measured_at,omitempty"`
-	BackupsMB      float64         `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
-	MemoryMB       int64           `json:"memory_mb"`
-	CPUMillis      int64           `json:"cpu_millis"`
-	GitSource      *GitSourceState `json:"git_source"`
-	Current        *Deployment     `json:"current_deployment"`
-	Domains        []Domain        `json:"domains"`
-	StartedAt      *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
-	RestartCount   int64           `json:"restart_count"`
+	FilesMB        *float64   `json:"files_mb"`
+	DiskMeasuredAt *time.Time `json:"disk_measured_at,omitempty"`
+	BackupsMB      float64    `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
+	MemoryMB       int64      `json:"memory_mb"`
+	CPUMillis      int64      `json:"cpu_millis"`
+	// Static is true while the live version is a static site: built from
+	// bitploy's own nginx templates (a plain website, or a Vite site built by
+	// auto mode), never from the app's own Dockerfile. A static site has fixed
+	// limits (memory_mb and cpu_millis cannot be changed), cannot have a /data
+	// volume and does not count towards the memory and CPU allowance.
+	Static       bool            `json:"static" doc:"A static site: fixed small size, no /data, not counted in the memory and CPU allowance"`
+	GitSource    *GitSourceState `json:"git_source"`
+	Current      *Deployment     `json:"current_deployment"`
+	Domains      []Domain        `json:"domains"`
+	StartedAt    *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
+	RestartCount int64           `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
 	Live      *MetricPoint `json:"live"`
 	CreatedAt time.Time    `json:"created_at"`
@@ -404,9 +410,13 @@ type UpdateAppInput struct {
 	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,static" doc:"dockerfile, auto or static (see create app)"`
 	HomePage       *string `json:"home_page,omitempty" doc:"page for / of a static site without index.html (see create app); empty clears it"`
 	Volume         *bool   `json:"volume,omitempty"`
-	VolumeMB       *int64  `json:"volume_mb,omitempty"`
-	MemoryMB       *int64  `json:"memory_mb,omitempty"`
-	CPUMillis      *int64  `json:"cpu_millis,omitempty"`
+	// DeleteData confirms that turning /data off (volume=false) may delete the
+	// files in /data and all backups of the app. Without it, turning /data off
+	// is refused (volume_has_data) while there is anything to delete.
+	DeleteData *bool  `json:"delete_data,omitempty" doc:"With volume=false: also delete the files in /data and all backups. Needed when /data holds files or the app has backups; ask the user first."`
+	VolumeMB   *int64 `json:"volume_mb,omitempty"`
+	MemoryMB   *int64 `json:"memory_mb,omitempty"`
+	CPUMillis  *int64 `json:"cpu_millis,omitempty"`
 }
 
 type CreateTokenInput struct {

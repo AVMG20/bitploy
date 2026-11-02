@@ -120,7 +120,7 @@ func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
 }
 
 const getDeployment = `-- name: GetDeployment :one
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at FROM deployments WHERE id = ?
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind FROM deployments WHERE id = ?
 `
 
 func (q *Queries) GetDeployment(ctx context.Context, id string) (Deployment, error) {
@@ -154,6 +154,7 @@ func (q *Queries) GetDeployment(ctx context.Context, id string) (Deployment, err
 		&i.StartedAt,
 		&i.BuiltAt,
 		&i.FinishedAt,
+		&i.BuildKind,
 	)
 	return i, err
 }

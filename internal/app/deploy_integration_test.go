@@ -569,6 +569,112 @@ func TestIntegrationVolumeRecreate(t *testing.T) {
 	}
 }
 
+// Turning /data off needs a confirmation when there are files, then removes the
+// volume, and the app runs on without it.
+func TestIntegrationVolumeOff(t *testing.T) {
+	e := itSetup(t)
+	ctx := context.Background()
+	app := e.newApp(t, CreateAppInput{Volume: true})
+	d1 := e.wait(t, e.deployStatic(t, app.Slug, "keep going").ID)
+	if d1.State != "running" {
+		t.Fatalf("%s %+v", d1.State, d1.Error)
+	}
+	vol := dockerx.VolumeName(app.Slug)
+	// A new volume is empty: off is allowed at once, and so is on again.
+	off, yes := false, true
+	if got, err := e.s.UpdateApp(ctx, e.user, app.Slug, UpdateAppInput{Volume: &off}); err != nil || got.Volume {
+		t.Fatalf("empty volume off: %+v %v", got, err)
+	}
+	if ok, _ := e.dk.VolumeExists(ctx, vol); ok {
+		t.Error("the volume of an empty /data must be removed as well")
+	}
+	e.waitServing(t, app.Slug, "keep going")
+	if _, err := e.s.UpdateApp(ctx, e.user, app.Slug, UpdateAppInput{Volume: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.RestartApp(ctx, e.user, app.Slug); err != nil {
+		t.Fatal(err)
+	}
+	e.waitServing(t, app.Slug, "keep going")
+	c, _ := e.dk.InspectContainer(ctx, "bp-"+app.Slug+"-1")
+	if len(c.Mounts) != 1 {
+		t.Fatalf("mounts after turning /data on: %+v", c.Mounts)
+	}
+
+	// A file in /data, written behind the hourly measurement's back.
+	if out, err := exec.Command("docker", "run", "--rm", "-v", vol+":/data", dockerx.VolumeInitImage, "sh", "-c", "echo hi > /data/note.txt").CombinedOutput(); err != nil {
+		t.Fatalf("write: %v %s", err, out)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, app.Slug, UpdateAppInput{Volume: &off}); depCode(err) != "volume_has_data" {
+		t.Fatalf("with a file: %v", err)
+	}
+	if ok, _ := e.dk.VolumeExists(ctx, vol); !ok {
+		t.Fatal("the refusal removed the volume")
+	}
+	if got, err := e.s.UpdateApp(ctx, e.user, app.Slug, UpdateAppInput{Volume: &off, DeleteData: &yes}); err != nil || got.Volume {
+		t.Fatalf("confirmed: %+v %v", got, err)
+	}
+	if ok, _ := e.dk.VolumeExists(ctx, vol); ok {
+		t.Error("the volume is still there")
+	}
+	e.waitServing(t, app.Slug, "keep going")
+	c, _ = e.dk.InspectContainer(ctx, "bp-"+app.Slug+"-1")
+	if len(c.Mounts) != 0 || c.State == nil || !c.State.Running {
+		t.Errorf("the app must run without the volume: mounts %+v", c.Mounts)
+	}
+	if err := e.s.DeleteApp(ctx, e.user, app.Slug, app.Slug); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A static site runs with the fixed small limits and is free of the allowance;
+// deploying the user's own Dockerfile turns it into an app with the defaults.
+func TestIntegrationStaticSite(t *testing.T) {
+	e := itSetup(t)
+	ctx := context.Background()
+	app := e.newApp(t, CreateAppInput{BuildMode: "auto"})
+	d, err := e.s.DeployFiles(ctx, e.user, app.Slug, []FileInput{{Path: "index.html", Content: "<h1>plain site</h1>"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d = e.wait(t, d.ID); d.State != "running" {
+		t.Fatalf("%s %+v", d.State, d.Error)
+	}
+	e.waitServing(t, app.Slug, "plain site")
+	got, _ := e.s.GetApp(ctx, e.user, app.Slug)
+	if !got.Static || got.MemoryMB != staticMemoryMB || got.CPUMillis != staticCPUMillis {
+		t.Errorf("static site: %+v", got)
+	}
+	c, _ := e.dk.InspectContainer(ctx, "bp-"+app.Slug+"-1")
+	if c.HostConfig == nil || c.HostConfig.Memory != staticMemoryMB<<20 || c.HostConfig.NanoCPUs != staticCPUMillis*1_000_000 {
+		t.Errorf("container limits: %+v", c.HostConfig)
+	}
+	if u, _ := e.s.Usage(ctx, e.user.UserID); u.MemoryReservedMB != 0 || u.CPUReservedMillis != 0 {
+		t.Errorf("usage: %+v", u)
+	}
+
+	// The user's own Dockerfile, even one that starts from nginx, is an app.
+	d2 := e.wait(t, e.deployStatic(t, app.Slug, "own dockerfile").ID)
+	if d2.State != "running" {
+		t.Fatalf("%s %+v", d2.State, d2.Error)
+	}
+	e.waitServing(t, app.Slug, "own dockerfile")
+	got, _ = e.s.GetApp(ctx, e.user, app.Slug)
+	if got.Static || got.MemoryMB != defaultMemoryMB || got.CPUMillis != defaultCPUMillis {
+		t.Errorf("app: %+v", got)
+	}
+	c, _ = e.dk.InspectContainer(ctx, "bp-"+app.Slug+"-2")
+	if c.HostConfig == nil || c.HostConfig.Memory != defaultMemoryMB<<20 {
+		t.Errorf("container limits: %+v", c.HostConfig)
+	}
+	if u, _ := e.s.Usage(ctx, e.user.UserID); u.MemoryReservedMB != defaultMemoryMB {
+		t.Errorf("usage: %+v", u)
+	}
+	if err := e.s.DeleteApp(ctx, e.user, app.Slug, app.Slug); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Killing bitploy in the middle of a build leaves nothing behind after restart.
 func TestIntegrationKilledMidBuild(t *testing.T) {
 	e := itSetup(t)

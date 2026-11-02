@@ -727,19 +727,27 @@ func TestBackupDelete(t *testing.T) {
 	if l := e.list(t); len(l.Items) != 0 {
 		t.Errorf("list = %+v", l)
 	}
-	// Turning /data off keeps the backups.
+	// Turning /data off deletes the backups, so it needs a confirmation.
 	b = e.makeBackup(t)
 	off := false
-	if _, err := e.s.UpdateApp(ctx, e.user, e.app.Slug, UpdateAppInput{Volume: &off}); err != nil {
-		t.Fatal(err)
+	if _, err := e.s.UpdateApp(ctx, e.user, e.app.Slug, UpdateAppInput{Volume: &off}); depCode(err) != "volume_has_data" {
+		t.Fatalf("turning /data off with a backup: %v", err)
 	}
 	if l := e.list(t); len(l.Items) != 1 {
+		t.Errorf("after the refusal: %+v", l)
+	}
+	if row, _ := e.s.Q.GetApp(ctx, e.app.ID); row.VolumeEnabled == 0 {
+		t.Error("the refusal turned /data off anyway")
+	}
+	yes := true
+	if _, err := e.s.UpdateApp(ctx, e.user, e.app.Slug, UpdateAppInput{Volume: &off, DeleteData: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if l := e.list(t); len(l.Items) != 0 {
 		t.Errorf("after turning /data off: %+v", l)
 	}
-	if f, _, err := e.s.OpenBackup(ctx, e.user, e.app.Slug, b.ID); err != nil {
-		t.Errorf("download with /data off: %v", err)
-	} else {
-		f.Close()
+	if _, err := os.Stat(e.s.backupPath(e.app.ID, b.ID)); err == nil {
+		t.Error("backup file still there")
 	}
 }
 

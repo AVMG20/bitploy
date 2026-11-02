@@ -225,41 +225,72 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 			t.Errorf("dockerfile %q", p.app.DockerfilePath)
 		}
 	})
-	t.Run("a static site gets 128 MB unless a size was chosen", func(t *testing.T) {
-		mem := func(e *depEnv, id string) int64 {
-			row, err := e.s.Q.GetApp(context.Background(), id)
+	t.Run("a static site is stored as static and gets the fixed size", func(t *testing.T) {
+		ctx := context.Background()
+		kind := func(e *depEnv, p *pipeline) string {
+			d, err := e.s.Q.GetDeployment(ctx, p.dep.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			return row.MemoryMb
+			return d.BuildKind
 		}
 		e := depTestSvc(t)
 		a := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
-		if _, ae := e.runSource(t, a, makeZipBytes(t, site)); ae != nil {
+		p, ae := e.runSource(t, a, makeZipBytes(t, site))
+		if ae != nil {
 			t.Fatalf("validate: %v", ae)
 		}
-		if got := mem(e, a.ID); got != staticMemoryMB {
-			t.Errorf("auto static site: %d MB, want %d", got, staticMemoryMB)
+		if got := kind(e, p); got != deploy.BuildKindStatic {
+			t.Errorf("auto static site: build kind %q", got)
+		}
+		if ae := p.settleResources(ctx); ae != nil {
+			t.Fatalf("settle: %v", ae)
+		}
+		if !p.setSize || p.sizeMem != staticMemoryMB || p.sizeCPU != staticCPUMillis {
+			t.Errorf("static site: size %+v", p)
 		}
 
+		// A size chosen earlier does not stop the fixed size.
 		chosen := e.mustApp(t, CreateAppInput{BuildMode: "auto", MemoryMB: ptr(int64(256))})
-		if _, ae := e.runSource(t, chosen, makeZipBytes(t, site)); ae != nil {
+		p, ae = e.runSource(t, chosen, makeZipBytes(t, site))
+		if ae != nil {
 			t.Fatalf("validate: %v", ae)
 		}
-		if got := mem(e, chosen.ID); got != 256 {
-			t.Errorf("chosen size: %d MB, want 256", got)
+		if ae := p.settleResources(ctx); ae != nil || !p.setSize || p.sizeMem != staticMemoryMB {
+			t.Errorf("chosen size: %v %+v", ae, p)
 		}
 
+		// Our node-spa template is a static site too.
+		spa := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
+		p, ae = e.runSource(t, spa, makeZipBytes(t, map[string]string{
+			"index.html":   "<div id=app></div>",
+			"package.json": `{"scripts":{"build":"vite build"},"devDependencies":{"vite":"5"}}`,
+		}))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if got := kind(e, p); got != deploy.BuildKindNodeSPA {
+			t.Errorf("vite site: build kind %q", got)
+		}
+
+		// The app's own Dockerfile never is, and keeps the app's size.
 		df := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
-		if _, ae := e.runSource(t, df, makeZipBytes(t, docker)); ae != nil {
+		p, ae = e.runSource(t, df, makeZipBytes(t, docker))
+		if ae != nil {
 			t.Fatalf("validate: %v", ae)
 		}
-		if got := mem(e, df.ID); got != defaultMemoryMB {
-			t.Errorf("Dockerfile app: %d MB, want %d", got, defaultMemoryMB)
+		if got := kind(e, p); got != deploy.BuildKindDockerfile {
+			t.Errorf("Dockerfile app: build kind %q", got)
 		}
-
-		if st := e.mustApp(t, CreateAppInput{BuildMode: "static"}); st.MemoryMB != staticMemoryMB {
-			t.Errorf("new static app: %d MB, want %d", st.MemoryMB, staticMemoryMB)
+		if ae := p.settleResources(ctx); ae != nil || p.setSize {
+			t.Errorf("Dockerfile app: %v %+v", ae, p)
+		}
+		row, _ := e.s.Q.GetApp(ctx, df.ID)
+		if row.MemoryMb != defaultMemoryMB {
+			t.Errorf("Dockerfile app: %d MB, want %d", row.MemoryMb, defaultMemoryMB)
+		}
+		if st := e.mustApp(t, CreateAppInput{BuildMode: "static"}); st.MemoryMB != staticMemoryMB || st.CPUMillis != staticCPUMillis {
+			t.Errorf("new static app: %d MB, %d CPU millis", st.MemoryMB, st.CPUMillis)
 		}
 	})
 	t.Run("a .dockerignore of the user is kept and extended", func(t *testing.T) {

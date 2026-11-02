@@ -97,6 +97,7 @@ type appBrief struct {
 	Problem           string           `json:"problem,omitempty"`
 	Source            string           `json:"source,omitempty"`
 	Protected         bool             `json:"protected"`
+	Static            bool             `json:"static,omitempty"`
 	Volume            bool             `json:"volume"`
 	VolumeMB          int64            `json:"volume_limit_mb,omitempty"`
 	VolumeUsedMB      *float64         `json:"volume_used_mb,omitempty"`
@@ -112,7 +113,7 @@ type appBrief struct {
 
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	b := appBrief{
-		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage, Protected: ap.Protected,
+		Slug: ap.Slug, Name: ap.Name, Type: ap.Type, URL: ap.URL, Status: ap.Status, StatusMessage: ap.StatusMessage, Protected: ap.Protected, Static: ap.Static,
 		Volume: ap.Volume, VolumeUsedMB: ap.VolumeUsedMB, FilesMB: ap.FilesMB, LatestDeployment: latest, Domains: []string{}, RestartCount: ap.RestartCount, MemoryLimitMB: ap.MemoryMB,
 	}
 	if ap.Volume {
@@ -203,6 +204,9 @@ func appLine(ap app.App) string {
 	s := fmt.Sprintf("%s (%s, %s): status %s, %s", ap.Slug, ap.Name, ap.Type, ap.Status, url)
 	if ap.Protected {
 		s += ", password-protected"
+	}
+	if ap.Static {
+		s += ", static site: does not count towards memory/CPU"
 	}
 	if ap.Current != nil {
 		s += ", deployment " + ap.Current.ID + " " + ap.Current.State
@@ -331,7 +335,10 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 	if in.Slug != nil && ap.URL != "" {
 		out = append(out, "The app now lives at "+ap.URL+"; the old address no longer works. Tell the user, and update the url in the project's .bitploy file.")
 	}
-	if in.Volume != nil || in.MemoryMB != nil || in.CPUMillis != nil {
+	if in.Volume != nil && !*in.Volume {
+		out = append(out, "/data is off: its files and the backups are deleted, and the app restarts without it.")
+	}
+	if in.MemoryMB != nil || in.CPUMillis != nil || (in.Volume != nil && *in.Volume) {
 		if deployed {
 			out = append(out, "Call restart_app with app="+ap.Slug+" to apply volume, memory and CPU (no rebuild, a few seconds).")
 		} else {

@@ -123,6 +123,7 @@ type Deployment struct {
 	StartedAt       sql.NullInt64
 	BuiltAt         sql.NullInt64
 	FinishedAt      sql.NullInt64
+	BuildKind       string
 }
 
 type Domain struct {

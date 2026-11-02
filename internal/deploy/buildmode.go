@@ -39,6 +39,16 @@ const (
 	BuildKindNode    = "node"
 )
 
+// IsStaticKind reports whether a build kind runs only bitploy's own nginx
+// serving files (the static and node-spa templates). Such an app is a static
+// site: it uses a few MB, so it is free of the memory and CPU allowance. A
+// Dockerfile of the user never qualifies, even when it starts from nginx: it
+// can run anything. The SQL queries that leave static sites out of the quota
+// (SumAppResourcesByUser, OpsUsageAppTotals) list the same kinds.
+func IsStaticKind(kind string) bool {
+	return kind == BuildKindStatic || kind == BuildKindNodeSPA
+}
+
 // StaticDockerfilePath is where the static template is written in the source.
 // It has its own name so a Dockerfile of the user is never overwritten.
 const StaticDockerfilePath = "Dockerfile.bitploy-static"

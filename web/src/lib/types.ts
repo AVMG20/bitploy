@@ -284,6 +284,12 @@ export interface App {
   disk_measured_at?: string
   memory_mb: number
   cpu_millis: number
+  /**
+   * A static site: the live version is a plain website or a Vite site that bitploy
+   * builds itself, not the app's own Dockerfile. Fixed small size, no /data, and
+   * it does not count towards the memory and CPU allowance.
+   */
+  static: boolean
   git_source: GitSource | null
   /** True while visitors must sign in with the app login first. */
   protected: boolean
@@ -321,6 +327,8 @@ export interface UpdateAppInput {
   build_mode?: BuildMode
   home_page?: string
   volume?: boolean
+  /** With volume: false, also delete the files in /data and all backups. Needed when there are any. */
+  delete_data?: boolean
   volume_mb?: number
   memory_mb?: number
   cpu_millis?: number

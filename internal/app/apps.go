@@ -32,14 +32,18 @@ import (
 
 const (
 	defaultMemoryMB  = 512
-	staticMemoryMB   = 128 // plain website files with nginx use a few MB
 	defaultCPUMillis = 500
-	minMemoryMB      = 64
-	minCPUMillis     = 50
-	defaultVolumeMB  = 5120
-	minVolumeMB      = 100
-	maxVolumeMB      = 1 << 20 // 1 TB
-	slugReserveDays  = 30
+	// A static site (live deployment built from bitploy's own nginx templates)
+	// uses a few MB. It has these fixed limits and does not count towards the
+	// memory and CPU allowance of the account.
+	staticMemoryMB  = 64
+	staticCPUMillis = 100
+	minMemoryMB     = 64
+	minCPUMillis    = 50
+	defaultVolumeMB = 5120
+	minVolumeMB     = 100
+	maxVolumeMB     = 1 << 20 // 1 TB
+	slugReserveDays = 30
 )
 
 // normalizeBuildMode validates a build mode; empty means dockerfile.
@@ -108,16 +112,18 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	}
 	mem, cpu := int64(defaultMemoryMB), int64(defaultCPUMillis)
 	if buildMode == deploy.BuildModeStatic {
-		mem = staticMemoryMB
-	}
-	if in.MemoryMB != nil {
-		mem = *in.MemoryMB
-	}
-	if in.CPUMillis != nil {
-		cpu = *in.CPUMillis
-	}
-	if err := validResources(mem, cpu); err != nil {
-		return App{}, err
+		// Always a static site: fixed limits, nothing to choose (see staticSizeErr).
+		mem, cpu = staticMemoryMB, staticCPUMillis
+	} else {
+		if in.MemoryMB != nil {
+			mem = *in.MemoryMB
+		}
+		if in.CPUMillis != nil {
+			cpu = *in.CPUMillis
+		}
+		if err := validResources(mem, cpu); err != nil {
+			return App{}, err
+		}
 	}
 	homePage, err := normalizeHomePage(in.HomePage)
 	if err != nil {
@@ -278,6 +284,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if owner.Status != "active" {
 		return App{}, suspendedErr()
 	}
+	isStatic := s.appIsStatic(ctx, row)
 	p := db.UpdateAppSettingsParams{
 		ID: row.ID, Slug: row.Slug, Name: row.Name, Type: row.Type, Port: row.Port,
 		HealthPath: row.HealthPath, DockerfilePath: row.DockerfilePath, ContextDir: row.ContextDir,
@@ -357,7 +364,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		homePage = hp
 		changed["home_page"] = hp
 	}
+	turningOff := in.Volume != nil && !*in.Volume && row.VolumeEnabled != 0
 	if in.Volume != nil {
+		if *in.Volume && row.VolumeEnabled == 0 && isStatic {
+			return App{}, staticStorageErr()
+		}
 		p.VolumeEnabled = b2i(*in.Volume)
 		changed["volume"] = *in.Volume
 	}
@@ -381,7 +392,10 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			return App{}, err
 		}
 	}
-	if in.MemoryMB != nil || in.CPUMillis != nil {
+	if isStatic && ((in.MemoryMB != nil && *in.MemoryMB != staticMemoryMB) || (in.CPUMillis != nil && *in.CPUMillis != staticCPUMillis)) {
+		return App{}, staticSizeErr()
+	}
+	if !isStatic && (in.MemoryMB != nil || in.CPUMillis != nil) {
 		if in.MemoryMB != nil {
 			p.MemoryMb = *in.MemoryMB
 		}
@@ -404,6 +418,20 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			return App{}, err // not running: checked in full when it starts
 		}
 		changed["memory_mb"], changed["cpu_millis"] = p.MemoryMb, p.CpuMillis
+	}
+
+	// Turning /data off removes the volume and the backups. Refused while there
+	// is something in them unless the caller says so (delete_data); the checks
+	// come before anything is changed, and the backup lock is held until done.
+	if turningOff {
+		bl := s.backupLock(row.ID)
+		if !bl.TryLock() {
+			return App{}, backupBusyErr()
+		}
+		defer bl.Unlock()
+		if err := s.checkVolumeOff(ctx, row, in.DeleteData != nil && *in.DeleteData); err != nil {
+			return App{}, err
+		}
 	}
 
 	renamed := false
@@ -429,6 +457,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if buildMode != row.BuildMode || homePage != row.HomePage {
 		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, HomePage: homePage, UpdatedAt: s.now(), ID: row.ID}); err != nil {
 			return App{}, apperr.Internal(err)
+		}
+	}
+	if turningOff {
+		if err := s.dropVolume(ctx, row); err != nil {
+			return App{}, err
 		}
 	}
 	if len(changed) > 0 {
@@ -746,9 +779,24 @@ func (s *Service) activeUser(ctx context.Context, userID string) (db.User, error
 }
 
 // appConsumes reports whether an app reserves memory and CPU: it is meant to
-// run and has a current deployment. Same rule as SumAppResourcesByUser.
+// run and has a current deployment. Same rule as SumAppResourcesByUser, which
+// also leaves out static sites (appIsStatic): they are free.
 func appConsumes(a db.App) bool {
 	return a.DesiredState == "running" && a.CurrentDeploymentID.Valid
+}
+
+// appIsStatic reports whether the live deployment of an app was built from one
+// of bitploy's own nginx templates (static or node-spa). Such an app is a static
+// site: fixed small limits, free of the memory and CPU allowance. An app built
+// from the user's own Dockerfile never is, even when it starts from nginx.
+// The kind is stored on the deployment, so a rollback changes it with the
+// version that goes live.
+func (s *Service) appIsStatic(ctx context.Context, a db.App) bool {
+	if !a.CurrentDeploymentID.Valid {
+		return false
+	}
+	d, err := s.Q.GetDeployment(ctx, a.CurrentDeploymentID.String)
+	return err == nil && deploy.IsStaticKind(d.BuildKind)
 }
 
 // checkFitsQuota rejects one app that is bigger than the user's whole quota.
@@ -767,21 +815,41 @@ func checkFitsQuota(u db.User, mem, cpu int64) error {
 }
 
 // checkStartQuota is called when an app that is not running yet is about to
-// consume memory and CPU (first deploy, start_app, deploying a stopped app): the
+// consume memory and CPU (start_app, deploying a stopped or new app): the
 // user's other running apps plus this one must fit the quota, and the server
-// must have room. Apps that already consume pass without a check.
+// must have room. Apps that already consume pass without a check, and so do
+// static sites, which are free.
 func (s *Service) checkStartQuota(ctx context.Context, app db.App) error {
-	if appConsumes(app) {
+	if appConsumes(app) || s.appIsStatic(ctx, app) {
 		return nil
 	}
+	return s.checkConsumeQuota(ctx, app, app.MemoryMb, app.CpuMillis, app.MemoryMb)
+}
+
+// checkDeployQuota is the early check when a deployment is queued. What the
+// source builds into (a static site or an app) is only known once the build is
+// planned, so apps in build mode auto or static are checked by the pipeline
+// (settleResources) before the container starts, not here: a static site must
+// not be refused because the account's allowance is full.
+func (s *Service) checkDeployQuota(ctx context.Context, app db.App, rollbackKind string) error {
+	if deploy.IsStaticKind(rollbackKind) || app.BuildMode != deploy.BuildModeDockerfile {
+		return nil
+	}
+	return s.checkStartQuota(ctx, app)
+}
+
+// checkConsumeQuota verifies that app (counted at mem and cpu, as the user's
+// other running apps are summed without it) fits the quota and that the server
+// has room for extraMB more memory.
+func (s *Service) checkConsumeQuota(ctx context.Context, app db.App, mem, cpu, extraMB int64) error {
 	user, err := s.activeUser(ctx, app.UserID)
 	if err != nil {
 		return err
 	}
-	if err := s.checkResourceQuota(ctx, user, app.ID, app.MemoryMb, app.CpuMillis); err != nil {
+	if err := s.checkResourceQuota(ctx, user, app.ID, mem, cpu); err != nil {
 		return err
 	}
-	return s.checkServerRoom(ctx, app.MemoryMb)
+	return s.checkServerRoom(ctx, extraMB)
 }
 
 // checkResourceQuota verifies the sum of the memory and CPU of the user's
@@ -900,6 +968,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		if d, err := s.Q.GetDeployment(ctx, r.CurrentDeploymentID.String); err == nil {
 			dv := s.deploymentView(d, r.Slug, r.Type)
 			v.Current = &dv
+			v.Static = deploy.IsStaticKind(d.BuildKind)
 			if s.Docker != nil && r.DesiredState == "running" && d.ContainerName.Valid {
 				if c, err := s.Docker.InspectContainer(ctx, d.ContainerName.String); err == nil && c.State != nil {
 					v.RestartCount = int64(c.RestartCount)

@@ -428,36 +428,49 @@ func (q *Queries) SetAppProtection(ctx context.Context, arg SetAppProtectionPara
 	return err
 }
 
-const shrinkStaticAppMemory = `-- name: ShrinkStaticAppMemory :execrows
-UPDATE apps SET memory_mb = ?1, updated_at = ?2
-WHERE id = ?3 AND memory_mb = ?4 AND current_deployment_id IS NULL
+const setAppResources = `-- name: SetAppResources :exec
+UPDATE apps SET memory_mb = ?, cpu_millis = ?, updated_at = ? WHERE id = ?
 `
 
-type ShrinkStaticAppMemoryParams struct {
-	MemoryMb    int64
-	UpdatedAt   int64
-	ID          string
-	OldMemoryMb int64
+type SetAppResourcesParams struct {
+	MemoryMb  int64
+	CpuMillis int64
+	UpdatedAt int64
+	ID        string
 }
 
-func (q *Queries) ShrinkStaticAppMemory(ctx context.Context, arg ShrinkStaticAppMemoryParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, shrinkStaticAppMemory,
+func (q *Queries) SetAppResources(ctx context.Context, arg SetAppResourcesParams) error {
+	_, err := q.db.ExecContext(ctx, setAppResources,
 		arg.MemoryMb,
+		arg.CpuMillis,
 		arg.UpdatedAt,
 		arg.ID,
-		arg.OldMemoryMb,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	return err
+}
+
+const setAppVolumeEnabled = `-- name: SetAppVolumeEnabled :exec
+UPDATE apps SET volume_enabled = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppVolumeEnabledParams struct {
+	VolumeEnabled int64
+	UpdatedAt     int64
+	ID            string
+}
+
+func (q *Queries) SetAppVolumeEnabled(ctx context.Context, arg SetAppVolumeEnabledParams) error {
+	_, err := q.db.ExecContext(ctx, setAppVolumeEnabled, arg.VolumeEnabled, arg.UpdatedAt, arg.ID)
+	return err
 }
 
 const sumAppResourcesByUser = `-- name: SumAppResourcesByUser :one
-SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
-       CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
-FROM apps WHERE user_id = ? AND id != ?
-  AND desired_state = 'running' AND current_deployment_id IS NOT NULL
+SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS memory_mb,
+       CAST(COALESCE(SUM(a.cpu_millis), 0) AS INTEGER) AS cpu_millis
+FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
+WHERE a.user_id = ? AND a.id != ?
+  AND a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL
+  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa')
 `
 
 type SumAppResourcesByUserParams struct {
@@ -471,6 +484,8 @@ type SumAppResourcesByUserRow struct {
 }
 
 // Only apps that are meant to run and have a deployment reserve memory and CPU.
+// Static sites (live deployment built from bitploy's nginx templates: kinds
+// static and node-spa, see deploy.IsStaticKind) are free and not counted.
 func (q *Queries) SumAppResourcesByUser(ctx context.Context, arg SumAppResourcesByUserParams) (SumAppResourcesByUserRow, error) {
 	row := q.db.QueryRowContext(ctx, sumAppResourcesByUser, arg.UserID, arg.ID)
 	var i SumAppResourcesByUserRow

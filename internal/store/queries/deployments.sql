@@ -2,8 +2,8 @@
 
 -- name: InsertDeployment :exec
 INSERT INTO deployments (id, app_id, seq, state, source_kind, source_ref, channel, created_by, token_id,
-                         image, port, has_healthcheck, warnings, queued_at)
-VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                         image, port, has_healthcheck, warnings, build_kind, queued_at)
+VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetDeploymentBySeq :one
 SELECT * FROM deployments WHERE app_id = ? AND seq = ?;
@@ -30,7 +30,7 @@ UPDATE deployments SET state = 'cancelled', finished_at = ? WHERE app_id = ? AND
 UPDATE deployments SET commit_sha = ?, commit_message = ? WHERE id = ?;
 
 -- name: SetDeploymentValidated :exec
-UPDATE deployments SET port = ?, has_healthcheck = ?, warnings = ? WHERE id = ?;
+UPDATE deployments SET port = ?, has_healthcheck = ?, warnings = ?, build_kind = ? WHERE id = ?;
 
 -- name: SetDeploymentBuilt :exec
 UPDATE deployments SET image = ?, image_size_bytes = ?, built_at = ? WHERE id = ?;

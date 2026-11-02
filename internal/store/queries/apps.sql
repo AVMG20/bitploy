@@ -22,10 +22,14 @@ SELECT COUNT(*) FROM apps WHERE user_id = ?;
 
 -- name: SumAppResourcesByUser :one
 -- Only apps that are meant to run and have a deployment reserve memory and CPU.
-SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS memory_mb,
-       CAST(COALESCE(SUM(cpu_millis), 0) AS INTEGER) AS cpu_millis
-FROM apps WHERE user_id = ? AND id != ?
-  AND desired_state = 'running' AND current_deployment_id IS NOT NULL;
+-- Static sites (live deployment built from bitploy's nginx templates: kinds
+-- static and node-spa, see deploy.IsStaticKind) are free and not counted.
+SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS memory_mb,
+       CAST(COALESCE(SUM(a.cpu_millis), 0) AS INTEGER) AS cpu_millis
+FROM apps a LEFT JOIN deployments d ON d.id = a.current_deployment_id
+WHERE a.user_id = ? AND a.id != ?
+  AND a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL
+  AND COALESCE(d.build_kind, '') NOT IN ('static', 'node-spa');
 
 -- name: SumVolumeMBByUser :one
 -- Every app with a volume reserves its storage limit, running or not: the files stay.
@@ -103,6 +107,8 @@ DELETE FROM uploads WHERE id = ?;
 -- name: SetAppProtection :exec
 UPDATE apps SET protect_enabled = ?, protect_username = ?, protect_hash = ?, updated_at = ? WHERE id = ?;
 
--- name: ShrinkStaticAppMemory :execrows
-UPDATE apps SET memory_mb = sqlc.arg(memory_mb), updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id) AND memory_mb = sqlc.arg(old_memory_mb) AND current_deployment_id IS NULL;
+-- name: SetAppResources :exec
+UPDATE apps SET memory_mb = ?, cpu_millis = ?, updated_at = ? WHERE id = ?;
+
+-- name: SetAppVolumeEnabled :exec
+UPDATE apps SET volume_enabled = ?, updated_at = ? WHERE id = ?;

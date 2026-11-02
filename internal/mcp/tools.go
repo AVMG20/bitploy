@@ -54,9 +54,10 @@ type updateAppIn struct {
 	HealthPath     *string `json:"health_path,omitempty" jsonschema:"Path bitploy requests to see the app is healthy, like /healthz. Starts with /. Default /. Any status below 500 passes. Applies on the next deploy."`
 	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile inside the project, default Dockerfile. Example: docker/Dockerfile.prod."`
 	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the project root). Example: backend."`
-	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume, false turns it off. Call restart_app afterwards."`
+	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume (call restart_app afterwards), false turns it off at once. Not for static sites."`
+	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: also delete the files in /data and all backups of the app. Needed when /data holds files or the app has backups, else volume_has_data is returned. Ask the user first: this cannot be undone."`
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
-	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, 128 for a static site, minimum 64), within the account quota. Call restart_app afterwards."`
+	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
 }
 
@@ -178,7 +179,7 @@ func (s *srv) registerTools() {
 				next = []string{"This token is read-only: you can look but not deploy. Ask the user for a token with the deploy scope (dashboard, Tokens), then call list_apps to look around."}
 			}
 			return &result{
-				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %d MB of %d MB memory reserved. Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.",
+				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %d MB of %d MB memory reserved (static sites do not count). Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.",
 					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, me.Usage.MemoryReservedMB, me.Quota.MemoryMB),
 				Data: d,
 				Next: next,
@@ -275,7 +276,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), static (a static site: fixed small size, not counted in the memory and CPU quota), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
@@ -314,12 +315,12 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume, memory_mb, cpu_millis apply on restart_app; volume_mb applies at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
+		"Changes settings of an existing app; only the fields you pass change. volume, memory_mb, cpu_millis apply on restart_app; volume_mb applies at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data. volume=false deletes /data and all backups and restarts the app: it is refused (volume_has_data) when there is anything to delete, unless you pass delete_data=true. Ask the user before you pass delete_data.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
 				Name: in.Name, Slug: in.Slug, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
-				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume,
+				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis,
 			})
 			if err != nil {
