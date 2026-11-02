@@ -1,8 +1,8 @@
-.git
+**/.git
 .gitignore
 .DS_Store
-.env
-.env.*
+**/.env
+**/.env.*
 bin
 Dockerfile
 .dockerignore

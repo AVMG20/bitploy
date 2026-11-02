@@ -9,11 +9,11 @@ storage/framework/views/*
 bootstrap/cache/*.php
 database/*.sqlite
 .phpunit.cache
-.git
+**/.git
 .gitignore
 .DS_Store
-.env
-.env.*
+**/.env
+**/.env.*
 Dockerfile
 .dockerignore
 README.md

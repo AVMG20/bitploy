@@ -702,6 +702,10 @@ func TestUploadFlow(t *testing.T) {
 	if up.MaxBytes != 95<<20 || len(up.NextSteps) == 0 {
 		t.Errorf("%+v", up)
 	}
+	// The zip command leaves out .env and .git files in every folder.
+	if !strings.Contains(up.NextSteps[0], "zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy'") {
+		t.Errorf("zip command: %s", up.NextSteps[0])
+	}
 
 	// Deploying before the upload arrived explains what to do.
 	if _, err := e.s.Deploy(ctx, e.user, app.Slug, up.ID); depCode(err) != "upload_not_received" {

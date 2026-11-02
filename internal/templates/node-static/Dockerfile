@@ -18,6 +18,10 @@ server {
     absolute_redirect off;
     # Shows 404.html when the site has one.
     error_page 404 /404.html;
+    # Hidden files such as .env or .git are never served; /.well-known/ is.
+    location ~ /\.(?!well-known/) {
+        deny all;
+    }
     location / {
         # Every page is a real file: /about finds about.html or about/index.html. Unknown paths are a 404.
         try_files $uri $uri/ $uri.html =404;

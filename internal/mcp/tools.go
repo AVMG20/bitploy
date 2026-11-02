@@ -358,7 +358,7 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			next := []string{
-				"In the project folder run: zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '.env' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git .). Keep the Dockerfile inside.",
+				"In the project folder run: zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git --exclude .env --exclude .env.* .). Keep the Dockerfile inside.",
 				"In that same folder run the curl command from the curl field (it uploads ./app.zip). On success it prints the upload as JSON; on an error it prints an error object with code, message and hint: follow the hint. Then delete app.zip.",
 				"Then call deploy with app=" + in.App + " and upload_id=" + u.ID + ". If more than 15 minutes pass first, call create_upload again.",
 			}

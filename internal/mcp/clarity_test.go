@@ -317,6 +317,16 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	}
 }
 
+func TestCreateUploadZipLeavesOutSecrets(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, e.deployToken)
+	call(t, cs, "create_app", map[string]any{"name": "Zip", "slug": "zip-a"})
+	steps := nextSteps(t, "create_upload", call(t, cs, "create_upload", map[string]any{"app": "zip-a"}))
+	if !strings.Contains(steps[0], "zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy'") {
+		t.Errorf("the zip command must leave out .env and .git in every folder: %s", steps[0])
+	}
+}
+
 func TestDeployWithoutSourceExplainsWhatToSend(t *testing.T) {
 	e := newEnv(t)
 	cs := e.connect(t, e.deployToken)

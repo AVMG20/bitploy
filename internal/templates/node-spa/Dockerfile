@@ -16,6 +16,10 @@ server {
     index index.html;
     # Behind the proxy the port nginx listens on (8080) must not end up in redirects.
     absolute_redirect off;
+    # Hidden files such as .env or .git are never served; /.well-known/ is.
+    location ~ /\.(?!well-known/) {
+        deny all;
+    }
     location / {
         # Single-page app: unknown paths load index.html so client-side routes work.
         try_files $uri $uri/ /index.html;

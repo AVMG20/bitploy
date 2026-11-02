@@ -115,7 +115,7 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 		Curl:      "curl -sS --fail-with-body --data-binary @app.zip -H 'Content-Type: application/zip' " + url,
 		ExpiresAt: exp.UTC(), MaxBytes: deploy.MaxZipCompressed,
 		NextSteps: []string{
-			"Run `zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '.env' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
+			"Run `zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
 			"After curl succeeds, call deploy with app=" + row.Slug + " and upload_id=" + id + ".",
 		},
 	}, nil

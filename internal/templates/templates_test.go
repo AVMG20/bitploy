@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 )
 
 func TestAllStacksEmbedded(t *testing.T) {
@@ -25,6 +27,37 @@ func TestAllStacksEmbedded(t *testing.T) {
 		}
 		if !strings.Contains(tpl.Dockerignore, ".env") {
 			t.Errorf("%s: .dockerignore must exclude .env", s)
+		}
+	}
+}
+
+func TestDockerignoreExcludesNestedSecrets(t *testing.T) {
+	for _, s := range Stacks {
+		tpl, _ := Get(s)
+		patterns, err := ignorefile.ReadAll(strings.NewReader(tpl.Dockerignore))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pm, err := patternmatcher.New(patterns)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{".env", ".env.local", "api/.env", "api/.env.production", "a/b/.env", ".git/config", "sub/.git/config"} {
+			if ok, _ := pm.MatchesOrParentMatches(p); !ok {
+				t.Errorf("%s: .dockerignore does not exclude %s", s, p)
+			}
+		}
+	}
+}
+
+func TestNginxHidesDotfiles(t *testing.T) {
+	for _, s := range Stacks {
+		tpl, _ := Get(s)
+		if !strings.Contains(tpl.Dockerfile, "nginx") {
+			continue
+		}
+		if !strings.Contains(tpl.Dockerfile, "location ~ /\\.(?!well-known/) {\n        deny all;\n    }") {
+			t.Errorf("%s: the nginx config must deny dotfiles but keep /.well-known/", s)
 		}
 	}
 }

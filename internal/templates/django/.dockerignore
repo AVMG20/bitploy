@@ -6,11 +6,11 @@ env
 staticfiles
 *.sqlite3
 media
-.git
+**/.git
 .gitignore
 .DS_Store
-.env
-.env.*
+**/.env
+**/.env.*
 .pytest_cache
 .mypy_cache
 Dockerfile

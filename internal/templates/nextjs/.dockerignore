@@ -2,11 +2,11 @@ node_modules
 npm-debug.log*
 .next
 out
-.git
+**/.git
 .gitignore
 .DS_Store
-.env
-.env.*
+**/.env
+**/.env.*
 Dockerfile
 .dockerignore
 README.md
