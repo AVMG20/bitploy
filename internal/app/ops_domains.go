@@ -4,7 +4,10 @@ package app
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -70,8 +73,9 @@ func (s *Service) ListDomains(ctx context.Context, a Actor, ref string) ([]Domai
 }
 
 // AddDomain reserves a hostname for an app as pending_dns and returns the
-// DNS records the user must create. Adding the same hostname to the same app
-// again returns the existing entry.
+// DNS records the user must create; if the DNS already matches, the domain
+// goes on to issuing_cert and active right away. Adding the same hostname to
+// the same app again returns the existing entry.
 func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) (Domain, error) {
 	app, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
@@ -133,7 +137,7 @@ func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) 
 			}
 		}
 		return q.OpsInsertDomain(ctx, db.OpsInsertDomainParams{
-			ID: id, AppID: app.ID, Hostname: host, TxtToken: "bitploy-" + ids.Hex(32),
+			ID: id, AppID: app.ID, Hostname: host, TxtToken: s.domainToken(app.UserID, host),
 			CheckUntil: now.Add(domainWatchFor).Unix(), CreatedAt: now.Unix(),
 		})
 	})
@@ -162,7 +166,21 @@ func (s *Service) AddDomain(ctx context.Context, a Actor, ref, hostname string) 
 	if err != nil {
 		return Domain{}, apperr.Internal(err)
 	}
+	// Check right away: if the DNS already matches, the hostname is proven and
+	// nobody can replace this claim any more.
+	if checked, err := s.runDomainCheck(ctx, a, row, false); err == nil {
+		row = checked
+	}
 	return s.domainView(row), nil
+}
+
+// domainToken is the TXT token of a hostname. It depends only on the app
+// owner and the hostname, so an owner whose unproven claim was replaced by
+// someone else gets the same token again and keeps their TXT record.
+func (s *Service) domainToken(userID, host string) string {
+	m := hmac.New(sha256.New, s.Cfg.SecretKey)
+	m.Write([]byte("domain-txt\x00" + userID + "\x00" + host))
+	return "bitploy-" + hex.EncodeToString(m.Sum(nil)[:16])
 }
 
 // loadDomain finds a hostname that belongs to the app.

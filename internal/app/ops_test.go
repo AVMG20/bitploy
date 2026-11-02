@@ -545,6 +545,42 @@ func TestRunBackgroundWithoutDockerStopsOnCancel(t *testing.T) {
 	}
 }
 
+// Someone who keeps adding a hostname cannot keep its real owner from proving
+// it: the owner's TXT token stays the same, and once their DNS matches, adding
+// the hostname again makes it theirs on the spot.
+func TestAddDomainOwnerWithDNSAlwaysWins(t *testing.T) {
+	e := newOpsEnv(t)
+	ctx := context.Background()
+	e.addApp(t, "app_1", "quiet-otter-3f9a", "usr_owner", "web")
+	e.addApp(t, "app_2", "calm-fox-1234", "usr_other", "web")
+
+	mine, err := e.svc.AddDomain(ctx, e.owner, "quiet-otter-3f9a", "shop.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _ := recordOf(mine, "TXT")
+	if _, err := e.svc.AddDomain(ctx, e.other, "calm-fox-1234", "shop.example.com"); err != nil {
+		t.Fatal(err) // the unproven claim is replaced
+	}
+
+	// The owner creates the records they were shown and adds the domain again.
+	e.dns.cname = map[string]string{"shop.example.com": "edge.bitploy.test"}
+	e.dns.hosts = map[string][]string{"edge.bitploy.test": {"203.0.113.10"}}
+	e.dns.txt = map[string][]string{"_bitploy-challenge.shop.example.com": {token.Value}}
+	again, err := e.svc.AddDomain(ctx, e.owner, "quiet-otter-3f9a", "shop.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if t2, _ := recordOf(again, "TXT"); t2.Value != token.Value {
+		t.Errorf("the owner's TXT token changed: %s, was %s", t2.Value, token.Value)
+	}
+	if again.Status != "active" {
+		t.Fatalf("status = %s, want active: DNS already matches", again.Status)
+	}
+	_, err = e.svc.AddDomain(ctx, e.other, "calm-fox-1234", "shop.example.com")
+	wantCode(t, err, "domain_taken")
+}
+
 // A claim that never proved ownership (pending_dns, failed) must not block the
 // real owner of the hostname; one that passed DNS must.
 func TestAddDomainReplacesStaleClaim(t *testing.T) {
