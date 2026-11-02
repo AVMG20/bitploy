@@ -64,6 +64,7 @@ type fakeGitHub struct {
 	userRepos     map[string]map[int64][]string // user token -> installation -> repositories that user can open (default: all)
 	manifestCodes map[string]bool               // manifest codes that convert
 	hits          map[string]int                // method + path -> count
+	tokenStatus   int                           // when set, access token requests answer with it (a rate limit)
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -194,6 +195,10 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/app/installations/") && strings.HasSuffix(r.URL.Path, "/access_tokens"):
 		if err := f.verifyJWT(f.bearer(r)); err != nil {
 			js(401, map[string]string{"message": "A JSON web token could not be decoded: " + err.Error()})
+			return
+		}
+		if f.tokenStatus != 0 {
+			js(f.tokenStatus, map[string]string{"message": "You have exceeded a secondary rate limit."})
 			return
 		}
 		id, _ := strconv.ParseInt(strings.Split(r.URL.Path, "/")[3], 10, 64)
@@ -824,6 +829,26 @@ func TestCloneCredentialOrder(t *testing.T) {
 	}
 	if tok := g.s.gitCloneToken(ctx, bob.UserID, "https://github.com/acme/secret"); tok != "" {
 		t.Fatalf("no app: %q", tok)
+	}
+}
+
+// A 403 from GitHub is often a secondary rate limit: the installation stays
+// active (real suspensions come with the installation webhook).
+func TestCloneTokenForbiddenKeepsInstallationActive(t *testing.T) {
+	g := ghTestEnv(t)
+	ctx := context.Background()
+	g.f.repos[101] = []string{"alice/site"}
+	if _, err := g.connect(t, g.user, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"}); err != nil {
+		t.Fatal(err)
+	}
+	g.f.mu.Lock()
+	g.f.tokenStatus = 403
+	g.f.mu.Unlock()
+	if tok := g.s.gitCloneToken(ctx, g.user.UserID, "https://github.com/alice/site"); tok != "" {
+		t.Fatalf("token while GitHub answers 403: %q", tok)
+	}
+	if ov := mustOverview(t, g.s, sessionOf(g.user)); ov.Installations[0].Status != "active" {
+		t.Fatalf("status after a 403: %+v", ov.Installations[0])
 	}
 }
 

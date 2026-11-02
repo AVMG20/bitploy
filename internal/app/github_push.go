@@ -93,8 +93,6 @@ func (s *Service) gitCloneToken(ctx context.Context, userID, repoURL string) str
 		switch github.Status(err) {
 		case 404:
 			s.markInstallationGone(ctx, l.InstallationID)
-		case 403:
-			_, _ = s.Q.SetGitHubInstallationStatus(ctx, db.SetGitHubInstallationStatusParams{Status: "suspended", UpdatedAt: s.now(), InstallationID: l.InstallationID})
 		case 422: // the installation does not include this repository
 		default:
 			s.Log.Warn("github: could not get an installation token", "installation", l.InstallationID, "err", err)
