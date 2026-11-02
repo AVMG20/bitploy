@@ -159,14 +159,17 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 	links := map[string]struct{}{}   // symlinks (strict: also files): nothing may be placed below them
 	files := map[string]struct{}{}   // strict only: regular files, the only valid hardlink targets
 	skipped := map[string]struct{}{} // names left out (.wh.*): links to them are left out too
-	addName := func(name string) error {
-		if lim.Trusted {
-			return nil // names are not kept in memory in this mode
-		}
+	keepName := func(name string) error {
 		if nameBytes += len(name); nameBytes > maxTarNameBytes {
 			return problem("The archive has too many or too long file names.")
 		}
 		return nil
+	}
+	addName := func(name string) error {
+		if lim.Trusted {
+			return nil // only symlink names are kept in memory in this mode
+		}
+		return keepName(name)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -254,6 +257,9 @@ func sanitizeTar(dst *tar.Writer, src *tar.Reader, lim tarLimits) (tarStats, err
 			if lim.Trusted {
 				if h.Linkname == "" || len(h.Linkname) > maxTrustedNameLen || strings.ContainsRune(h.Linkname, 0) {
 					return st, problem("The archive contains a link that is not valid (%s).", shorten(name))
+				}
+				if err := keepName(name); err != nil {
+					return st, err
 				}
 			} else if err := checkSymlink(name, h.Linkname); err != nil {
 				return st, err

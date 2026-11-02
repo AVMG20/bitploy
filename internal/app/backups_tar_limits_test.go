@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,29 @@ func TestSanitizeTarNameLength(t *testing.T) {
 	}
 	if _, _, err := sanitize(t, tarLimits{Trusted: true}, tent{name: long, body: "x"}); err != nil {
 		t.Errorf("trusted: %v", err)
+	}
+}
+
+func TestSanitizeTarTrustedLinkNamesBudget(t *testing.T) {
+	// Symlink names are kept in memory to keep files out from below them, so
+	// even a trusted archive (an app's own volume) has a budget for them.
+	pr, pw := io.Pipe()
+	go func() {
+		tw := tar.NewWriter(pw)
+		pad := strings.Repeat("l", 4000)
+		for i := 0; i < maxTarNameBytes/4000+10; i++ {
+			if err := tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("%d-%s", i, pad), Typeflag: tar.TypeSymlink, Linkname: "/x", Mode: 0o777}); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+		pw.CloseWithError(tw.Close())
+	}()
+	_, err := sanitizeTar(nil, tar.NewReader(pr), tarLimits{Trusted: true})
+	_ = pr.Close()
+	var tp *tarProblem
+	if !errors.As(err, &tp) {
+		t.Errorf("err = %v, want the archive refused", err)
 	}
 }
 
