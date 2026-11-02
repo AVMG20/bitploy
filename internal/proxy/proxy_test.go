@@ -5,7 +5,54 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+// Traefik has one namespace per kind for all route files, and the access log
+// maps router names to apps, so no two apps may ever produce the same name.
+func TestNamesNeverCollideAcrossApps(t *testing.T) {
+	w := &Writer{Dir: t.TempDir(), EntryPoint: "websecure", TLS: true}
+	route := func(slug string, custom ...string) Route {
+		return Route{Slug: slug, Host: slug + ".bitploy.nl", Custom: custom, Upstream: "http://bp-" + slug + "-1:80",
+			Candidate: "http://bp-" + slug + "-2:80", Auth: &BasicAuth{User: "u", Hash: "h"}}
+	}
+	for _, pair := range [][2]Route{
+		{route("my", "blog.app"), route("my-blog-app")},
+		{route("foo"), route("foo-candidate")},
+		{route("foo"), route("foo-live")},
+		{route("foo"), route("foo-auth")},
+		{route("foo", "live.example.com"), route("foo-live-example-com")},
+	} {
+		seen := map[string]string{}
+		for _, r := range pair {
+			b, err := w.Render(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var f file
+			if err := yaml.Unmarshal(b, &f); err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for n := range f.HTTP.Routers {
+				names = append(names, "router "+n)
+			}
+			for n := range f.HTTP.Services {
+				names = append(names, "service "+n)
+			}
+			for n := range f.HTTP.Middlewares {
+				names = append(names, "middleware "+n)
+			}
+			for _, n := range names {
+				if other, ok := seen[n]; ok && other != r.Slug {
+					t.Errorf("%s is used by app %s and app %s", n, other, r.Slug)
+				}
+				seen[n] = r.Slug
+			}
+		}
+	}
+}
 
 func TestRenderCandidateAndLive(t *testing.T) {
 	w := &Writer{Dir: t.TempDir(), EntryPoint: "websecure", TLS: true}

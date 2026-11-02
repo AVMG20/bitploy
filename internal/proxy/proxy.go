@@ -62,10 +62,15 @@ type Writer struct {
 	InternalEntryPoint string
 }
 
+// Names are "app-<slug>" for the app's own router and service, and
+// "app-<slug>_<suffix>" for everything else. Slugs and hostnames never contain
+// "_", so the first "_" ends the slug and no two apps can share a name. A
+// hostname suffix has a "_" for every dot, which keeps it apart from the fixed
+// suffixes (candidate, live, auth).
 func routerName(slug string) string { return "app-" + slug }
 
 // AuthMiddlewareName is the basic-auth middleware of a protected app.
-func AuthMiddlewareName(slug string) string { return "app-" + slug + "-auth" }
+func AuthMiddlewareName(slug string) string { return "app-" + slug + "_auth" }
 
 // AuthRealm is the realm of the login prompt. Some browsers show it.
 const AuthRealm = "Private app"
@@ -78,7 +83,7 @@ func RouterName(slug string) string { return routerName(slug) }
 func HostRouterName(slug, host string) string { return hostRouterName(slug, host) }
 
 func hostRouterName(slug, host string) string {
-	return "app-" + slug + "-" + strings.NewReplacer(".", "-", "*", "x").Replace(strings.ToLower(host))
+	return "app-" + slug + "_" + strings.ReplaceAll(strings.ToLower(host), ".", "_")
 }
 
 type file struct {
@@ -137,7 +142,7 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 	f.HTTP.Services = map[string]service{}
 	name := routerName(r.Slug)
 	if r.Candidate != "" {
-		cname := name + "-candidate"
+		cname := name + "_candidate"
 		f.HTTP.Services[cname] = newService(r.Candidate)
 		ep := w.internal()
 		f.HTTP.Middlewares = map[string]middleware{cname: headerMiddleware(CandidateHeader, r.Slug)}
@@ -165,7 +170,7 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 		rt.TLS = &tlsConf{}
 	}
 	f.HTTP.Routers[name] = rt
-	lname := name + "-live"
+	lname := name + "_live"
 	f.HTTP.Middlewares[lname] = headerMiddleware(UpstreamHeader, r.Upstream)
 	f.HTTP.Routers[lname] = router{Rule: fmt.Sprintf("Host(`%s`)", LiveHost(r.Slug)), EntryPoints: []string{w.internal()}, Service: name, Middlewares: []string{lname}}
 	custom := append([]string(nil), r.Custom...)

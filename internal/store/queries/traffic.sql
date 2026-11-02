@@ -4,7 +4,8 @@
 SELECT id, slug FROM apps;
 
 -- name: TrafficListDomains :many
-SELECT app_id, hostname FROM domains;
+-- Only domains that have a router (see ActiveHostnames).
+SELECT app_id, hostname FROM domains WHERE status IN ('issuing_cert', 'active');
 
 -- name: TrafficAddHourly :exec
 INSERT INTO traffic_hourly (app_id, hour, requests, errors_4xx, errors_5xx, visitors)

@@ -287,7 +287,7 @@ func (q *Queries) TrafficListApps(ctx context.Context) ([]TrafficListAppsRow, er
 }
 
 const trafficListDomains = `-- name: TrafficListDomains :many
-SELECT app_id, hostname FROM domains
+SELECT app_id, hostname FROM domains WHERE status IN ('issuing_cert', 'active')
 `
 
 type TrafficListDomainsRow struct {
@@ -295,6 +295,7 @@ type TrafficListDomainsRow struct {
 	Hostname string
 }
 
+// Only domains that have a router (see ActiveHostnames).
 func (q *Queries) TrafficListDomains(ctx context.Context) ([]TrafficListDomainsRow, error) {
 	rows, err := q.db.QueryContext(ctx, trafficListDomains)
 	if err != nil {

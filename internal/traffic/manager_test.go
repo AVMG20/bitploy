@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AVMG20/bitploy/internal/proxy"
 	"github.com/AVMG20/bitploy/internal/store"
 )
 
@@ -86,13 +87,13 @@ func TestRoutersMapToApps(t *testing.T) {
 	e := newMgrEnv(t)
 	e.write(
 		logLine("app-quiet-otter-3f9a@file", "websecure", "/", "203.0.113.1", 200),
-		logLine("app-quiet-otter-3f9a-www-example-com@file", "websecure", "/custom", "203.0.113.2", 200), // custom domain
+		logLine("app-quiet-otter-3f9a_www_example_com@file", "websecure", "/custom", "203.0.113.2", 200), // custom domain
 		logLine("app-other-app-1234@file", "websecure", "/", "203.0.113.1", 200),
 		logLine("bitploy-dashboard@file", "websecure", "/api/v1/session", "203.0.113.1", 200), // bitploy's own routers
 		logLine("bitploy-catchall@file", "websecure", "/", "203.0.113.1", 404),
 		logLine("acme-http@internal", "web", "/.well-known/acme-challenge/x", "203.0.113.1", 200),
 		logLine("web-to-websecure@internal", "web", "/", "203.0.113.1", 301),
-		logLine("app-quiet-otter-3f9a-live@file", "internal", "/", "10.201.0.2", 200), // bitploy's own probe
+		logLine("app-quiet-otter-3f9a_live@file", "internal", "/", "10.201.0.2", 200), // bitploy's own probe
 		logLine("app-quiet-otter-3f9a@docker", "websecure", "/", "203.0.113.1", 200),  // other provider
 		logLine("app-deleted-app@file", "websecure", "/", "203.0.113.1", 200),         // no such app
 		"this is not json\n",
@@ -109,6 +110,28 @@ func TestRoutersMapToApps(t *testing.T) {
 	}
 	if got := e.count(`SELECT views FROM traffic_paths WHERE app_id = 'app_1' AND path = '/custom'`); got != 1 {
 		t.Errorf("custom domain page views = %d", got)
+	}
+}
+
+// A custom domain of one app must never pull in another app's visitors: not
+// through a router name that looks like the other app's, and not while the
+// domain has no route yet.
+func TestCustomDomainNeverTakesAnotherAppsTraffic(t *testing.T) {
+	e := newMgrEnv(t)
+	e.addApp("app_3", "my")
+	e.addApp("app_4", "my-blog-app")
+	e.exec(`INSERT INTO domains (id, app_id, hostname, status, txt_token, check_until, created_at) VALUES ('dom_2', 'app_3', 'blog.app', 'pending_dns', 't', 1, 1)`)
+	e.exec(`INSERT INTO domains (id, app_id, hostname, status, txt_token, check_until, created_at) VALUES ('dom_3', 'app_3', 'shop.example.com', 'failed', 't', 1, 1)`)
+	e.write(
+		logLine(proxy.RouterName("my-blog-app")+"@file", "websecure", "/", "203.0.113.1", 200),
+		logLine(proxy.HostRouterName("my", "shop.example.com")+"@file", "websecure", "/", "203.0.113.1", 200),
+	)
+	e.run()
+	if got := e.count(`SELECT COALESCE(SUM(requests), 0) FROM traffic_hourly WHERE app_id = 'app_4'`); got != 1 {
+		t.Errorf("my-blog-app requests = %d, want 1", got)
+	}
+	if got := e.count(`SELECT COALESCE(SUM(requests), 0) FROM traffic_hourly WHERE app_id = 'app_3'`); got != 0 {
+		t.Errorf("my requests = %d, want 0: its domains have no route", got)
 	}
 }
 

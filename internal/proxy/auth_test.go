@@ -56,7 +56,7 @@ func TestRenderBasicAuthOnPublicRoutersOnly(t *testing.T) {
 		}
 	}
 	// The internal candidate and live routers never do: health checks send no login.
-	for _, name := range []string{"app-my-app-candidate", "app-my-app-live"} {
+	for _, name := range []string{"app-my-app_candidate", "app-my-app_live"} {
 		m, ok := rs[name]
 		if !ok {
 			t.Fatalf("router %s missing", name)
