@@ -867,6 +867,18 @@ func TestProfileAndPasswordEndpoints(t *testing.T) {
 	}
 }
 
+func TestProfileBadNameKeepsTheEmail(t *testing.T) {
+	e := newEnv(t)
+	e.login("me@example.nl", false)
+	w := e.asSession("PATCH", "/api/v1/me", map[string]any{"name": strings.Repeat("a", 81), "email": "new@example.nl", "current_password": "password-1234"})
+	if w.Code != 400 || decode[errResp](t, w).Error.Code != "invalid_name" {
+		t.Fatalf("bad name: %d %s", w.Code, w.Body)
+	}
+	if w := e.asSession("GET", "/api/v1/me", nil); decode[app.Me](t, w).User.Email != "me@example.nl" {
+		t.Fatalf("email changed although the name was refused: %s", w.Body)
+	}
+}
+
 func TestGitSourceBranchIsOptional(t *testing.T) {
 	e := newEnv(t)
 	w := e.req("GET", "/api/v1/openapi.json", nil, nil)

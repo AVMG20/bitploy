@@ -112,6 +112,11 @@ func (a *API) accountRoutes() {
 		if in.Body.Name == "" && in.Body.Email == "" {
 			return nil, apperr.BadRequest("nothing_to_change", "Send a name and/or an email.", "Example: {\"name\": \"Ada\"}.")
 		}
+		if in.Body.Name != "" {
+			if err := app.ValidateName(in.Body.Name); err != nil {
+				return nil, err
+			}
+		}
 		var u app.User
 		var err error
 		// Email first: if the password is wrong nothing else is changed.

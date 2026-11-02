@@ -69,6 +69,13 @@ func acctValidName(s string) (string, error) {
 	return s, nil
 }
 
+// ValidateName checks a display name the way UpdateProfile does, so a caller
+// can refuse it before changing anything else.
+func ValidateName(s string) error {
+	_, err := acctValidName(s)
+	return err
+}
+
 func acctValidPassword(p string) error {
 	if utf8.RuneCountInString(p) < passwd.MinLength {
 		return apperr.BadRequest("password_too_short",
