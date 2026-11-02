@@ -49,8 +49,8 @@ export function clientSnippets(mcpUrl: string, token: string): ClientSnippet[] {
     {
       id: 'claude-code',
       label: 'Claude Code',
-      where: 'Run this once in your terminal.',
-      code: `claude mcp add --transport http bitploy ${mcpUrl} \\\n  --header "Authorization: ${bearer}"`,
+      where: 'Run this once in your terminal. It works in all your projects.',
+      code: `claude mcp add --scope user --transport http bitploy ${mcpUrl} \\\n  --header "Authorization: ${bearer}"`,
     },
     {
       id: 'claude-desktop',
