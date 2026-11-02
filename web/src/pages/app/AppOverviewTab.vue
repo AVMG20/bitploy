@@ -96,7 +96,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Processor now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
             {{ live ? formatPercent(live.cpu) : '-' }}
-            <span class="text-sm font-normal tracking-normal text-muted-foreground">of {{ formatCPUMillis(data.cpu_millis) }}</span>
+            <span class="text-sm font-normal tracking-normal text-muted-foreground" title="100% is one processor core">of {{ formatPercent(cpuLimitPct) }} CPU</span>
           </p>
           <Progress class="mt-2" :model-value="live ? pct(live.cpu, cpuLimitPct) : 0" />
         </div>
