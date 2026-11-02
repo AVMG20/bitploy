@@ -29,6 +29,7 @@ import (
 const (
 	uploadTTL        = 15 * time.Minute
 	uploadDeployTTL  = 24 * time.Hour // a received upload can be deployed for this long
+	maxParkedUploads = 5              // uploads per user that wait to be deployed (each up to 95 MB)
 	maxStoredLogTail = 50
 )
 
@@ -97,16 +98,40 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 	if err := gitLinkedErr(row); err != nil {
 		return Upload{}, err
 	}
-	if _, err := s.activeUser(ctx, row.UserID); err != nil {
+	user, err := s.activeUser(ctx, row.UserID)
+	if err != nil {
+		return Upload{}, err
+	}
+	// An upload is the first step of a deployment: the same limits apply, and
+	// a user can keep only a few uploads waiting, since they take disk space
+	// that is not counted anywhere else.
+	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
+		return Upload{}, err
+	}
+	if err := s.checkStorageRoom(ctx, user); err != nil {
 		return Upload{}, err
 	}
 	id := ids.New(ids.Upload)
 	now := s.Now()
 	exp := now.Add(uploadTTL)
-	if err := s.Q.InsertUpload(ctx, db.InsertUploadParams{
-		ID: id, AppID: row.ID, UserID: row.UserID, ExpiresAt: exp.Unix(), CreatedAt: now.Unix(),
-	}); err != nil {
-		return Upload{}, apperr.Internal(err)
+	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		n, err := q.CountParkedUploads(ctx, db.CountParkedUploadsParams{
+			UserID: user.ID, Now: now.Unix(), ReceivedAfter: nullInt(now.Add(-uploadDeployTTL).Unix(), true),
+		})
+		if err != nil {
+			return err
+		}
+		if n >= maxParkedUploads {
+			return apperr.TooMany("too_many_uploads",
+				fmt.Sprintf("You already have %d uploads waiting to be deployed, which is the limit.", n),
+				"Call deploy with one of the upload_ids you already have, or wait: an upload URL that was not used expires after 15 minutes, an uploaded zip after 24 hours.").WithNext("deploy")
+		}
+		return q.InsertUpload(ctx, db.InsertUploadParams{
+			ID: id, AppID: row.ID, UserID: row.UserID, ExpiresAt: exp.Unix(), CreatedAt: now.Unix(),
+		})
+	})
+	if err != nil {
+		return Upload{}, apperr.As(err)
 	}
 	url := s.Cfg.PublicURL + "/u/" + id
 	s.Audit(ctx, a, "upload.create", "app", row.ID, map[string]any{"upload_id": id})

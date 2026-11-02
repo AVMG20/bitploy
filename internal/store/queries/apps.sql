@@ -101,6 +101,13 @@ WHERE (status = 'pending' AND expires_at < sqlc.arg(now))
    OR (status IN ('received', 'used') AND COALESCE(used_at, received_at, created_at) < sqlc.arg(cutoff))
    OR status = 'expired';
 
+-- name: CountParkedUploads :one
+-- Uploads of a user that can still be sent or deployed.
+SELECT COUNT(*) FROM uploads
+WHERE user_id = sqlc.arg(user_id)
+  AND ((status = 'pending' AND expires_at >= sqlc.arg(now))
+    OR (status = 'received' AND received_at >= sqlc.arg(received_after)));
+
 -- name: DeleteUpload :exec
 DELETE FROM uploads WHERE id = ?;
 

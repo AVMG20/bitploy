@@ -792,6 +792,70 @@ func TestUploadTooLarge(t *testing.T) {
 	}
 }
 
+// Uploads that wait to be deployed take disk space nobody counts, so one
+// user can only hold a few, and only while they could still deploy.
+func TestUploadLimits(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+	zipped := makeZipBytes(t, map[string]string{"Dockerfile": depStaticDockerfile, "index.html": "hi"})
+
+	var ups []Upload
+	for i := 0; i < maxParkedUploads; i++ {
+		up, err := e.s.CreateUpload(ctx, e.user, app.Slug)
+		if err != nil {
+			t.Fatalf("upload %d: %v", i, err)
+		}
+		ups = append(ups, up)
+	}
+	if _, err := e.s.ReceiveUpload(ctx, ups[0].ID, bytes.NewReader(zipped)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.s.CreateUpload(ctx, e.user, app.Slug)
+	var ae *apperr.Error
+	if !errors.As(err, &ae) || ae.Code != "too_many_uploads" || ae.HTTPStatus != 429 || ae.Hint == "" {
+		t.Fatalf("one upload too many: %v", err)
+	}
+	// Another user is not affected.
+	bob := e.addUser(t, "usr_bob", "bob@example.com", "user")
+	bobApp, err := e.s.CreateApp(ctx, bob, CreateAppInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.CreateUpload(ctx, bob, bobApp.Slug); err != nil {
+		t.Errorf("other user: %v", err)
+	}
+	// A deployed upload, an expired URL and an upload too old to deploy free a place each.
+	if _, err := e.s.Deploy(ctx, e.user, app.Slug, ups[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE uploads SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Minute).Unix(), ups[1].ID)
+	if _, err := e.s.ReceiveUpload(ctx, ups[2].ID, bytes.NewReader(zipped)); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE uploads SET received_at = ? WHERE id = ?`, time.Now().Add(-25*time.Hour).Unix(), ups[2].ID)
+	for i := 0; i < 3; i++ {
+		if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); err != nil {
+			t.Fatalf("after freeing places, upload %d: %v", i, err)
+		}
+	}
+	if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); depCode(err) != "too_many_uploads" {
+		t.Errorf("full again: %v", err)
+	}
+	e.exec(t, `DELETE FROM uploads`)
+
+	// The deploy rate and the storage allowance are checked before an upload, as for deploy.
+	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 1 WHERE id = ?`, e.user.UserID)
+	if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); depCode(err) != "deploy_rate_limited" {
+		t.Errorf("rate: %v", err)
+	}
+	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 100, quota_volume_mb = 1 WHERE id = ?`, e.user.UserID)
+	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, ?, 0, 1)`, app.ID, int64(10)<<20)
+	if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); depCode(err) != "storage_full" {
+		t.Errorf("storage: %v", err)
+	}
+}
+
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) {

@@ -32,6 +32,27 @@ func (q *Queries) CountAppsByUser(ctx context.Context, userID string) (int64, er
 	return count, err
 }
 
+const countParkedUploads = `-- name: CountParkedUploads :one
+SELECT COUNT(*) FROM uploads
+WHERE user_id = ?1
+  AND ((status = 'pending' AND expires_at >= ?2)
+    OR (status = 'received' AND received_at >= ?3))
+`
+
+type CountParkedUploadsParams struct {
+	UserID        string
+	Now           int64
+	ReceivedAfter sql.NullInt64
+}
+
+// Uploads of a user that can still be sent or deployed.
+func (q *Queries) CountParkedUploads(ctx context.Context, arg CountParkedUploadsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countParkedUploads, arg.UserID, arg.Now, arg.ReceivedAfter)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteAppRow = `-- name: DeleteAppRow :exec
 DELETE FROM apps WHERE id = ?
 `
