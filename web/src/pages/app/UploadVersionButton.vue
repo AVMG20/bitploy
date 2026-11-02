@@ -42,7 +42,7 @@ watch(open, (o) => {
   homePage.value = app.data.value?.home_page ?? ''
 })
 
-const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value) : null))
+const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson) : null))
 const ready = computed(() => !!choice.value && detected.value?.kind !== 'none')
 const buttonLabel = computed(() => (checking.value ? 'Checking your files...' : busy.value ? `Sending... ${Math.round(sent.value * 100)}%` : 'Deploy'))
 

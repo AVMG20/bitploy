@@ -32,11 +32,23 @@ func (s *Service) ListTemplates(ctx context.Context, a Actor) ([]Template, error
 
 // GetTemplate returns one stack; unknown stacks → template_unknown listing the stacks.
 func (s *Service) GetTemplate(ctx context.Context, a Actor, stack string) (Template, error) {
-	t, ok := templates.Get(stack)
+	return s.GetTemplateForFiles(ctx, a, stack, nil)
+}
+
+// GetTemplateForFiles is GetTemplate with the project's file paths: the
+// Dockerfile then matches the project's package manager (npm, pnpm, yarn, bun).
+func (s *Service) GetTemplateForFiles(ctx context.Context, a Actor, stack string, files []string) (Template, error) {
+	var t templates.Template
+	var ok bool
+	if len(files) > 0 {
+		t, ok = templates.ForFiles(stack, files)
+	} else {
+		t, ok = templates.Get(stack)
+	}
 	if !ok {
 		return Template{}, apperr.NotFound("template_unknown",
 			"There is no template called "+quote(strings.TrimSpace(stack))+".",
-			"Choose one of: "+strings.Join(templates.Stacks, ", ")+". Use static for plain HTML files, node for a Node.js server, node-spa for a Vue/React/Vite site, and generic for anything else.").
+			"Choose one of: "+strings.Join(templates.Stacks, ", ")+". Use static for plain HTML files, node for a Node.js server, node-spa for a Vue/React/Vite site, node-static for Astro/Eleventy, nextjs, django, laravel, and generic for anything else.").
 			WithNext("get_template")
 	}
 	return templateFrom(t), nil

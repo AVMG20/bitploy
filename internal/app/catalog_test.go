@@ -11,6 +11,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/config"
 	"github.com/AVMG20/bitploy/internal/store"
+	"github.com/AVMG20/bitploy/internal/templates"
 )
 
 func catalogService(t *testing.T) *Service {
@@ -33,16 +34,20 @@ func TestCatalogTemplates(t *testing.T) {
 	s := catalogService(t)
 	ctx := context.Background()
 	list, err := s.ListTemplates(ctx, Actor{})
-	if err != nil || len(list) != 7 {
+	if err != nil || len(list) != len(templates.Stacks) {
 		t.Fatalf("list = %d, %v", len(list), err)
 	}
 	tpl, err := s.GetTemplate(ctx, Actor{}, "node")
 	if err != nil || !strings.HasPrefix(tpl.Dockerfile, "FROM node:") {
 		t.Fatalf("node = %+v, %v", tpl, err)
 	}
+	tpl, err = s.GetTemplateForFiles(ctx, Actor{}, "node", []string{"package.json", "pnpm-lock.yaml"})
+	if err != nil || !strings.Contains(tpl.Dockerfile, "pnpm install --frozen-lockfile") {
+		t.Fatalf("node for pnpm = %+v, %v", tpl, err)
+	}
 	_, err = s.GetTemplate(ctx, Actor{}, "cobol")
 	ae := apperr.As(err)
-	if ae.Code != "template_unknown" || ae.HTTPStatus != 404 || !strings.Contains(ae.Hint, "static, node, node-spa, python, go, php, generic") {
+	if ae.Code != "template_unknown" || ae.HTTPStatus != 404 || !strings.Contains(ae.Hint, strings.Join(templates.Stacks, ", ")) {
 		t.Errorf("err = %+v", ae)
 	}
 }

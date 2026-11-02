@@ -415,3 +415,57 @@ func TestUploadAndDeployRules(t *testing.T) {
 		t.Errorf("second upload: %v", err)
 	}
 }
+
+func TestPipelineBuildsNodeProjectsWithoutDockerfile(t *testing.T) {
+	vite := map[string]string{
+		"package.json":      `{"scripts":{"build":"vite build"},"devDependencies":{"vite":"^5"}}`,
+		"package-lock.json": "{}",
+		"index.html":        "<div id=app></div>",
+		"user.txt":          "mine",
+	}
+	start := map[string]string{
+		"package.json":      `{"scripts":{"start":"node server.js"}}`,
+		"package-lock.json": "{}",
+		"server.js":         "x",
+	}
+	t.Run("vite site", func(t *testing.T) {
+		e := depTestSvc(t)
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, vite))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if p.app.DockerfilePath != deploy.NodeSPADockerfilePath || p.port != 8080 {
+			t.Errorf("app %q port %d", p.app.DockerfilePath, p.port)
+		}
+		if df, err := os.ReadFile(filepath.Join(p.srcRoot, deploy.NodeSPADockerfilePath)); err != nil || !strings.Contains(string(df), "nginx") {
+			t.Errorf("generated Dockerfile: %v %q", err, df)
+		}
+		if strings.Contains(strings.Join(p.ring.Lines(), "\n"), deploy.CodeNoHealthcheck) {
+			t.Errorf("the log talks about the template's HEALTHCHECK: %v", p.ring.Lines())
+		}
+	})
+	t.Run("start script", func(t *testing.T) {
+		e := depTestSvc(t)
+		p, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, start))
+		if ae != nil {
+			t.Fatalf("validate: %v", ae)
+		}
+		if p.app.DockerfilePath != deploy.NodeDockerfilePath || p.port != 3000 {
+			t.Errorf("app %q port %d", p.app.DockerfilePath, p.port)
+		}
+	})
+	t.Run("nothing to run is still refused", func(t *testing.T) {
+		e := depTestSvc(t)
+		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{BuildMode: "auto"}), makeZipBytes(t, map[string]string{"package.json": `{"scripts":{"test":"x"}}`}))
+		if ae == nil || ae.Code != deploy.CodeNothingToBuild {
+			t.Fatalf("validate: %v", ae)
+		}
+	})
+	t.Run("dockerfile mode still needs a Dockerfile", func(t *testing.T) {
+		e := depTestSvc(t)
+		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{}), makeZipBytes(t, start))
+		if ae == nil {
+			t.Fatal("an app in dockerfile mode must refuse a project without a Dockerfile")
+		}
+	})
+}

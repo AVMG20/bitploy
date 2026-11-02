@@ -483,3 +483,26 @@ export interface BackupList {
   /** The biggest backup file that can be uploaded right now. */
   upload_max_bytes: number
 }
+
+// ---------------------------------------------------------------------------
+// Files in /data
+// ---------------------------------------------------------------------------
+export type DataFileType = 'file' | 'dir' | 'symlink' | 'other'
+
+export interface DataFile {
+  name: string
+  type: DataFileType
+  /** Bytes; 0 for everything but a file. */
+  size: number
+  modified_at: string
+}
+
+export interface DataFileList {
+  /** The folder, relative to /data; empty for /data itself. */
+  path: string
+  items: DataFile[]
+  /** There are more items in this folder than the list holds. */
+  truncated: boolean
+  /** The biggest file that can be uploaded now. */
+  upload_max_bytes: number
+}

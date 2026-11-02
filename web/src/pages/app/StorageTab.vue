@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { keys, useApp, useBackups, useMe } from '@/composables/queries'
+import DataFiles from '@/pages/app/DataFiles.vue'
 import { api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
@@ -321,6 +322,8 @@ const kindLabel: Record<BackupKind, string> = {
         </FormScope>
       </CardContent>
     </Card>
+
+    <DataFiles v-if="data.volume" :slug="slug" :running="data.status === 'running'" />
 
     <Card>
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">

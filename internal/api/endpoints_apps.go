@@ -11,6 +11,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/templates"
 )
 
 type AppRef struct {
@@ -54,11 +55,14 @@ func (a *API) appRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getTemplate", Method: http.MethodGet, Path: "/templates/{stack}", Tags: []string{"Templates"},
-		Summary: "Get a Dockerfile template", Description: "Stacks: static, node, node-spa, python, go, php, generic.",
+		Summary: "Get a Dockerfile template",
+		Description: "Stacks: " + strings.Join(templates.Stacks, ", ") + ". " +
+			"Pass the project's file paths in `file` (repeat it) so the Dockerfile matches the package manager (npm, pnpm, yarn, bun; pip, uv, Poetry).",
 	}, func(ctx context.Context, act app.Actor, in *struct {
-		Stack string `path:"stack"`
+		Stack string   `path:"stack"`
+		Files []string `query:"file,explode" doc:"A project file path, relative with forward slashes; repeat for each file"`
 	}) (*Out[app.Template], error) {
-		return okOrNil(a.svc.GetTemplate(ctx, act, in.Stack))
+		return okOrNil(a.svc.GetTemplateForFiles(ctx, act, in.Stack, in.Files))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "validateDockerfile", Method: http.MethodPost, Path: "/dockerfile/validate", Tags: []string{"Templates"},

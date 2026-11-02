@@ -322,7 +322,21 @@ func (s *Service) checkBackupFile(ctx context.Context, app db.App, b db.AppBacku
 	if errors.Is(err, errTarTooBig) {
 		return problem("the files in the backup are bigger than the /data limit of the app")
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// The tar reader stops at the end-of-archive marker. Read the rest of the
+	// gzip stream too, so a file cut off after it (or with a bad checksum) is
+	// found here and not halfway through the restore. Only this member is
+	// checked: data after it is not read by the restore either.
+	gz.Multistream(false)
+	if _, err := io.Copy(io.Discard, gz); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return problem("the backup file is damaged")
+	}
+	return nil
 }
 
 // setRestoreMarker records on the app that a restore is under way, so that a

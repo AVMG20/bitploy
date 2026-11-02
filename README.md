@@ -185,6 +185,7 @@ Each app with `/data` turned on has a **Storage** tab in the dashboard with a Ba
 - Backups count towards the owner's storage allowance. A manual backup or upload that does not fit is refused; an automatic one is skipped and shows why in the list.
 - A running app is paused (`docker pause`) while its files are read, so the copy is consistent. Deleting an app deletes its backups; turning `/data` off keeps them.
 - The API: `GET/POST /api/v1/apps/{app}/backups`, `DELETE /api/v1/apps/{app}/backups/{id}`, `POST .../{id}/restore`, `PUT /api/v1/apps/{app}/backup-settings`, `DELETE /api/v1/apps/{app}/backup-restore` (dismiss a finished restore), `GET .../{id}/download` (a plain link works with the session cookie, or use a bearer token with the deploy scope; a read-only token cannot download) and `POST /api/v1/apps/{app}/backups/upload` (the raw `.tar.gz` as the body).
+- The file browser (Storage tab, only with /data on): `GET /api/v1/apps/{app}/files?path=` (list a folder), `GET .../files/download?path=` (a plain link works with the session cookie; deploy scope for a token), `POST .../files/upload?path=<folder>&name=<file>[&overwrite=true]` (raw body, up to 100 MB), `POST .../files/folder` and `DELETE .../files?path=`.
 - These files are on the same disk as bitploy. `deploy/backup.sh` does not copy them off the server; it backs up the app volumes themselves.
 
 ### Server backups

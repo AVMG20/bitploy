@@ -865,7 +865,7 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 // content of the few small files the checks read.
 func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
 	ctxDir := path.Clean(row.ContextDir)
-	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
+	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, "package.json": true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
 	files, contents, err := deploy.ZipSource(zipPath, true, func(rel string) bool { return wanted[rel] }, 1<<20)
 	if err != nil {
 		return err

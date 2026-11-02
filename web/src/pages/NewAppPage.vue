@@ -76,7 +76,7 @@ const homePage = ref('')
 const volume = ref(false)
 
 // What the server will make of the files; null for GitHub or a zip this page could not read.
-const detected = computed(() => (source.value === 'upload' && upload.value?.paths ? detectSource(upload.value.paths, mode.value, homePage.value) : null))
+const detected = computed(() => (source.value === 'upload' && upload.value?.paths ? detectSource(upload.value.paths, mode.value, homePage.value, 'Dockerfile', upload.value.packageJson) : null))
 
 const sourceReady = computed(() => {
   if (source.value === 'github') return !!repo.value
@@ -233,7 +233,7 @@ const submit = form.handleSubmit(run)
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
           <template v-if="source === 'github'">
-            <p v-if="repo" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository, or an index.html for a plain website.</p>
+            <p v-if="repo" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
           </template>
 
           <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :disabled="busy" />
@@ -246,7 +246,7 @@ const submit = form.handleSubmit(run)
             <div class="grid gap-1">
               <Label for="new-volume">Keep files in /data</Label>
               <p class="text-[0.8rem] text-muted-foreground">
-                Files your app saves in <span class="font-mono">/data</span>, like uploads or a database, are kept between deploys. While this is on, each deploy takes the app offline for a few seconds.
+                Turn this on if your app uses a database. Bitploy apps use SQLite, a database kept as a file in <span class="font-mono">/data</span>. Uploads saved there are kept too. While this is on, each deploy takes the app offline for a few seconds.
               </p>
             </div>
             <Switch id="new-volume" v-model="volume" :disabled="busy" />

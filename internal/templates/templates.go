@@ -12,14 +12,18 @@ import (
 //go:embed static/Dockerfile static/.dockerignore static/README.md
 //go:embed node/Dockerfile node/.dockerignore node/README.md
 //go:embed node-spa/Dockerfile node-spa/.dockerignore node-spa/README.md
+//go:embed node-static/Dockerfile node-static/.dockerignore node-static/README.md
+//go:embed nextjs/Dockerfile nextjs/.dockerignore nextjs/README.md
 //go:embed python/Dockerfile python/.dockerignore python/README.md
+//go:embed django/Dockerfile django/.dockerignore django/README.md
 //go:embed go/Dockerfile go/.dockerignore go/README.md
 //go:embed php/Dockerfile php/.dockerignore php/README.md
+//go:embed laravel/Dockerfile laravel/.dockerignore laravel/README.md
 //go:embed generic/Dockerfile generic/.dockerignore generic/README.md
 var files embed.FS
 
 // Stacks in the order shown to agents.
-var Stacks = []string{"static", "node", "node-spa", "python", "go", "php", "generic"}
+var Stacks = []string{"static", "node-spa", "node-static", "node", "nextjs", "python", "django", "go", "php", "laravel", "generic"}
 
 type Template struct {
 	Stack        string

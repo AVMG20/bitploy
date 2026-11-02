@@ -42,7 +42,7 @@ func changeRules() map[string]string {
 		"port_health_path_etc":    "update_app, then deploy with only app= (rebuilds the last source, no files needed)",
 		"slug_rename":             "update_app slug: applies at once, the URL changes, a few seconds of downtime; files in /data are kept",
 		"storage_limit":           "update_app volume_mb: applies at once, within the account's storage allowance",
-		"persistent_files":        "update_app volume=true, restart_app; the app writes to /data and its user must own /data",
+		"persistent_files":        "new app: create_app volume=true; existing app: update_app volume=true, restart_app; the app writes to /data and its user must own /data",
 		"back_to_working_version": "rollback (only when the user asks)",
 	}
 }
@@ -406,7 +406,7 @@ func failureSteps(d app.Deployment) []string {
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
 	case "build_failed":
-		out = append(out, "Read log_tail: the first error line is the cause (a missing file, a wrong package name, a missing package-lock.json for npm ci). Fix it, then "+redo+".")
+		out = append(out, "Read log_tail: the first error line is the cause (a missing file, a wrong package name, a missing package-lock.json for npm ci). node-gyp or better-sqlite3 errors on Alpine: RUN apk add --no-cache python3 make g++ before npm ci. Prisma on Alpine: RUN apk add --no-cache openssl. Fix it, then "+redo+".")
 	case "start_failed":
 		out = append(out, "Check the Dockerfile's CMD/ENTRYPOINT, then "+redo+". If the message says it is a server problem, tell the user to contact the bitploy admin.")
 	case "unhealthy", "out_of_memory", "app_crashed":

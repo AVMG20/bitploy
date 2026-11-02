@@ -8,7 +8,10 @@ export type Detected =
   | { kind: 'dockerfile'; label: string }
   /** home: the page served at "/" when it is not index.html. choices: the pages to pick it from, when there are several. */
   | { kind: 'static'; label: string; home?: string; choices?: string[] }
-  | { kind: 'none'; label: string; message: string; hint: string; choices?: string[] }
+  /** A Node project without a Dockerfile that bitploy builds from its own template. known: package.json was read here; false: the server looks at it when you deploy. */
+  | { kind: 'template'; label: string; known: boolean; build?: boolean }
+  /** assistant: the dashboard adds a line that points to the Connect page. */
+  | { kind: 'none'; label: string; message: string; hint: string; choices?: string[]; assistant?: boolean }
 
 const NOTHING_HINT = 'Add a Dockerfile, or an index.html for a plain website, at the top of the folder.'
 
@@ -16,8 +19,12 @@ function cleanRel(p: string): string {
   return p.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '')
 }
 
+// The order of the server's DetectStack (internal/deploy/dockerfile.go): a
+// Laravel or Django project is not a Node project, even with a package.json.
 function language(top: Set<string>): string {
   if (top.has('go.mod')) return 'Go'
+  if (top.has('artisan')) return 'PHP'
+  if (top.has('manage.py')) return 'Python'
   if (top.has('package.json')) return 'Node.js'
   if (top.has('requirements.txt') || top.has('pyproject.toml')) return 'Python'
   if (top.has('composer.json') || top.has('index.php')) return 'PHP'
@@ -29,6 +36,33 @@ function language(top: Set<string>): string {
 function otherCase(files: Set<string>, want: string): string {
   for (const f of files) if (f !== want && f.toLowerCase() === want.toLowerCase()) return f
   return ''
+}
+
+/**
+ * The server's nodePlan (buildmode.go): a Vite site (a build script, vite and
+ * index.html at the top) is built and served with nginx, else a project with a
+ * start script is run with it, after its build script if it has one.
+ * null: neither, or a package.json that cannot be read.
+ */
+function nodeTemplate(packageJson: string, hasIndex: boolean): Detected | null {
+  let pkg: unknown
+  try {
+    pkg = JSON.parse(packageJson)
+  } catch {
+    return null
+  }
+  if (typeof pkg !== 'object' || pkg === null) return null
+  const obj = pkg as Record<string, unknown>
+  const group = (k: string): Record<string, unknown> => {
+    const v = obj[k]
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+  }
+  const scripts = group('scripts')
+  const has = (name: string) => typeof scripts[name] === 'string' && (scripts[name] as string).trim() !== ''
+  const vite = 'vite' in group('dependencies') || 'vite' in group('devDependencies')
+  if (has('build') && vite && hasIndex) return { kind: 'template', label: 'Vite site', known: true }
+  if (has('start')) return { kind: 'template', label: 'Node.js app', known: true, build: has('build') }
+  return null
 }
 
 function renamed(got: string, want: string): Detected {
@@ -85,9 +119,17 @@ function homePageOf(files: Set<string>, chosen: string): Detected | null {
  * What a source is built as. `paths` are the files relative to the project root
  * (a wrapping folder already removed). `mode` is "auto" (a Dockerfile, else an
  * index.html, else the only page or the chosen `homePage`), or an override:
- * "static" or "dockerfile".
+ * "static" or "dockerfile". `packageJson` is the text of package.json at the
+ * top of the project; null when it could not be read here (a zip this page
+ * cannot open), which gives a neutral preview for a Node project.
  */
-export function detectSource(paths: string[], mode: BuildMode = 'auto', homePage = '', dockerfilePath = 'Dockerfile'): Detected {
+export function detectSource(
+  paths: string[],
+  mode: BuildMode = 'auto',
+  homePage = '',
+  dockerfilePath = 'Dockerfile',
+  packageJson: string | null = null,
+): Detected {
   const files = new Set(paths.map(cleanRel))
   const top = new Set<string>()
   for (const f of files) if (!f.includes('/')) top.add(f.toLowerCase())
@@ -120,6 +162,11 @@ export function detectSource(paths: string[], mode: BuildMode = 'auto', homePage
   if (hasIndex && lang === '') return { kind: 'static', label: 'Static site' }
   const otherDockerfile = otherCase(files, dockerfilePath)
   if (otherDockerfile) return renamed(otherDockerfile, dockerfilePath)
+  if (lang === 'Node.js' && files.has('package.json')) {
+    if (packageJson === null) return { kind: 'template', label: 'Node.js project', known: false }
+    const node = nodeTemplate(packageJson, hasIndex)
+    if (node) return node
+  }
   if (lang === '') {
     const home = homePageOf(files, homePage)
     if (home) return home
@@ -130,7 +177,8 @@ export function detectSource(paths: string[], mode: BuildMode = 'auto', homePage
       label: 'Needs a build first',
       message: `No Dockerfile found. This is a ${lang} project, so it has to be built before it can be shown.`,
       hint: 'Add a Dockerfile, or upload the built website instead, usually the dist or build folder.',
+      assistant: true,
     }
   }
-  return { kind: 'none', label: 'Nothing to build', message: 'No Dockerfile or index.html found.', hint: NOTHING_HINT }
+  return { kind: 'none', label: 'Nothing to build', message: 'No Dockerfile or index.html found.', hint: NOTHING_HINT, assistant: true }
 }

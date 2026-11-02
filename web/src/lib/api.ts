@@ -9,6 +9,8 @@ import type {
   BackupList,
   BackupRestore,
   BackupSettings,
+  DataFile,
+  DataFileList,
   Deployment,
   Domain,
   EnvVar,
@@ -87,6 +89,10 @@ export const paths = {
   appBackupUpload: (slug: string) => `${V1}/apps/${enc(slug)}/backups/upload`,
   appBackupSettings: (slug: string) => `${V1}/apps/${enc(slug)}/backup-settings`,
   appBackupRestoreState: (slug: string) => `${V1}/apps/${enc(slug)}/backup-restore`,
+  appFiles: (slug: string) => `${V1}/apps/${enc(slug)}/files`,
+  appFileFolder: (slug: string) => `${V1}/apps/${enc(slug)}/files/folder`,
+  appFileDownload: (slug: string) => `${V1}/apps/${enc(slug)}/files/download`,
+  appFileUpload: (slug: string) => `${V1}/apps/${enc(slug)}/files/upload`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
@@ -396,6 +402,22 @@ export const api = {
   dismissBackupRestore: (slug: string) => request<void>('DELETE', paths.appBackupRestoreState(slug)),
   uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void) =>
     uploadFile<Backup>(paths.appBackupUpload(slug), file, onProgress, onSent),
+
+  // files in /data
+  files: (slug: string, path: string) => request<DataFileList>('GET', paths.appFiles(slug), { query: { path } }),
+  makeFolder: (slug: string, path: string, name: string) =>
+    request<DataFile>('POST', paths.appFileFolder(slug), { body: { path, name } }),
+  deleteDataFile: (slug: string, path: string) => request<void>('DELETE', paths.appFiles(slug), { query: { path } }),
+  /** A plain link: the browser downloads it with the session cookie. */
+  dataFileDownloadUrl: (slug: string, path: string) => buildUrl(paths.appFileDownload(slug), { path }),
+  uploadDataFile: (slug: string, folder: string, file: File, overwrite: boolean, onProgress?: (fraction: number) => void, onSent?: () => void) =>
+    uploadFile<DataFile>(
+      buildUrl(paths.appFileUpload(slug), { path: folder, name: file.name, overwrite: overwrite ? 'true' : undefined }),
+      file,
+      onProgress,
+      onSent,
+      'application/octet-stream',
+    ),
 
   // admin
   async adminUsers(): Promise<AdminUser[]> {

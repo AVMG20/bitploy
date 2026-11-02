@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { CircleCheck, FileArchive, FileCode, FolderUp, TriangleAlert, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -13,10 +14,12 @@ import {
   collectFromDrop,
   collectFromFileList,
   listZipNames,
+  readZipText,
   MAX_FILES,
   MAX_UNPACKED_BYTES,
   MAX_ZIP_BYTES,
   serverLayout,
+  zipNameAtTop,
   ZipTooBigError,
 } from '@/lib/zip'
 import type { Collected } from '@/lib/zip'
@@ -35,6 +38,8 @@ export interface UploadChoice {
   fileCount: number | null
   /** File paths in the project, wrapping folder removed; null when a zip could not be read here. */
   paths: string[] | null
+  /** The text of package.json at the top of the project; null when there is none or it could not be read here. */
+  packageJson: string | null
   skipped: string[]
 }
 
@@ -46,6 +51,7 @@ const mode = defineModel<BuildMode>('mode', { default: 'auto' })
 const homePage = defineModel<string>('homePage', { default: '' })
 
 const MB = 1024 * 1024
+const MAX_PACKAGE_JSON = 1 << 20
 const folderInput = ref<HTMLInputElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const over = ref(false)
@@ -53,7 +59,7 @@ const error = ref('')
 const packing = ref<{ done: number; total: number } | null>(null)
 let abort: AbortController | null = null
 
-const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value) : null))
+const detected = computed(() => (choice.value?.paths ? detectSource(choice.value.paths, mode.value, homePage.value, 'Dockerfile', choice.value.packageJson) : null))
 const homeChoices = computed(() => (detected.value?.kind === 'none' || detected.value?.kind === 'static' ? (detected.value.choices ?? null) : null))
 // Several pages: start from a guess (or the page chosen before, when the new
 // files still have it), so the person only changes it when it is wrong.
@@ -95,6 +101,8 @@ async function takeFolder(c: Collected) {
   packing.value = { done: 0, total: c.files.length }
   try {
     const zip = await buildZip(c.files, (p) => (packing.value = p), signal)
+    const pkg = c.files.find((f) => f.path === 'package.json')
+    const packageJson = pkg && pkg.file.size <= MAX_PACKAGE_JSON ? await pkg.file.text().catch(() => null) : null
     const page = !c.root && c.files.length === 1 && isPage(c.files[0]!.path)
     choice.value = {
       zip,
@@ -103,6 +111,7 @@ async function takeFolder(c: Collected) {
       fileCount: c.files.length,
       // The server removes a single top folder from the zip once more.
       paths: serverLayout(c.files.map((f) => f.path)),
+      packageJson,
       skipped: c.skipped,
     }
   } catch (e) {
@@ -124,12 +133,15 @@ async function takeZip(file: File) {
     error.value = 'That zip is empty.'
     return
   }
+  const pkgName = names && kept?.includes('package.json') ? zipNameAtTop(names, 'package.json') : null
+  const packageJson = pkgName ? await readZipText(file, pkgName, MAX_PACKAGE_JSON) : null
   choice.value = {
     zip: file,
     name: file.name,
     from: 'zip',
     fileCount: kept ? kept.length : null,
     paths: kept,
+    packageJson,
     skipped: [],
   }
 }
@@ -286,8 +298,25 @@ onBeforeUnmount(() => abort?.abort())
             </SelectContent>
           </Select>
         </div>
-        <p v-if="detected.kind === 'none'" class="text-destructive">
-          {{ detected.message }} <span class="font-medium">{{ detected.hint }}</span>
+        <template v-if="detected.kind === 'none'">
+          <p class="text-destructive">
+            {{ detected.message }} <span class="font-medium">{{ detected.hint }}</span>
+          </p>
+          <p v-if="detected.assistant" class="text-xs text-muted-foreground">
+            Or ask your AI assistant to <RouterLink to="/connect" class="underline underline-offset-2 hover:text-foreground">deploy this folder</RouterLink>.
+          </p>
+        </template>
+        <p v-else-if="detected.kind === 'template' && detected.known && detected.label === 'Vite site'" class="text-xs text-muted-foreground">
+          Bitploy builds your site and serves the result as a website.
+        </p>
+        <p v-else-if="detected.kind === 'template' && detected.known && detected.build" class="text-xs text-muted-foreground">
+          Bitploy runs the build script from package.json, then starts your app with the start script.
+        </p>
+        <p v-else-if="detected.kind === 'template' && detected.known" class="text-xs text-muted-foreground">
+          Bitploy runs your app with the start script from package.json.
+        </p>
+        <p v-else-if="detected.kind === 'template'" class="text-xs text-muted-foreground">
+          There is no Dockerfile. Bitploy reads package.json when you deploy and builds the project if it can.
         </p>
         <p v-else-if="detected.kind === 'static' && homeChoices" class="text-xs text-muted-foreground">
           Bitploy serves these files as a website. There is no index.html, so people see the home page first.

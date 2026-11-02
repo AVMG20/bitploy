@@ -307,6 +307,11 @@ func (s *Service) recoverAfterCrash(ctx context.Context) {
 			}
 		}
 	}
+	// Files uploaded to /data wait here until they have arrived (UploadFile).
+	tmps, _ := filepath.Glob(s.Cfg.Path("tmp", "file-*"))
+	for _, t := range tmps {
+		_ = os.Remove(t)
+	}
 	if s.Docker != nil && s.backup.vol == nil {
 		removed, resumed, err := s.Docker.CleanupHelpers(ctx)
 		if err != nil {

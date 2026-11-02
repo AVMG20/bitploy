@@ -25,6 +25,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.accountRoutes()
 	a.appRoutes()
 	a.backupRoutes()
+	a.filesRoutes()
 	a.githubRoutes()
 	a.adminRoutes()
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })
@@ -55,6 +56,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 		return withMeta(svc.Cfg, next)
 	}
 	a.backupFileRoutes(mux, fileWrap)
+	a.fileStreamRoutes(mux, fileWrap)
 	// Upload a zip and deploy it in one request (the dashboard's upload).
 	mux.Handle("POST "+prefix+"/apps/{app}/upload", fileWrap(readDeadline(uploadReadTimeout, http.HandlerFunc(a.appUpload))))
 

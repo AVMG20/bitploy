@@ -39,6 +39,9 @@ const (
 	CodeNoHealthcheck     = "no_healthcheck"
 	CodeBaseForbidden     = "base_image_forbidden"
 	CodePortReserved      = "port_reserved"
+	CodeComposeIgnored    = "compose_ignored"
+	CodeDatabaseInImage   = "database_server_in_image"
+	CodeLockfileMismatch  = "lockfile_mismatch"
 )
 
 // ReservedPort is Traefik's internal entrypoint. firewall.sh drops connections
@@ -83,7 +86,7 @@ type CheckResult struct {
 	Findings       []Finding // sorted: errors, then warnings, then info
 	Port           int       // resolved port: app port, else the single EXPOSE of the final stage
 	HasHealthcheck bool      // final stage has a HEALTHCHECK (not NONE)
-	Stack          string    // detected stack from Files (static, node, python, go, php) or ""
+	Stack          string    // detected stack from Files (see DetectStack) or ""
 }
 
 const (
@@ -232,11 +235,22 @@ func CheckDockerfile(in CheckInput) CheckResult {
 		add(f)
 	}
 
+	// Database servers installed into the image.
+	for _, f := range g.databaseServers() {
+		add(f)
+	}
+
 	// Files in the build context.
 	if len(in.Files) > 0 {
 		files := make([]string, 0, len(in.Files))
 		for _, f := range in.Files {
 			files = append(files, cleanRel(f))
+		}
+		if f, ok := composeFinding(files); ok {
+			add(f)
+		}
+		if f, ok := g.lockfileMismatch(files); ok {
+			add(f)
 		}
 		ignored := newIgnorer(in.Dockerignore)
 		hasIgnoreFile := in.Dockerignore != nil || containsString(files, ".dockerignore")
@@ -736,9 +750,25 @@ func DetectStack(files []string) string {
 			page = page || IsHTMLName(f)
 		}
 	}
+	hasTop := func(prefix string) bool {
+		for _, ext := range []string{".js", ".mjs", ".cjs", ".ts", ".mts"} {
+			if top[prefix+ext] {
+				return true
+			}
+		}
+		return false
+	}
 	switch {
 	case top["go.mod"]:
 		return "go"
+	case top["artisan"]:
+		return "laravel"
+	case top["manage.py"]:
+		return "django"
+	case hasTop("next.config"):
+		return "nextjs"
+	case hasTop("astro.config"):
+		return "node-static"
 	case top["package.json"]:
 		return "node"
 	case top["requirements.txt"] || top["pyproject.toml"]:
@@ -816,6 +846,14 @@ func describeStack(stack string) string {
 		return " This looks like a Go project (go.mod)."
 	case "php":
 		return " This looks like a PHP project."
+	case "laravel":
+		return " This looks like a Laravel project (artisan)."
+	case "django":
+		return " This looks like a Django project (manage.py)."
+	case "nextjs":
+		return " This looks like a Next.js project (next.config)."
+	case "node-static":
+		return " This looks like a static site built with Node (astro.config)."
 	}
 	return " Bitploy could not tell what kind of project this is."
 }
@@ -886,4 +924,160 @@ func (g *graph) forbiddenImages() []Finding {
 		}
 	}
 	return out
+}
+
+// ---- compose, database servers, lock files ----
+
+var composeNames = map[string]bool{"docker-compose.yml": true, "docker-compose.yaml": true, "compose.yml": true, "compose.yaml": true}
+
+func composeFinding(files []string) (Finding, bool) {
+	for _, f := range files {
+		if !strings.Contains(f, "/") && composeNames[strings.ToLower(f)] {
+			return Finding{
+				Code:     CodeComposeIgnored,
+				Severity: sevWarning,
+				Message:  fmt.Sprintf("The project has %s, but bitploy only builds the Dockerfile. Other services in it (a database, Redis) do not run.", f),
+				Hint:     "Run one container per app. Use SQLite in /data instead of a database server (create_app with volume=true), and an in-process or file cache instead of Redis.",
+			}, true
+		}
+	}
+	return Finding{}, false
+}
+
+// dbServerPkg matches packages that install a database server, not client libraries.
+var dbServerPkg = regexp.MustCompile(`^(postgresql(-?\d+(\.\d+)?)?|postgresql\d*-server|postgresql-server|(default-)?mysql-server|mysql-community-server|mariadb|mariadb-server|redis|redis-server|valkey|valkey-server|mongodb|mongodb-org(-server)?)$`)
+
+var shellSplit = regexp.MustCompile(`&&|\|\||[;|\n]`)
+
+// installedPackages returns the packages named by apt-get/apt/apk/yum/dnf/microdnf install commands in a RUN line.
+func installedPackages(cmd string) []string {
+	cmd = strings.ReplaceAll(cmd, "\\\n", " ")
+	var pkgs []string
+	for _, seg := range shellSplit.Split(cmd, -1) {
+		toks := strings.Fields(seg)
+		tool := -1
+		for i, t := range toks {
+			switch path.Base(t) {
+			case "apt-get", "apt", "apk", "yum", "dnf", "microdnf":
+				tool = i
+			}
+			if tool >= 0 {
+				break
+			}
+		}
+		if tool < 0 {
+			continue
+		}
+		verb := false
+		for _, t := range toks[tool+1:] {
+			if !verb {
+				verb = t == "install" || t == "add"
+				continue
+			}
+			if strings.HasPrefix(t, "-") || strings.Contains(t, "$") {
+				continue
+			}
+			t = strings.Trim(t, "\"'")
+			if i := strings.IndexAny(t, "=<>~"); i > 0 {
+				t = t[:i]
+			}
+			pkgs = append(pkgs, t)
+		}
+	}
+	return pkgs
+}
+
+// runText is the command of a RUN line, including heredoc bodies.
+func runText(c *instructions.RunCommand) string {
+	parts := append([]string{}, c.CmdLine...)
+	for _, f := range c.Files {
+		parts = append(parts, f.Data)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// databaseServers reports RUN lines in any stage that install a database server.
+func (g *graph) databaseServers() []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	for _, st := range g.stages {
+		for _, c := range st.Commands {
+			run, ok := c.(*instructions.RunCommand)
+			if !ok {
+				continue
+			}
+			for _, p := range installedPackages(runText(run)) {
+				if !dbServerPkg.MatchString(p) || seen[p] {
+					continue
+				}
+				seen[p] = true
+				out = append(out, Finding{
+					Code:     CodeDatabaseInImage,
+					Severity: sevWarning,
+					Line:     firstLine(run.Location()),
+					Message:  fmt.Sprintf("The Dockerfile installs %s. An app is one container with one main process, so a database server in the image will not run next to the app.", p),
+					Hint:     "Use SQLite with the file in /data (create_app with volume=true; for example /data/app.db) and remove the install. For Redis use an in-process cache or a SQLite-backed queue. Or use an external hosted database and set its URL with set_env.",
+				})
+			}
+		}
+	}
+	return out
+}
+
+// runsNpmCi reports whether any RUN line calls `npm ci`.
+func (g *graph) runsNpmCi() (int, bool) {
+	for _, st := range g.stages {
+		for _, c := range st.Commands {
+			run, ok := c.(*instructions.RunCommand)
+			if !ok {
+				continue
+			}
+			for _, seg := range shellSplit.Split(runText(run), -1) {
+				toks := strings.Fields(seg)
+				for i := 0; i+1 < len(toks); i++ {
+					if toks[i] == "npm" && toks[i+1] == "ci" {
+						return firstLine(run.Location()), true
+					}
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// lockfileMismatch flags `npm ci` in a project whose lock file belongs to another package manager.
+func (g *graph) lockfileMismatch(files []string) (Finding, bool) {
+	line, ok := g.runsNpmCi()
+	if !ok {
+		return Finding{}, false
+	}
+	top := map[string]bool{}
+	for _, f := range files {
+		if !strings.Contains(f, "/") {
+			top[f] = true
+		}
+	}
+	if top["package-lock.json"] {
+		return Finding{}, false
+	}
+	var lock, hint string
+	switch {
+	case top["pnpm-lock.yaml"]:
+		lock, hint = "pnpm-lock.yaml", "Use `RUN corepack enable && pnpm install --frozen-lockfile` and `COPY package.json pnpm-lock.yaml ./`."
+	case top["yarn.lock"]:
+		lock, hint = "yarn.lock", "Use `RUN corepack enable && yarn install --frozen-lockfile` and `COPY package.json yarn.lock ./`."
+	case top["bun.lock"]:
+		lock, hint = "bun.lock", "Use an oven/bun base image with `bun install --frozen-lockfile`."
+	case top["bun.lockb"]:
+		lock, hint = "bun.lockb", "Use an oven/bun base image with `bun install --frozen-lockfile`."
+	default:
+		return Finding{}, false
+	}
+	return Finding{
+		Code:     CodeLockfileMismatch,
+		Severity: sevWarning,
+		Line:     line,
+		Message:  fmt.Sprintf("The Dockerfile runs npm ci, but the project has %s and no package-lock.json, so npm ci will fail.", lock),
+		Hint:     hint + " Or call get_template with file_list so the Dockerfile matches the project.",
+	}, true
 }

@@ -274,12 +274,16 @@ export async function buildZip(files: PickedFile[], onProgress?: (p: ZipProgress
 // Reading the names in a zip
 // ---------------------------------------------------------------------------
 
-/**
- * The file names inside a zip, read from its table of contents without
- * unpacking anything. Null when the file is not a plain zip this can read
- * (damaged, or zip64): the server still checks it.
- */
-export async function listZipNames(file: Blob): Promise<string[] | null> {
+interface CentralEntry {
+  name: string
+  method: number
+  compressedSize: number
+  size: number
+  localOffset: number
+}
+
+/** The entries of a zip's central directory; null when this cannot read it (damaged, or zip64). */
+async function readCentral(file: Blob): Promise<CentralEntry[] | null> {
   try {
     const tailSize = Math.min(file.size, 22 + 65_535)
     const tail = new DataView(await file.slice(file.size - tailSize).arrayBuffer())
@@ -297,19 +301,65 @@ export async function listZipNames(file: Blob): Promise<string[] | null> {
     if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) return null
     const dir = new DataView(await file.slice(start, start + size).arrayBuffer())
     const dec = new TextDecoder()
-    const names: string[] = []
+    const entries: CentralEntry[] = []
     let p = 0
     while (p + 46 <= dir.byteLength && dir.getUint32(p, true) === 0x02014b50) {
       const nameLen = dir.getUint16(p + 28, true)
       const extraLen = dir.getUint16(p + 30, true)
       const commentLen = dir.getUint16(p + 32, true)
-      names.push(dec.decode(new Uint8Array(dir.buffer, dir.byteOffset + p + 46, nameLen)).replace(/\\/g, '/'))
+      entries.push({
+        name: dec.decode(new Uint8Array(dir.buffer, dir.byteOffset + p + 46, nameLen)).replace(/\\/g, '/'),
+        method: dir.getUint16(p + 10, true),
+        compressedSize: dir.getUint32(p + 20, true),
+        size: dir.getUint32(p + 24, true),
+        localOffset: dir.getUint32(p + 42, true),
+      })
       p += 46 + nameLen + extraLen + commentLen
     }
-    return names.filter((n) => n !== '')
+    return entries.filter((e) => e.name !== '')
   } catch {
     return null
   }
+}
+
+/**
+ * The file names inside a zip, read from its table of contents without
+ * unpacking anything. Null when the file is not a plain zip this can read
+ * (damaged, or zip64): the server still checks it.
+ */
+export async function listZipNames(file: Blob): Promise<string[] | null> {
+  return (await readCentral(file))?.map((e) => e.name) ?? null
+}
+
+/**
+ * The text of one small file in a zip: `name` as listed by listZipNames.
+ * Null when it is not there, too big (over `maxBytes`) or not readable here.
+ */
+export async function readZipText(file: Blob, name: string, maxBytes = 1 << 20): Promise<string | null> {
+  try {
+    const e = (await readCentral(file))?.find((x) => x.name === name)
+    if (!e || e.size > maxBytes || e.compressedSize > maxBytes || (e.method !== 0 && e.method !== 8)) return null
+    const head = new DataView(await file.slice(e.localOffset, e.localOffset + 30).arrayBuffer())
+    if (head.getUint32(0, true) !== 0x04034b50) return null
+    const from = e.localOffset + 30 + head.getUint16(26, true) + head.getUint16(28, true)
+    const raw = file.slice(from, from + e.compressedSize)
+    if (e.method === 0) return await raw.text()
+    if (typeof DecompressionStream === 'undefined') return null
+    return await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The name in a zip's listing of the file the server will see as `rel` at the
+ * top of the project ("package.json" or "my-site/package.json"), or null.
+ */
+export function zipNameAtTop(names: string[], rel: string): string | null {
+  const clean = (n: string) => n.replace(/^\/+/, '')
+  if (names.some((n) => clean(n) === rel)) return names.find((n) => clean(n) === rel)!
+  const wrapped = names.find((n) => /^[^/]+\//.test(clean(n)) && clean(n).slice(clean(n).indexOf('/') + 1) === rel)
+  return wrapped && serverLayout(names).includes(rel) ? wrapped : null
 }
 
 /**

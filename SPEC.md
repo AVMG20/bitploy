@@ -158,7 +158,7 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 **The Dockerfile rule**: a deploy without a Dockerfile at `dockerfile_path` fails at validation with `dockerfile_missing`. There is no buildpack or auto-detect build path. Bitploy does detect the stack only to make the error helpful: `index.html` only → `static`, `package.json` → `node`, `requirements.txt` or `pyproject.toml` → `python`, `go.mod` → `go`, `composer.json` or `index.php` → `php`. The error names the matching template and includes its full text.
 
-**Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one and otherwise serves an `index.html` at the top of the project through the static template (nginx), and fails with `nothing_to_build` when it finds neither. `static` always uses the template. In both, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto`. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
+**Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one and otherwise serves an `index.html` at the top of the project through the static template (nginx), and otherwise builds a Node project from its `package.json`: a Vite site (build script, `vite`, `index.html` at the top) with the `node-spa` template, else a project with a start script with the `node` template (after its build script, if any). It fails with `nothing_to_build` when it finds none of these. `static` always uses the template. In both, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto`. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
 
 **Pipeline**, one row per deployment state:
 
@@ -200,7 +200,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 
 1. Every app is built from a Dockerfile. Bitploy refuses to deploy without one.
    If the project has none, call get_template with the stack (static, node,
-   node-spa, python, go, php, generic), adapt it, and add a .dockerignore.
+   node-spa, node-static, nextjs, python, django, go, php, laravel, generic), adapt it, and add a .dockerignore.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.
@@ -220,8 +220,10 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    explain the problem to the user in plain words.
 7. When it runs, give the user the URL and one or two plain sentences on what
    you did. Assume the user is not technical.
-8. Files that must survive a redeploy go in /data, and only after turning the
-   volume on with update_app.
+8. Files that must survive a redeploy go in /data. A new app gets it with
+   create_app volume=true; an existing app: update_app volume=true, then
+   restart_app.
+   An app is one container: use SQLite in /data, never a database server.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
 ```
@@ -232,7 +234,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | --- | --- | --- | --- |
 | `whoami` | User, quotas, usage, base domain | read | read-only |
 | `get_deploy_rules` | The rules above plus the runtime contract | read | read-only |
-| `get_template(stack)` | Dockerfile + .dockerignore for a stack | read | read-only |
+| `get_template(stack, file_list?)` | Dockerfile + .dockerignore for a stack, adapted to the lock files in `file_list` | read | read-only |
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
 | `list_apps` / `get_app(app)` | Apps with URL, state, current deployment | read | read-only |
 | `create_app(name, type?, slug?, port?, volume?)` | Reserves a subdomain, returns the URL | deploy | — |
@@ -269,11 +271,14 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `no_dockerignore` | warning | `node_modules`, `.git` or `venv` present without a `.dockerignore` |
 | `unpinned_base` | warning | Base image has no tag or uses `latest` |
 | `runs_as_root` | warning | Final stage has no `USER` |
+| `compose_ignored` | warning | A `docker-compose.yml` / `compose.yaml` at the top: only the Dockerfile is built |
+| `database_server_in_image` | warning | A `RUN` installs a database server (postgresql, mysql-server, mariadb-server, redis); use SQLite in `/data` |
+| `lockfile_mismatch` | warning | `npm ci` but the only lock file is pnpm's, yarn's or bun's |
 | `no_healthcheck` | info | Bitploy will use its HTTP check on `health_path` |
 
 When `unhealthy` fires and the runtime log mentions `127.0.0.1` or `localhost`, set the hint to "Your app listens on localhost; make it listen on 0.0.0.0:$PORT". That is the most common noob failure.
 
-**Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node`, `node-spa`, `python`, `go`, `php`, `generic`. The static one shows the style:
+**Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node-spa`, `node-static`, `node`, `nextjs`, `python`, `django`, `go`, `php`, `laravel`, `generic` (`templates.Stacks`). `get_template` with `file_list` adapts the Node and Python ones to the lock file (`templates.ForFiles`: pnpm, yarn, bun, no lock; uv, Poetry, pyproject). The static one shows the style:
 
 ```dockerfile
 FROM nginxinc/nginx-unprivileged:alpine

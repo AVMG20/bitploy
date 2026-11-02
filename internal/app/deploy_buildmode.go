@@ -20,17 +20,17 @@ import (
 // file list including injected files, and a reader that serves them. The source
 // itself is not changed here; see writeInjected.
 func planBuild(app db.App, files []string, read func(rel string) []byte) (db.App, deploy.BuildPlan, []string, func(rel string) []byte, *apperr.Error) {
-	plan, perr := deploy.PlanBuild(app.BuildMode, app.DockerfilePath, app.HomePage, files, read(".dockerignore"))
+	plan, perr := deploy.PlanBuild(app.BuildMode, app.DockerfilePath, app.HomePage, files, read(".dockerignore"), read("package.json"))
 	if perr != nil {
 		return app, plan, files, read, perr
 	}
-	if plan.Kind != deploy.BuildKindStatic {
+	if len(plan.Inject) == 0 {
 		return app, plan, files, read, nil
 	}
 	eff := app
-	eff.DockerfilePath = deploy.StaticDockerfilePath
+	eff.DockerfilePath = plan.DockerfilePath
 	eff.ContextDir = "."
-	all := append(append([]string{}, files...), deploy.StaticDockerfilePath)
+	all := append(append([]string{}, files...), plan.DockerfilePath)
 	hasIgnore := false
 	for _, f := range files {
 		if f == ".dockerignore" {
@@ -54,11 +54,12 @@ func planBuild(app db.App, files []string, read func(rel string) []byte) (db.App
 	}, nil
 }
 
-// templateFindings drops what the checks say about bitploy's own static
-// template (it has no HEALTHCHECK on purpose: the HTTP check covers it), so a
-// person who sent only HTML does not read about a Dockerfile they never wrote.
+// templateFindings drops what the checks say about bitploy's own templates
+// (they have no HEALTHCHECK on purpose: the HTTP check covers it), so a person
+// who sent only HTML or a Node project does not read about a Dockerfile they
+// never wrote.
 func templateFindings(plan deploy.BuildPlan, res deploy.CheckResult) deploy.CheckResult {
-	if plan.Kind != deploy.BuildKindStatic {
+	if len(plan.Inject) == 0 {
 		return res
 	}
 	kept := res.Findings[:0:0]
@@ -71,7 +72,7 @@ func templateFindings(plan deploy.BuildPlan, res deploy.CheckResult) deploy.Chec
 	return res
 }
 
-// writeInjected adds the files of a static plan to the extracted source.
+// writeInjected adds the files of a template plan to the extracted source.
 // os.Root refuses to follow a symlink out of the tree, and an existing entry of
 // the same name (a .dockerignore of the user, whose content is already merged
 // into the new one) is replaced, not written through.

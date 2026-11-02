@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
@@ -31,11 +32,22 @@ const (
 const (
 	BuildKindDockerfile = "dockerfile"
 	BuildKindStatic     = "static"
+	// BuildKindNodeSPA and BuildKindNode are auto mode's template builds for a
+	// Node project without a Dockerfile: a Vite site built and served with
+	// nginx, or an app started with its "start" script.
+	BuildKindNodeSPA = "node-spa"
+	BuildKindNode    = "node"
 )
 
 // StaticDockerfilePath is where the static template is written in the source.
 // It has its own name so a Dockerfile of the user is never overwritten.
 const StaticDockerfilePath = "Dockerfile.bitploy-static"
+
+// Where the Node templates are written in the source (see StaticDockerfilePath).
+const (
+	NodeSPADockerfilePath = "Dockerfile.bitploy-node-spa"
+	NodeDockerfilePath    = "Dockerfile.bitploy-node"
+)
 
 // CodeNothingToBuild is the error code for a source in auto mode that has
 // neither a Dockerfile nor a plain website to serve.
@@ -48,8 +60,10 @@ func ValidBuildMode(m string) bool {
 
 // BuildPlan is the outcome of PlanBuild.
 type BuildPlan struct {
-	Kind string // BuildKindDockerfile or BuildKindStatic
-	// For BuildKindStatic: the files to add to the source before building, as
+	Kind string // BuildKindDockerfile, BuildKindStatic, BuildKindNodeSPA or BuildKindNode
+	// DockerfilePath is the injected Dockerfile of a template build (not set for BuildKindDockerfile).
+	DockerfilePath string
+	// For every kind but BuildKindDockerfile: the files to add to the source before building, as
 	// clean relative paths with their content. Dockerignore holds the user's
 	// own .dockerignore (if any) followed by the template's, so .env, .git and
 	// node_modules never end up in the image.
@@ -129,14 +143,16 @@ func homePage(has map[string]bool, chosen string) (page string, ok bool, err *ap
 
 // PlanBuild decides how a source is built. files are all file paths of the
 // source relative to its root; dockerfilePath is the app's setting; dockerignore
-// is the content of the source's own .dockerignore, or nil.
+// is the content of the source's own .dockerignore, or nil; packageJSON is the
+// content of package.json at the top of the source, or nil. Only auto mode
+// reads it, for a Node project without a Dockerfile.
 //
 // homePage is the app's choice of page for "/" when a static site has no
 // index.html and several pages; it is only used in auto and static mode.
 //
 // With mode dockerfile (or an unknown mode) the plan is always a Dockerfile
 // build: a missing Dockerfile is reported by CheckDockerfile as before.
-func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dockerignore []byte) (BuildPlan, *apperr.Error) {
+func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dockerignore, packageJSON []byte) (BuildPlan, *apperr.Error) {
 	if dockerfilePath == "" {
 		dockerfilePath = "Dockerfile"
 	}
@@ -172,6 +188,11 @@ func PlanBuild(mode, dockerfilePath, homePageChoice string, files []string, dock
 		}
 		if other := otherCase(has, path.Clean(dockerfilePath)); other != "" {
 			return BuildPlan{}, renameErr(CodeNothingToBuild, other, path.Clean(dockerfilePath))
+		}
+		if (stack == "node" || stack == "nextjs" || stack == "node-static") && has["package.json"] {
+			if plan, ok := nodePlan(files, hasIndex, dockerignore, packageJSON); ok {
+				return plan, nil
+			}
 		}
 		if !hasIndex && stack == "static" {
 			page, ok, herr := homePage(has, homePageChoice)
@@ -212,8 +233,56 @@ func homePlan(userIgnore []byte, page string) BuildPlan {
 	return p
 }
 
+// nodePlan is auto mode's way out for a Node project without a Dockerfile: a
+// Vite site (a build script, vite in the dependencies and its index.html at
+// the top) is built and served with nginx, else a project with a start script
+// is run with it, after its build script if it has one. ok is false for
+// anything else, including a package.json that cannot be read. Vite apps with
+// their own server (SvelteKit, Remix, React Router) have no index.html at the
+// top, so they are not taken for a site.
+func nodePlan(files []string, hasIndex bool, userIgnore, packageJSON []byte) (BuildPlan, bool) {
+	var pkg struct {
+		Scripts         map[string]any `json:"scripts"`
+		Dependencies    map[string]any `json:"dependencies"`
+		DevDependencies map[string]any `json:"devDependencies"`
+	}
+	if json.Unmarshal(packageJSON, &pkg) != nil {
+		return BuildPlan{}, false
+	}
+	script := func(name string) bool {
+		s, _ := pkg.Scripts[name].(string)
+		return strings.TrimSpace(s) != ""
+	}
+	_, vite := pkg.Dependencies["vite"]
+	if _, dev := pkg.DevDependencies["vite"]; dev {
+		vite = true
+	}
+	switch {
+	case script("build") && vite && hasIndex:
+		tpl, _ := templates.ForFiles("node-spa", files)
+		return templatePlan(BuildKindNodeSPA, NodeSPADockerfilePath, tpl, userIgnore,
+			"No Dockerfile, but package.json has a build script and uses Vite: building the site and serving it with nginx."), true
+	case script("start") && script("build"):
+		if tpl, ok := templates.NodeWithBuild(files); ok {
+			return templatePlan(BuildKindNode, NodeDockerfilePath, tpl, userIgnore,
+				"No Dockerfile, but package.json has a build and a start script: building it and running it as a Node.js app."), true
+		}
+	case script("start"):
+		tpl, _ := templates.ForFiles("node", files)
+		return templatePlan(BuildKindNode, NodeDockerfilePath, tpl, userIgnore,
+			"No Dockerfile, but package.json has a start script: running it as a Node.js app."), true
+	}
+	return BuildPlan{}, false
+}
+
 func staticPlan(userIgnore []byte, why string) BuildPlan {
 	tpl, _ := templates.Get("static")
+	return templatePlan(BuildKindStatic, StaticDockerfilePath, tpl, userIgnore, why)
+}
+
+// templatePlan injects a template as dockerfilePath, with the user's own
+// .dockerignore followed by the template's.
+func templatePlan(kind, dockerfilePath string, tpl templates.Template, userIgnore []byte, why string) BuildPlan {
 	var ign bytes.Buffer
 	if len(bytes.TrimSpace(userIgnore)) > 0 {
 		ign.Write(bytes.TrimRight(userIgnore, "\r\n"))
@@ -223,12 +292,13 @@ func staticPlan(userIgnore []byte, why string) BuildPlan {
 	if !strings.HasSuffix(tpl.Dockerignore, "\n") {
 		ign.WriteByte('\n')
 	}
-	ign.WriteString(StaticDockerfilePath + "\n")
+	ign.WriteString(dockerfilePath + "\n")
 	return BuildPlan{
-		Kind: BuildKindStatic,
+		Kind:           kind,
+		DockerfilePath: dockerfilePath,
 		Inject: map[string][]byte{
-			StaticDockerfilePath: []byte(tpl.Dockerfile),
-			".dockerignore":      ign.Bytes(),
+			dockerfilePath:  []byte(tpl.Dockerfile),
+			".dockerignore": ign.Bytes(),
 		},
 		Why: why,
 	}

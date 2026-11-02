@@ -409,10 +409,10 @@ func TestCheckDockerfile(t *testing.T) {
 			wantPort: 3000,
 		},
 		{
-			name:    "unknown variable without default stays unknown",
-			in:      CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nEXPOSE $NOPE\n")},
-			want:    []string{"port_unknown"},
-			wantOK:  false,
+			name:   "unknown variable without default stays unknown",
+			in:     CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nEXPOSE $NOPE\n")},
+			want:   []string{"port_unknown"},
+			wantOK: false,
 		},
 		{
 			name:   "forbidden base hidden in a variable default",
@@ -515,6 +515,12 @@ func TestDetectStack(t *testing.T) {
 		{[]string{"Planning tool v3.html"}, "static"},
 		{[]string{"report.htm", "a.png"}, "static"},
 		{[]string{"tool.html", "package.json"}, "node"},
+		{[]string{"artisan", "composer.json", "package.json"}, "laravel"},
+		{[]string{"manage.py", "requirements.txt"}, "django"},
+		{[]string{"next.config.mjs", "package.json"}, "nextjs"},
+		{[]string{"next.config.ts", "package.json"}, "nextjs"},
+		{[]string{"astro.config.mjs", "package.json"}, "node-static"},
+		{[]string{"src/next.config.js", "package.json"}, "node"},
 	}
 	for _, tc := range tests {
 		if got := DetectStack(tc.files); got != tc.want {
@@ -568,5 +574,73 @@ func TestImageTooLargeFinding(t *testing.T) {
 	f := ImageTooLargeFinding(3 << 30)
 	if f.Code != "image_too_large" || f.Severity != "error" || f.Hint == "" {
 		t.Errorf("%+v", f)
+	}
+}
+
+func TestNewFindings(t *testing.T) {
+	const tail = "\nUSER node\nEXPOSE 3000\nCMD [\"node\",\"x.js\"]\n"
+	tests := []struct {
+		name   string
+		df     string
+		files  []string
+		want   string // code that must be present; "" = none of the three
+		line   int
+		inHint string
+	}{
+		{"compose yml", "FROM node:24-alpine" + tail, []string{"docker-compose.yml", "server.js"}, "compose_ignored", 0, "SQLite"},
+		{"compose yaml", "FROM node:24-alpine" + tail, []string{"compose.yaml"}, "compose_ignored", 0, ""},
+		{"compose in subfolder", "FROM node:24-alpine" + tail, []string{"deploy/docker-compose.yml"}, "", 0, ""},
+		{"apt postgres", "FROM node:24\nRUN apt-get update && apt-get install -y --no-install-recommends postgresql redis-server" + tail, nil, "database_server_in_image", 2, "SQLite"},
+		{"apk mariadb", "FROM alpine:3.22\nRUN apk add --no-cache mariadb mariadb-client" + tail, nil, "database_server_in_image", 2, ""},
+		{"dnf mysql in later stage", "FROM node:24 AS b\nFROM debian:12\nRUN dnf install -y mysql-server" + tail, nil, "database_server_in_image", 3, ""},
+		{"heredoc", "FROM debian:12\nRUN <<EOT\napt-get update\napt-get install -y postgresql-16\nEOT" + tail, nil, "database_server_in_image", 2, ""},
+		{"clients are fine", "FROM node:24\nRUN apt-get update && apt-get install -y libpq-dev postgresql-client default-libmysqlclient-dev mysql-client libhiredis-dev redis-tools" + tail, nil, "", 0, ""},
+		{"php extension is fine", "FROM php:8.4-cli\nRUN docker-php-ext-install pdo_pgsql pdo_mysql" + tail, nil, "", 0, ""},
+		{"alpine postgres with a version", "FROM alpine:3.22\nRUN apk add --no-cache postgresql17" + tail, nil, "database_server_in_image", 2, ""},
+		{"debian default mysql", "FROM debian:12\nRUN apt-get install -y default-mysql-server" + tail, nil, "database_server_in_image", 2, ""},
+		{"pecl redis extension is fine", "FROM php:8.4-apache\nRUN pecl install redis && docker-php-ext-enable redis" + tail, nil, "", 0, ""},
+		{"build deps are fine", "FROM node:24-alpine\nRUN apk add --no-cache --virtual .build-deps python3 make g++ libmariadb-dev sqlite" + tail, nil, "", 0, ""},
+		{"alpine client is fine", "FROM alpine:3.22\nRUN apk add --no-cache postgresql-libs postgresql-dev" + tail, nil, "", 0, ""},
+		{"pnpm lock", "FROM node:24-alpine\nCOPY package.json ./\nRUN npm ci" + tail, []string{"package.json", "pnpm-lock.yaml"}, "lockfile_mismatch", 3, "pnpm install --frozen-lockfile"},
+		{"yarn lock", "FROM node:24-alpine\nRUN npm install && npm ci" + tail, []string{"package.json", "yarn.lock"}, "lockfile_mismatch", 2, "yarn install --frozen-lockfile"},
+		{"bun lock", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json", "bun.lockb"}, "lockfile_mismatch", 2, "bun"},
+		{"npm lock present", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json", "package-lock.json", "pnpm-lock.yaml"}, "", 0, ""},
+		{"no lock at all", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json"}, "", 0, ""},
+		{"pnpm used properly", "FROM node:24-alpine\nRUN corepack enable && pnpm install --frozen-lockfile" + tail, []string{"package.json", "pnpm-lock.yaml"}, "", 0, ""},
+	}
+	all := []string{"compose_ignored", "database_server_in_image", "lockfile_mismatch"}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := CheckDockerfile(CheckInput{Dockerfile: []byte(tc.df), Files: tc.files})
+			got := codes(res)
+			for _, c := range all {
+				f, has := got[c]
+				if has != (c == tc.want) {
+					t.Fatalf("%s present=%v, want %v: %+v", c, has, c == tc.want, res.Findings)
+				}
+				if has {
+					if f.Severity != "warning" || f.Hint == "" {
+						t.Errorf("bad finding %+v", f)
+					}
+					if tc.line > 0 && f.Line != tc.line {
+						t.Errorf("line = %d, want %d", f.Line, tc.line)
+					}
+					if !strings.Contains(f.Hint, tc.inHint) {
+						t.Errorf("hint lacks %q: %s", tc.inHint, f.Hint)
+					}
+				}
+			}
+			if !res.OK {
+				t.Errorf("warnings must not block: %+v", res.Findings)
+			}
+		})
+	}
+}
+
+func TestFirstErrorNewStacks(t *testing.T) {
+	for stack, name := range map[string]string{"laravel": "Laravel", "django": "Django", "nextjs": "Next.js", "node-static": "Node"} {
+		if got := describeStack(stack); !strings.Contains(got, name) {
+			t.Errorf("describeStack(%q) = %q", stack, got)
+		}
 	}
 }

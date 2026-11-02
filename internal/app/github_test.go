@@ -54,16 +54,16 @@ type fakeGitHub struct {
 
 	mu            sync.Mutex
 	webhookSecret string
-	codes         map[string]string     // oauth code -> user token (each works once)
-	visible       map[string][]fakeInst // user token -> installations that user can see
-	repos         map[int64][]string    // installation id -> repositories, "owner/name"
-	tokens        map[string]int64      // issued installation token -> installation id
-	reqs          []tokenReq            // access token requests
-	branches      map[string][]string   // "owner/name" -> branches
-	defaultBranch map[string]string     // "owner/name" -> default branch
+	codes         map[string]string             // oauth code -> user token (each works once)
+	visible       map[string][]fakeInst         // user token -> installations that user can see
+	repos         map[int64][]string            // installation id -> repositories, "owner/name"
+	tokens        map[string]int64              // issued installation token -> installation id
+	reqs          []tokenReq                    // access token requests
+	branches      map[string][]string           // "owner/name" -> branches
+	defaultBranch map[string]string             // "owner/name" -> default branch
 	userRepos     map[string]map[int64][]string // user token -> installation -> repositories that user can open (default: all)
 	manifestCodes map[string]bool               // manifest codes that convert
-	hits          map[string]int        // method + path -> count
+	hits          map[string]int                // method + path -> count
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {

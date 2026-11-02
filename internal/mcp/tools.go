@@ -26,7 +26,8 @@ type appIn struct {
 }
 
 type templateIn struct {
-	Stack string `json:"stack" jsonschema:"One of: static, node, node-spa, python, go, php, generic."`
+	Stack    string   `json:"stack" jsonschema:"One of: static, node, node-spa, node-static, nextjs, python, django, go, php, laravel, generic."`
+	FileList []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the project folder, relative with forward slashes, like [\"package.json\",\"pnpm-lock.yaml\"]. Lets bitploy match the Dockerfile to the project's package manager (npm, pnpm, yarn, bun)."`
 }
 
 type validateIn struct {
@@ -40,7 +41,7 @@ type createAppIn struct {
 	Type     string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
 	Slug     string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
 	Port     *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
-	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys (SQLite, uploads). The app must then write its files to /data."`
+	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys. Use it for the SQLite database (for example /data/app.db) and uploads: an app is one container with no database server, so any app that stores data needs this. The app must then write its files to /data."`
 	VolumeMB *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
 }
 
@@ -200,10 +201,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_template", "Get a Dockerfile template",
-		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build. node: Node server (Express, Fastify, Next.js) or bot. python: Flask/FastAPI/Django. go. php: index.php or Composer site. generic: anything else (Ruby, Java, Deno). Save both files in the project root, adapt CMD and EXPOSE, then call validate_dockerfile.",
+		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build (single page, falls back to index.html). node-static: multi-page static build (Astro, Eleventy). node: Node server (Express, Fastify) or bot. nextjs: Next.js (standalone output). python: Flask/FastAPI. django. go. php: index.php or Composer site. laravel (SQLite in /data). generic: anything else (Ruby, Java, Deno). Pass file_list (all project paths) so the Dockerfile matches the project's package manager (npm, pnpm, yarn, bun). Save both files in the project root, adapt CMD and EXPOSE, then call validate_dockerfile.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in templateIn) (*result, error) {
-			t, err := svc.GetTemplate(ctx, a, in.Stack)
+			t, err := svc.GetTemplateForFiles(ctx, a, in.Stack, in.FileList)
 			if err != nil {
 				return nil, err
 			}
@@ -523,7 +524,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, DATABASE_URL). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile.",
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
 			vars, err := svc.SetEnv(ctx, a, in.App, in.Set, in.Unset)
