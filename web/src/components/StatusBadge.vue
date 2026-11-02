@@ -23,8 +23,21 @@ const animate = computed(() => props.pulse ?? props.tone === 'info')
 </script>
 
 <template>
-  <span :class="cn('inline-flex h-5.5 items-center gap-1.5 rounded-md border px-2 text-xs font-medium whitespace-nowrap', toneClass[tone])">
-    <span :class="cn('size-1.5 rounded-full', dotClass[tone], animate && 'animate-pulse')" />
-    {{ label }}
+  <span
+    :class="cn(
+      'relative inline-flex h-5.5 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-xs font-medium whitespace-nowrap',
+      toneClass[tone],
+    )"
+  >
+    <span v-if="animate" aria-hidden="true" class="badge-shimmer pointer-events-none absolute inset-0 motion-reduce:hidden" />
+    <span class="relative flex size-1.5">
+      <span
+        v-if="animate"
+        aria-hidden="true"
+        :class="cn('absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:hidden', dotClass[tone])"
+      />
+      <span :class="cn('relative inline-flex size-1.5 rounded-full', dotClass[tone])" />
+    </span>
+    <span class="relative">{{ label }}</span>
   </span>
 </template>
