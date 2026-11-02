@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ExternalLink, GitBranch, Lock, Play, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -18,6 +18,7 @@ import { channelLabel, commitUrl, hostOf, shortSha } from '@/lib/format'
 
 const props = defineProps<{ slug: string }>()
 const route = useRoute()
+const router = useRouter()
 const app = useApp(() => props.slug)
 
 const tabs = [
@@ -44,6 +45,11 @@ const canStart = computed(() => !!data.value && ['stopped', 'crashed', 'failed']
 const canStop = computed(() => !!data.value && ['running', 'deploying'].includes(data.value.status))
 const busy = computed(() => actions.redeploy.isPending.value || actions.restart.isPending.value || actions.start.isPending.value || actions.stop.isPending.value)
 const shownStatus = computed(() => (actions.restart.isPending.value ? 'restarting' : actions.start.isPending.value ? 'starting' : (data.value?.status ?? '')))
+
+// Show the new deployment's progress where it is listed.
+function redeploy() {
+  actions.redeploy.mutate(undefined, { onSuccess: () => void router.push({ name: 'app-deployments', params: { slug: props.slug } }) })
+}
 
 const confirmStop = ref(false)
 function stop() {
@@ -111,7 +117,7 @@ function stop() {
           <Button v-else-if="canStop" variant="outline" :disabled="busy" @click="confirmStop = true">
             <Square /> Stop
           </Button>
-          <Button :disabled="busy || !canRedeploy" @click="actions.redeploy.mutate()">
+          <Button :disabled="busy || !canRedeploy" @click="redeploy">
             <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Redeploy
           </Button>
         </div>
