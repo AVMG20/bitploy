@@ -42,6 +42,7 @@ const (
 	CodeComposeIgnored    = "compose_ignored"
 	CodeDatabaseInImage   = "database_server_in_image"
 	CodeLockfileMismatch  = "lockfile_mismatch"
+	CodeCacheMount        = "cache_mount_forbidden"
 )
 
 // ReservedPort is Traefik's internal entrypoint. firewall.sh drops connections
@@ -159,6 +160,12 @@ func CheckDockerfile(in CheckInput) CheckResult {
 	// Images that bitploy built for apps (bitploy/<slug>:<n>) are never allowed
 	// as a base, COPY --from or RUN --mount from source: they belong to users.
 	for _, f := range g.forbiddenImages() {
+		add(f)
+	}
+
+	// All apps build on one BuildKit builder, so a cache mount would be shared
+	// with every other app's builds.
+	for _, f := range g.cacheMounts() {
 		add(f)
 	}
 
@@ -919,6 +926,47 @@ func (g *graph) forbiddenImages() []Finding {
 					if m.From != "" {
 						check(m.From, vars, firstLine(cmd.Location()))
 					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// cacheMounts finds every RUN --mount=type=cache. The builder is shared by all
+// apps and a cache mount's id defaults to its target, so one app could fill the
+// cache another app's build reads from. Mount options are read as written, so a
+// type hidden in a variable (type=$T) does not parse and is refused too.
+func (g *graph) cacheMounts() []Finding {
+	var out []Finding
+	hint := "Remove --mount=type=cache from the RUN line and install the packages in a plain RUN step, for example `RUN npm ci`."
+	for _, st := range g.stages {
+		for _, c := range st.Commands {
+			cmd, ok := c.(*instructions.RunCommand)
+			if !ok {
+				continue
+			}
+			line := firstLine(cmd.Location())
+			if err := cmd.Expand(func(w string) (string, error) { return w, nil }); err != nil {
+				out = append(out, Finding{
+					Code:     CodeCacheMount,
+					Severity: sevError,
+					Line:     line,
+					Message:  fmt.Sprintf("Bitploy cannot read the --mount options of this RUN line (%s).", err),
+					Hint:     "Write the mount options as plain text, without variables. " + hint,
+				})
+				continue
+			}
+			for _, m := range instructions.GetMounts(cmd) {
+				if m.Type == instructions.MountTypeCache {
+					out = append(out, Finding{
+						Code:     CodeCacheMount,
+						Severity: sevError,
+						Line:     line,
+						Message:  "The RUN line uses --mount=type=cache. Cache mounts are not supported on bitploy: all apps build on one shared build server, so the cache would be shared with other users' builds.",
+						Hint:     hint,
+					})
+					break
 				}
 			}
 		}

@@ -102,7 +102,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 
 ## Dockerfile checks (validate_dockerfile)
 
-Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_unknown, port_ambiguous, port_reserved, base_image_forbidden, image_too_large.
+Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_unknown, port_ambiguous, port_reserved, base_image_forbidden, cache_mount_forbidden (RUN --mount=type=cache is not supported: the build server is shared by all apps), image_too_large.
 Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (docker-compose.yml is not run: only the Dockerfile is built), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck.
 Fix every error and read every warning before deploying.
 `

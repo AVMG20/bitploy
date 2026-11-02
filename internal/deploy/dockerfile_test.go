@@ -421,6 +421,32 @@ func TestCheckDockerfile(t *testing.T) {
 			wantOK: false,
 		},
 		{
+			name:   "cache mount is refused",
+			in:     CheckInput{Dockerfile: []byte("FROM node:24-alpine\nRUN --mount=type=cache,target=/root/.npm npm ci\nUSER node\nEXPOSE 3000\n")},
+			want:   []string{"cache_mount_forbidden"},
+			line:   map[string]int{"cache_mount_forbidden": 2},
+			wantOK: false,
+		},
+		{
+			name:   "cache mount with an id and capitals is refused",
+			in:     CheckInput{Dockerfile: []byte("FROM node:24-alpine\nRUN --mount=target=/x,TYPE=Cache,id=shared true\nUSER node\nEXPOSE 3000\n")},
+			want:   []string{"cache_mount_forbidden"},
+			wantOK: false,
+		},
+		{
+			name:   "cache mount type from a variable is refused",
+			in:     CheckInput{Dockerfile: []byte("FROM node:24-alpine\nARG T=cache\nRUN --mount=type=$T,target=/x true\nUSER node\nEXPOSE 3000\n")},
+			want:   []string{"cache_mount_forbidden"},
+			wantOK: false,
+		},
+		{
+			name:     "bind, tmpfs and secret mounts are fine",
+			in:       CheckInput{Dockerfile: []byte("FROM node:24-alpine AS b\nRUN true\nFROM node:24-alpine\nRUN --mount=type=bind,from=b,source=/etc,target=/b --mount=type=tmpfs,target=/t --mount=type=secret,id=s true\nUSER node\nEXPOSE 3000\n")},
+			notWant:  []string{"cache_mount_forbidden"},
+			wantOK:   true,
+			wantPort: 3000,
+		},
+		{
 			name:   "forbidden COPY --from hidden in a variable default",
 			in:     CheckInput{Dockerfile: []byte("FROM nginx:1.27-alpine\nCOPY --from=${S:-bitploy/other:1} /x /y\nEXPOSE 80\n")},
 			want:   []string{"base_image_forbidden"},

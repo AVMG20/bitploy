@@ -266,6 +266,7 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `port_unknown` | error | No `EXPOSE` in the final stage and no app port |
 | `port_ambiguous` | error | Several `EXPOSE` ports and no app port |
 | `image_too_large` | error | Built image over 2 GB (checked after build) |
+| `cache_mount_forbidden` | error | A `RUN --mount=type=cache`: all apps build on one builder, so the cache would be shared between apps |
 | `env_file_in_context` | warning | `.env` would be copied into the image; suggest `set_env` and `.dockerignore` |
 | `no_dockerignore` | warning | `node_modules`, `.git` or `venv` present without a `.dockerignore` |
 | `unpinned_base` | warning | Base image has no tag or uses `latest` |
