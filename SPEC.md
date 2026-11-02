@@ -167,7 +167,7 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 | `queued` | Waits for a build slot | — |
 | `fetching` | Source copied or cloned into `builds/<deployment_id>/` | `source_*` codes |
 | `validating` | Dockerfile checks (MCP section); stops before any build | `dockerfile_*` codes |
-| `building` | `docker buildx build`, 15 min timeout, image `bitploy/<slug>:<n>` | `build_failed` + last 50 log lines |
+| `building` | `docker buildx build`, 30 min timeout, image `bitploy/<slug>:<n>` | `build_failed` + last 50 log lines |
 | `starting` | Container `bp-<slug>-<n>` on network `bp-<slug>` with env, limits, volume | `start_failed` |
 | `health_check` | Port open, then `GET health_path` returns < 500 within 60 s (max 300 s); a Dockerfile `HEALTHCHECK` replaces this | `unhealthy` + last 50 runtime log lines |
 | `swapping` | Route file points at the new container; old one stops after 10 s | — |
@@ -450,7 +450,7 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 
 ```bash
 # Claude Code
-claude mcp add --transport http bitploy https://bitploy.nl/mcp \
+claude mcp add --scope user --transport http bitploy https://bitploy.nl/mcp \
   --header "Authorization: Bearer bp_xxx"
 ```
 
@@ -523,7 +523,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 
 - Keep the sum of all memory limits under the host RAM minus 1.5 GB reserved for Docker, Traefik and bitploy. Past that, `create_app` and `update_app` fail with `server_full` and a hint to tell the admin.
 - Refuse new builds when the disk has under 15% free; prune images and build cache nightly.
-- Build steps run untrusted code. For colleagues that is acceptable with the 15-minute timeout; the public checklist below moves builds out.
+- Build steps run untrusted code. For colleagues that is acceptable with the 30-minute timeout; the public checklist below moves builds out.
 
 **Control plane**
 

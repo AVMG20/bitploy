@@ -22,7 +22,7 @@ func limitsInfo() map[string]any {
 		"zip_max_files":               deploy.MaxZipFiles,
 		"upload_url_valid_minutes":    15,
 		"git_clone_max_bytes":         500 << 20,
-		"build_timeout_minutes":       15,
+		"build_timeout_minutes":       int(deploy.BuildTimeout.Minutes()),
 		"image_max_bytes":             deploy.MaxImageBytes,
 		"health_check_seconds":        60,
 		"worker_counts_healthy_after": 30,

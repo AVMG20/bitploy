@@ -15,7 +15,7 @@ import (
 )
 
 // BuildTimeout is the hard limit for one `docker buildx build`.
-const BuildTimeout = 15 * time.Minute
+const BuildTimeout = 30 * time.Minute
 
 // BuildSpec is one image build.
 type BuildSpec struct {

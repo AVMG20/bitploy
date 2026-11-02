@@ -50,7 +50,7 @@ const RuntimeContract = `## Runtime contract
 - deploy_files: at most 2 MB in total and 200 files. Anything bigger: zip + create_upload.
 - Zip upload: at most 95 MB compressed, 500 MB unpacked, 20,000 files. If everything sits in one top-level folder, that folder is stripped. Leave out node_modules, .git, .env and build output.
 - Git: shallow clone of one branch, at most 500 MB, HTTPS only. Public repositories work as is. A private GitHub repository needs the user to open the dashboard, go to Settings > GitHub, press Connect GitHub and give bitploy access to the repository; you cannot do that yourself, ask the user. If GitHub is not set up on this bitploy yet, only an admin can do that (Admin page); until then only public repositories work.
-- A build takes at most 15 minutes. The built image must be under 2 GB. Images (3 kept per app) and stored source count towards the account's storage; when it is full, new builds are refused with storage_full. Keep images small: a slim base image, and no big files (videos, datasets) in the source.
+- A build takes at most 30 minutes. The built image must be under 2 GB. Images (3 kept per app) and stored source count towards the account's storage; when it is full, new builds are refused with storage_full. Keep images small: a slim base image, and no big files (videos, datasets) in the source.
 - Deployments per hour, number of apps, memory, CPU, storage and custom domains per app are limited per account: whoami shows the numbers.
 
 ## Updating an app later (also from a new session)

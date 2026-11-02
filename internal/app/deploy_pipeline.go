@@ -423,7 +423,7 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		var ae *apperr.Error
 		switch {
 		case errors.Is(err, deploy.ErrBuildTimeout):
-			return apperr.Unprocessable("build_failed", "The build took longer than 15 minutes and was stopped.",
+			return apperr.Unprocessable("build_failed", fmt.Sprintf("The build took longer than %d minutes and was stopped.", int(deploy.BuildTimeout.Minutes())),
 				"Make the build faster: use a smaller base image, order the Dockerfile so dependency installs are cached, and leave big files out with .dockerignore.")
 		case errors.As(err, &ae):
 			return ae
