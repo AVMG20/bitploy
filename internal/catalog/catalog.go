@@ -71,7 +71,7 @@ var entries = []Entry{
 		},
 		FirstSteps: []string{
 			"Open {url} and create your account. Anyone who reaches the address can sign up until you turn sign-ups off.",
-			"Turn sign-ups off: set the environment variable SIGNUPS_ALLOWED to false (set_env), then deploy again.",
+			"Then turn sign-ups off: add the environment variable SIGNUPS_ALLOWED with the value false and restart the app.",
 			"Back up /data: it holds every vault.",
 		},
 	},
@@ -90,7 +90,7 @@ var entries = []Entry{
 		HealthPath:  "/",
 		FirstSteps: []string{
 			"Open {url} and create the admin account at once: the first visitor gets to do it.",
-			"Add your first monitor. HTTP, TCP port and DNS checks work here; ping checks do not, because bitploy's sandbox gives the app no raw network access.",
+			"Add your first monitor, and a notification so you hear when it goes down.",
 		},
 	},
 	{
@@ -107,8 +107,8 @@ var entries = []Entry{
 		VolumeMB:    1024,
 		HealthPath:  "/healthz",
 		FirstSteps: []string{
-			"Open {url} and create the first account: it becomes the host (admin). Do it right away.",
-			"In Settings, turn off new sign-ups if you are the only user.",
+			"Open {url} and create the first account right away: it becomes the admin.",
+			"If you are the only user, turn on Settings > System > Disallow user registration.",
 		},
 	},
 	{
@@ -125,7 +125,7 @@ var entries = []Entry{
 		VolumeMB:    1024,
 		HealthPath:  "/api/health",
 		FirstSteps: []string{
-			"Create the first superuser: open the app's logs, find the line with the installer link ending in /_/#/pbinstal/..., replace the host with {url} and open it.",
+			"Create the first superuser: in the app's logs, find the installer link ending in /_/#/pbinstall/..., replace the part before /_/ with {url} and open it. The link works for 30 minutes; restart the app for a new one.",
 			"The admin dashboard is at {url}/_/ and the API at {url}/api/.",
 		},
 	},
@@ -138,13 +138,13 @@ var entries = []Entry{
 		Version:     "26.11.0",
 		Website:     "https://actualbudget.org",
 		Port:        5006,
-		MemoryMB:    384,
+		MemoryMB:    512,
 		Volume:      true,
 		VolumeMB:    1024,
 		HealthPath:  "/health",
 		FirstSteps: []string{
 			"Open {url} and set the server password at once: the first visitor chooses it.",
-			"Create a budget file, or import one from YNAB or another Actual server.",
+			"Create a budget file, or import an export from YNAB 4, nYNAB or Actual.",
 		},
 	},
 	{

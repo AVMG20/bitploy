@@ -28,8 +28,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    container: keep a database as SQLite in /data, never run a database server.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
-10. For a popular tool (password manager, notes, uptime monitor, ...) call
-    list_catalog, then deploy_catalog_app: no code needed. To run any other
-    pre-built image, deploy one file, a Dockerfile `FROM <image>:<tag>` with a
-    pinned tag. EXPOSE is optional when the image declares its port. Its data
-    must go under /data.
+10. For a well-known tool (password manager, notes, uptime monitor, ...) call
+    list_catalog, then deploy_catalog_app. To run another published image,
+    deploy one Dockerfile `FROM <image>:<tag>` with a pinned tag (EXPOSE is
+    optional) and keep its data in /data.

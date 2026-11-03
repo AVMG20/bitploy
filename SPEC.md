@@ -183,7 +183,7 @@ With a volume attached, use **recreate** instead of rolling: stop the old contai
 
 **Runtime contract** for every app:
 
-- Listen on `0.0.0.0:$PORT`. Bitploy injects `PORT`, `BITPLOY_APP` and `BITPLOY_URL`. The port comes from the app setting, else the single `EXPOSE` in the final stage, else (a web app only) the single TCP port the built image declares. Two or more declared ports, none, or a reserved one (22, 25, 53, 80, 443 and the like) fail with `port_ambiguous`, `port_unknown` or `port_reserved` and a hint to set the port.
+- Listen on `0.0.0.0:$PORT`. Bitploy injects `PORT`, `BITPLOY_APP` and `BITPLOY_URL`. The port comes from the app setting, else the single `EXPOSE` in the final stage, else (a web app only) the single TCP port the built image declares. When the image declares several ports, none, or 8081 (Traefik's internal entrypoint), the deployment fails with `port_ambiguous`, `port_unknown` or `port_reserved` and a hint to set the port.
 - Log to stdout and stderr. Write persistent data only to `/data`, and only with the volume on.
 - Keep the last 3 images per app for `rollback`, which reruns from `starting`. Prune older images, and run `docker builder prune` nightly with a storage cap.
 
@@ -231,11 +231,10 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    container: keep a database as SQLite in /data, never run a database server.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
-10. For a popular tool (password manager, notes, uptime monitor, ...) call
-    list_catalog, then deploy_catalog_app: no code needed. To run any other
-    pre-built image, deploy one file, a Dockerfile `FROM <image>:<tag>` with a
-    pinned tag. EXPOSE is optional when the image declares its port. Its data
-    must go under /data.
+10. For a well-known tool (password manager, notes, uptime monitor, ...) call
+    list_catalog, then deploy_catalog_app. To run another published image,
+    deploy one Dockerfile `FROM <image>:<tag>` with a pinned tag (EXPOSE is
+    optional) and keep its data in /data.
 ```
 
 **Tools**
@@ -247,7 +246,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_template(stack, file_list?)` | Dockerfile + .dockerignore for a stack, adapted to the lock files in `file_list` | read | read-only |
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
 | `list_catalog` | The one-click apps (id, name, tagline, pinned version, memory, volume, category) | read | read-only |
-| `deploy_catalog_app(id, name?, slug?, env?)` | Creates the app from the catalog, sets env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if anything fails | deploy | — |
+| `deploy_catalog_app(id, name?, slug?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if the deployment cannot be queued | deploy | — |
 | `list_apps` / `get_app(app)` | Apps with URL, state, current deployment | read | read-only |
 | `create_app(name, type?, slug?, port?, volume?)` | Reserves a subdomain, returns the URL | deploy | — |
 | `update_app(app, …)` | Port, health path, volume, resources | deploy | idempotent |
@@ -278,6 +277,7 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `dockerfile_missing` | error | No file at `dockerfile_path` |
 | `dockerfile_parse_error` | error | BuildKit parser fails; report the line |
 | `no_from` | error | No `FROM` instruction |
+| `port_unknown` | error | An `EXPOSE` that cannot be read (a variable without a default) and no app port; also raised after the build when the image declares no port |
 | `port_from_image` | info | No `EXPOSE` and no app port: the port is read from the built image after the build; `port_unknown` (none declared), `port_ambiguous` (several) or `port_reserved` fail there |
 | `port_ambiguous` | error | Several `EXPOSE` ports and no app port (also raised after the build when the image declares several) |
 | `image_too_large` | error | Built image over 2 GB (checked after build) |
@@ -293,7 +293,7 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 
 When `unhealthy` fires and the runtime log mentions `127.0.0.1` or `localhost`, set the hint to "Your app listens on localhost; make it listen on 0.0.0.0:$PORT". That is the most common noob failure.
 
-**Catalog** (`internal/catalog`): six apps, each one Dockerfile with a pinned version, a non-root `USER`, its data in `/data` and a `Check` that passes `deploy.Check` without errors: Vaultwarden, Uptime Kuma, Memos, PocketBase, Actual Budget and IT-Tools. Deploying one creates a normal app (the usual quotas and slug rules) with `volume` on where the app has data, records `catalog_id` and `catalog_version` on it, and queues a deployment from the catalog Dockerfile. Apps report `catalog_update` when the catalog has a newer version; updating is an explicit action, never automatic. Env defaults can be generated (a random secret) or asked for.
+**Catalog** (`internal/catalog`): one-click apps, each one Dockerfile with a pinned version, a non-root `USER` and its data in `/data`, which passes the Dockerfile checks without errors (a test runs them). Deploying one creates a normal app (the usual quotas and slug rules) with `volume` on where the app has data, records `catalog_id` and `catalog_version` on it, and queues a deployment from the catalog Dockerfile. An env value can contain `{url}` (the app's address) or be a generated secret (32 random base62 characters, stored encrypted like any env var and never returned). Each deployment remembers the catalog version it builds, and the app's `catalog_version` takes it when that deployment goes live (a rollback brings the older version back). Apps report `catalog_update` when the catalog has a newer version and the app is not linked to a repository; updating is an explicit action, never automatic.
 
 **Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node-spa`, `node-static`, `node`, `nextjs`, `python`, `django`, `go`, `php`, `laravel`, `generic` (`templates.Stacks`). `get_template` with `file_list` adapts the Node and Python ones to the lock file (`templates.ForFiles`: pnpm, yarn, bun, no lock; uv, Poetry, pyproject). The static one shows the style (the nginx config keeps the proxy from seeing port 8080 in redirects, and serves `/about` from `about.html`):
 
@@ -353,8 +353,8 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/dockerfile/validate` | `validate_dockerfile` |
 | `GET /api/v1/catalog[/{id}]` | `list_catalog`; the one-app form adds the Dockerfile, env fields and first steps (any scope) |
 | `POST /api/v1/catalog/{id}/deploy` | `deploy_catalog_app` (deploy scope; 202; accepts `Idempotency-Key`) |
-| `POST /api/v1/apps/{app}/catalog-update` | Replace the Dockerfile with the catalog's current one and deploy; 409 `catalog_up_to_date`, `not_catalog_app`, `git_source_linked` |
-| `GET` `PUT /api/v1/apps/{app}/dockerfile` | Read or replace the Dockerfile in the stored source snapshot, then deploy (REST and dashboard only; 64 KB; 409 `git_source_linked`, `source_missing`; 400 `dockerfile_empty`; 413 `dockerfile_too_large`) |
+| `POST /api/v1/apps/{app}/catalog-update` | Replace the Dockerfile with the catalog's current one and deploy (accepts `Idempotency-Key`); 409 `catalog_up_to_date`, `not_catalog_app`, `git_source_linked` |
+| `GET` `PUT /api/v1/apps/{app}/dockerfile` | Read or replace the Dockerfile in the newest stored source, then deploy (REST and dashboard only; 64 KB; 409 `git_source_linked`, `dockerfile_not_used`, `source_missing`; 400 `dockerfile_empty`; 413 `dockerfile_too_large`) |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
 | `GET` `PATCH` `DELETE /api/v1/apps/{app}` | `get_app`, `update_app`, `delete_app` |
 | `POST /api/v1/apps/{app}/files` | `deploy_files` |
