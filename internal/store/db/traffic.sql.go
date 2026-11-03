@@ -36,13 +36,14 @@ func (q *Queries) TrafficAddCountry(ctx context.Context, arg TrafficAddCountryPa
 }
 
 const trafficAddDaily = `-- name: TrafficAddDaily :exec
-INSERT INTO traffic_daily (app_id, day, requests, errors_4xx, errors_5xx, visitors)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO traffic_daily (app_id, day, requests, errors_4xx, errors_5xx, visitors, bots)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (app_id, day) DO UPDATE SET
     requests = requests + excluded.requests,
     errors_4xx = errors_4xx + excluded.errors_4xx,
     errors_5xx = errors_5xx + excluded.errors_5xx,
-    visitors = visitors + excluded.visitors
+    visitors = visitors + excluded.visitors,
+    bots = bots + excluded.bots
 `
 
 type TrafficAddDailyParams struct {
@@ -52,6 +53,7 @@ type TrafficAddDailyParams struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
 }
 
 func (q *Queries) TrafficAddDaily(ctx context.Context, arg TrafficAddDailyParams) error {
@@ -62,18 +64,20 @@ func (q *Queries) TrafficAddDaily(ctx context.Context, arg TrafficAddDailyParams
 		arg.Errors4xx,
 		arg.Errors5xx,
 		arg.Visitors,
+		arg.Bots,
 	)
 	return err
 }
 
 const trafficAddHourly = `-- name: TrafficAddHourly :exec
-INSERT INTO traffic_hourly (app_id, hour, requests, errors_4xx, errors_5xx, visitors)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO traffic_hourly (app_id, hour, requests, errors_4xx, errors_5xx, visitors, bots)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (app_id, hour) DO UPDATE SET
     requests = requests + excluded.requests,
     errors_4xx = errors_4xx + excluded.errors_4xx,
     errors_5xx = errors_5xx + excluded.errors_5xx,
-    visitors = visitors + excluded.visitors
+    visitors = visitors + excluded.visitors,
+    bots = bots + excluded.bots
 `
 
 type TrafficAddHourlyParams struct {
@@ -83,6 +87,7 @@ type TrafficAddHourlyParams struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
 }
 
 func (q *Queries) TrafficAddHourly(ctx context.Context, arg TrafficAddHourlyParams) error {
@@ -93,6 +98,29 @@ func (q *Queries) TrafficAddHourly(ctx context.Context, arg TrafficAddHourlyPara
 		arg.Errors4xx,
 		arg.Errors5xx,
 		arg.Visitors,
+		arg.Bots,
+	)
+	return err
+}
+
+const trafficAddNotFound = `-- name: TrafficAddNotFound :exec
+INSERT INTO traffic_not_found (app_id, day, path, hits) VALUES (?, ?, ?, ?)
+ON CONFLICT (app_id, day, path) DO UPDATE SET hits = hits + excluded.hits
+`
+
+type TrafficAddNotFoundParams struct {
+	AppID string
+	Day   string
+	Path  string
+	Hits  int64
+}
+
+func (q *Queries) TrafficAddNotFound(ctx context.Context, arg TrafficAddNotFoundParams) error {
+	_, err := q.db.ExecContext(ctx, trafficAddNotFound,
+		arg.AppID,
+		arg.Day,
+		arg.Path,
+		arg.Hits,
 	)
 	return err
 }
@@ -142,7 +170,7 @@ func (q *Queries) TrafficAddReferrer(ctx context.Context, arg TrafficAddReferrer
 }
 
 const trafficDailySince = `-- name: TrafficDailySince :many
-SELECT day, requests, errors_4xx, errors_5xx, visitors
+SELECT day, requests, errors_4xx, errors_5xx, visitors, bots
 FROM traffic_daily WHERE app_id = ? AND day >= ? ORDER BY day
 `
 
@@ -157,6 +185,7 @@ type TrafficDailySinceRow struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
 }
 
 func (q *Queries) TrafficDailySince(ctx context.Context, arg TrafficDailySinceParams) ([]TrafficDailySinceRow, error) {
@@ -174,6 +203,7 @@ func (q *Queries) TrafficDailySince(ctx context.Context, arg TrafficDailySincePa
 			&i.Errors4xx,
 			&i.Errors5xx,
 			&i.Visitors,
+			&i.Bots,
 		); err != nil {
 			return nil, err
 		}
@@ -186,6 +216,29 @@ func (q *Queries) TrafficDailySince(ctx context.Context, arg TrafficDailySincePa
 		return nil, err
 	}
 	return items, nil
+}
+
+const trafficFirstDay = `-- name: TrafficFirstDay :one
+SELECT CAST(COALESCE(MIN(day), '') AS TEXT) FROM traffic_daily
+`
+
+func (q *Queries) TrafficFirstDay(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, trafficFirstDay)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const trafficFirstHour = `-- name: TrafficFirstHour :one
+SELECT CAST(COALESCE(MIN(hour), 0) AS INTEGER) FROM traffic_hourly
+`
+
+// The oldest hour still stored for any app: stats go back no further.
+func (q *Queries) TrafficFirstHour(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, trafficFirstHour)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const trafficGetCursor = `-- name: TrafficGetCursor :one
@@ -206,7 +259,7 @@ func (q *Queries) TrafficGetCursor(ctx context.Context) (TrafficGetCursorRow, er
 }
 
 const trafficHourlySince = `-- name: TrafficHourlySince :many
-SELECT hour, requests, errors_4xx, errors_5xx, visitors
+SELECT hour, requests, errors_4xx, errors_5xx, visitors, bots
 FROM traffic_hourly WHERE app_id = ? AND hour >= ? ORDER BY hour
 `
 
@@ -221,6 +274,7 @@ type TrafficHourlySinceRow struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
 }
 
 func (q *Queries) TrafficHourlySince(ctx context.Context, arg TrafficHourlySinceParams) ([]TrafficHourlySinceRow, error) {
@@ -238,6 +292,7 @@ func (q *Queries) TrafficHourlySince(ctx context.Context, arg TrafficHourlySince
 			&i.Errors4xx,
 			&i.Errors5xx,
 			&i.Visitors,
+			&i.Bots,
 		); err != nil {
 			return nil, err
 		}
@@ -346,6 +401,15 @@ func (q *Queries) TrafficPruneHourly(ctx context.Context, hour int64) error {
 	return err
 }
 
+const trafficPruneNotFound = `-- name: TrafficPruneNotFound :exec
+DELETE FROM traffic_not_found WHERE day < ?
+`
+
+func (q *Queries) TrafficPruneNotFound(ctx context.Context, day string) error {
+	_, err := q.db.ExecContext(ctx, trafficPruneNotFound, day)
+	return err
+}
+
 const trafficPrunePaths = `-- name: TrafficPrunePaths :exec
 DELETE FROM traffic_paths WHERE day < ?
 `
@@ -408,6 +472,46 @@ func (q *Queries) TrafficTopCountries(ctx context.Context, arg TrafficTopCountri
 	for rows.Next() {
 		var i TrafficTopCountriesRow
 		if err := rows.Scan(&i.Country, &i.Requests, &i.Visitors); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const trafficTopNotFound = `-- name: TrafficTopNotFound :many
+SELECT path, CAST(SUM(hits) AS INTEGER) AS hits FROM traffic_not_found
+WHERE app_id = ? AND day >= ? AND path <> '(other)'
+GROUP BY path ORDER BY hits DESC, path LIMIT ?
+`
+
+type TrafficTopNotFoundParams struct {
+	AppID string
+	Day   string
+	Limit int64
+}
+
+type TrafficTopNotFoundRow struct {
+	Path string
+	Hits int64
+}
+
+func (q *Queries) TrafficTopNotFound(ctx context.Context, arg TrafficTopNotFoundParams) ([]TrafficTopNotFoundRow, error) {
+	rows, err := q.db.QueryContext(ctx, trafficTopNotFound, arg.AppID, arg.Day, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TrafficTopNotFoundRow{}
+	for rows.Next() {
+		var i TrafficTopNotFoundRow
+		if err := rows.Scan(&i.Path, &i.Hits); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

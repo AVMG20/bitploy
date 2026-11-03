@@ -228,21 +228,51 @@ func TestFlushAddsUpAndSurvivesDeletedApp(t *testing.T) {
 
 func TestPrune(t *testing.T) {
 	e := newMgrEnv(t)
-	old := e.now.Add(-Retention - 48*time.Hour)
+	old := e.now.Add(-Retention - 48*time.Hour)          // past Retention, within DailyRetention
+	ancient := e.now.Add(-DailyRetention - 48*time.Hour) // past both
 	recent := e.now.Add(-24 * time.Hour)
-	for _, ts := range []time.Time{old, recent} {
+	for _, ts := range []time.Time{ancient, old, recent} {
 		day := ts.Format("2006-01-02")
 		e.exec(`INSERT INTO traffic_hourly (app_id, hour, requests) VALUES ('app_1', ?, 1)`, ts.Truncate(time.Hour).Unix())
 		e.exec(`INSERT INTO traffic_daily (app_id, day, requests) VALUES ('app_1', ?, 1)`, day)
 		e.exec(`INSERT INTO traffic_paths (app_id, day, path, views) VALUES ('app_1', ?, '/', 1)`, day)
+		e.exec(`INSERT INTO traffic_not_found (app_id, day, path, hits) VALUES ('app_1', ?, '/x', 1)`, day)
 		e.exec(`INSERT INTO traffic_countries (app_id, day, country, requests) VALUES ('app_1', ?, 'NL', 1)`, day)
 		e.exec(`INSERT INTO traffic_referrers (app_id, day, host, visits) VALUES ('app_1', ?, 'x.com', 1)`, day)
 	}
 	e.m.Prune(context.Background())
-	for _, table := range []string{"traffic_hourly", "traffic_daily", "traffic_paths", "traffic_countries", "traffic_referrers"} {
+	for _, table := range []string{"traffic_hourly", "traffic_paths", "traffic_not_found", "traffic_countries", "traffic_referrers"} {
 		if got := e.count("SELECT COUNT(*) FROM " + table); got != 1 {
 			t.Errorf("%s: %d rows left, want 1", table, got)
 		}
+	}
+	// Day totals stay longer, for comparing 30 days with the 30 before.
+	if got := e.count("SELECT COUNT(*) FROM traffic_daily"); got != 2 {
+		t.Errorf("traffic_daily: %d rows left, want 2", got)
+	}
+}
+
+// Bots, 404 paths and direct visits reach the database.
+func TestBotsNotFoundAndDirectAreSaved(t *testing.T) {
+	e := newMgrEnv(t)
+	bot := strings.Replace(logLine("app-quiet-otter-3f9a@file", "websecure", "/", "198.51.100.9", 200), "Mozilla/5.0 Firefox/130 UNIQUE-UA", "curl/8.0", 1)
+	e.write(
+		logLine("app-quiet-otter-3f9a@file", "websecure", "/", "203.0.113.1", 200),
+		logLine("app-quiet-otter-3f9a@file", "websecure", "/missing.png", "203.0.113.1", 404),
+		bot,
+	)
+	e.run()
+	if got := e.count(`SELECT bots FROM traffic_hourly WHERE app_id = 'app_1'`); got != 1 {
+		t.Errorf("hourly bots = %d", got)
+	}
+	if got := e.count(`SELECT bots FROM traffic_daily WHERE app_id = 'app_1'`); got != 1 {
+		t.Errorf("daily bots = %d", got)
+	}
+	if got := e.count(`SELECT hits FROM traffic_not_found WHERE app_id = 'app_1' AND path = '/missing.png'`); got != 1 {
+		t.Errorf("404 hits = %d", got)
+	}
+	if got := e.count(`SELECT visits FROM traffic_referrers WHERE app_id = 'app_1' AND host = ?`, DirectName); got != 1 {
+		t.Errorf("direct visits = %d", got)
 	}
 }
 

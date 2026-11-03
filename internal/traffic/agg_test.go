@@ -46,7 +46,7 @@ func TestAggregateCounts(t *testing.T) {
 	snap := a.Flush()
 	d := snap["app_1"]
 	hour := t0.Truncate(time.Hour).Unix()
-	if got, want := d.Hours[hour], (Counts{Requests: 8, Errors4xx: 1, Errors5xx: 1, Visitors: 4}); got != want {
+	if got, want := d.Hours[hour], (Counts{Requests: 8, Errors4xx: 1, Errors5xx: 1, Visitors: 4, Bots: 1}); got != want {
 		t.Errorf("hour = %+v, want %+v", got, want)
 	}
 	day := d.Days["2026-10-30"]
@@ -57,8 +57,12 @@ func TestAggregateCounts(t *testing.T) {
 	if len(day.Paths) != 2 || day.Paths["/"] != 2 || day.Paths["/about"] != 1 {
 		t.Errorf("paths = %v", day.Paths)
 	}
-	if len(day.Referrers) != 1 || day.Referrers["example.com"] != 1 {
+	// "/" twice without a Referer: direct.
+	if len(day.Referrers) != 2 || day.Referrers["example.com"] != 1 || day.Referrers[DirectName] != 2 {
 		t.Errorf("referrers = %v", day.Referrers)
+	}
+	if len(day.NotFound) != 1 || day.NotFound["/nope"] != 1 {
+		t.Errorf("not found = %v", day.NotFound)
 	}
 	if got := day.Countries["NL"]; got != (CountryCounts{Requests: 2, Visitors: 1}) {
 		t.Errorf("NL = %+v", got)
@@ -181,8 +185,67 @@ func TestReferrerCapDropsExtra(t *testing.T) {
 		e.Referer = fmt.Sprintf("https://site%d.example/", i)
 		a.Add("app_1", e)
 	}
-	if n := len(a.Flush()["app_1"].Days["2026-10-30"].Referrers); n != MaxReferrersPerDay {
+	a.Add("app_1", req("/", "203.0.113.1", firefox)) // direct, after the cap is full
+	refs := a.Flush()["app_1"].Days["2026-10-30"].Referrers
+	if n := len(refs); n != MaxReferrersPerDay+1 {
 		t.Errorf("%d referrers", n)
+	}
+	if refs[DirectName] != 1 {
+		t.Errorf("direct dropped by the cap: %v", refs[DirectName])
+	}
+}
+
+func TestDirectSurvivesRestore(t *testing.T) {
+	a := newAgg()
+	a.Add("app_1", req("/", "203.0.113.1", firefox))
+	a.Restore(a.Flush())
+	for i := 0; i < MaxReferrersPerDay; i++ {
+		e := req("/", "203.0.113.1", firefox)
+		e.Referer = fmt.Sprintf("https://site%d.example/", i)
+		a.Add("app_1", e)
+	}
+	refs := a.Flush()["app_1"].Days["2026-10-30"].Referrers
+	if len(refs) != MaxReferrersPerDay+1 || refs[DirectName] != 1 {
+		t.Errorf("direct took a slot of the cap: %d referrers, direct %d", len(refs), refs[DirectName])
+	}
+}
+
+func TestNotFoundCountsAssetsNotBots(t *testing.T) {
+	a := newAgg()
+	for _, p := range []string{"/gone", "/gone", "/img/logo.png"} {
+		e := req(p, "203.0.113.1", firefox)
+		e.Status = 404
+		a.Add("app_1", e)
+	}
+	bot := req("/wp-login.php", "198.51.100.9", "Googlebot/2.1")
+	bot.Status = 404
+	a.Add("app_1", bot)
+	gone := req("/gone", "203.0.113.1", firefox)
+	gone.Status = 410 // only 404 counts
+	a.Add("app_1", gone)
+	d := a.Flush()["app_1"].Days["2026-10-30"]
+	if len(d.NotFound) != 2 || d.NotFound["/gone"] != 2 || d.NotFound["/img/logo.png"] != 1 {
+		t.Errorf("not found = %v", d.NotFound)
+	}
+	if d.Bots != 1 || d.Errors4xx != 5 {
+		t.Errorf("counts = %+v", d.Counts)
+	}
+	// A 404 is not a page view and not a "came from".
+	if len(d.Paths) != 0 || len(d.Referrers) != 0 {
+		t.Errorf("paths %v, referrers %v", d.Paths, d.Referrers)
+	}
+}
+
+func TestNotFoundCap(t *testing.T) {
+	a := newAgg()
+	for i := 0; i < MaxNotFoundPerDay+10; i++ {
+		e := req(fmt.Sprintf("/x/%d", i), "203.0.113.1", firefox)
+		e.Status = 404
+		a.Add("app_1", e)
+	}
+	d := a.Flush()["app_1"].Days["2026-10-30"]
+	if len(d.NotFound) != MaxNotFoundPerDay || d.NotFound[OtherName] != 11 {
+		t.Errorf("%d not found paths, other %d", len(d.NotFound), d.NotFound[OtherName])
 	}
 }
 
@@ -191,8 +254,8 @@ func TestOwnReferrerIgnored(t *testing.T) {
 	e := req("/b", "203.0.113.1", firefox)
 	e.Referer = "https://a.bitploy.nl/"
 	a.Add("app_1", e)
-	if n := len(a.Flush()["app_1"].Days["2026-10-30"].Referrers); n != 0 {
-		t.Errorf("own site counted as referrer: %d", n)
+	if refs := a.Flush()["app_1"].Days["2026-10-30"].Referrers; len(refs) != 0 {
+		t.Errorf("own site counted as referrer: %v", refs)
 	}
 }
 

@@ -24,8 +24,10 @@ const (
 	pruneEvery    = time.Hour
 	routesEvery   = time.Minute // reload the router-to-app table
 	routesMissMin = 10 * time.Second
-	// Retention is how long stats are kept.
-	Retention = 30 * 24 * time.Hour
+	// Retention is how long stats are kept. Day totals stay twice as long
+	// plus a day, so 30 days can be compared with the 30 before.
+	Retention      = 30 * 24 * time.Hour
+	DailyRetention = 61 * 24 * time.Hour
 )
 
 // Manager reads Traefik's access log, counts requests per app and writes the
@@ -254,19 +256,24 @@ func (m *Manager) dropDeleted(ctx context.Context, snap Snapshot) {
 func write(ctx context.Context, q *db.Queries, appID string, d *AppDelta) error {
 	for hour, c := range d.Hours {
 		if err := q.TrafficAddHourly(ctx, db.TrafficAddHourlyParams{
-			AppID: appID, Hour: hour, Requests: c.Requests, Errors4xx: c.Errors4xx, Errors5xx: c.Errors5xx, Visitors: c.Visitors,
+			AppID: appID, Hour: hour, Requests: c.Requests, Errors4xx: c.Errors4xx, Errors5xx: c.Errors5xx, Visitors: c.Visitors, Bots: c.Bots,
 		}); err != nil {
 			return err
 		}
 	}
 	for day, dd := range d.Days {
 		if err := q.TrafficAddDaily(ctx, db.TrafficAddDailyParams{
-			AppID: appID, Day: day, Requests: dd.Requests, Errors4xx: dd.Errors4xx, Errors5xx: dd.Errors5xx, Visitors: dd.Visitors,
+			AppID: appID, Day: day, Requests: dd.Requests, Errors4xx: dd.Errors4xx, Errors5xx: dd.Errors5xx, Visitors: dd.Visitors, Bots: dd.Bots,
 		}); err != nil {
 			return err
 		}
 		for p, n := range dd.Paths {
 			if err := q.TrafficAddPath(ctx, db.TrafficAddPathParams{AppID: appID, Day: day, Path: p, Views: n}); err != nil {
+				return err
+			}
+		}
+		for p, n := range dd.NotFound {
+			if err := q.TrafficAddNotFound(ctx, db.TrafficAddNotFoundParams{AppID: appID, Day: day, Path: p, Hits: n}); err != nil {
 				return err
 			}
 		}
@@ -284,15 +291,17 @@ func write(ctx context.Context, q *db.Queries, appID string, d *AppDelta) error 
 	return nil
 }
 
-// Prune deletes stats older than Retention.
+// Prune deletes stats older than Retention, day totals older than DailyRetention.
 func (m *Manager) Prune(ctx context.Context) {
-	cut := m.Now().Add(-Retention)
+	now := m.Now()
+	cut := now.Add(-Retention)
 	day := cut.UTC().Format("2006-01-02")
 	q := m.Store.Q
 	for _, err := range []error{
 		q.TrafficPruneHourly(ctx, cut.Unix()),
-		q.TrafficPruneDaily(ctx, day),
+		q.TrafficPruneDaily(ctx, now.Add(-DailyRetention).UTC().Format("2006-01-02")),
 		q.TrafficPrunePaths(ctx, day),
+		q.TrafficPruneNotFound(ctx, day),
 		q.TrafficPruneCountries(ctx, day),
 		q.TrafficPruneReferrers(ctx, day),
 	} {
