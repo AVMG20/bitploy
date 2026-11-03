@@ -259,3 +259,48 @@ func TestCountryFromHeaderOrGeo(t *testing.T) {
 		}
 	}
 }
+
+func TestWatchWakesTheLoopOnceAndKeepsItFast(t *testing.T) {
+	e := newMgrEnv(t)
+	if e.m.watched() {
+		t.Fatal("watched before anyone asked")
+	}
+	e.m.Watch()
+	e.m.Watch() // already watched: no second wake-up queued (the channel holds one)
+	if !e.m.watched() {
+		t.Error("not watched after Watch")
+	}
+	select {
+	case <-e.m.wake:
+	default:
+		t.Error("Watch after a quiet spell did not wake the loop")
+	}
+	select {
+	case <-e.m.wake:
+		t.Error("a second wake-up while already watched")
+	default:
+	}
+}
+
+func TestRunSavesWithinSecondsWhileWatched(t *testing.T) {
+	e := newMgrEnv(t)
+	e.m.Now = func() time.Time { return time.Now().UTC() }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { e.m.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	e.write(logLine("app-quiet-otter-3f9a@file", "websecure", "/", "203.0.113.1", 200))
+	e.m.Watch()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int64
+		_ = e.st.DB.QueryRow(`SELECT COALESCE(SUM(requests), 0) FROM traffic_hourly WHERE app_id='app_1'`).Scan(&n)
+		if n == 1 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Error("the request was not saved within 5 seconds of Watch")
+}

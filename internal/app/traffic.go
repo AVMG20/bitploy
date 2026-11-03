@@ -44,6 +44,8 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 	if err != nil {
 		return Traffic{}, err
 	}
+	// Someone is looking: save new requests every few seconds for a while.
+	s.trafficMgr().Watch()
 	window = strings.ToLower(strings.TrimSpace(window))
 	if window == "" {
 		window = "24h"

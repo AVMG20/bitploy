@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/proxy"
@@ -14,8 +15,12 @@ import (
 )
 
 const (
-	pollEvery     = 5 * time.Second
-	flushEvery    = time.Minute
+	pollEvery  = 5 * time.Second
+	flushEvery = time.Minute
+	// While someone has an app's traffic open the log is read and saved
+	// every watchedEvery, for watchFor after their last request.
+	watchedEvery  = 2 * time.Second
+	watchFor      = 20 * time.Second
 	pruneEvery    = time.Hour
 	routesEvery   = time.Minute // reload the router-to-app table
 	routesMissMin = 10 * time.Second
@@ -41,25 +46,45 @@ type Manager struct {
 
 	cursorLoaded bool
 	savedPos     Position // the position stored with the last flush
+
+	watchedUntil atomic.Int64 // unix nanos; see Watch
+	wake         chan struct{}
 }
 
 // New returns a Manager reading logPath.
 func New(st *store.Store, log *slog.Logger, logPath string, geo *Geo) *Manager {
-	m := &Manager{Store: st, Log: log, Geo: geo, Now: func() time.Time { return time.Now().UTC() }}
+	m := &Manager{Store: st, Log: log, Geo: geo, Now: func() time.Time { return time.Now().UTC() }, wake: make(chan struct{}, 1)}
 	m.tail = NewTailer(logPath)
 	m.agg = NewAggregator(func() time.Time { return m.Now() })
 	return m
 }
+
+// Watch says someone is looking at traffic numbers: for the next 20 seconds
+// the log is read and saved every 2 seconds instead of every minute, so the
+// numbers on screen are seconds old. The first call after a quiet spell saves
+// right away.
+func (m *Manager) Watch() {
+	until := time.Now().Add(watchFor).UnixNano()
+	if m.watchedUntil.Swap(until) < time.Now().UnixNano() {
+		select {
+		case m.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (m *Manager) watched() bool { return time.Now().UnixNano() < m.watchedUntil.Load() }
 
 // Run polls the log, flushes and prunes until ctx ends.
 func (m *Manager) Run(ctx context.Context) {
 	if m.Geo != nil {
 		go m.Geo.Run(ctx)
 	}
-	lastFlush, lastPrune := m.Now(), time.Time{}
-	t := time.NewTicker(pollEvery)
+	lastFlush, lastPoll, lastPrune := m.Now(), time.Time{}, time.Time{}
+	t := time.NewTicker(watchedEvery)
 	defer t.Stop()
 	for {
+		woken := false
 		select {
 		case <-ctx.Done():
 			bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -68,9 +93,16 @@ func (m *Manager) Run(ctx context.Context) {
 			cancel()
 			return
 		case <-t.C:
+		case <-m.wake:
+			woken = true
+		}
+		watched := woken || m.watched()
+		if !watched && m.Now().Sub(lastPoll) < pollEvery {
+			continue
 		}
 		m.Poll(ctx)
-		if now := m.Now(); now.Sub(lastFlush) >= flushEvery {
+		lastPoll = m.Now()
+		if now := m.Now(); watched || now.Sub(lastFlush) >= flushEvery {
 			m.Flush(ctx)
 			lastFlush = now
 			if now.Sub(lastPrune) >= pruneEvery {

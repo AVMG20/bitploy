@@ -24,7 +24,7 @@ func pointFromSample(p metrics.Point) *MetricPoint {
 func round1(v float64) float64 { return float64(int64(v*10+0.5)) / 10 }
 
 // GetMetrics returns CPU, memory and network for window 1h | 24h | 7d.
-// 1h is raw 15-second samples; 24h and 7d are 5-minute rollups (the newest
+// 1h is raw 15-second samples ending at the live reading; 24h and 7d are 5-minute rollups (the newest
 // raw samples are folded into 5-minute buckets so the series is uniform).
 func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (Metrics, error) {
 	app, err := s.LoadApp(ctx, a, ref, false)
@@ -51,8 +51,14 @@ func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (
 			CPUMax: round1(p.CPUMax), MemMaxMB: round1(float64(p.MemMax) / mib),
 		}
 	}
+	latest := s.LatestSample(app.ID)
+	// The hour chart ends at the live reading, so it moves between the
+	// 15-second samples while someone watches it.
+	if window == "1h" && latest != nil && (len(points) == 0 || latest.TS.After(points[len(points)-1].TS)) {
+		points = append(points, *latest)
+	}
 	return Metrics{
-		App: app.Slug, Window: window, MemoryLimitMB: app.MemoryMb, Points: points, Latest: s.LatestSample(app.ID),
+		App: app.Slug, Window: window, MemoryLimitMB: app.MemoryMb, Points: points, Latest: latest,
 	}, nil
 }
 

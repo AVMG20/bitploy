@@ -24,25 +24,80 @@ type tracked struct {
 
 	cur, base         dockerx.Stats
 	haveCur, haveBase bool
+
+	// recent are the last few stream readings (about one per second), for
+	// the live CPU and memory between two stored samples.
+	recent []dockerx.Stats
 }
 
-// Latest returns the newest sample of a running app.
+const (
+	// liveReadings is how many stream readings the live view spans: about
+	// five seconds, enough to smooth the jitter of one-second readings.
+	liveReadings = 6
+	// liveMaxAge is how old the newest reading may be before the live view
+	// falls back to the stored sample.
+	liveMaxAge = 10 * time.Second
+)
+
+// Latest returns what a running app uses right now: CPU and memory over the
+// last few seconds of the stats stream, network from the newest stored
+// sample (bytes during that sample's interval). Without fresh stream readings
+// it is the newest stored sample.
 func (m *Manager) Latest(appID string) (Point, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	p, ok := m.latest[appID]
-	return p, ok
+	return m.latestLocked(appID)
 }
 
-// LatestAll returns the newest samples of all running apps.
+// LatestAll returns Latest for all running apps.
 func (m *Manager) LatestAll() map[string]Point {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make(map[string]Point, len(m.latest))
-	for k, v := range m.latest {
-		out[k] = v
+	ids := map[string]bool{}
+	for id := range m.latest {
+		ids[id] = true
+	}
+	for _, t := range m.tracked {
+		ids[t.appID] = true
+	}
+	out := make(map[string]Point, len(ids))
+	for id := range ids {
+		if p, ok := m.latestLocked(id); ok {
+			out[id] = p
+		}
 	}
 	return out
+}
+
+func (m *Manager) latestLocked(appID string) (Point, bool) {
+	p, ok := m.latest[appID]
+	var cpu float64
+	var mem int64
+	var newest time.Time
+	live := false
+	for _, t := range m.tracked {
+		if t.appID != appID || len(t.recent) < 2 {
+			continue
+		}
+		first, last := t.recent[0], t.recent[len(t.recent)-1]
+		if m.now().Sub(last.Read) > liveMaxAge {
+			continue
+		}
+		live = true
+		cpu += CPUPercent(first, last)
+		mem += int64(last.MemWorkingSet())
+		if last.Read.After(newest) {
+			newest = last.Read
+		}
+	}
+	if !live {
+		return p, ok
+	}
+	if !ok {
+		p = Point{}
+	}
+	p.TS, p.CPU, p.MemBytes = newest.UTC(), cpu, mem
+	return p, true
 }
 
 func (m *Manager) runCollector(ctx context.Context) {
@@ -117,6 +172,10 @@ func (m *Manager) Track(ctx context.Context, c dockerx.Managed) {
 		err := m.Docker.StreamStats(sctx, c.ID, func(s dockerx.Stats) error {
 			m.mu.Lock()
 			t.cur, t.haveCur = s, true
+			t.recent = append(t.recent, s)
+			if len(t.recent) > liveReadings {
+				t.recent = append(t.recent[:0], t.recent[len(t.recent)-liveReadings:]...)
+			}
 			if !t.haveBase {
 				t.base, t.haveBase = s, true
 			}

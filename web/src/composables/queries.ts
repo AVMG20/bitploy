@@ -43,11 +43,19 @@ export function useApp(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter
   })
 }
 
+/**
+ * Traffic and the hour of metrics while a page shows them. The server reads the
+ * access log every 2 seconds while someone asks (see traffic.Manager.Watch) and
+ * the stats stream is about one reading a second, so these are seconds old.
+ */
+const TRAFFIC_MS = 5_000
+const LIVE_METRICS_MS = 3_000
+
 export function useAppTraffic(slug: MaybeRefOrGetter<string>, window: MaybeRefOrGetter<TrafficWindow>) {
   return useQuery({
     queryKey: computed(() => keys.traffic(toValue(slug), toValue(window))),
     queryFn: () => api.traffic(toValue(slug), toValue(window)),
-    refetchInterval: 30_000,
+    refetchInterval: TRAFFIC_MS,
   })
 }
 
@@ -56,7 +64,7 @@ export function useAppVisitorsToday(slug: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => keys.traffic(toValue(slug), 'today')),
     queryFn: () => api.traffic(toValue(slug), 'today'),
-    refetchInterval: 30_000,
+    refetchInterval: TRAFFIC_MS,
   })
 }
 
@@ -64,7 +72,9 @@ export function useAppMetrics(slug: MaybeRefOrGetter<string>, window: MaybeRefOr
   return useQuery({
     queryKey: computed(() => keys.metrics(toValue(slug), toValue(window))),
     queryFn: () => api.metrics(toValue(slug), toValue(window)),
-    refetchInterval: 15_000,
+    // The hour chart and the "now" numbers end at a live reading: ask often.
+    // The longer windows are 5-minute buckets. Hidden tabs do not poll at all.
+    refetchInterval: () => (toValue(window) === '1h' ? LIVE_METRICS_MS : 15_000),
     enabled: computed(() => (enabled === undefined ? true : toValue(enabled))),
   })
 }

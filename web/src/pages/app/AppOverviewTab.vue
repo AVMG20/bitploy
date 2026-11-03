@@ -39,8 +39,9 @@ const isWeb = computed(() => data.value?.type === 'web')
 const traffic = useAppVisitorsToday(() => props.slug)
 const dep = computed(() => data.value?.current_deployment ?? null)
 const running = computed(() => data.value?.status === 'running')
-// The newest 15-second sample, only while the app runs.
-const live = computed(() => (running.value ? (data.value?.live ?? null) : null))
+// What the app uses right now (the last few seconds), only while it runs. The
+// metrics query asks every few seconds; the app query only now and then.
+const live = computed(() => (running.value ? (metrics.data.value?.latest ?? data.value?.live ?? null) : null))
 const cpuLimitPct = computed(() => (data.value?.cpu_millis ?? 0) / 10) // 1000 millis = 100% of one core
 const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.value?.memory_mb ?? 0)
 </script>

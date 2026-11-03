@@ -301,8 +301,8 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 - **Traefik sends app traffic straight to containers**, never through bitploy, so apps keep serving while bitploy restarts. bitploy writes one YAML route file per app (atomic rename); Traefik picks it up within a second.
 - **Deploys** go through a queue in SQLite: fetch, validate the Dockerfile, `docker buildx build`, start, health check through Traefik, swap the route, stop the old container. A failed deploy leaves the old version running.
 - **Reconciler** compares the database with real containers, networks and route files every 60 seconds and repairs drift.
-- **Traffic stats** (`internal/traffic`): Traefik writes its access log to a file in the data dir; bitploy tails it every 5 s, counts per app in memory and saves once a minute.
-- **Metrics** (`internal/metrics`): one streaming stats connection per running container, a 15 s ticker writing one sample per app in a single transaction, a Docker events listener (`die`, `oom`, `health_status`) that updates app status at once and detects crash loops, and the nightly job.
+- **Traffic stats** (`internal/traffic`): Traefik writes its access log to a file in the data dir; bitploy tails it every 5 s, counts per app in memory and saves once a minute (every 2 s while someone has the numbers open).
+- **Metrics** (`internal/metrics`): one streaming stats connection per running container, a 15 s ticker writing one sample per app in a single transaction (the "now" numbers and the end of the hour chart come straight from the last ~5 s of the stream), a Docker events listener (`die`, `oom`, `health_status`) that updates app status at once and detects crash loops, and the nightly job.
 
 | Path | Contents |
 | --- | --- |
