@@ -7,6 +7,7 @@ import FormScope from '@/components/FormScope.vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { KeyRound, Pencil, Trash2 } from 'lucide-vue-next'
+import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -21,7 +22,7 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { keys, useApp, useMe } from '@/composables/queries'
+import { keys, useApp, useCatalogApp, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { formatMB } from '@/lib/format'
@@ -264,6 +265,63 @@ const saveRes = useMutation({
 })
 const submitRes = resForm.handleSubmit((v) => saveRes.mutate(v))
 
+// ---------------------------------------------------------------- dockerfile
+const dockerfile = useQuery({
+  queryKey: computed(() => keys.dockerfile(props.slug)),
+  queryFn: () => api.dockerfile(props.slug),
+  retry: false,
+})
+const dockerfileText = ref('')
+let dockerfileLoadedFor = ''
+watch(
+  () => dockerfile.data.value,
+  (d) => {
+    // Once per app, so a refetch does not wipe unsaved edits.
+    if (d && dockerfileLoadedFor !== props.slug) {
+      dockerfileLoadedFor = props.slug
+      dockerfileText.value = d.content
+    }
+  },
+  { immediate: true },
+)
+const dockerfileChanged = computed(() => !!dockerfile.data.value && dockerfileText.value !== dockerfile.data.value.content)
+const showDockerfile = computed(() => !!dockerfile.data.value && (dockerfile.data.value.editable || !!dockerfile.data.value.content))
+
+function deployStarted(done: string, detail?: string) {
+  toastOk(done, detail)
+  void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+  void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
+  void qc.invalidateQueries({ queryKey: keys.apps })
+  void router.push({ name: 'app-deployments', params: { slug: props.slug } })
+}
+const saveDockerfile = useMutation({
+  mutationFn: () => api.saveDockerfile(props.slug, dockerfileText.value),
+  onSuccess: () => {
+    void qc.invalidateQueries({ queryKey: keys.dockerfile(props.slug) })
+    deployStarted('Dockerfile saved', 'A new version is being built.')
+  },
+  onError: (e) => toastError(e),
+})
+
+// ---------------------------------------------------------------- one-click app
+const catalogEntry = useCatalogApp(() => app.data.value?.catalog_id ?? '')
+const catalogName = computed(() => catalogEntry.data.value?.name ?? app.data.value?.catalog_id ?? '')
+const updateOpen = ref(false)
+const catalogUpdate = useMutation({
+  mutationFn: () => api.catalogUpdate(props.slug),
+  onSuccess: () => {
+    updateOpen.value = false
+    dockerfileLoadedFor = ''
+    void qc.invalidateQueries({ queryKey: keys.dockerfile(props.slug) })
+    deployStarted('Update started', 'A new version is being built.')
+  },
+  onError: (e) => {
+    updateOpen.value = false
+    toastError(e)
+    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
+  },
+})
+
 // ---------------------------------------------------------------- delete
 const deleteOpen = ref(false)
 const del = useMutation({
@@ -368,6 +426,35 @@ const del = useMutation({
       </CardContent>
     </Card>
 
+    <Card v-if="app.data.value?.catalog_id">
+      <CardHeader>
+        <CardTitle>One-click app</CardTitle>
+        <CardDescription>
+          Based on {{ catalogName }} <span class="font-mono">{{ app.data.value.catalog_version }}</span>
+        </CardDescription>
+      </CardHeader>
+      <CardContent v-if="app.data.value.catalog_update" class="flex flex-wrap items-center gap-3">
+        <Button :disabled="catalogUpdate.isPending.value" @click="updateOpen = true">Update to {{ app.data.value.catalog_update }}</Button>
+        <p class="text-sm text-muted-foreground">A newer version is in the catalog.</p>
+      </CardContent>
+    </Card>
+
+    <Card v-if="showDockerfile">
+      <CardHeader>
+        <CardTitle>Dockerfile</CardTitle>
+        <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Data in /data is kept.</CardDescription>
+        <CardDescription v-else>{{ dockerfile.data.value?.reason }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
+          <DockerfileEditor v-model="dockerfileText" :readonly="!dockerfile.data.value?.editable" :disabled="saveDockerfile.isPending.value" />
+          <div v-if="dockerfile.data.value?.editable">
+            <Button type="submit" :disabled="!dockerfileChanged || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+
     <Card>
       <CardHeader>
         <CardTitle>Type</CardTitle>
@@ -433,6 +520,15 @@ const del = useMutation({
       </CardContent>
     </Card>
 
+    <ConfirmDialog
+      v-model:open="updateOpen"
+      :title="`Update to ${app.data.value?.catalog_update ?? ''}?`"
+      :description="`Replaces the Dockerfile with the catalog's version ${app.data.value?.catalog_update ?? ''} and deploys it. Changes you made to the Dockerfile are lost. Data in /data is kept.`"
+      :confirm-label="`Update to ${app.data.value?.catalog_update ?? ''}`"
+      :destructive="false"
+      :loading="catalogUpdate.isPending.value"
+      @confirm="catalogUpdate.mutate()"
+    />
     <ConfirmDialog
       v-model:open="renameOpen"
       title="Change the address?"

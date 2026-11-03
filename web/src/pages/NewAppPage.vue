@@ -5,9 +5,11 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, Github, Upload } from 'lucide-vue-next'
+import { ArrowLeft, FileCode, Github, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
+import CatalogGrid from '@/components/CatalogGrid.vue'
+import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -24,7 +26,7 @@ import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { slugify, slugSchema } from '@/lib/slug'
-import type { BuildMode, GitSourceInput } from '@/lib/types'
+import type { BuildMode, DockerfileFinding, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
 const router = useRouter()
@@ -63,7 +65,7 @@ const addressParts = computed(() => {
 // ---------------------------------------------------------------- source
 const github = useQuery({ queryKey: keys.github, queryFn: api.github })
 const canPick = computed(() => (github.data.value?.installations ?? []).some((i) => i.status === 'active'))
-const chosenSource = ref<'github' | 'upload' | null>(null)
+const chosenSource = ref<'github' | 'upload' | 'dockerfile' | null>(null)
 // GitHub first, and the default once it is connected.
 const source = computed({
   get: () => chosenSource.value ?? (canPick.value ? 'github' : 'upload'),
@@ -79,6 +81,35 @@ watch(upload, () => (outputDir.value = ''))
 const homePage = ref('')
 const volume = ref(false)
 
+// The Dockerfile tab: the text is the whole source.
+const dockerfile = ref('')
+const port = ref('')
+const portError = computed(() => {
+  const p = port.value.trim()
+  if (!p) return ''
+  const n = Number(p)
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? '' : 'Use a whole number from 1 to 65535.'
+})
+const findings = ref<DockerfileFinding[]>([])
+let checked = ''
+async function checkDockerfile() {
+  const text = dockerfile.value
+  const key = `${text}\n${port.value}`
+  if (!text.trim() || key === checked) return
+  checked = key
+  try {
+    const r = await api.validateDockerfile(text, port.value.trim() && !portError.value ? Number(port.value) : undefined)
+    if (checked === key) findings.value = r.findings.filter((f) => f.severity !== 'info')
+  } catch {
+    // The check is a courtesy; deploying says what is wrong.
+    findings.value = []
+  }
+}
+watch(dockerfile, () => {
+  findings.value = []
+  checked = ''
+})
+
 // What the server will make of the files; null for GitHub or a zip this page could not read.
 const detected = computed(() =>
   source.value === 'upload' && upload.value?.paths
@@ -90,6 +121,7 @@ const showType = computed(() => source.value === 'github' || !!upload.value)
 const typeLater = computed(() => source.value === 'github' || !upload.value?.paths)
 
 const sourceReady = computed(() => {
+  if (source.value === 'dockerfile') return !!dockerfile.value.trim() && !portError.value
   if (outputDirError(outputDir.value)) return false
   if (source.value === 'github') return !!repo.value
   if (!upload.value) return false
@@ -101,6 +133,7 @@ const sourceReady = computed(() => {
 // What is missing before Deploy works, when it is not said elsewhere already.
 const waitingFor = computed(() => {
   if (source.value === 'github') return canPick.value ? 'Pick a repository to continue.' : ''
+  if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Write a Dockerfile to continue.'
   return upload.value ? '' : 'Add your files to continue.'
 })
 
@@ -141,7 +174,8 @@ async function run(v: { name: string; slug: string }) {
       name: v.name,
       slug: v.slug,
       volume: volume.value,
-      build_mode: mode.value,
+      build_mode: source.value === 'dockerfile' ? 'dockerfile' : mode.value,
+      port: source.value === 'dockerfile' && port.value.trim() ? Number(port.value) : undefined,
       output_dir: outputDir.value.trim() || undefined,
       // Only kept when there are several pages to choose from.
       home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
@@ -156,6 +190,9 @@ async function run(v: { name: string; slug: string }) {
         (f) => (sent.value = f),
         () => (stage.value = 'checking'),
       )
+    } else if (source.value === 'dockerfile') {
+      stage.value = 'starting'
+      await api.deployFiles(slug, [{ path: 'Dockerfile', content: dockerfile.value }])
     } else if (repo.value) {
       stage.value = 'starting'
       await api.setGitSource(slug, repo.value)
@@ -237,6 +274,7 @@ const submit = form.handleSubmit(run)
               <TabsList>
                 <TabsTrigger value="github" :disabled="busy"><Github class="size-4" /> GitHub</TabsTrigger>
                 <TabsTrigger value="upload" :disabled="busy"><Upload class="size-4" /> Upload</TabsTrigger>
+                <TabsTrigger value="dockerfile" :disabled="busy"><FileCode class="size-4" /> Dockerfile</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -247,6 +285,42 @@ const submit = form.handleSubmit(run)
           </template>
 
           <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
+
+          <div v-if="source === 'dockerfile'" class="grid gap-4">
+            <div class="grid gap-1.5">
+              <Label for="new-dockerfile">Dockerfile</Label>
+              <DockerfileEditor
+                id="new-dockerfile"
+                v-model="dockerfile"
+                placeholder="FROM ghcr.io/owner/image:1.2.3"
+                :disabled="busy"
+                :invalid="findings.some((f) => f.severity === 'error')"
+                @blur="checkDockerfile"
+              />
+              <p class="text-[0.8rem] text-muted-foreground">
+                For a ready-made image or a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, the port is the one the image declares. Files are kept only under <span class="font-mono">/data</span>, with the switch below.
+              </p>
+              <ul v-if="findings.length" class="grid gap-1.5" data-testid="dockerfile-findings">
+                <li
+                  v-for="(f, i) in findings"
+                  :key="i"
+                  :class="['flex items-start gap-2 rounded-lg border px-3 py-2 text-xs', f.severity === 'error' ? 'border-destructive/40 text-destructive' : 'border-warning/40 text-warning']"
+                >
+                  <TriangleAlert class="mt-0.5 size-3.5 shrink-0" />
+                  <span class="min-w-0">
+                    <span v-if="f.line" class="font-mono">Line {{ f.line }}: </span>{{ f.message }}
+                    <span v-if="f.hint && !/\b[a-z]+(?:_[a-z]+)+\b/.test(f.hint)" class="block text-muted-foreground">{{ f.hint }}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <div class="grid max-w-48 gap-1.5">
+              <Label for="new-port">Port</Label>
+              <Input id="new-port" v-model="port" type="number" inputmode="numeric" min="1" max="65535" placeholder="Image default" :disabled="busy" :aria-invalid="!!portError || undefined" @blur="checkDockerfile" />
+              <p v-if="portError" class="text-[0.8rem] text-destructive">{{ portError }}</p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">Leave empty to use the port the image declares.</p>
+            </div>
+          </div>
 
           <BuildTypeFields v-if="showType" v-model:mode="mode" v-model:output-dir="outputDir" :detected="detected" :later="typeLater" :disabled="busy" id-prefix="new" />
         </CardContent>
@@ -282,5 +356,7 @@ const submit = form.handleSubmit(run)
         <p v-if="!sourceReady && !busy && waitingFor" class="text-xs text-muted-foreground">{{ waitingFor }}</p>
       </div>
     </form>
+
+    <CatalogGrid />
   </div>
 </template>

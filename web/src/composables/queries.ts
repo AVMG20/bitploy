@@ -34,6 +34,21 @@ export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }
 
+/** The one-click apps. They change with bitploy releases, so there is no polling. */
+export function useCatalog() {
+  return useQuery({ queryKey: keys.catalog, queryFn: api.catalog, staleTime: 5 * 60_000, retry: false })
+}
+
+export function useCatalogApp(id: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean> = true) {
+  return useQuery({
+    queryKey: computed(() => keys.catalogApp(toValue(id))),
+    queryFn: () => api.catalogApp(toValue(id)),
+    enabled: computed(() => !!toValue(id) && toValue(enabled)),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
 export function useApp(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
     queryKey: computed(() => keys.app(toValue(slug))),

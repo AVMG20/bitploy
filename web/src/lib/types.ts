@@ -256,6 +256,11 @@ export interface Domain {
 
 export interface App {
   id: string
+  /** The one-click app this was made from; "" when it was not. */
+  catalog_id: string
+  catalog_version: string
+  /** A newer catalog version, when there is one. */
+  catalog_update: string | null
   slug: string
   name: string
   type: 'web' | 'worker'
@@ -317,6 +322,7 @@ export interface CreateAppInput {
   output_dir?: string
   home_page?: string
   memory_mb?: number
+  port?: number
 }
 
 export interface UpdateAppInput {
@@ -629,4 +635,64 @@ export interface DbSqlResponse {
 export interface DbSqlErrorDetails {
   statement?: number
   results?: DbSqlResult[]
+}
+
+export interface CatalogEnv {
+  name: string
+  description: string
+  /** Bitploy makes the value; it is never shown here. */
+  generated: boolean
+}
+
+export interface CatalogApp {
+  id: string
+  name: string
+  tagline: string
+  description: string
+  category: string
+  version: string
+  website: string
+  port: number
+  memory_mb: number
+  volume: boolean
+  volume_mb: number
+  health_path: string
+  env: CatalogEnv[]
+  /** May contain "{url}", which stands for the app's address. */
+  first_steps: string[]
+  dockerfile: string
+}
+
+export interface CatalogDeployInput {
+  name?: string
+  slug?: string
+  memory_mb?: number
+  volume_mb?: number
+}
+
+export interface CatalogDeployResult {
+  app: App
+  deployment: Deployment
+  first_steps: string[]
+}
+
+export interface AppDockerfile {
+  path: string
+  content: string
+  editable: boolean
+  reason: string
+}
+
+export interface DockerfileFinding {
+  code: string
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  hint?: string
+  line?: number
+}
+
+export interface DockerfileCheck {
+  ok: boolean
+  findings: DockerfileFinding[]
+  port?: number
 }

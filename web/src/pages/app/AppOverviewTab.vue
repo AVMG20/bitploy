@@ -19,6 +19,7 @@ import { nowMs } from '@/composables/useNow'
 import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
+import FirstSteps from './FirstSteps.vue'
 import { plainHint } from '@/lib/errors'
 import UploadVersionButton from './UploadVersionButton.vue'
 
@@ -63,6 +64,8 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
     <Alert v-else-if="data.status_message && data.status !== 'failed'">
       <AlertDescription>{{ data.status_message }}</AlertDescription>
     </Alert>
+
+    <FirstSteps v-if="data.catalog_id" :app="data" />
 
     <DeployProgress v-if="!dep" :slug="slug" :app="data">
       <EmptyState
