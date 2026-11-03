@@ -331,6 +331,9 @@ func idempotentPath(p string) bool {
 		return true
 	}
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 3 && parts[0] == "catalog" && parts[1] != "" && parts[2] == "deploy" {
+		return true // creates an app: a retry must not make a second one
+	}
 	if len(parts) == 3 && parts[0] == "apps" && parts[1] != "" {
 		switch parts[2] {
 		case "files", "deployments", "domains", "rollback", "redeploy":
