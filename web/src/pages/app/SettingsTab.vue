@@ -22,7 +22,7 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { keys, useApp, useCatalogApp, useMe } from '@/composables/queries'
+import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { formatMB } from '@/lib/format'
@@ -272,20 +272,48 @@ const dockerfile = useQuery({
   retry: false,
 })
 const dockerfileText = ref('')
-let dockerfileLoadedFor = ''
+// What the editor was loaded from. A refetch (a deploy finished, someone saved
+// elsewhere) replaces the text only while there are no local edits.
+const dockerfileBase = ref<string | null>(null)
 watch(
-  () => dockerfile.data.value,
-  (d) => {
-    // Once per app, so a refetch does not wipe unsaved edits.
-    if (d && dockerfileLoadedFor !== props.slug) {
-      dockerfileLoadedFor = props.slug
+  () => [props.slug, dockerfile.data.value] as const,
+  ([, d], old) => {
+    if (!d) return
+    const otherApp = !!old && old[0] !== props.slug
+    if (otherApp || dockerfileBase.value === null || dockerfileText.value === dockerfileBase.value) {
       dockerfileText.value = d.content
+      dockerfileBase.value = d.content
     }
   },
   { immediate: true },
 )
-const dockerfileChanged = computed(() => !!dockerfile.data.value && dockerfileText.value !== dockerfile.data.value.content)
-const showDockerfile = computed(() => !!dockerfile.data.value && (dockerfile.data.value.editable || !!dockerfile.data.value.content))
+const dockerfileDirty = computed(() => dockerfileBase.value !== null && dockerfileText.value !== dockerfileBase.value)
+// The saved Dockerfile changed while there were edits.
+const dockerfileStale = computed(() => dockerfileDirty.value && !!dockerfile.data.value && dockerfile.data.value.content !== dockerfileBase.value)
+function discardDockerfile() {
+  const d = dockerfile.data.value
+  dockerfileText.value = d?.content ?? ''
+  dockerfileBase.value = d?.content ?? null
+}
+// A GitHub app has its own card that says where the Dockerfile lives. The
+// reason alone is shown where a Dockerfile is expected: type Dockerfile or a
+// one-click app (a static site does not need a card saying it has none).
+const showDockerfile = computed(() => {
+  const a = app.data.value
+  const d = dockerfile.data.value
+  if (!a || a.git_source) return false
+  if (dockerfile.isError.value && !d) return true
+  return !!d && (d.editable || !!d.content || a.build_mode === 'dockerfile' || !!a.catalog_id)
+})
+
+// A deployment that is queued or building: an update or a save now would queue
+// behind it, and the version shown changes only once a deployment is live.
+const deployments = useQuery({
+  queryKey: computed(() => keys.deployments(props.slug)),
+  queryFn: () => api.deployments(props.slug),
+  refetchInterval: livePoll(REFRESH_MS),
+})
+const deploying = computed(() => (deployments.data.value ?? []).some((d) => !['running', 'failed', 'superseded', 'cancelled'].includes(d.state)))
 
 function deployStarted(done: string, detail?: string) {
   toastOk(done, detail)
@@ -297,6 +325,8 @@ function deployStarted(done: string, detail?: string) {
 const saveDockerfile = useMutation({
   mutationFn: () => api.saveDockerfile(props.slug, dockerfileText.value),
   onSuccess: () => {
+    // The saved text is the new base; the refetch confirms it.
+    dockerfileBase.value = dockerfileText.value
     void qc.invalidateQueries({ queryKey: keys.dockerfile(props.slug) })
     deployStarted('Dockerfile saved', 'A new version is being built.')
   },
@@ -311,7 +341,8 @@ const catalogUpdate = useMutation({
   mutationFn: () => api.catalogUpdate(props.slug),
   onSuccess: () => {
     updateOpen.value = false
-    dockerfileLoadedFor = ''
+    // The update replaces the Dockerfile: drop local edits so the new one shows.
+    dockerfileBase.value = null
     void qc.invalidateQueries({ queryKey: keys.dockerfile(props.slug) })
     deployStarted('Update started', 'A new version is being built.')
   },
@@ -434,8 +465,8 @@ const del = useMutation({
         </CardDescription>
       </CardHeader>
       <CardContent v-if="app.data.value.catalog_update" class="flex flex-wrap items-center gap-3">
-        <Button :disabled="catalogUpdate.isPending.value" @click="updateOpen = true">Update to {{ app.data.value.catalog_update }}</Button>
-        <p class="text-sm text-muted-foreground">A newer version is in the catalog.</p>
+        <Button :disabled="catalogUpdate.isPending.value || deploying" @click="updateOpen = true">Update to {{ app.data.value.catalog_update }}</Button>
+        <p class="text-sm text-muted-foreground">{{ deploying ? 'A deployment is in progress. Update when it is done.' : 'A newer version is in the catalog.' }}</p>
       </CardContent>
     </Card>
 
@@ -443,13 +474,17 @@ const del = useMutation({
       <CardHeader>
         <CardTitle>Dockerfile</CardTitle>
         <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Data in /data is kept.</CardDescription>
-        <CardDescription v-else>{{ dockerfile.data.value?.reason }}</CardDescription>
+        <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <form class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
+      <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
+        <QueryError v-if="dockerfile.isError.value && !dockerfile.data.value" :error="dockerfile.error.value" @retry="dockerfile.refetch()" />
+        <form v-else-if="dockerfile.data.value?.editable || dockerfile.data.value?.content" class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
           <DockerfileEditor v-model="dockerfileText" :readonly="!dockerfile.data.value?.editable" :disabled="saveDockerfile.isPending.value" />
-          <div v-if="dockerfile.data.value?.editable">
-            <Button type="submit" :disabled="!dockerfileChanged || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
+          <p v-if="dockerfileStale" class="text-xs text-warning">The saved Dockerfile changed since you started editing. Discard to see it, or save to replace it.</p>
+          <div v-if="dockerfile.data.value?.editable" class="flex flex-wrap items-center gap-3">
+            <Button type="submit" :disabled="!dockerfileDirty || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
+            <Button v-if="dockerfileDirty" type="button" variant="ghost" :disabled="saveDockerfile.isPending.value" @click="discardDockerfile">Discard</Button>
+            <p v-if="dockerfileDirty" class="text-xs text-muted-foreground">Unsaved changes</p>
           </div>
         </form>
       </CardContent>
@@ -523,7 +558,7 @@ const del = useMutation({
     <ConfirmDialog
       v-model:open="updateOpen"
       :title="`Update to ${app.data.value?.catalog_update ?? ''}?`"
-      :description="`Replaces the Dockerfile with the catalog's version ${app.data.value?.catalog_update ?? ''} and deploys it. Changes you made to the Dockerfile are lost. Data in /data is kept.`"
+      :description="`Replaces the Dockerfile with the catalog's version ${app.data.value?.catalog_update ?? ''} and deploys it. Changes you made to the Dockerfile are lost. Data in /data is kept, but a new version may convert it so the old one cannot read it again: make a backup first.`"
       :confirm-label="`Update to ${app.data.value?.catalog_update ?? ''}`"
       :destructive="false"
       :loading="catalogUpdate.isPending.value"

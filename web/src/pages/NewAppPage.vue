@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { ArrowLeft, FileCode, Github, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
-import CatalogGrid from '@/components/CatalogGrid.vue'
+import CatalogStrip from '@/components/CatalogStrip.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
@@ -85,7 +85,7 @@ const volume = ref(false)
 const dockerfile = ref('')
 const port = ref('')
 const portError = computed(() => {
-  const p = port.value.trim()
+  const p = String(port.value).trim()
   if (!p) return ''
   const n = Number(p)
   return Number.isInteger(n) && n >= 1 && n <= 65535 ? '' : 'Use a whole number from 1 to 65535.'
@@ -117,7 +117,7 @@ const detected = computed(() =>
     : null,
 )
 // The type is chosen once there is something to build; the files are read later for GitHub and for a zip this page cannot open.
-const showType = computed(() => source.value === 'github' || !!upload.value)
+const showType = computed(() => source.value === 'github' || (source.value === 'upload' && !!upload.value))
 const typeLater = computed(() => source.value === 'github' || !upload.value?.paths)
 
 const sourceReady = computed(() => {
@@ -176,7 +176,7 @@ async function run(v: { name: string; slug: string }) {
       volume: volume.value,
       build_mode: source.value === 'dockerfile' ? 'dockerfile' : mode.value,
       port: source.value === 'dockerfile' && port.value.trim() ? Number(port.value) : undefined,
-      output_dir: outputDir.value.trim() || undefined,
+      output_dir: source.value !== 'dockerfile' ? outputDir.value.trim() || undefined : undefined,
       // Only kept when there are several pages to choose from.
       home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
     })
@@ -234,6 +234,7 @@ const submit = form.handleSubmit(run)
       <ArrowLeft class="size-4" /> All apps
     </RouterLink>
     <PageHeader title="New app" description="Name it, choose where the code is, and bitploy puts it online." />
+    <CatalogStrip />
 
     <form novalidate class="grid gap-6" @submit.prevent="submit">
       <Card>
@@ -316,7 +317,7 @@ const submit = form.handleSubmit(run)
             </div>
             <div class="grid max-w-48 gap-1.5">
               <Label for="new-port">Port</Label>
-              <Input id="new-port" v-model="port" type="number" inputmode="numeric" min="1" max="65535" placeholder="Image default" :disabled="busy" :aria-invalid="!!portError || undefined" @blur="checkDockerfile" />
+              <Input id="new-port" v-model="port" type="text" inputmode="numeric" autocomplete="off" placeholder="Image default" :disabled="busy" :aria-invalid="!!portError || undefined" @blur="checkDockerfile" />
               <p v-if="portError" class="text-[0.8rem] text-destructive">{{ portError }}</p>
               <p v-else class="text-[0.8rem] text-muted-foreground">Leave empty to use the port the image declares.</p>
             </div>
@@ -356,7 +357,5 @@ const submit = form.handleSubmit(run)
         <p v-if="!sourceReady && !busy && waitingFor" class="text-xs text-muted-foreground">{{ waitingFor }}</p>
       </div>
     </form>
-
-    <CatalogGrid />
   </div>
 </template>

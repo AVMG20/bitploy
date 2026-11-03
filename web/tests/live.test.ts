@@ -66,3 +66,11 @@ test('mergeLines keeps the newest lines when there are too many', () => {
   const base = Array.from({ length: 5 }, (_, i) => `l${i}`)
   assert.deepEqual(mergeLines(base, ['l5', 'l6'], 4), ['l3', 'l4', 'l5', 'l6'])
 })
+
+test('a queued or finished deployment refreshes the Dockerfile editor', () => {
+  const has = (state: string) =>
+    effectsOf({ type: 'deployment', app: 'blog', id: 'dep_1', state }).invalidate.some((k) => JSON.stringify(k) === JSON.stringify(keys.dockerfile('blog')))
+  assert.ok(has('queued'))
+  assert.ok(has('failed'))
+  assert.ok(!has('building'))
+})

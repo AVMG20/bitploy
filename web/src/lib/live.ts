@@ -70,16 +70,18 @@ export function effectsOf(ev: LiveEvent): Effects {
     case 'app': {
       out.invalidate.push(keys.apps, keys.me)
       if (ev.state === 'deleted') {
-        if (ev.app) out.remove.push(keys.app(ev.app), keys.deployments(ev.app), keys.env(ev.app), keys.domains(ev.app), keys.backups(ev.app))
+        if (ev.app) out.remove.push(keys.app(ev.app), keys.deployments(ev.app), keys.env(ev.app), keys.domains(ev.app), keys.backups(ev.app), keys.dockerfile(ev.app))
         break
       }
       for (const slug of [ev.app, ev.old_app]) {
-        if (slug) out.invalidate.push(keys.app(slug), keys.deployments(slug), keys.env(slug), keys.domains(slug), keys.backups(slug))
+        if (slug) out.invalidate.push(keys.app(slug), keys.deployments(slug), keys.env(slug), keys.domains(slug), keys.backups(slug), keys.dockerfile(slug))
       }
       break
     }
     case 'deployment':
       out.invalidate.push(keys.apps, keys.app(ev.app), keys.deployments(ev.app))
+      // The Dockerfile editor shows the newest attempt's Dockerfile.
+      if (ev.state === 'queued' || TERMINAL.includes(ev.state)) out.invalidate.push(keys.dockerfile(ev.app))
       if (TERMINAL.includes(ev.state)) out.invalidate.push(keys.me)
       break
     case 'backup':
