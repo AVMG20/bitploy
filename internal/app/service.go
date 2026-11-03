@@ -73,6 +73,8 @@ type Service struct {
 	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
 	ops      opsState      // metrics manager and domain-check settings (ops.go)
 	backup   backupState   // locks and restore state of /data backups (backups.go)
+	dbv      dbViewerState // helpers of the SQLite viewer that run (db_viewer.go)
+	adb      adminDBState  // the admin viewer of bitploy's own database (admin_db.go)
 	github   githubState   // installation token and repository caches (github.go)
 
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no

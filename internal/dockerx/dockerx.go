@@ -21,6 +21,12 @@ type Client struct {
 	// containers, networks, volumes and images. Empty means "not set": the
 	// list calls then fail with ErrNoInstance instead of guessing.
 	Instance string
+	// DBHelperBin is a Linux bitploy binary for the SQLite viewer's helper
+	// image (BITPLOY_DB_HELPER_BIN). Empty: use the running binary, which only
+	// works when bitploy itself runs on Linux.
+	DBHelperBin string
+
+	dbh dbHelperState
 }
 
 // ErrNoInstance is returned by the list/prune/event calls when Client.Instance is empty.

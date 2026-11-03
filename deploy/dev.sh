@@ -40,6 +40,26 @@ if [ -z "${BITPLOY_SECRET_KEY:-}" ]; then
   export BITPLOY_SECRET_KEY
 fi
 
+# The SQLite viewer runs its queries in a helper container with a Linux build of this
+# program (`bitploy db-helper`). On Linux bitploy uses itself; on a Mac it needs this one,
+# built for the architecture of Docker's VM. Without it the viewer answers
+# db_helper_unavailable and everything else works.
+case "$(docker info --format '{{.Architecture}}')" in
+  x86_64) helper_arch=amd64 ;;
+  aarch64) helper_arch=arm64 ;;
+  *) helper_arch="" ;;
+esac
+if [ -n "$helper_arch" ]; then
+  if CGO_ENABLED=0 GOOS=linux GOARCH="$helper_arch" go build -trimpath -o .data/bitploy-db-helper ./cmd/bitploy; then
+    BITPLOY_DB_HELPER_BIN="$PWD/.data/bitploy-db-helper"
+    export BITPLOY_DB_HELPER_BIN
+  else
+    echo "dev.sh: could not build the database helper; the SQLite viewer will not work" >&2
+  fi
+else
+  echo "dev.sh: unknown Docker architecture; the SQLite viewer will not work" >&2
+fi
+
 docker compose -f deploy/docker-compose.dev.yml up -d
 
 if [ ! -d web/node_modules ]; then

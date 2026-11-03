@@ -27,6 +27,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/config"
+	"github.com/AVMG20/bitploy/internal/dbview"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/mcp"
 	"github.com/AVMG20/bitploy/internal/proxy"
@@ -55,6 +56,10 @@ func main() {
 		_, _, err = open(context.Background())
 	case "admin":
 		err = admin(log, os.Args[2:])
+	case "db-helper":
+		// Not for people: the SQLite viewer runs this in a helper container (and, with --control, as a process, for the admin viewer of bitploy's own database)
+		// (internal/dbview). It reads one JSON request and prints one response.
+		os.Exit(dbview.HelperMain(os.Args[2:], os.Stdin, os.Stdout))
 	default:
 		usage()
 		os.Exit(2)
@@ -110,6 +115,7 @@ func newService(ctx context.Context, log *slog.Logger, needDocker bool) (*app.Se
 		if dk.Instance, err = st.InstanceID(ctx); err != nil {
 			return nil, err
 		}
+		dk.DBHelperBin = cfg.DBHelperBin
 	}
 	routes := &proxy.Writer{Dir: cfg.RoutesDir(), EntryPoint: "websecure", TLS: true}
 	if cfg.Dev {

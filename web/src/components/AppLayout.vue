@@ -45,7 +45,7 @@ watch(
           </template>
         </nav>
       </header>
-      <main class="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
+      <main :class="['mx-auto w-full flex-1 px-4 py-6 md:px-8 md:py-8', route.meta.wide ? 'max-w-[110rem]' : 'max-w-6xl']">
         <RouterView />
       </main>
     </SidebarInset>

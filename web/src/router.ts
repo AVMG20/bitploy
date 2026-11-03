@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { api, ApiError } from './lib/api'
 import { queryClient } from './lib/queryClient'
 import { rememberToken } from './lib/mcp'
+import { clearSqlHistory } from './lib/dbvalue'
 import { safeNext } from './lib/utils'
 import { SESSION_KEY } from './composables/useSession'
 import type { SessionInfo } from './lib/types'
@@ -11,6 +12,10 @@ declare module 'vue-router' {
     public?: boolean
     admin?: boolean
     title?: string
+    /** The tab of the app page that stays highlighted on a page below it. */
+    tab?: string
+    /** A page that gets more room than the usual column. */
+    wide?: boolean
   }
 }
 
@@ -46,6 +51,20 @@ export const router = createRouter({
             { path: 'logs', name: 'app-logs', component: () => import('./pages/app/LogsTab.vue'), props: true },
             { path: 'domains', name: 'app-domains', component: () => import('./pages/app/DomainsTab.vue'), props: true },
             { path: 'storage', name: 'app-storage', component: () => import('./pages/app/StorageTab.vue'), props: true },
+            {
+              path: 'database',
+              name: 'app-database-default',
+              component: () => import('./pages/app/database/DatabasePage.vue'),
+              props: true,
+              meta: { title: 'Database', wide: true },
+            },
+            {
+              path: 'storage/db',
+              name: 'app-database',
+              component: () => import('./pages/app/database/DatabasePage.vue'),
+              props: true,
+              meta: { title: 'Database', tab: 'app-storage', wide: true },
+            },
             { path: 'settings', name: 'app-settings', component: () => import('./pages/app/SettingsTab.vue'), props: true },
           ],
         },
@@ -63,6 +82,13 @@ export const router = createRouter({
         // Tokens used to have their own page; old links and bookmarks still work.
         { path: 'tokens', redirect: { name: 'settings-tokens' } },
         { path: 'admin', name: 'admin', component: () => import('./pages/AdminPage.vue'), meta: { title: 'Admin', admin: true } },
+        {
+          path: 'admin/database',
+          name: 'admin-database',
+          component: () => import('./pages/app/database/DatabasePage.vue'),
+          props: { admin: true },
+          meta: { title: 'Database', admin: true, wide: true },
+        },
       ],
     },
     { path: '/:rest(.*)*', name: 'not-found', component: () => import('./pages/NotFoundPage.vue'), meta: { public: true, title: 'Not found' } },
@@ -91,7 +117,10 @@ router.beforeEach(async (to) => {
     return to.meta.public ? true : { name: 'login', query: { next: to.fullPath } }
   }
   // A token kept for the Connect page must not outlive the login that made it.
-  if (!session) rememberToken('')
+  if (!session) {
+    rememberToken('')
+    clearSqlHistory() // the SQL console's remembered queries can hold data
+  }
   if (to.name === 'login' && session) {
     return { path: safeNext(to.query.next) }
   }

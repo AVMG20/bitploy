@@ -11,7 +11,8 @@ import QueryError from '@/components/QueryError.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useApp } from '@/composables/queries'
+import { useApp, useDataRoot } from '@/composables/queries'
+import { pickDatabase } from '@/lib/dbvalue'
 import { useAppActions } from '@/composables/useAppActions'
 import { ApiError } from '@/lib/api'
 import { channelLabel, commitUrl, hostOf, shortSha } from '@/lib/format'
@@ -28,11 +29,18 @@ const tabs = [
   { name: 'app-logs', label: 'Logs' },
   { name: 'app-domains', label: 'Domains' },
   { name: 'app-storage', label: 'Storage' },
+  { name: 'app-database-default', label: 'Database' },
   { name: 'app-settings', label: 'Settings' },
 ]
+// The Database tab shows when /data holds a SQLite file at its top. A failed or empty look shows no tab and no error.
+const root = useDataRoot(() => props.slug, () => !!app.data.value?.volume)
+const hasDatabase = computed(() => !!pickDatabase(root.data.value?.items ?? [], props.slug))
 // Background workers have no visitors.
-const shownTabs = computed(() => tabs.filter((t) => t.name !== 'app-traffic' || app.data.value?.type !== 'worker'))
-const current = computed(() => String(route.name))
+const shownTabs = computed(() =>
+  tabs.filter((t) => (t.name !== 'app-traffic' || app.data.value?.type !== 'worker') && (t.name !== 'app-database-default' || hasDatabase.value)),
+)
+// A page below a tab (the database viewer) names the tab that stays highlighted.
+const current = computed(() => String(route.meta.tab ?? route.name))
 const notFound = computed(() => app.error.value instanceof ApiError && app.error.value.status === 404)
 
 // The actions live in the header so every tab has them.

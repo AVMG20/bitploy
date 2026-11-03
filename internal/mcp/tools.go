@@ -138,6 +138,13 @@ type metricsIn struct {
 	Window string `json:"window,omitempty" jsonschema:"1h (15-second samples), 24h (default) or 7d."`
 }
 
+type queryDBIn struct {
+	App   string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps. The app needs the /data volume (volume=true)."`
+	Path  string `json:"path" jsonschema:"The SQLite file inside /data, relative to /data, like app.db or db/main.sqlite. Look in the app's code for where it opens its database."`
+	SQL   string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20. To see the tables use SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view')."`
+	Write bool   `json:"write,omitempty" jsonschema:"false (default): the database is opened read-only and any change fails with db_read_only. true: INSERT, UPDATE, DELETE, CREATE and so on are allowed and committed at once; this needs a deploy token. Use true only when the user asked for the change."`
+}
+
 // enums limits string arguments to the values the tool understands, so the
 // schema itself tells a model the choices.
 func enums(vals map[string][]string) func(*jsonschema.Schema) {
@@ -762,6 +769,40 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App),
 				Data:    toMap(l),
 				Next:    next,
+			}, nil
+		})
+
+	addTool(s, "query_db", "Query a SQLite database",
+		"Runs SQL on a SQLite file in the app's /data volume (apps keep their database there: create_app volume=true). Read-only unless write=true, so it is safe to look around: SELECT name, sql FROM sqlite_schema lists the tables with their definitions, then SELECT with LIMIT. Results come back as compact text tables (at most 200 rows and about 50 KB per call, so use WHERE, LIMIT and few columns; values over 200 characters and blobs are cut). With write=true (deploy token) each statement is committed at once: take a create_backup first for anything risky such as DELETE, DROP or UPDATE without a tight WHERE, and only change data when the user asked. The app keeps running, SQLite's locking keeps it safe; a busy app can give db_busy, try again. Statements that reach outside the database (ATTACH, load_extension, VACUUM INTO) are refused. For a file or folder other than a database the user uses the Storage tab of the app in the dashboard, which also has a database viewer.",
+		destructive(), false, nil,
+		func(ctx context.Context, a app.Actor, in queryDBIn) (*result, error) {
+			r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: in.Write})
+			if err != nil {
+				return nil, queryDBError(err)
+			}
+			text, shown, total, cut := formatSQLResults(r.Results)
+			var affected int64
+			for _, st := range r.Results {
+				if st.RowsAffected != nil {
+					affected += *st.RowsAffected
+				}
+			}
+			mode := "read-only"
+			if in.Write {
+				mode = "write"
+			}
+			next := []string{"Use WHERE and LIMIT to keep results small. To see the tables: SELECT name, sql FROM sqlite_schema."}
+			if cut {
+				next = []string{"Some rows are not shown. Narrow the query with WHERE or LIMIT, or select fewer columns."}
+			}
+			if in.Write {
+				next = append(next, "Tell the user what you changed. create_backup before the next risky change.")
+			}
+			return &result{
+				Summary: fmt.Sprintf("Ran %d statement(s) on %s in %s (%s); %d row(s) shown of %d.\n%s", len(r.Results), in.Path, in.App, mode, shown, total, text),
+				Data: data("statements", len(r.Results), "rows_shown", shown, "rows_returned", total, "rows_affected", affected,
+					"truncated", cut, "took_ms", r.TookMS),
+				Next: next,
 			}, nil
 		})
 }
