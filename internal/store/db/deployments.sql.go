@@ -595,6 +595,20 @@ func (q *Queries) SetDeploymentContainer(ctx context.Context, arg SetDeploymentC
 	return err
 }
 
+const setDeploymentPort = `-- name: SetDeploymentPort :exec
+UPDATE deployments SET port = ? WHERE id = ?
+`
+
+type SetDeploymentPortParams struct {
+	Port sql.NullInt64
+	ID   string
+}
+
+func (q *Queries) SetDeploymentPort(ctx context.Context, arg SetDeploymentPortParams) error {
+	_, err := q.db.ExecContext(ctx, setDeploymentPort, arg.Port, arg.ID)
+	return err
+}
+
 const setDeploymentState = `-- name: SetDeploymentState :exec
 UPDATE deployments SET state = ? WHERE id = ?
 `

@@ -31,6 +31,7 @@ const (
 	CodeNoFrom            = "no_from"
 	CodePortUnknown       = "port_unknown"
 	CodePortAmbiguous     = "port_ambiguous"
+	CodePortFromImage     = "port_from_image"
 	CodeImageTooLarge     = "image_too_large"
 	CodeEnvFileInContext  = "env_file_in_context"
 	CodeNoDockerignore    = "no_dockerignore"
@@ -88,6 +89,7 @@ type CheckResult struct {
 	Port           int       // resolved port: app port, else the single EXPOSE of the final stage
 	HasHealthcheck bool      // final stage has a HEALTHCHECK (not NONE)
 	Stack          string    // detected stack from Files (see DetectStack) or ""
+	PortFromImage  bool      // web app, no port setting and no EXPOSE: the pipeline reads the port from the built image
 }
 
 const (
@@ -186,12 +188,16 @@ func CheckDockerfile(in CheckInput) CheckResult {
 				Hint:     "Write a plain number in the last stage, for example `EXPOSE 8080`. Or set the port with update_app (port). Variables in EXPOSE are only understood when ARG or ENV gives them a default.",
 			})
 		case len(ports) == 0:
+			// No EXPOSE and nothing unreadable: the image may still declare a
+			// port (a one-line FROM image Dockerfile). The pipeline asks the
+			// built image and fails with port_unknown if it declares none.
+			res.PortFromImage = true
 			add(Finding{
-				Code:     CodePortUnknown,
-				Severity: sevError,
+				Code:     CodePortFromImage,
+				Severity: sevInfo,
 				Line:     stageLine(stages[last]),
-				Message:  "The last stage of the Dockerfile has no EXPOSE line, so bitploy does not know which port your app listens on.",
-				Hint:     "Add `EXPOSE 8080` (your app's real port) to the last stage and make the app listen on 0.0.0.0 at that port ($PORT holds it). Or set the port with update_app (port). A bot or other app without a web port should be created with type worker.",
+				Message:  "The Dockerfile has no EXPOSE line, so bitploy will use the port the image declares after the build.",
+				Hint:     "Nothing to do if the image declares one port. Otherwise add `EXPOSE 8080` (the real port) to the last stage, or set the port with update_app (port). A bot or other app without a web port should be created with type worker.",
 			})
 		case len(ports) > 1:
 			strs := make([]string, len(ports))

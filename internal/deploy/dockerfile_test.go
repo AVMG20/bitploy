@@ -74,10 +74,18 @@ func TestCheckDockerfile(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name:   "port unknown",
-			in:     CheckInput{Dockerfile: []byte("FROM node:24-alpine\nUSER node\n")},
-			want:   []string{"port_unknown"},
-			wantOK: false,
+			name:    "no EXPOSE: port comes from the image",
+			in:      CheckInput{Dockerfile: []byte("FROM node:24-alpine\nUSER node\n")},
+			want:    []string{"port_from_image"},
+			notWant: []string{"port_unknown"},
+			wantOK:  true,
+		},
+		{
+			name:    "one-line FROM image",
+			in:      CheckInput{Dockerfile: []byte("FROM ghcr.io/foo/bar:1.2\n")},
+			want:    []string{"port_from_image"},
+			notWant: []string{"port_unknown"},
+			wantOK:  true,
 		},
 		{
 			name:     "port unknown but app port set",
@@ -122,8 +130,8 @@ func TestCheckDockerfile(t *testing.T) {
 		{
 			name:   "expose in builder stage only",
 			in:     CheckInput{Dockerfile: []byte("FROM golang:1.26 AS build\nEXPOSE 8080\nFROM alpine:3.22\nUSER 1000\n")},
-			want:   []string{"port_unknown"},
-			wantOK: false,
+			want:   []string{"port_from_image"},
+			wantOK: true,
 		},
 		{
 			name:     "expose inherited from local base stage",

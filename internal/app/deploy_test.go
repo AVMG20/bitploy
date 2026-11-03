@@ -617,7 +617,7 @@ func TestDeployFilesErrors(t *testing.T) {
 		"files_empty":           nil,
 		"files_invalid_path":    {{Path: "../x", Content: "x"}},
 		"files_invalid_content": {{Path: "a", Content: "!!", Encoding: "base64"}},
-		"port_unknown":          {{Path: "Dockerfile", Content: "FROM alpine:3.20\nCMD [\"sleep\",\"1\"]\n"}},
+		"port_ambiguous":        {{Path: "Dockerfile", Content: "FROM alpine:3.20\nEXPOSE 80 81\nCMD [\"sleep\",\"1\"]\n"}},
 		"files_too_large":       {{Path: "Dockerfile", Content: depStaticDockerfile}, {Path: "big.bin", Content: strings.Repeat("a", 2<<20)}},
 	}
 	for want, files := range tests {
@@ -1297,4 +1297,53 @@ func TestDeploymentViewShapes(t *testing.T) {
 
 func dbDep(state string) db.Deployment {
 	return db.Deployment{ID: "dep_x", AppID: "app_x", Seq: 1, State: state, SourceKind: "files", Channel: "api", QueuedAt: time.Now().Unix()}
+}
+
+// A Dockerfile that is only FROM <image> has no EXPOSE: the check passes with
+// an info finding and the port is read from the image after the build.
+func TestDeployFilesPortFromImage(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+	d, err := e.s.DeployFiles(ctx, e.user, app.Slug, []FileInput{{Path: "Dockerfile", Content: "FROM ghcr.io/foo/bar:1.2\n"}})
+	if err != nil {
+		t.Fatalf("one-line Dockerfile: %v", err)
+	}
+	found := false
+	for _, w := range d.Warnings {
+		if w.Code == "port_from_image" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want a port_from_image finding in %+v", d.Warnings)
+	}
+}
+
+func TestPortFromImageConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		exposed []int
+		want    int
+		code    string
+	}{
+		{"one port", []int{8090}, 8090, ""},
+		{"none", nil, 0, "port_unknown"},
+		{"several", []int{80, 443}, 0, "port_ambiguous"},
+		{"reserved", []int{8081}, 0, "port_reserved"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ae := portFromImageConfig(tt.exposed, "ghcr.io/foo/bar:1.2")
+			if tt.code == "" {
+				if ae != nil || got != tt.want {
+					t.Fatalf("got %d, %v", got, ae)
+				}
+				return
+			}
+			if ae == nil || ae.Code != tt.code || ae.Hint == "" {
+				t.Fatalf("want %s, got %v", tt.code, ae)
+			}
+		})
+	}
 }

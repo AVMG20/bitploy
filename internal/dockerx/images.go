@@ -2,9 +2,11 @@ package dockerx
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
 
@@ -13,6 +15,7 @@ type BuiltImage struct {
 	ID          string
 	SizeBytes   int64
 	Healthcheck *container.HealthConfig // nil when the image defines none (or NONE)
+	ExposedTCP  []int                   // TCP ports the image config declares (EXPOSE), sorted
 }
 
 // InspectImage returns size and HEALTHCHECK config, or an error satisfying IsNotFound.
@@ -22,6 +25,14 @@ func (c *Client) InspectImage(ctx context.Context, ref string) (BuiltImage, erro
 		return BuiltImage{}, err
 	}
 	info := BuiltImage{ID: res.ID, SizeBytes: res.Size}
+	if res.Config != nil {
+		for raw := range res.Config.ExposedPorts { // "8080/tcp"
+			if p, err := network.ParsePort(raw); err == nil && p.Proto() == network.TCP {
+				info.ExposedTCP = append(info.ExposedTCP, int(p.Num()))
+			}
+		}
+		sort.Ints(info.ExposedTCP)
+	}
 	if res.Config != nil && res.Config.Healthcheck != nil {
 		hc := res.Config.Healthcheck
 		if len(hc.Test) > 0 && hc.Test[0] != "NONE" {

@@ -55,10 +55,14 @@ type pipeline struct {
 	buildDir string
 	srcRoot  string
 
-	port     int64
-	hasHC    bool
-	hcCfg    *container.HealthConfig
-	findings []deploy.Finding
+	port int64
+	// portFromImage: a web app whose port is not known before the build; set
+	// in validating, resolved by resolveImagePort once the image exists.
+	portFromImage bool
+	imageExposed  []int // TCP ports the built image declares
+	hasHC         bool
+	hcCfg         *container.HealthConfig
+	findings      []deploy.Finding
 
 	kind    string // how this deployment is built (deploy.BuildKind*); a rollback has the kind of its target
 	setSize bool   // the app gets the limits below when this deployment goes live
@@ -187,6 +191,9 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 			return ae
 		}
 		_ = os.RemoveAll(p.buildDir) // the context is no longer needed
+		if ae := p.resolveImagePort(ctx); ae != nil {
+			return ae
+		}
 	}
 
 	// The kind of build is known now: a static site is free and gets fixed
@@ -318,10 +325,9 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 	p.port = int64(res.Port)
 	p.hasHC = res.HasHealthcheck
 	p.findings = res.Findings
-	if p.app.Type == "web" && p.port == 0 {
-		return apperr.Unprocessable("port_unknown", "Bitploy cannot tell which port the app listens on.",
-			"Add EXPOSE <port> to the final stage of the Dockerfile, or set the port with update_app.").WithNext("update_app")
-	}
+	// A web app with no port setting and no EXPOSE gets its port from the
+	// built image (resolveImagePort, after the build).
+	p.portFromImage = p.app.Type == "web" && p.port == 0
 	var nonErr []deploy.Finding
 	for _, f := range res.Findings {
 		if f.Severity != "error" {
@@ -449,6 +455,7 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		return apperr.Unprocessable("build_failed", "The build finished but Docker has no image for it.", "Deploy again. If this repeats, tell the bitploy admin.")
 	}
 	p.hcCfg = info.Healthcheck
+	p.imageExposed = info.ExposedTCP
 	if info.SizeBytes > deploy.MaxImageBytes {
 		f := deploy.ImageTooLargeFinding(info.SizeBytes)
 		return apperr.Unprocessable(f.Code, f.Message, f.Hint)
@@ -461,6 +468,46 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	}
 	p.logf("Built %s (%d MB).", p.image, info.SizeBytes>>20)
 	return nil
+}
+
+// resolveImagePort picks the port of a web app that had none before the build
+// (no port setting, no EXPOSE in the Dockerfile): the one TCP port the built
+// image declares. It is stored on the deployment, so a rollback starts the
+// same port.
+func (p *pipeline) resolveImagePort(ctx context.Context) *apperr.Error {
+	if !p.portFromImage || p.port != 0 {
+		return nil
+	}
+	port, ae := portFromImageConfig(p.imageExposed, p.image)
+	if ae != nil {
+		return ae
+	}
+	p.port = int64(port)
+	p.logf("Port %d comes from the image (EXPOSE %d in %s).", port, port, p.image)
+	if err := p.s.Q.SetDeploymentPort(ctx, db.SetDeploymentPortParams{Port: portOf(port), ID: p.dep.ID}); err != nil {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+// portFromImageConfig decides the port from the TCP ports an image declares.
+func portFromImageConfig(exposed []int, image string) (int, *apperr.Error) {
+	switch {
+	case len(exposed) == 0:
+		return 0, apperr.Unprocessable("port_unknown", "Neither the Dockerfile nor the image declares a port, so bitploy does not know which port the app listens on.",
+			"Set the port with update_app (port), or add `EXPOSE <port>` to the last stage of the Dockerfile. A bot or other app without a web port should be created with type worker.").WithNext("update_app")
+	case len(exposed) > 1:
+		strs := make([]string, len(exposed))
+		for i, e := range exposed {
+			strs[i] = strconv.Itoa(e)
+		}
+		return 0, apperr.Unprocessable("port_ambiguous", fmt.Sprintf("The image %s declares several ports (%s) and bitploy serves only one.", image, strings.Join(strs, ", ")),
+			fmt.Sprintf("Choose the port that serves the website with update_app (port=%d, for example) and deploy again, or add a single EXPOSE line to the Dockerfile.", exposed[0])).WithNext("update_app")
+	case exposed[0] == deploy.ReservedPort:
+		return 0, apperr.Unprocessable("port_reserved", fmt.Sprintf("The image declares port %d, which is reserved for bitploy's own proxy, so an app cannot listen on it.", deploy.ReservedPort),
+			"Make the app listen on another port and set it with update_app (port), or add a matching EXPOSE line to the Dockerfile.").WithNext("update_app")
+	}
+	return exposed[0], nil
 }
 
 // ---- starting ----

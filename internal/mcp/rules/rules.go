@@ -74,7 +74,7 @@ const RuntimeContract = `## Runtime contract
 ## Fixing failures (read error.code, error.hint and log_tail of get_deployment)
 
 - dockerfile_missing: get_template, save Dockerfile and .dockerignore, deploy_files with ALL files again.
-- port_unknown / port_ambiguous: put one EXPOSE <port> in the last stage, or call update_app with port=<number>. A bot with no web port: create the app with type=worker.
+- port_unknown / port_ambiguous: put one EXPOSE <port> in the last stage, or call update_app with port=<number>. Without any EXPOSE bitploy uses the port the built image declares (port_unknown only when the image declares none). A bot with no web port: create the app with type=worker.
 - build_failed: read the last lines of log_tail: usually a missing file the Dockerfile copies, a wrong package name, a lock file that is missing (npm ci needs package-lock.json), or a base image tag that does not exist. node-gyp or better-sqlite3 errors on Alpine: add "RUN apk add --no-cache python3 make g++" before npm ci. Prisma on Alpine: "RUN apk add --no-cache openssl". Fix and deploy again.
 - unhealthy and the logs mention localhost or 127.0.0.1: the app listens on the wrong address. Make it listen on 0.0.0.0 and the PORT variable.
 - unhealthy and the app "stopped right after starting": the program crashed. The log_tail shows why. A missing environment variable (KeyError, "undefined", "is required") means: set_env, then deploy with only app=.
@@ -104,7 +104,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 
 ## Dockerfile checks (validate_dockerfile)
 
-Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_unknown, port_ambiguous, port_reserved, base_image_forbidden, cache_mount_forbidden (RUN --mount=type=cache is not supported: the build server is shared by all apps), image_too_large.
-Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (docker-compose.yml is not run: only the Dockerfile is built), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck.
+Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_ambiguous (also port_unknown for an EXPOSE that cannot be read), port_reserved, base_image_forbidden, cache_mount_forbidden (RUN --mount=type=cache is not supported: the build server is shared by all apps), image_too_large.
+Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (docker-compose.yml is not run: only the Dockerfile is built), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck, port_from_image (no EXPOSE: the port comes from the image).
 Fix every error and read every warning before deploying.
 `
