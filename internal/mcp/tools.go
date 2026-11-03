@@ -72,6 +72,12 @@ type deployFilesIn struct {
 	Files []fileIn `json:"files" jsonschema:"EVERY file of the project, including Dockerfile and .dockerignore: this list replaces the previous source completely. At most 200 files and 2 MB in total. Leave out node_modules, .git, .env and .bitploy."`
 }
 
+type catalogDeployIn struct {
+	ID   string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
+	Name string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
+	Slug string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+}
+
 type gitSourceIn struct {
 	App        string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	RepoURL    string `json:"repo_url,omitempty" jsonschema:"HTTPS address of the repository, like https://github.com/owner/repo (no .git needed, no token in the URL, no git@ addresses). Take it from the project's git remote. Not needed with remove."`
@@ -359,6 +365,38 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			return deploymentResult("Queued deployment", d), nil
+		})
+
+	addTool(s, "list_catalog", "List one-click apps",
+		"Popular ready-made tools you can deploy without any code: password manager, notes, uptime monitor, backend, budgeting, developer tools. Each keeps its data in /data. Use it when the user asks for such a tool by name or kind; then call deploy_catalog_app with the id. For anything else, write a Dockerfile.",
+		readOnly(), false, nil,
+		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
+			items := svc.ListCatalog(ctx, a)
+			rows := make([]map[string]any, len(items))
+			for i, c := range items {
+				rows[i] = data("id", c.ID, "name", c.Name, "tagline", c.Tagline, "version", c.Version, "memory_mb", c.MemoryMB, "volume", c.Volume, "category", c.Category)
+			}
+			return &result{
+				Summary: fmt.Sprintf("%d one-click apps.", len(items)),
+				Data:    data("items", rows),
+				Next:    []string{"To deploy one, call deploy_catalog_app with its id. It creates the app and deploys it in one step."},
+			}, nil
+		})
+
+	addTool(s, "deploy_catalog_app", "Deploy a one-click app",
+		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind.",
+		write(), true, nil,
+		func(ctx context.Context, a app.Actor, in catalogDeployIn) (*result, error) {
+			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug})
+			if err != nil {
+				return nil, err
+			}
+			r := deploymentResult("Queued deployment", res.Deployment)
+			r.Summary = fmt.Sprintf("Created %s (%s) from the catalog. %s", res.App.Slug, res.App.URL, r.Summary)
+			r.Data["app"] = res.App
+			r.Data["first_steps"] = res.FirstSteps
+			r.Next = append(r.Next, "When it is running, tell the user these first steps: "+strings.Join(res.FirstSteps, " "))
+			return r, nil
 		})
 
 	addTool(s, "create_upload", "Create a zip upload",

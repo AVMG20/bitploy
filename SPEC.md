@@ -160,6 +160,8 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 **Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one, otherwise serves an `index.html` at the top of the project through the static template (nginx), otherwise detects a Node project from its `package.json` (and the Next.js config): SvelteKit with `@sveltejs/adapter-static`, Astro without a server adapter, Next.js with `output: 'export'`, Create React App and a Vite site (build script, `vite`, `index.html` at the top, no start script) are built and their output folder is served with nginx (`node-spa`: unknown paths load `index.html`; `node-static`: real pages, 404 otherwise); SvelteKit with another adapter, Next.js, Remix, React Router, Nuxt, NestJS, Express, Fastify, Hono, Koa, hapi, Astro with `@astrojs/node` and anything else with a start script run as a Node app (`node` template, after the build script if there is one; `nextjs` template with `output: 'standalone'`). A Vite project with a start script is a guess: it runs as a Node app and says so. It fails with `nothing_to_build` when it finds none of these. The other modes force one answer: `node` (a Node.js app), `static_build` (build, then serve the output folder; a static site) and `static` (plain website files). `output_dir` is the folder a static build serves (empty: the default of the framework: `dist`, `build` or `out`). In `auto` and `static`, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto` and has a Type select for the others. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
 
+**Pre-built images**: a Dockerfile that is only `FROM <image>:<tag>` (plus `USER`, `ENV` and the like) runs a published image. `EXPOSE` is optional there: after the build the pipeline reads the port from the image config and stores it on the deployment, so a rollback reuses it. The image's data must go under `/data`.
+
 **Pipeline**, one row per deployment state:
 
 | State | What happens | Fails with |
@@ -181,7 +183,7 @@ With a volume attached, use **recreate** instead of rolling: stop the old contai
 
 **Runtime contract** for every app:
 
-- Listen on `0.0.0.0:$PORT`. Bitploy injects `PORT`, `BITPLOY_APP` and `BITPLOY_URL`. The port comes from the app setting, else the single `EXPOSE` in the final stage.
+- Listen on `0.0.0.0:$PORT`. Bitploy injects `PORT`, `BITPLOY_APP` and `BITPLOY_URL`. The port comes from the app setting, else the single `EXPOSE` in the final stage, else (a web app only) the single TCP port the built image declares. Two or more declared ports, none, or a reserved one (22, 25, 53, 80, 443 and the like) fail with `port_ambiguous`, `port_unknown` or `port_reserved` and a hint to set the port.
 - Log to stdout and stderr. Write persistent data only to `/data`, and only with the volume on.
 - Keep the last 3 images per app for `rollback`, which reruns from `starting`. Prune older images, and run `docker builder prune` nightly with a storage cap.
 
@@ -229,6 +231,11 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    container: keep a database as SQLite in /data, never run a database server.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
+10. For a popular tool (password manager, notes, uptime monitor, ...) call
+    list_catalog, then deploy_catalog_app: no code needed. To run any other
+    pre-built image, deploy one file, a Dockerfile `FROM <image>:<tag>` with a
+    pinned tag. EXPOSE is optional when the image declares its port. Its data
+    must go under /data.
 ```
 
 **Tools**
@@ -239,6 +246,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_deploy_rules` | The rules above plus the runtime contract | read | read-only |
 | `get_template(stack, file_list?)` | Dockerfile + .dockerignore for a stack, adapted to the lock files in `file_list` | read | read-only |
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
+| `list_catalog` | The one-click apps (id, name, tagline, pinned version, memory, volume, category) | read | read-only |
+| `deploy_catalog_app(id, name?, slug?, env?)` | Creates the app from the catalog, sets env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if anything fails | deploy | — |
 | `list_apps` / `get_app(app)` | Apps with URL, state, current deployment | read | read-only |
 | `create_app(name, type?, slug?, port?, volume?)` | Reserves a subdomain, returns the URL | deploy | — |
 | `update_app(app, …)` | Port, health path, volume, resources | deploy | idempotent |
@@ -269,8 +278,8 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `dockerfile_missing` | error | No file at `dockerfile_path` |
 | `dockerfile_parse_error` | error | BuildKit parser fails; report the line |
 | `no_from` | error | No `FROM` instruction |
-| `port_unknown` | error | No `EXPOSE` in the final stage and no app port |
-| `port_ambiguous` | error | Several `EXPOSE` ports and no app port |
+| `port_from_image` | info | No `EXPOSE` and no app port: the port is read from the built image after the build; `port_unknown` (none declared), `port_ambiguous` (several) or `port_reserved` fail there |
+| `port_ambiguous` | error | Several `EXPOSE` ports and no app port (also raised after the build when the image declares several) |
 | `image_too_large` | error | Built image over 2 GB (checked after build) |
 | `cache_mount_forbidden` | error | A `RUN --mount=type=cache`: all apps build on one builder, so the cache would be shared between apps |
 | `env_file_in_context` | warning | `.env` would be copied into the image; suggest `set_env` and `.dockerignore` |
@@ -283,6 +292,8 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `no_healthcheck` | info | Bitploy will use its HTTP check on `health_path` |
 
 When `unhealthy` fires and the runtime log mentions `127.0.0.1` or `localhost`, set the hint to "Your app listens on localhost; make it listen on 0.0.0.0:$PORT". That is the most common noob failure.
+
+**Catalog** (`internal/catalog`): six apps, each one Dockerfile with a pinned version, a non-root `USER`, its data in `/data` and a `Check` that passes `deploy.Check` without errors: Vaultwarden, Uptime Kuma, Memos, PocketBase, Actual Budget and IT-Tools. Deploying one creates a normal app (the usual quotas and slug rules) with `volume` on where the app has data, records `catalog_id` and `catalog_version` on it, and queues a deployment from the catalog Dockerfile. Apps report `catalog_update` when the catalog has a newer version; updating is an explicit action, never automatic. Env defaults can be generated (a random secret) or asked for.
 
 **Templates** live in `internal/templates/<stack>/` with a Dockerfile, a .dockerignore and a short README, pinned to current major versions: `static`, `node-spa`, `node-static`, `node`, `nextjs`, `python`, `django`, `go`, `php`, `laravel`, `generic` (`templates.Stacks`). `get_template` with `file_list` adapts the Node and Python ones to the lock file (`templates.ForFiles`: pnpm, yarn, bun, no lock; uv, Poetry, pyproject). The static one shows the style (the nginx config keeps the proxy from seeing port 8080 in redirects, and serves `/about` from `about.html`):
 
@@ -340,6 +351,10 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/github/webhook` | GitHub's push and installation events (signature, no session) |
 | `GET /api/v1/templates[/{stack}]` | `get_template` |
 | `POST /api/v1/dockerfile/validate` | `validate_dockerfile` |
+| `GET /api/v1/catalog[/{id}]` | `list_catalog`; the one-app form adds the Dockerfile, env fields and first steps (any scope) |
+| `POST /api/v1/catalog/{id}/deploy` | `deploy_catalog_app` (deploy scope; 202; accepts `Idempotency-Key`) |
+| `POST /api/v1/apps/{app}/catalog-update` | Replace the Dockerfile with the catalog's current one and deploy; 409 `catalog_up_to_date`, `not_catalog_app`, `git_source_linked` |
+| `GET` `PUT /api/v1/apps/{app}/dockerfile` | Read or replace the Dockerfile in the stored source snapshot, then deploy (REST and dashboard only; 64 KB; 409 `git_source_linked`, `source_missing`; 400 `dockerfile_empty`; 413 `dockerfile_too_large`) |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
 | `GET` `PATCH` `DELETE /api/v1/apps/{app}` | `get_app`, `update_app`, `delete_app` |
 | `POST /api/v1/apps/{app}/files` | `deploy_files` |
