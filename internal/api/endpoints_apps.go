@@ -191,6 +191,16 @@ func (a *API) appRoutes() {
 		return okOrNil(a.svc.Redeploy(ctx, act, in.App))
 	})
 	reg(a, anyAuth, huma.Operation{
+		OperationID: "cancelDeployment", Method: http.MethodPost, Path: "/deployments/{id}/cancel", Tags: []string{"Deployments"},
+		Summary: "Cancel a deployment",
+		Description: "Needs the deploy scope and your own app. A queued deployment is cancelled at once. One that is fetching, validating, building, starting or in its health check is stopped (the build process ends, the candidate container is removed) and the call waits up to 5 seconds, so the answer usually already says `cancelled`; otherwise it shows the state as it is and you poll GET /deployments/{id}. " +
+			"A deployment that is swapping is already going live: 409 too_late_to_cancel. A finished one: 409 deployment_finished. The version that is live keeps running. Returns the deployment.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		ID string `path:"id"`
+	}) (*Out[app.Deployment], error) {
+		return okOrNil(a.svc.CancelDeployment(ctx, act, in.ID))
+	})
+	reg(a, anyAuth, huma.Operation{
 		OperationID: "getDeployment", Method: http.MethodGet, Path: "/deployments/{id}", Tags: []string{"Deployments"},
 		Summary: "Get a deployment", Description: "With ?wait=30 (max 50 seconds) it waits until the deployment reaches a final state.",
 	}, func(ctx context.Context, act app.Actor, in *struct {

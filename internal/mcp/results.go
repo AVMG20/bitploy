@@ -490,9 +490,19 @@ func deploymentResult(verb string, d app.Deployment) *result {
 		}
 		next = failureSteps(d)
 		next = append(next, "After 3 failures with the same error code, stop and explain the problem to the user in plain words.")
-	case "superseded", "cancelled":
+	case "cancelled":
+		if d.Error != nil && d.Error.Code == "cancelled" {
+			next = []string{"The deployment was cancelled; it is not a failure. The version that was live keeps running. Fix the cause if there was one, then deploy again when the user wants it."}
+		} else {
+			next = []string{"A newer deployment replaced this one. Call get_app to find the current deployment."}
+		}
+	case "superseded":
 		next = []string{"A newer deployment replaced this one. Call get_app to find the current deployment."}
 	default:
+		if strings.HasPrefix(verb, "Cancel") {
+			next = []string{"It is still stopping. Call get_deployment with id=" + d.ID + " and wait_seconds=10 until the state is cancelled."}
+			break
+		}
 		next = []string{"Call get_deployment with id=" + d.ID + " and wait_seconds=30 until the state is running or failed (a first build can take a few minutes)."}
 		if verb != "Deployment" {
 			next = append(next, "While waiting there is nothing else to do; do not call deploy again.")

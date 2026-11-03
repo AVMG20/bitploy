@@ -92,6 +92,11 @@ type getDeploymentIn struct {
 	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Wait up to this many seconds (max 50; larger counts as 50) until the deployment is running or failed. Use 30 while a deploy is in progress; leave out for an instant answer."`
 }
 
+type cancelDeploymentIn struct {
+	ID  string `json:"id,omitempty" jsonschema:"The deployment ID (dep_...) from deploy_files, deploy or get_deployment."`
+	App string `json:"app,omitempty" jsonschema:"Instead of id: an app slug or ID. Cancels that app's queued or in-progress deployment."`
+}
+
 type listDeploymentsIn struct {
 	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Limit  int    `json:"limit,omitempty" jsonschema:"How many to return, newest first. Default 10, max 100."`
@@ -426,7 +431,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_deployment", "Get a deployment",
-		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail) or superseded. Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
+		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail), superseded or cancelled (stopped on request, not a failure). Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in getDeploymentIn) (*result, error) {
 			wait := in.WaitSeconds
@@ -457,6 +462,27 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			return deploymentResult("Deployment", d), nil
+		})
+
+	addTool(s, "cancel_deployment", "Cancel a deployment",
+		"Stops a deployment that is queued or in progress (fetching, validating, building, starting, health_check): the build ends, the new container is removed and the version that is live keeps running. Use it when a build is clearly wrong or stuck, or the user asks, instead of waiting for it to time out; then fix the cause and deploy again. Pass id (dep_...) or just app to cancel that app's open deployment. Not possible once it is swapping (too_late_to_cancel: wait, then rollback if needed) or finished (deployment_finished). A cancelled deployment is not a failure.",
+		write(), true, nil,
+		func(ctx context.Context, a app.Actor, in cancelDeploymentIn) (*result, error) {
+			var d app.Deployment
+			var err error
+			switch {
+			case strings.TrimSpace(in.ID) != "":
+				d, err = svc.CancelDeployment(ctx, a, strings.TrimSpace(in.ID))
+			case strings.TrimSpace(in.App) != "":
+				d, err = svc.CancelAppDeployment(ctx, a, in.App)
+			default:
+				return nil, apperr.BadRequest("invalid_arguments", "cancel_deployment needs id (dep_...) or app.",
+					"Pass the deployment id from deploy_files/deploy, or app=<slug> to cancel that app's queued or in-progress deployment.").WithNext("list_apps")
+			}
+			if err != nil {
+				return nil, err
+			}
+			return deploymentResult("Cancel requested for deployment", d), nil
 		})
 
 	addTool(s, "list_deployments", "List deployments",

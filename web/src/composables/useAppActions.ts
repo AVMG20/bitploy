@@ -27,7 +27,22 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
     })
   }
 
+  // Stopping a build is safe (the live version keeps running), so there is no confirmation.
+  // If it is too late or the build already ended, the server says so and the lists catch up.
+  const cancel = useMutation({
+    mutationFn: (deploymentId: string) => api.cancelDeployment(deploymentId),
+    onSuccess: () => {
+      toastOk('Build cancelled')
+      refresh()
+    },
+    onError: (e) => {
+      toastError(e)
+      refresh()
+    },
+  })
+
   return {
+    cancel,
     redeploy: action(api.redeploy, 'Redeploy started', 'A live version keeps running until the new one is ready.'),
     // Restart and start answer once the app runs again.
     restart: action(api.restart, 'App restarted', 'It is running again with a fresh start.'),

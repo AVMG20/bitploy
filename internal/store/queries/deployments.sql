@@ -26,6 +26,16 @@ UPDATE deployments SET state = ? WHERE id = ?;
 -- name: CancelQueuedDeployments :many
 UPDATE deployments SET state = 'cancelled', finished_at = ? WHERE app_id = ? AND state = 'queued' RETURNING id;
 
+-- name: CancelQueuedDeployment :execrows
+UPDATE deployments
+SET state = 'cancelled', error_code = 'cancelled', error_message = ?, finished_at = ?
+WHERE id = ? AND state = 'queued';
+
+-- name: FinishCancelledDeployment :exec
+UPDATE deployments
+SET state = 'cancelled', error_code = 'cancelled', error_message = ?, finished_at = ?
+WHERE id = ?;
+
 -- name: SetDeploymentCommit :exec
 UPDATE deployments SET commit_sha = ?, commit_message = ? WHERE id = ?;
 

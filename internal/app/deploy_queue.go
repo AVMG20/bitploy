@@ -705,6 +705,9 @@ func (s *Service) nextSteps(d Deployment, appType string) []string {
 	case "superseded":
 		return []string{"A newer deployment replaced this one. Call get_app to see the current one."}
 	case "cancelled":
+		if d.Error != nil && d.Error.Code == "cancelled" {
+			return []string{"The user's deployment was cancelled on request; this is not a failure and nothing needs fixing. The version that was live keeps running. Call get_app to see the current state."}
+		}
 		return []string{"A newer deployment replaced this one before it started, or the app was stopped. Call get_app to see the current state."}
 	}
 	return []string{"Call get_deployment with wait_seconds=30 until the state is running or failed."}
@@ -906,4 +909,164 @@ func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
 	}
 	res, ctxFiles := s.runChecks(effApp, all, read)
 	return checkError(res, ctxFiles)
+}
+
+// ---- cancel ----
+
+// cancelledMessage is the error_message of a deployment its user cancelled.
+const cancelledMessage = "Cancelled by the user."
+
+// CancelDeployment cancels a deployment of the actor's own app.
+//
+//   - queued: cancelled at once.
+//   - fetching, validating, building, starting, health_check: the pipeline's
+//     context is cancelled (the build process is stopped, the candidate container
+//     removed, the build slot freed) and the call waits up to 5 s for it to settle,
+//     so the answer usually says cancelled; otherwise it shows the state as it is.
+//   - swapping: 409 too_late_to_cancel. Finished: 409 deployment_finished.
+//
+// The live version is never touched.
+func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Deployment, error) {
+	d, err := s.Q.GetDeployment(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Deployment{}, deploymentNotFound(id)
+	}
+	if err != nil {
+		return Deployment{}, apperr.Internal(err)
+	}
+	app, err := s.LoadApp(ctx, a, d.AppID, true)
+	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) && ae.Code == "app_not_found" {
+			return Deployment{}, deploymentNotFound(id)
+		}
+		return Deployment{}, err
+	}
+	view := func(d db.Deployment) (Deployment, error) {
+		return s.deploymentView(d, app.Slug, app.Type), nil
+	}
+	reload := func() error {
+		var err error
+		if d, err = s.Q.GetDeployment(ctx, id); err != nil {
+			return apperr.Internal(err)
+		}
+		return nil
+	}
+	for range 3 {
+		switch d.State {
+		case "queued":
+			n, err := s.Q.CancelQueuedDeployment(ctx, db.CancelQueuedDeploymentParams{
+				ErrorMessage: nullStr(cancelledMessage), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: id,
+			})
+			if err != nil {
+				return Deployment{}, apperr.Internal(err)
+			}
+			if n == 0 { // the worker claimed it just now: look again
+				if err := reload(); err != nil {
+					return Deployment{}, err
+				}
+				continue
+			}
+			_ = os.Remove(s.sourceZip(id))
+			s.auditCancel(ctx, a, app.Slug, id, d.Seq, "queued")
+			s.NotifyDeployment(id)
+			s.settleStatusAfterCancel(ctx, app.ID)
+			if err := reload(); err != nil {
+				return Deployment{}, err
+			}
+			return view(d)
+		case "fetching", "validating", "building", "starting", "health_check":
+			found, tooLate := s.requestCancel(id, a)
+			if tooLate {
+				return Deployment{}, tooLateToCancel()
+			}
+			if found {
+				deadline := time.Now().Add(5 * time.Second)
+				for s.activeDeployment(id) && time.Now().Before(deadline) && ctx.Err() == nil {
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+			// Not found: no pipeline runs it in this process (the reconciler ends such a
+			// deployment); show it as it is.
+			if err := reload(); err != nil {
+				return Deployment{}, err
+			}
+			if !found && d.State != "fetching" && d.State != "validating" && d.State != "building" && d.State != "starting" && d.State != "health_check" {
+				continue
+			}
+			return view(d)
+		case "swapping":
+			return Deployment{}, tooLateToCancel()
+		default:
+			return Deployment{}, apperr.Conflict("deployment_finished", "This deployment is already finished ("+d.State+"), so it cannot be cancelled.",
+				"Only a queued or in-progress deployment can be cancelled. Call get_app to see the current deployment.").WithNext("get_app")
+		}
+	}
+	return view(d)
+}
+
+func tooLateToCancel() *apperr.Error {
+	return apperr.Conflict("too_late_to_cancel", "It is already going live.", "Wait a moment; roll back if needed.")
+}
+
+// CancelAppDeployment cancels the queued or in-progress deployment of an app
+// (the newest one when more than one is open). It answers not_found-style
+// "no_deployment_to_cancel" when there is none.
+func (s *Service) CancelAppDeployment(ctx context.Context, a Actor, ref string) (Deployment, error) {
+	app, err := s.LoadApp(ctx, a, ref, true)
+	if err != nil {
+		return Deployment{}, err
+	}
+	var id string
+	err = s.Store.DB.QueryRowContext(ctx, `SELECT id FROM deployments WHERE app_id = ?
+		AND state IN ('queued','fetching','validating','building','starting','health_check') ORDER BY seq DESC LIMIT 1`, app.ID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Deployment{}, apperr.Conflict("no_deployment_to_cancel", "App "+quote(app.Slug)+" has no deployment that is queued or in progress.",
+			"Nothing to cancel. Call get_app to see the current deployment.").WithNext("get_app")
+	}
+	if err != nil {
+		return Deployment{}, apperr.Internal(err)
+	}
+	return s.CancelDeployment(ctx, a, id)
+}
+
+func (s *Service) auditCancel(ctx context.Context, a Actor, slug, depID string, seq int64, was string) {
+	s.Audit(ctx, a, "deployment.cancelled", "deployment", depID, map[string]any{"app": slug, "seq": seq, "was": was})
+	s.publishDeployment(depID)
+}
+
+// settleStatusAfterCancel is settleStatusAfterFailure for a cancel: nothing
+// failed. Queueing moves a new or failed app to "deploying"; when that
+// deployment is cancelled the app goes back to what it was: running when a
+// version is live, stopped when it is meant to be, else (never deployed)
+// "new", or "failed" when an earlier deployment failed. A live app keeps its
+// status, and so does an app with another deployment still to come.
+func (s *Service) settleStatusAfterCancel(ctx context.Context, appID string) {
+	defer s.publishApp(ctx, appID)
+	app, err := s.Q.GetApp(ctx, appID)
+	if err != nil || app.Status != "deploying" && app.Status != "new" {
+		return
+	}
+	var more int
+	_ = s.Store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM deployments WHERE app_id = ? AND state NOT IN ('running','failed','superseded','cancelled')`, appID).Scan(&more)
+	if more > 0 {
+		return // another deployment is queued or in progress and will settle it
+	}
+	set := func(status, msg string) {
+		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: status, StatusMessage: msg, UpdatedAt: s.now(), ID: appID})
+	}
+	switch {
+	case app.CurrentDeploymentID.Valid && app.DesiredState == "running":
+		set("running", "")
+	case app.CurrentDeploymentID.Valid:
+		set("stopped", "")
+	default:
+		var msg sql.NullString
+		err := s.Store.DB.QueryRowContext(ctx, `SELECT error_message FROM deployments WHERE app_id = ? AND state = 'failed' ORDER BY seq DESC LIMIT 1`, appID).Scan(&msg)
+		if err == nil {
+			set("failed", msg.String)
+		} else {
+			set("new", "")
+		}
+	}
 }

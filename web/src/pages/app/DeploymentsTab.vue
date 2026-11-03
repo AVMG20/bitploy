@@ -17,6 +17,7 @@ import { api } from '@/lib/api'
 import { channelLabel, commitUrl, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Deployment } from '@/lib/types'
+import CancelBuildButton from './CancelBuildButton.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
@@ -85,6 +86,7 @@ function canRollback(d: Deployment): boolean {
             <Button as-child size="sm" variant="ghost">
               <RouterLink :to="{ name: 'app-logs', params: { slug }, query: { kind: 'build', deployment: d.id } }"><ScrollText /> Build log</RouterLink>
             </Button>
+            <CancelBuildButton :slug="slug" :deployment="d" />
             <Button v-if="canRollback(d)" size="sm" variant="outline" @click="target = d">
               <Undo2 /> Go back to this version
             </Button>
@@ -99,7 +101,7 @@ function canRollback(d: Deployment): boolean {
             <template v-if="d.commit_message"> {{ d.commit_message }}</template>
           </span>
         </div>
-        <div v-if="d.error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <div v-if="d.error && d.state !== 'cancelled'" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           <p class="font-medium">{{ d.error.message }}</p>
           <p v-if="plainHint(d.error.code, d.error.hint)" class="mt-1">{{ plainHint(d.error.code, d.error.hint) }}</p>
           <details v-if="d.log_tail?.length" class="mt-2">

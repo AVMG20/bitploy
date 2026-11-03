@@ -111,6 +111,7 @@ export const paths = {
   appDbUpdateMany: (slug: string) => `${V1}/apps/${enc(slug)}/db/update-many`,
   appDbDelete: (slug: string) => `${V1}/apps/${enc(slug)}/db/delete`,
   appDbSql: (slug: string) => `${V1}/apps/${enc(slug)}/db/sql`,
+  deploymentCancel: (id: string) => `${V1}/deployments/${enc(id)}/cancel`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
@@ -394,6 +395,7 @@ export const api = {
   stop: (slug: string) => request<App>('POST', paths.appStop(slug)),
   rollback: (slug: string, deploymentId: string) =>
     request<Deployment>('POST', paths.appRollback(slug), { body: { deployment_id: deploymentId } }),
+  cancelDeployment: (id: string) => request<Deployment>('POST', paths.deploymentCancel(id)),
   async deployments(slug: string): Promise<Deployment[]> {
     return listOf<Deployment>(await request<unknown>('GET', paths.appDeployments(slug), { query: { limit: 50 } }))
   },

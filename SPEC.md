@@ -173,6 +173,9 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 | `swapping` | Route file points at the new container; old one stops after 10 s | — |
 | `running` | Live; previous deployment marked `superseded` | — |
 | `failed` | Old container keeps serving; error code, hint and log tail stored | — |
+| `cancelled` | Replaced by a newer queued deployment, the app was stopped or deleted, or the user cancelled it (see Cancel below) | — |
+
+**Cancel** (`POST /deployments/{id}/cancel`, `cancel_deployment`; deploy scope, own apps only): a `queued` deployment becomes `cancelled` at once. In `fetching`, `validating`, `building`, `starting` or `health_check` the pipeline's context is cancelled: the `docker buildx build` process group gets SIGTERM and, 5 s later, SIGKILL (Linux), the build slot is freed, the candidate container and the new image are removed and the previous version keeps serving untouched. The call waits up to 5 s for that, so the answer usually already says `cancelled`; otherwise it shows the state as it is. From `swapping` on it is too late: 409 `too_late_to_cancel` ("It is already going live." / "Wait a moment; roll back if needed."); a finished deployment (`running`, `failed`, `superseded`, `cancelled`) is 409 `deployment_finished`. The point of no return is decided under one lock (`commitSwap`), so a deployment never both goes live and is cancelled. A cancel is not a failure: the state is `cancelled`, `error` is `{code: "cancelled", message: "Cancelled by the user."}`, `failed`'s hints, audit row and "3 failures" advice do not apply, and the audit row is `deployment.cancelled` (actor, channel, `app`, `seq`, `was`). The app status settles like after a failure, without the failure: a live version keeps `running` (or `stopped` when the app is meant to be stopped); an app that was never deployed goes back to `new`, or `failed` when an earlier deployment failed; another queued deployment keeps it `deploying`.
 
 With a volume attached, use **recreate** instead of rolling: stop the old container, start the new one, and restart the old one automatically if the new one fails. Two writers on one SQLite file is worse than a few seconds of downtime.
 
@@ -215,8 +218,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    repository refuses uploads (git_source_linked): push instead.
 6. A deployment (deploy, deploy_files, or a push to a linked repository) builds
    in the background. Call get_deployment with wait_seconds=30 until the state
-   is running or failed. On failure, read error.hint and the log tail, fix, and
-   send the fix again. After 3 failures with the same error code, stop and
+   is running or failed. If a build is clearly wrong or stuck, call
+   cancel_deployment instead of waiting. On failure, read error.hint and the
+   log tail, fix, and send the fix again. After 3 failures with the same error code, stop and
    explain the problem to the user in plain words.
 7. When it runs, give the user the URL and one or two plain sentences on what
    you did. Assume the user is not technical.
@@ -249,6 +253,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
+| `cancel_deployment(id or app)` | Cancels a queued or in-progress deployment (`app`: the app's open one; `no_deployment_to_cancel` 409 when there is none); the live version keeps running | deploy | write |
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window)` | CPU, memory, network for `1h`, `24h` or `7d` | read | read-only |
@@ -343,6 +348,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `PUT` `DELETE /api/v1/apps/{app}/git-source`, `PATCH` for `auto_deploy` | `set_git_source`, with `remove: true` to unlink |
 | `GET` `POST /api/v1/apps/{app}/deployments` | `list_deployments`, `deploy` |
 | `GET /api/v1/deployments/{id}?wait=30` | `get_deployment` with long-poll |
+| `POST /api/v1/deployments/{id}/cancel` | `cancel_deployment` (deploy scope, owner only): returns the Deployment; 409 `too_late_to_cancel` while swapping, 409 `deployment_finished` |
 | `GET /api/v1/deployments/{id}/log[?follow=1]` | Build log as text or SSE |
 | `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1]` | `get_logs` |
 | `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read) |

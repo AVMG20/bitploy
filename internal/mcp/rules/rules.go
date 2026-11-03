@@ -68,6 +68,7 @@ const RuntimeContract = `## Runtime contract
 - set_env: new values reach a running app only after restart_app (it recreates the container; no rebuild, a few seconds). If the app is failed, new or stopped-by-crash, call deploy (with only app=) instead, because restart_app needs a deployment that already ran.
 - update_app volume=true, memory_mb, cpu_millis: apply on restart_app. volume=false applies at once. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
 - Code or Dockerfile changes: a push (linked repository), or a new deploy_files or deploy.
+- cancel_deployment(id or app) stops a queued or in-progress deployment: the build ends, the new container goes and the live version keeps running. If a build is clearly wrong or stuck, call cancel_deployment instead of waiting for it, then fix the cause and deploy again. It is refused once the deployment is swapping (too_late_to_cancel) or finished (deployment_finished). A cancelled deployment is not a failure and does not count towards "3 failures".
 - rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last 3 images exist). Roll back only when the user asks.
 
 ## Fixing failures (read error.code, error.hint and log_tail of get_deployment)
