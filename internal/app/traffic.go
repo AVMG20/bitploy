@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -89,6 +90,10 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 		return out, nil
 	}
 
+	// The current period ends now, partway into its last hour or day, so the
+	// period before ends at the same point: its last hour or day counts for
+	// the share that has passed of the current one (as if traffic were even
+	// within it). Otherwise every morning would look like a drop.
 	var prev traffic.Counts
 	var comparable bool
 	if window == "24h" {
@@ -99,12 +104,16 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 		}
 		byHour := make(map[int64]traffic.Counts, len(rows))
 		var hours traffic.Counts
+		prevLast := hourStart.Add(-time.Hour).Unix()
 		for _, r := range rows {
 			c := traffic.Counts{Requests: r.Requests, Errors4xx: r.Errors4xx, Errors5xx: r.Errors5xx, Visitors: r.Visitors, Bots: r.Bots}
 			byHour[r.Hour] = c
-			if r.Hour >= hourStart.Unix() {
+			switch {
+			case r.Hour >= hourStart.Unix():
 				hours = hours.Add(c)
-			} else {
+			case r.Hour == prevLast:
+				prev = prev.Add(partOf(c, now.Sub(now.Truncate(time.Hour)), time.Hour))
+			default:
 				prev = prev.Add(c)
 			}
 		}
@@ -127,7 +136,8 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 			ts := firstDay.AddDate(0, 0, i)
 			out.Points = append(out.Points, trafficPoint(ts, byDay[ts.Format(dayFormat)]))
 		}
-		prev = sumDays(prevFirstDay, firstDay.AddDate(0, 0, -1))
+		prevLast := firstDay.AddDate(0, 0, -1)
+		prev = sumDays(prevFirstDay, prevLast.AddDate(0, 0, -1)).Add(partOf(byDay[prevLast.Format(dayFormat)], now.Sub(today), 24*time.Hour))
 		first, err := q.TrafficFirstDay(ctx)
 		if err != nil {
 			return Traffic{}, apperr.Internal(err)
@@ -152,14 +162,14 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 // of a window in full, up to trafficListMax rows. Totals, points and the other
 // lists stay empty.
 func (s *Service) GetTrafficList(ctx context.Context, a Actor, ref, window, list string) (Traffic, error) {
-	list = strings.ToLower(strings.TrimSpace(list))
-	if !trafficListNames[list] {
-		return Traffic{}, apperr.BadRequest("invalid_list",
-			"The list "+quote(list)+" is not supported.", "Use pages, countries, referrers or not_found.")
-	}
 	app, window, days, err := s.trafficStart(ctx, a, ref, window)
 	if err != nil {
 		return Traffic{}, err
+	}
+	list = strings.ToLower(strings.TrimSpace(list))
+	if !trafficListNames[list] {
+		return Traffic{}, apperr.BadRequest("invalid_list",
+			"That list is not supported.", "Use pages, countries, referrers or not_found.")
 	}
 	from := s.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -(days - 1)).Format(dayFormat)
 	out := Traffic{App: app.Slug, Window: window, Granularity: "day",
@@ -240,6 +250,13 @@ func (s *Service) trafficLists(ctx context.Context, out *Traffic, appID, from st
 		}
 	}
 	return nil
+}
+
+// partOf returns elapsed/whole of c, rounded.
+func partOf(c traffic.Counts, elapsed, whole time.Duration) traffic.Counts {
+	f := float64(elapsed) / float64(whole)
+	part := func(n int64) int64 { return int64(math.Round(float64(n) * f)) }
+	return traffic.Counts{Requests: part(c.Requests), Errors4xx: part(c.Errors4xx), Errors5xx: part(c.Errors5xx), Visitors: part(c.Visitors), Bots: part(c.Bots)}
 }
 
 func trafficPoint(ts time.Time, c traffic.Counts) TrafficPoint {

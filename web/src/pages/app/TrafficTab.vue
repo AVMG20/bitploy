@@ -100,7 +100,7 @@ const tiles = computed<Tile[]>(() => {
       label: 'Requests',
       value: formatCount(t.requests),
       sub: botShare(t.bots, t.requests),
-      subTitle: 'Crawlers and scripts. They count as requests, not as visitors.',
+      subTitle: 'Crawlers and scripts: counted in requests, not in visitors.',
       delta: delta(t.requests, p?.requests),
     },
     {
@@ -148,7 +148,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
     />
 
     <template v-else>
-      <div class="grid grid-cols-3 overflow-hidden rounded-xl border bg-card shadow-card">
+      <div class="grid grid-cols-3 overflow-hidden rounded-xl border bg-card shadow-card" role="group" aria-label="Show in chart">
         <button
           v-for="(t, i) in tiles"
           :key="t.field"
@@ -187,7 +187,8 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           </RouterLink>
         </CardHeader>
         <CardContent>
-          <TrafficChart :points="data.points" :field="field" :granularity="data.granularity" />
+          <p v-if="field === 'errors' && data.totals.errors === 0" class="flex h-48 items-center justify-center text-sm text-muted-foreground">No failed requests.</p>
+          <TrafficChart v-else :points="data.points" :field="field" :granularity="data.granularity" />
         </CardContent>
       </Card>
 
@@ -232,10 +233,9 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
     </template>
 
     <p class="text-xs text-muted-foreground">
-      A visitor counts once per day; days are UTC dates. Requests include every page, image and file loaded, bots too.
-      Errors are 5xx answers from your app; 4xx are not found, refused and bad requests. Arrows compare with the period before.
-      Direct / none means no referrer: a typed-in address, a bookmark or an app. Not found counts 404s, files included.
-      No cookies, no IP addresses stored. Country data by <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline">DB-IP.com</a>.
+      Visitors count once per UTC day. Requests include files and bots. Errors are 5xx answers from your app. Arrows compare
+      with the period before. No cookies, no IP addresses stored. Country data by
+      <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline">DB-IP.com</a>.
     </p>
   </div>
 </template>

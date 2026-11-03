@@ -175,7 +175,8 @@ func TestGetTrafficPreviousAndNewCounts(t *testing.T) {
 	if tr.Totals.Requests != 180 || tr.Totals.Bots != 50 || tr.Totals.ClientErrors != 10 {
 		t.Errorf("7d totals: %+v", tr.Totals)
 	}
-	if tr.Previous == nil || tr.Previous.Requests != 100 || tr.Previous.Visitors != 12 {
+	// At 12:00 half of today has passed, so half of day 7 counts: 70 + 15 requests, 7 + 3 visitors.
+	if tr.Previous == nil || tr.Previous.Requests != 85 || tr.Previous.Visitors != 10 {
 		t.Errorf("7d previous: %+v", tr.Previous)
 	}
 	// 30 days: stats go back 14 days only, so there is nothing to compare with.
@@ -185,6 +186,14 @@ func TestGetTrafficPreviousAndNewCounts(t *testing.T) {
 	if tr, err = e.svc.GetTraffic(ctx, e.owner, "traffic-app", "today"); err != nil || tr.Previous != nil || tr.NotFound == nil {
 		t.Errorf("today: %+v, %v", tr, err)
 	}
+
+	// Half an hour into the current hour, half of hour 24 counts too.
+	e.exec(t, `INSERT INTO traffic_hourly (app_id, hour, requests, visitors) VALUES ('app_t', ?, 10, 2)`, hour(24))
+	e.now = now.Add(30 * time.Minute)
+	if tr, err = e.svc.GetTraffic(ctx, e.owner, "traffic-app", "24h"); err != nil || tr.Previous == nil || tr.Previous.Requests != 85 {
+		t.Errorf("24h previous at half past: %+v, %v", tr.Previous, err)
+	}
+	e.now = now
 
 	// An app younger than the previous period has nothing to compare with either.
 	e.exec(t, `UPDATE apps SET created_at = ? WHERE id = 'app_t'`, now.AddDate(0, 0, -10).Unix())

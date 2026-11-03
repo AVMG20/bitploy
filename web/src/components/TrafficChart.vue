@@ -28,9 +28,9 @@ interface Datum {
 }
 
 const errorColor = 'var(--destructive)'
-// The failed part of a requests bar: quieter than the errors chart, and lighter
-// or darker than the orange so the two parts stay apart.
-const failedPart = 'color-mix(in oklch, var(--destructive) 55%, var(--card))'
+// The failed part of a requests bar: red pulled towards the text colour, so it
+// differs from the orange in lightness too, and from the dimmed newest bar.
+const failedPart = 'color-mix(in oklch, var(--destructive) 70%, var(--foreground))'
 
 // Datum keys in the config show in the tooltip, in datum order.
 const config = computed((): ChartConfig => {

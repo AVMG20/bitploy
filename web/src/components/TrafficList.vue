@@ -33,6 +33,9 @@ const props = defineProps<{
 const top = computed(() => props.rows.reduce((m, r) => Math.max(m, r.count), 0))
 const width = (count: number, max: number) => (max > 0 ? Math.max(2, (count / max) * 100) : 0)
 
+/** The server sends at most this many rows of a full list. */
+const LIST_MAX = 500
+
 const canShowAll = computed(() => !!props.fetchAll && props.more)
 
 const open = ref(false)
@@ -41,24 +44,35 @@ const loading = ref(false)
 const error = ref<unknown>(null)
 const allTop = computed(() => (all.value ?? []).reduce((m, r) => Math.max(m, r.count), 0))
 
+// Bumped on every load and on close, so an answer that arrives late (after
+// closing, or for an older window) is dropped.
+let seq = 0
+
 async function load() {
   if (!props.fetchAll) return
+  const mine = ++seq
   loading.value = true
   error.value = null
   try {
-    all.value = await props.fetchAll()
+    const rows = await props.fetchAll()
+    if (mine === seq) all.value = rows
   } catch (e) {
-    error.value = e
+    if (mine === seq) error.value = e
   } finally {
-    loading.value = false
+    if (mine === seq) loading.value = false
   }
 }
 
 // Fetched each time the dialog opens, so it matches the numbers on the page.
 watch(open, (o) => {
-  if (o) void load()
-  else all.value = null
+  if (o) return void load()
+  seq++
+  all.value = null
+  error.value = null
+  loading.value = false
 })
+
+const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
 </script>
 
 <template>
@@ -87,9 +101,7 @@ watch(open, (o) => {
     <DialogContent class="flex max-h-[85vh] flex-col sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription>
-          {{ description ? `${description}. ` : '' }}{{ unit }} per row{{ all && all.length >= 500 ? ', top 500' : '' }}.
-        </DialogDescription>
+        <DialogDescription>{{ [description, unit, capped && 'Top 500'].filter(Boolean).join(' · ') }}</DialogDescription>
       </DialogHeader>
       <QueryError v-if="error" :error="error" @retry="load" />
       <div v-else-if="loading && !all" class="grid gap-2">

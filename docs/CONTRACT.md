@@ -93,14 +93,14 @@ rename or remove anything, and mention it in your final summary.
   BITPLOY_TRAEFIK_INTERNAL_URL=http://localhost:8081
   BITPLOY_INTERNAL_URL=http://host.docker.internal:8080 BITPLOY_DATA_DIR=./.data`.
   Traefik runs in Docker with the web entrypoint on host port 8000.
-- **Traffic stats** (`internal/traffic`, `internal/app/traffic.go`, migrations `00090` and `00170`, queries `traffic.sql`):
+- **Traffic stats** (`internal/traffic`, `internal/app/traffic.go`, migrations `00090` and `00180`, queries `traffic.sql`):
   Traefik writes a JSON access log to `<data dir>/traefik/logs/access.log`; bitploy tails it,
   maps `RouterName` (`app-<slug>@file`, custom domains `app-<slug>_<host with _ for .>@file`, names from
   `proxy.RouterName` / `proxy.HostRouterName`; only domains in `issuing_cert`/`active` have a router) to an app, and keeps only counts. Never store an
   IP address, user agent or query string. `GET /api/v1/apps/{app}/traffic?window=24h|7d|30d|today` returns
   `{app, window, granularity, visitors_today, totals, previous, points, pages, countries, referrers, not_found}`;
   `totals` and `previous` are `{requests, visitors, errors (5xx), error_rate, client_errors (4xx), bots}`, `previous` is the
-  equal period before and `null` for `today` or when the stats (or the app) do not go back that far; points carry
+  equal period before (its last hour or day counted for the share of the current one that has passed) and `null` for `today` or when the stats (or the app) do not go back that far; points carry
   `client_errors` too. Lists hold the top 10; the referrer `(direct)` is page views without a `Referer`.
   `&list=pages|countries|referrers|not_found` returns only that list, up to 500 rows (other fields empty); any other
   value is 400 `invalid_list`. Retention: day totals 61 days, everything else 30.
