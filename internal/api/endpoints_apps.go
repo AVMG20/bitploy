@@ -400,11 +400,17 @@ func (a *API) appRoutes() {
 	// ---- traffic ----
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getTraffic", Method: http.MethodGet, Path: "/apps/{app}/traffic", Tags: []string{"Traffic"},
-		Summary: "Visitors, top pages, countries and referrers",
+		Summary: "Visitors, top pages, countries, referrers and 404 paths",
+		Description: "Lists hold the top 10. With list, only that list comes back, in full (up to 500 rows); " +
+			"totals, points and the other lists are then empty.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
 		Window string `query:"window" default:"24h" enum:"24h,7d,30d,today"`
+		List   string `query:"list" doc:"pages, countries, referrers or not_found: return that list in full"`
 	}) (*Out[app.Traffic], error) {
+		if in.List != "" {
+			return okOrNil(a.svc.GetTrafficList(ctx, act, in.App, in.Window, in.List))
+		}
 		return okOrNil(a.svc.GetTraffic(ctx, act, in.App, in.Window))
 	})
 }

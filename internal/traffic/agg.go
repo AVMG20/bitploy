@@ -11,19 +11,21 @@ import (
 // Caps that keep memory and storage small however much traffic (or junk) arrives.
 const (
 	MaxPathsPerDay     = 500    // distinct paths per app and day; the rest become OtherName
-	MaxReferrersPerDay = 200    // distinct referrer hosts per app and day; the rest are dropped
+	MaxNotFoundPerDay  = 500    // distinct 404 paths per app and day; the rest become OtherName
+	MaxReferrersPerDay = 200    // distinct referrer hosts per app and day (DirectName aside); the rest are dropped
 	MaxVisitorsPerSet  = 100000 // visitor hashes kept per app and hour or day
 	OtherName          = "(other)"
+	DirectName         = "(direct)" // page views without a Referer; no host has parentheses
 	UnknownCountry     = "unknown"
 )
 
 // Counts are request totals for one bucket (an hour or a day).
 type Counts struct {
-	Requests, Errors4xx, Errors5xx, Visitors int64
+	Requests, Errors4xx, Errors5xx, Visitors, Bots int64
 }
 
-func (c Counts) add(o Counts) Counts {
-	return Counts{c.Requests + o.Requests, c.Errors4xx + o.Errors4xx, c.Errors5xx + o.Errors5xx, c.Visitors + o.Visitors}
+func (c Counts) Add(o Counts) Counts {
+	return Counts{c.Requests + o.Requests, c.Errors4xx + o.Errors4xx, c.Errors5xx + o.Errors5xx, c.Visitors + o.Visitors, c.Bots + o.Bots}
 }
 
 // CountryCounts are the numbers per country and day.
@@ -33,6 +35,7 @@ type CountryCounts struct{ Requests, Visitors int64 }
 type DayDelta struct {
 	Counts
 	Paths     map[string]int64
+	NotFound  map[string]int64 // 404 paths
 	Referrers map[string]int64
 	Countries map[string]CountryCounts
 }
@@ -70,6 +73,8 @@ type dayAgg struct {
 	seen       map[uint64]struct{}
 	paths      map[string]int64
 	knownPaths map[string]struct{}
+	notFound   map[string]int64
+	knownNF    map[string]struct{}
 	refs       map[string]int64
 	knownRefs  map[string]struct{}
 	countries  map[string]CountryCounts
@@ -98,6 +103,7 @@ func (ap *appAgg) day(day string) *dayAgg {
 	if d == nil {
 		d = &dayAgg{
 			seen: map[uint64]struct{}{}, paths: map[string]int64{}, knownPaths: map[string]struct{}{},
+			notFound: map[string]int64{}, knownNF: map[string]struct{}{},
 			refs: map[string]int64{}, knownRefs: map[string]struct{}{}, countries: map[string]CountryCounts{},
 		}
 		ap.days[day] = d
@@ -113,18 +119,24 @@ func (a *Aggregator) Restore(snap Snapshot) {
 		ap := a.app(id)
 		for hour, c := range delta.Hours {
 			h := ap.hour(hour)
-			h.delta = h.delta.add(c)
+			h.delta = h.delta.Add(c)
 		}
 		for day, dd := range delta.Days {
 			d := ap.day(day)
-			d.delta = d.delta.add(dd.Counts)
+			d.delta = d.delta.Add(dd.Counts)
 			for p, n := range dd.Paths {
 				d.paths[p] += n
 				d.knownPaths[p] = struct{}{}
 			}
+			for p, n := range dd.NotFound {
+				d.notFound[p] += n
+				d.knownNF[p] = struct{}{}
+			}
 			for r, n := range dd.Referrers {
 				d.refs[r] += n
-				d.knownRefs[r] = struct{}{}
+				if r != DirectName {
+					d.knownRefs[r] = struct{}{}
+				}
 			}
 			for c, n := range dd.Countries {
 				cc := d.countries[c]
@@ -176,7 +188,10 @@ func (a *Aggregator) Add(appID string, e Entry) {
 	cc.Requests++
 
 	bot := IsBot(e.UserAgent)
-	if !bot {
+	if bot {
+		h.delta.Bots++
+		d.delta.Bots++
+	} else {
 		v := a.visitorHash(day, e.IP, e.UserAgent)
 		if _, ok := h.seen[v]; !ok && len(h.seen) < MaxVisitorsPerSet {
 			h.seen[v] = struct{}{}
@@ -192,11 +207,20 @@ func (a *Aggregator) Add(appID string, e Entry) {
 
 	if !bot && e.Method == "GET" && e.Status >= 200 && e.Status < 400 && !IsAsset(e.Path) {
 		d.paths[capKey(d.knownPaths, e.Path, MaxPathsPerDay-1, OtherName)]++
-		if ref := ReferrerHost(e.Referer, e.Host); ref != "" {
+		// No Referer: typed in, a bookmark, an app. Outside the cap, so never dropped.
+		// A link from the site itself is not "came from" at all.
+		if e.Referer == "" {
+			d.refs[DirectName]++
+		} else if ref := ReferrerHost(e.Referer, e.Host); ref != "" {
 			if k := capKey(d.knownRefs, ref, MaxReferrersPerDay, ""); k != "" {
 				d.refs[k]++
 			}
 		}
+	}
+	// Broken links, also to files; any method, since a form posting to a
+	// missing path is just as broken.
+	if !bot && e.Status == 404 {
+		d.notFound[capKey(d.knownNF, e.Path, MaxNotFoundPerDay-1, OtherName)]++
 	}
 }
 
@@ -255,10 +279,10 @@ func (a *Aggregator) Flush() Snapshot {
 			}
 		}
 		for day, d := range ap.days {
-			if len(d.paths) > 0 || len(d.refs) > 0 || len(d.countries) > 0 || d.delta != (Counts{}) {
-				out.Days[day] = &DayDelta{Counts: d.delta, Paths: d.paths, Referrers: d.refs, Countries: d.countries}
+			if len(d.paths) > 0 || len(d.notFound) > 0 || len(d.refs) > 0 || len(d.countries) > 0 || d.delta != (Counts{}) {
+				out.Days[day] = &DayDelta{Counts: d.delta, Paths: d.paths, NotFound: d.notFound, Referrers: d.refs, Countries: d.countries}
 				d.delta = Counts{}
-				d.paths, d.refs, d.countries = map[string]int64{}, map[string]int64{}, map[string]CountryCounts{}
+				d.paths, d.notFound, d.refs, d.countries = map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]CountryCounts{}
 			}
 			if day < oldDay {
 				delete(ap.days, day)

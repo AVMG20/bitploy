@@ -291,28 +291,33 @@ type Traffic struct {
 	Granularity   string           `json:"granularity"` // hour for 24h, day otherwise
 	VisitorsToday int64            `json:"visitors_today"`
 	Totals        TrafficTotals    `json:"totals"`
+	Previous      *TrafficTotals   `json:"previous"` // the equal period before; null for today and when stats do not go back that far
 	Points        []TrafficPoint   `json:"points"`
 	Pages         []TrafficItem    `json:"pages"`
 	Countries     []TrafficCountry `json:"countries"`
-	Referrers     []TrafficItem    `json:"referrers"`
+	Referrers     []TrafficItem    `json:"referrers"` // "(direct)" is page views without a referrer
+	NotFound      []TrafficItem    `json:"not_found"` // paths answered 404, files included
 }
 
 type TrafficTotals struct {
-	Requests  int64   `json:"requests"`
-	Visitors  int64   `json:"visitors"`
-	Errors    int64   `json:"errors"`     // answers with status 500 or more
-	ErrorRate float64 `json:"error_rate"` // errors as a percentage of requests
+	Requests     int64   `json:"requests"`
+	Visitors     int64   `json:"visitors"`
+	Errors       int64   `json:"errors"`        // answers with status 500 or more
+	ErrorRate    float64 `json:"error_rate"`    // errors as a percentage of requests
+	ClientErrors int64   `json:"client_errors"` // answers with status 400 to 499
+	Bots         int64   `json:"bots"`          // requests from crawlers and scripts, part of requests
 }
 
 type TrafficPoint struct {
-	TS       time.Time `json:"ts"`
-	Requests int64     `json:"requests"`
-	Visitors int64     `json:"visitors"`
-	Errors   int64     `json:"errors"`
+	TS           time.Time `json:"ts"`
+	Requests     int64     `json:"requests"`
+	Visitors     int64     `json:"visitors"`
+	Errors       int64     `json:"errors"`
+	ClientErrors int64     `json:"client_errors"`
 }
 
-// TrafficItem is a page or a referrer with its count. Lists cover whole UTC
-// days, so for 24h they span today and yesterday.
+// TrafficItem is a page, a referrer or a 404 path with its count. Lists cover
+// whole UTC days, so for 24h they span today and yesterday.
 type TrafficItem struct {
 	Name  string `json:"name"`
 	Count int64  `json:"count"`

@@ -386,6 +386,20 @@ func TestRedeployOfNeverDeployedAppExplainsItself(t *testing.T) {
 	}
 }
 
+func TestTrafficFullList(t *testing.T) {
+	e := newEnv(t)
+	e.login("me@example.nl", false)
+	a := decode[app.App](t, e.asSession("POST", "/api/v1/apps", map[string]any{"name": "visited"}))
+	w := e.asSession("GET", "/api/v1/apps/"+a.Slug+"/traffic?window=7d&list=not_found", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"not_found":[]`) {
+		t.Fatalf("list: %d %s", w.Code, w.Body)
+	}
+	w = e.asSession("GET", "/api/v1/apps/"+a.Slug+"/traffic?window=7d&list=bogus", nil)
+	if er := decode[errResp](t, w); w.Code != 400 || er.Error.Code != "invalid_list" || er.Error.Hint == "" {
+		t.Fatalf("bad list: %d %s", w.Code, w.Body)
+	}
+}
+
 // A retry that arrives while the first request with the same key is still
 // running must wait for it and replay its answer, not do the work again.
 func TestIdempotencyKeyConcurrentRetries(t *testing.T) {

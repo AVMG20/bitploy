@@ -32,6 +32,7 @@ import type {
   Metrics,
   MetricWindow,
   Traffic,
+  TrafficListName,
   TrafficWindow,
   Page,
   ServerStats,
@@ -408,6 +409,9 @@ export const api = {
     request<Metrics>('GET', paths.appMetrics(slug), { query: { window } }),
   traffic: (slug: string, window: TrafficWindow | 'today') =>
     request<Traffic>('GET', paths.appTraffic(slug), { query: { window } }),
+  /** One list in full (up to 500 rows); the rest of the answer is empty. */
+  trafficList: (slug: string, window: TrafficWindow, list: TrafficListName) =>
+    request<Traffic>('GET', paths.appTraffic(slug), { query: { window, list } }),
 
   // domains
   async domains(slug: string): Promise<Domain[]> {

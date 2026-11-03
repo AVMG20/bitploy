@@ -280,6 +280,7 @@ type TrafficDaily struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
 }
 
 type TrafficHourly struct {
@@ -289,6 +290,14 @@ type TrafficHourly struct {
 	Errors4xx int64
 	Errors5xx int64
 	Visitors  int64
+	Bots      int64
+}
+
+type TrafficNotFound struct {
+	AppID string
+	Day   string
+	Path  string
+	Hits  int64
 }
 
 type TrafficPath struct {

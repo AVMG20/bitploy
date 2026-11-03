@@ -365,12 +365,16 @@ export interface Metrics {
 }
 
 export type TrafficWindow = '24h' | '7d' | '30d'
+export type TrafficListName = 'pages' | 'countries' | 'referrers' | 'not_found'
 
 export interface TrafficPoint {
   ts: string
   requests: number
   visitors: number
+  /** 5xx */
   errors: number
+  /** 4xx */
+  client_errors: number
 }
 
 export interface TrafficItem {
@@ -384,16 +388,34 @@ export interface TrafficCountry {
   visitors: number
 }
 
+export interface TrafficTotals {
+  requests: number
+  visitors: number
+  /** 5xx */
+  errors: number
+  /** 5xx as a percentage of requests */
+  error_rate: number
+  /** 4xx */
+  client_errors: number
+  /** Requests from crawlers and scripts, part of requests. */
+  bots: number
+}
+
 export interface Traffic {
   app: string
   window: TrafficWindow
   granularity: 'hour' | 'day'
   visitors_today: number
-  totals: { requests: number; visitors: number; errors: number; error_rate: number }
+  totals: TrafficTotals
+  /** The equal period before; null when stats do not go back that far. */
+  previous: TrafficTotals | null
   points: TrafficPoint[]
   pages: TrafficItem[]
   countries: TrafficCountry[]
+  /** "(direct)" is page views without a referrer. */
   referrers: TrafficItem[]
+  /** Paths answered 404. */
+  not_found: TrafficItem[]
 }
 
 export interface AuditEntry {
