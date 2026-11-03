@@ -40,6 +40,7 @@ export const router = createRouter({
       children: [
         { path: '', name: 'overview', component: () => import('./pages/OverviewPage.vue'), meta: { title: 'Apps' } },
         { path: 'new', name: 'new-app', component: () => import('./pages/NewAppPage.vue'), meta: { title: 'New app' } },
+        { path: 'new/:catalogId', name: 'new-catalog', component: () => import('./pages/NewCatalogPage.vue'), props: true, meta: { title: 'New app' } },
         {
           path: 'apps/:slug',
           component: () => import('./pages/app/AppPage.vue'),

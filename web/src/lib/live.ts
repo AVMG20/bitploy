@@ -7,6 +7,9 @@ import type { MetricWindow, TrafficWindow } from './types'
 export const keys = {
   me: ['me'] as const,
   apps: ['apps'] as const,
+  catalog: ['catalog'] as const,
+  catalogApp: (id: string) => ['catalog', id] as const,
+  dockerfile: (slug: string) => ['dockerfile', slug] as const,
   app: (slug: string) => ['app', slug] as const,
   metrics: (slug: string, window: MetricWindow) => ['metrics', slug, window] as const,
   traffic: (slug: string, window: TrafficWindow | 'today') => ['traffic', slug, window] as const,

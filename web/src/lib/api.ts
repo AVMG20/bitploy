@@ -18,7 +18,12 @@ import type {
   DbSchema,
   DbSqlResponse,
   DbValue,
+  AppDockerfile,
+  CatalogApp,
+  CatalogDeployInput,
+  CatalogDeployResult,
   Deployment,
+  DockerfileCheck,
   Domain,
   EnvVar,
   GitHubBranches,
@@ -96,6 +101,12 @@ export const paths = {
   appBackupUpload: (slug: string) => `${V1}/apps/${enc(slug)}/backups/upload`,
   appBackupSettings: (slug: string) => `${V1}/apps/${enc(slug)}/backup-settings`,
   appBackupRestoreState: (slug: string) => `${V1}/apps/${enc(slug)}/backup-restore`,
+  appDockerfile: (slug: string) => `${V1}/apps/${enc(slug)}/dockerfile`,
+  appCatalogUpdate: (slug: string) => `${V1}/apps/${enc(slug)}/catalog-update`,
+  catalog: `${V1}/catalog`,
+  catalogApp: (id: string) => `${V1}/catalog/${enc(id)}`,
+  catalogDeploy: (id: string) => `${V1}/catalog/${enc(id)}/deploy`,
+  dockerfileValidate: `${V1}/dockerfile/validate`,
   appFiles: (slug: string) => `${V1}/apps/${enc(slug)}/files`,
   appFileFolder: (slug: string) => `${V1}/apps/${enc(slug)}/files/folder`,
   appFileDownload: (slug: string) => `${V1}/apps/${enc(slug)}/files/download`,
@@ -389,6 +400,19 @@ export const api = {
   updateApp: (slug: string, input: UpdateAppInput) => request<App>('PATCH', paths.app(slug), { body: input }),
   deleteApp: (slug: string) =>
     request<void>('DELETE', paths.app(slug), { query: { confirm_slug: slug }, body: { confirm_slug: slug } }),
+  /** Stores inline files as the app's source and queues a deployment. */
+  deployFiles: (slug: string, files: { path: string; content: string; encoding?: 'utf8' | 'base64' }[]) =>
+    request<Deployment>('POST', paths.appFiles(slug), { body: { files } }),
+  dockerfile: (slug: string) => request<AppDockerfile>('GET', paths.appDockerfile(slug)),
+  saveDockerfile: (slug: string, content: string) => request<Deployment>('PUT', paths.appDockerfile(slug), { body: { content } }),
+  validateDockerfile: (dockerfile: string, port?: number) =>
+    request<DockerfileCheck>('POST', paths.dockerfileValidate, { body: { dockerfile, port } }),
+  async catalog(): Promise<CatalogApp[]> {
+    return listAll<CatalogApp>(paths.catalog)
+  },
+  catalogApp: (id: string) => request<CatalogApp>('GET', paths.catalogApp(id)),
+  deployCatalog: (id: string, input: CatalogDeployInput) => request<CatalogDeployResult>('POST', paths.catalogDeploy(id), { body: input }),
+  catalogUpdate: (slug: string) => request<Deployment>('POST', paths.appCatalogUpdate(slug)),
   redeploy: (slug: string) => request<Deployment>('POST', paths.appRedeploy(slug)),
   restart: (slug: string) => request<App>('POST', paths.appRestart(slug)),
   start: (slug: string) => request<App>('POST', paths.appStart(slug)),
