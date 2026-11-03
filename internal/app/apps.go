@@ -15,7 +15,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/AVMG20/bitploy/internal/catalog"
 	"os"
 	"path"
 	"runtime"
@@ -989,12 +988,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		v.Port = &p
 	}
 	v.CatalogID, v.CatalogVersion = r.CatalogID, r.CatalogVersion
-	if r.CatalogID != "" {
-		if e, ok := catalog.Get(r.CatalogID); ok && e.Version != r.CatalogVersion {
-			newer := e.Version
-			v.CatalogUpdate = &newer
-		}
-	}
+	v.CatalogUpdate = catalogUpdateFor(r)
 	v.GitSource = s.gitSourceState(ctx, a, r)
 	if r.CurrentDeploymentID.Valid {
 		if d, err := s.Q.GetDeployment(ctx, r.CurrentDeploymentID.String); err == nil {

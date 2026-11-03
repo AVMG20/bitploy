@@ -5,6 +5,8 @@ package app
 
 import (
 	"context"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -144,8 +146,9 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	if err != nil {
 		return res, err
 	}
+	queued := false
 	defer func() {
-		if err != nil { // do not leave a half-made app behind
+		if err != nil && !queued { // do not leave a half-made app behind
 			if derr := s.DeleteApp(context.WithoutCancel(ctx), a, created.Slug, created.Slug); derr != nil {
 				s.Log.Error("catalog: remove the app after a failed deploy", "app", created.Slug, "err", derr)
 			}
@@ -176,27 +179,71 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 		return res, err
 	}
 	var dep Deployment
-	dep, err = s.DeployFiles(ctx, a, created.Slug, []FileInput{{Path: "Dockerfile", Content: e.Dockerfile}})
+	dep, err = s.deployFiles(ctx, a, created.Slug, []FileInput{{Path: "Dockerfile", Content: e.Dockerfile}}, e.Version)
 	if err != nil {
 		return res, err
 	}
+	// From here on the app stays: its deployment is queued.
+	queued = true
 	s.Audit(ctx, a, "catalog.deploy", "app", created.ID, map[string]any{"catalog": e.ID, "version": e.Version, "app": created.Slug, "deployment": dep.ID})
-	final, gerr := s.GetApp(ctx, a, created.Slug)
-	if gerr != nil {
-		err = gerr
-		return res, err
-	}
 	steps := make([]string, len(e.FirstSteps))
 	for i, st := range e.FirstSteps {
 		steps[i] = catalog.Fill(st, url)
 	}
+	final, gerr := s.GetApp(ctx, a, created.Slug)
+	if gerr != nil {
+		final = created
+	}
 	return CatalogDeployResult{App: final, Deployment: dep, FirstSteps: steps}, nil
 }
 
+// catalogNewer says whether the catalog version cat is newer than the
+// version the app runs. Versions are compared part by part on dots and dashes,
+// numerically where both parts are numbers (1.10 is newer than 1.9, 26.11.0
+// than 26.9.1); a version that cannot be compared counts as newer when it
+// differs.
+func catalogNewer(cat, running string) bool {
+	if cat == running {
+		return false
+	}
+	split := func(v string) []string {
+		return strings.FieldsFunc(strings.TrimPrefix(v, "v"), func(r rune) bool { return r == '.' || r == '-' })
+	}
+	a, b := split(cat), split(running)
+	for i := 0; i < len(a) && i < len(b); i++ {
+		x, xerr := strconv.Atoi(a[i])
+		y, yerr := strconv.Atoi(b[i])
+		if xerr != nil || yerr != nil {
+			if a[i] != b[i] {
+				return true
+			}
+			continue
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return len(a) > len(b)
+}
+
+// catalogUpdateFor is the App's catalog_update: the catalog's version when it
+// is newer than the one the app runs and the app can be updated (it is not
+// linked to a repository), else nil.
+func catalogUpdateFor(r db.App) *string {
+	if r.CatalogID == "" || isGitLinked(r) {
+		return nil
+	}
+	e, ok := catalog.Get(r.CatalogID)
+	if !ok || !catalogNewer(e.Version, r.CatalogVersion) {
+		return nil
+	}
+	v := e.Version
+	return &v
+}
+
 // UpdateCatalogApp replaces the app's Dockerfile with the catalog's current
-// one and queues a deployment. The new version is recorded when the
-// deployment is queued: the stored source already is the new Dockerfile, so a
-// retry of a failed deployment builds the new version too.
+// one and queues a deployment. The app's catalog_version changes when that
+// deployment goes live, so a failed or cancelled update can be tried again.
 func (s *Service) UpdateCatalogApp(ctx context.Context, a Actor, ref string) (Deployment, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
@@ -213,18 +260,25 @@ func (s *Service) UpdateCatalogApp(ctx context.Context, a Actor, ref string) (De
 	if !ok {
 		return Deployment{}, catalogUnknown(row.CatalogID)
 	}
-	if e.Version == row.CatalogVersion {
-		return Deployment{}, apperr.Conflict("catalog_up_to_date", "This app already runs "+e.Name+" "+e.Version+", the version in the catalog.",
+	if !catalogNewer(e.Version, row.CatalogVersion) {
+		return Deployment{}, apperr.Conflict("catalog_up_to_date", "This app already runs "+e.Name+" "+row.CatalogVersion+"; the catalog has "+e.Version+".",
 			"Nothing to update.")
 	}
-	dep, err := s.deployWithDockerfile(ctx, a, row, e.Dockerfile)
+	var dep Deployment
+	snap, ok, err := s.sourceSnapshot(ctx, row)
+	switch {
+	case err != nil:
+		return Deployment{}, err
+	case ok:
+		// Keep any other files of the source; only the Dockerfile changes.
+		dep, err = s.deployWithDockerfile(ctx, a, row, snap, e.Dockerfile, e.Version)
+	default:
+		// No stored source (pruned): the catalog Dockerfile is the whole source.
+		dep, err = s.deployFiles(ctx, a, row.Slug, []FileInput{{Path: path.Clean(row.DockerfilePath), Content: e.Dockerfile}}, e.Version)
+	}
 	if err != nil {
 		return Deployment{}, err
 	}
-	if err := s.Q.SetAppCatalog(ctx, db.SetAppCatalogParams{CatalogID: e.ID, CatalogVersion: e.Version, UpdatedAt: s.now(), ID: row.ID}); err != nil {
-		return Deployment{}, apperr.Internal(err)
-	}
 	s.Audit(ctx, a, "catalog.update", "app", row.ID, map[string]any{"catalog": e.ID, "from": row.CatalogVersion, "to": e.Version, "app": row.Slug, "deployment": dep.ID})
-	s.publishApp(ctx, row.ID)
 	return dep, nil
 }

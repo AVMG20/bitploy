@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -129,4 +130,73 @@ func TestDockerfileEndpoints(t *testing.T) {
 	if w := e.req("GET", "/api/v1/apps/site/dockerfile", nil, read); w.Code != 200 {
 		t.Errorf("read token get: %d %s", w.Code, w.Body)
 	}
+}
+
+// Every new route: CSRF for sessions, the deploy scope for changes, and 404
+// for another user's app.
+func TestCatalogAndDockerfileAccess(t *testing.T) {
+	e := newEnv(t)
+	e.login("me@example.nl", false)
+	files := map[string]any{"files": []map[string]string{{"path": "Dockerfile", "content": "FROM alpine:3.22\nUSER 1000\nEXPOSE 80\n"}}}
+	if w := e.asSession("POST", "/api/v1/apps", map[string]any{"name": "Site", "slug": "site"}); w.Code != 201 {
+		t.Fatal(w.Body)
+	}
+	if w := e.asSession("POST", "/api/v1/apps/site/files", files); w.Code != 202 {
+		t.Fatal(w.Body)
+	}
+	if w := e.asSession("POST", "/api/v1/catalog/memos/deploy", map[string]any{}); w.Code != 202 {
+		t.Fatal(w.Body)
+	}
+	changes := []struct{ method, path, body string }{
+		{"POST", "/api/v1/catalog/vaultwarden/deploy", `{}`},
+		{"POST", "/api/v1/apps/memos/catalog-update", ``},
+		{"PUT", "/api/v1/apps/site/dockerfile", `{"content":"FROM alpine:3.22\nEXPOSE 80\n"}`},
+	}
+
+	// A session without the CSRF token changes nothing.
+	for _, c := range changes {
+		if w := e.sessionRaw(c.method, c.path, []byte(c.body), false); w.Code != 403 {
+			t.Errorf("%s %s without CSRF: %d %s", c.method, c.path, w.Code, w.Body)
+		}
+	}
+	// A read token changes nothing.
+	tc := decode[app.TokenCreated](t, e.asSession("POST", "/api/v1/tokens", map[string]any{"name": "r", "scope": "read"}))
+	read := map[string]string{"Authorization": "Bearer " + tc.Value}
+	for _, c := range changes {
+		w := e.req(c.method, c.path, c.body, read)
+		if w.Code != 403 || decode[errResp](t, w).Error.Code != "token_read_only" {
+			t.Errorf("%s %s with a read token: %d %s", c.method, c.path, w.Code, w.Body)
+		}
+	}
+	// A deploy token works without CSRF.
+	dt := decode[app.TokenCreated](t, e.asSession("POST", "/api/v1/tokens", map[string]any{"name": "d", "scope": "deploy"}))
+	deployTok := map[string]string{"Authorization": "Bearer " + dt.Value}
+	if w := e.req("PUT", "/api/v1/apps/site/dockerfile", changes[2].body, deployTok); w.Code != 202 {
+		t.Errorf("deploy token: %d %s", w.Code, w.Body)
+	}
+	if n := countApps(t, e); n != 2 {
+		t.Errorf("refused deploys created apps: %d", n)
+	}
+
+	// Another user sees neither app.
+	e.login("other@example.nl", false)
+	for _, c := range append(changes[1:], struct{ method, path, body string }{"GET", "/api/v1/apps/site/dockerfile", ""}) {
+		var body any
+		if c.body != "" {
+			body = json.RawMessage(c.body)
+		}
+		w := e.asSession(c.method, c.path, body)
+		if w.Code != 404 || decode[errResp](t, w).Error.Code != "app_not_found" {
+			t.Errorf("other user %s %s: %d %s", c.method, c.path, w.Code, w.Body)
+		}
+	}
+}
+
+func countApps(t *testing.T, e *env) int {
+	t.Helper()
+	var n int
+	if err := e.svc.Store.DB.QueryRow(`SELECT COUNT(*) FROM apps`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

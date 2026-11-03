@@ -127,6 +127,7 @@ type Deployment struct {
 	BuiltAt         sql.NullInt64
 	FinishedAt      sql.NullInt64
 	BuildKind       string
+	CatalogVersion  string
 }
 
 type Domain struct {

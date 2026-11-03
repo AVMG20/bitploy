@@ -81,3 +81,6 @@ WHERE a.user_id = ? AND d.queued_at >= ?;
 -- name: CountPendingDeploymentsByApp :one
 SELECT COUNT(*) FROM deployments
 WHERE app_id = ? AND state IN ('queued', 'fetching', 'validating', 'building', 'starting', 'health_check', 'swapping');
+
+-- name: SetDeploymentCatalogVersion :exec
+UPDATE deployments SET catalog_version = ? WHERE id = ?;

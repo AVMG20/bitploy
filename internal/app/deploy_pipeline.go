@@ -752,6 +752,11 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 		if err := q.FinishDeployment(ctx, db.FinishDeploymentParams{State: "running", FinishedAt: sql.NullInt64{Int64: now, Valid: true}, ID: p.dep.ID}); err != nil {
 			return err
 		}
+		if p.dep.CatalogVersion != "" {
+			if err := q.SetAppCatalogVersion(ctx, db.SetAppCatalogVersionParams{CatalogVersion: p.dep.CatalogVersion, UpdatedAt: now, ID: p.app.ID}); err != nil {
+				return err
+			}
+		}
 		if p.setSize {
 			if err := q.SetAppResources(ctx, db.SetAppResourcesParams{MemoryMb: p.sizeMem, CpuMillis: p.sizeCPU, UpdatedAt: now, ID: p.app.ID}); err != nil {
 				return err

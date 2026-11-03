@@ -161,3 +161,97 @@ func staticFiles2() []FileInput {
 		{Path: "app/main.txt", Content: "hello"},
 	}
 }
+
+// The editor works on the newest attempt, so a Dockerfile that just failed can
+// be fixed, and it honors dockerfile_path and context_dir.
+func TestAppDockerfileNewestAttemptAndPaths(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+	if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles2()); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE deployments SET state = 'running' WHERE app_id = ?`, app.ID)
+	e.exec(t, `UPDATE apps SET current_deployment_id = (SELECT id FROM deployments WHERE app_id = ?) WHERE id = ?`, app.ID, app.ID)
+	const broken = "FROM alpine:3.22\nUSER 1000\nEXPOSE 7070\nRUN false\n"
+	if _, err := e.s.PutAppDockerfile(ctx, e.user, app.Slug, broken); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE deployments SET state = 'failed' WHERE app_id = ? AND state = 'queued'`, app.ID)
+	if v, _ := e.s.GetAppDockerfile(ctx, e.user, app.Slug); v.Content != broken {
+		t.Errorf("the editor shows %q, want the newest attempt", v.Content)
+	}
+
+	// A Dockerfile in a subfolder with its own build context.
+	sub := e.mustApp(t, CreateAppInput{})
+	path, ctxDir := "deploy/Dockerfile", "web"
+	if _, err := e.s.UpdateApp(ctx, e.user, sub.Slug, UpdateAppInput{DockerfilePath: &path, ContextDir: &ctxDir}); err != nil {
+		t.Fatal(err)
+	}
+	files := []FileInput{
+		{Path: "deploy/Dockerfile", Content: "FROM alpine:3.22\nUSER 1000\nCOPY index.html /srv/\nEXPOSE 8080\n"},
+		{Path: "web/index.html", Content: "<h1>hi</h1>"},
+		{Path: "Dockerfile", Content: "FROM wrong:1\n"},
+	}
+	if _, err := e.s.DeployFiles(ctx, e.user, sub.Slug, files); err != nil {
+		t.Fatal(err)
+	}
+	v, err := e.s.GetAppDockerfile(ctx, e.user, sub.Slug)
+	if err != nil || !v.Editable || v.Path != "deploy/Dockerfile" || !strings.Contains(v.Content, "COPY index.html") {
+		t.Fatalf("subfolder: %+v %v", v, err)
+	}
+	next := "FROM alpine:3.22\nUSER 1000\nCOPY index.html /srv/\nEXPOSE 8081\n"
+	if _, err := e.s.PutAppDockerfile(ctx, e.user, sub.Slug, next); depCode(err) != "port_reserved" {
+		t.Errorf("the checks run on the edited file: %v", err)
+	}
+	next = strings.Replace(next, "8081", "9000", 1)
+	dep, err := e.s.PutAppDockerfile(ctx, e.user, sub.Slug, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zp := e.s.sourceZip(dep.ID)
+	for name, want := range map[string]string{"deploy/Dockerfile": next, "Dockerfile": "FROM wrong:1\n", "web/index.html": "<h1>hi</h1>"} {
+		if got, ok := readZipFile(t, zp, name); !ok || got != want {
+			t.Errorf("%s = %q %v", name, got, ok)
+		}
+	}
+	if d, _ := e.s.Q.GetDeployment(ctx, dep.ID); d.Port.Int64 != 9000 {
+		t.Errorf("port from the edited EXPOSE: %v", d.Port)
+	}
+}
+
+// Build modes that ignore the app's Dockerfile do not offer to edit it.
+func TestAppDockerfileTemplateModes(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	for _, mode := range []string{"static", "node", "static_build"} {
+		app := e.mustApp(t, CreateAppInput{BuildMode: mode})
+		v, err := e.s.GetAppDockerfile(ctx, e.user, app.Slug)
+		if err != nil || v.Editable || v.Content != "" || !strings.Contains(v.Reason, "template") {
+			t.Errorf("%s: %+v %v", mode, v, err)
+		}
+		if _, err := e.s.PutAppDockerfile(ctx, e.user, app.Slug, "FROM alpine:3.22\nEXPOSE 80\n"); depCode(err) != "dockerfile_not_used" {
+			t.Errorf("%s put: %v", mode, err)
+		}
+	}
+	// auto without a Dockerfile builds from the template: nothing to show.
+	site := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
+	if _, err := e.s.DeployFiles(ctx, e.user, site.Slug, []FileInput{{Path: "index.html", Content: "<h1>hi</h1>"}}); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := e.s.GetAppDockerfile(ctx, e.user, site.Slug)
+	if v.Editable || v.Content != "" || !strings.Contains(v.Reason, "template") {
+		t.Errorf("auto static: %+v", v)
+	}
+	// A read-only token cannot save, and a foreign app is not found.
+	ro := e.user
+	ro.Scope = ScopeRead
+	if _, err := e.s.PutAppDockerfile(ctx, ro, site.Slug, "FROM alpine:3.22\n"); depCode(err) != "token_read_only" {
+		t.Errorf("read token: %v", err)
+	}
+	other := e.user
+	other.UserID = "usr_other"
+	if _, err := e.s.GetAppDockerfile(ctx, other, site.Slug); depCode(err) != "app_not_found" {
+		t.Errorf("foreign app: %v", err)
+	}
+}

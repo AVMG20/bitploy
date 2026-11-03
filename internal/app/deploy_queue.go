@@ -44,6 +44,12 @@ func (s *Service) uploadPath(id string) string {
 // DeployFiles stores inline files (2 MB, 200 files), runs the Dockerfile
 // checks synchronously (so the agent gets errors at once), and queues a deployment.
 func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []FileInput) (Deployment, error) {
+	return s.deployFiles(ctx, a, ref, files, "")
+}
+
+// deployFiles is DeployFiles; catalogVersion is set when the files are a
+// catalog Dockerfile (see queueSpec.catalogVersion).
+func (s *Service) deployFiles(ctx context.Context, a Actor, ref string, files []FileInput, catalogVersion string) (Deployment, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return Deployment{}, err
@@ -76,10 +82,11 @@ func (s *Service) DeployFiles(ctx context.Context, a Actor, ref string, files []
 		return Deployment{}, cerr
 	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
-		kind:     "files",
-		port:     portOf(res.Port),
-		hasHC:    res.HasHealthcheck,
-		warnings: res.Findings,
+		kind:           "files",
+		port:           portOf(res.Port),
+		hasHC:          res.HasHealthcheck,
+		warnings:       res.Findings,
+		catalogVersion: catalogVersion,
 		prepare: func(depID string) error {
 			if err := os.MkdirAll(s.sourcesDir(), 0o750); err != nil {
 				return err
@@ -352,7 +359,7 @@ func (s *Service) redeploy(ctx context.Context, a Actor, ref string, latest bool
 			if _, err := os.Stat(s.sourceZip(pick.ID)); err == nil {
 				src := s.sourceZip(pick.ID)
 				return s.queueDeployment(ctx, a, row, queueSpec{
-					kind: pick.SourceKind, ref: pick.SourceRef,
+					kind: pick.SourceKind, ref: pick.SourceRef, catalogVersion: pick.CatalogVersion,
 					prepare: func(depID string) error { return linkOrCopy(src, s.sourceZip(depID)) },
 				})
 			}
@@ -480,6 +487,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
 		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: target.Warnings, buildKind: target.BuildKind,
+		catalogVersion: target.CatalogVersion,
 	})
 }
 
@@ -496,6 +504,11 @@ type queueSpec struct {
 	buildKind    string                   // a rollback has the kind of the deployment it returns to; others get theirs when validated
 	prepare      func(depID string) error // writes the source snapshot before the row exists
 	inTx         func(q *db.Queries) error
+	// catalogVersion is the catalog version this deployment builds ("" when
+	// it is not a catalog Dockerfile). The app's catalog_version takes it when
+	// the deployment goes live (swap), so a failed or cancelled update does
+	// not claim a version the app does not run.
+	catalogVersion string
 	// commitSHA and commitMessage are known when a push started the deployment;
 	// the clone overwrites them with the commit it really built.
 	commitSHA, commitMessage string
@@ -587,6 +600,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 			Image: nullStr(qs.image), Port: qs.port, HasHealthcheck: b2i(qs.hasHC), Warnings: warnings, BuildKind: qs.buildKind, QueuedAt: now,
 		}); err != nil {
 			return err
+		}
+		if qs.catalogVersion != "" {
+			if err := q.SetDeploymentCatalogVersion(ctx, db.SetDeploymentCatalogVersionParams{CatalogVersion: qs.catalogVersion, ID: depID}); err != nil {
+				return err
+			}
 		}
 		if qs.commitSHA != "" {
 			return q.SetDeploymentCommit(ctx, db.SetDeploymentCommitParams{CommitSha: nullStr(qs.commitSHA), CommitMessage: nullStr(qs.commitMessage), ID: depID})

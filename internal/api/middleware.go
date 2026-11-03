@@ -336,7 +336,7 @@ func idempotentPath(p string) bool {
 	}
 	if len(parts) == 3 && parts[0] == "apps" && parts[1] != "" {
 		switch parts[2] {
-		case "files", "deployments", "domains", "rollback", "redeploy":
+		case "files", "deployments", "domains", "rollback", "redeploy", "catalog-update":
 			return true
 		}
 	}

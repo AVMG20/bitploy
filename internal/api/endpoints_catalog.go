@@ -50,7 +50,7 @@ func (a *API) catalogRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "updateCatalogApp", Method: http.MethodPost, Path: "/apps/{app}/catalog-update", Tags: []string{"Catalog"},
 		Summary:       "Update an app to the catalog's current version",
-		Description:   "Replaces the app's Dockerfile with the catalog's current one and queues a deployment. 409 catalog_up_to_date, not_catalog_app or git_source_linked.",
+		Description:   "Replaces the app's Dockerfile with the catalog's current one and queues a deployment. The app's catalog_version changes when that deployment goes live. 409 catalog_up_to_date, not_catalog_app or git_source_linked. Accepts an Idempotency-Key header.",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.Deployment], error) {
 		return okOrNil(a.svc.UpdateCatalogApp(ctx, act, in.App))
@@ -59,14 +59,14 @@ func (a *API) catalogRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getDockerfile", Method: http.MethodGet, Path: "/apps/{app}/dockerfile", Tags: []string{"Deployments"},
 		Summary:     "Read the app's Dockerfile",
-		Description: "From the stored source of the current deployment (else the newest). `editable` is false, with a `reason`, for an app that builds from a repository, one that was never deployed from files, or one whose files have no Dockerfile at that path.",
+		Description: "From the stored source of the newest deployment that was not cancelled. `editable` is false, with a `reason`, for an app that builds from a repository, one built from bitploy's templates (build mode static, node or static_build, or auto without a Dockerfile), one that was never deployed from files, or one whose files have no Dockerfile at that path.",
 	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.DockerfileView], error) {
 		return okOrNil(a.svc.GetAppDockerfile(ctx, act, in.App))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "putDockerfile", Method: http.MethodPut, Path: "/apps/{app}/dockerfile", Tags: []string{"Deployments"},
 		Summary:       "Replace the app's Dockerfile and deploy",
-		Description:   "Takes the current stored source, replaces (or adds) the Dockerfile, runs the same checks as deploy_files and queues a deployment. Max 64 KB. 409 git_source_linked or source_missing, 400 dockerfile_empty, 413 dockerfile_too_large.",
+		Description:   "Takes the stored source that GET reads, replaces (or adds) the Dockerfile at dockerfile_path, runs the same checks as deploy_files and queues a deployment. Every other file stays as it is. Max 64 KB. 409 git_source_linked, dockerfile_not_used or source_missing, 400 dockerfile_empty, 413 dockerfile_too_large.",
 		DefaultStatus: http.StatusAccepted, MaxBodyBytes: 256 << 10, BodyReadTimeout: 30 * time.Second,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
