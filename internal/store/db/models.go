@@ -61,6 +61,8 @@ type App struct {
 	BuildMode           string
 	HomePage            string
 	OutputDir           string
+	CatalogID           string
+	CatalogVersion      string
 }
 
 type AppBackup struct {

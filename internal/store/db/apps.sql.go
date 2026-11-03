@@ -392,6 +392,27 @@ func (q *Queries) SetAppBuildMode(ctx context.Context, arg SetAppBuildModeParams
 	return err
 }
 
+const setAppCatalog = `-- name: SetAppCatalog :exec
+UPDATE apps SET catalog_id = ?, catalog_version = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppCatalogParams struct {
+	CatalogID      string
+	CatalogVersion string
+	UpdatedAt      int64
+	ID             string
+}
+
+func (q *Queries) SetAppCatalog(ctx context.Context, arg SetAppCatalogParams) error {
+	_, err := q.db.ExecContext(ctx, setAppCatalog,
+		arg.CatalogID,
+		arg.CatalogVersion,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
 const setAppCurrentDeployment = `-- name: SetAppCurrentDeployment :exec
 UPDATE apps SET current_deployment_id = ?, desired_state = 'running', status = 'running', status_message = '', updated_at = ? WHERE id = ?
 `

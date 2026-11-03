@@ -894,21 +894,29 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 // without extracting it: the file list as the pipeline will see it, and the
 // content of the few small files the checks read.
 func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
+	_, err := s.checkZipSource(row, zipPath, true)
+	return err
+}
+
+// checkZipSource is checkUploadedSource for any stored zip (strip: remove a
+// single top folder, as for uploads). It returns the check result as well.
+func (s *Service) checkZipSource(row db.App, zipPath string, strip bool) (deploy.CheckResult, error) {
 	ctxDir := path.Clean(row.ContextDir)
 	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, "package.json": true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
 	for _, n := range deploy.NextConfigNames {
 		wanted[n] = true
 	}
-	files, contents, err := deploy.ZipSource(zipPath, true, func(rel string) bool { return wanted[rel] }, 1<<20)
+	files, contents, err := deploy.ZipSource(zipPath, strip, func(rel string) bool { return wanted[rel] }, 1<<20)
 	if err != nil {
-		return err
+		return deploy.CheckResult{}, err
 	}
-	effApp, _, all, read, perr := planBuild(row, files, func(rel string) []byte { return contents[path.Clean(rel)] })
+	effApp, plan, all, read, perr := planBuild(row, files, func(rel string) []byte { return contents[path.Clean(rel)] })
 	if perr != nil {
-		return perr
+		return deploy.CheckResult{}, perr
 	}
 	res, ctxFiles := s.runChecks(effApp, all, read)
-	return checkError(res, ctxFiles)
+	res = templateFindings(plan, res)
+	return res, checkError(res, ctxFiles)
 }
 
 // ---- cancel ----

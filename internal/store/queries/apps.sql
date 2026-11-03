@@ -119,3 +119,6 @@ UPDATE apps SET memory_mb = ?, cpu_millis = ?, updated_at = ? WHERE id = ?;
 
 -- name: SetAppVolumeEnabled :exec
 UPDATE apps SET volume_enabled = ?, updated_at = ? WHERE id = ?;
+
+-- name: SetAppCatalog :exec
+UPDATE apps SET catalog_id = ?, catalog_version = ?, updated_at = ? WHERE id = ?;

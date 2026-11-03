@@ -1,0 +1,7 @@
+FROM neosmemo/memos:0.31.0
+ENV MEMOS_MODE=prod \
+    MEMOS_ADDR=0.0.0.0 \
+    MEMOS_PORT=5230 \
+    MEMOS_DATA=/data
+USER 10001:10001
+EXPOSE 5230

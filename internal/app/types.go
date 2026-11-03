@@ -169,12 +169,18 @@ type App struct {
 	// auto mode), never from the app's own Dockerfile. A static site has fixed
 	// limits (memory_mb and cpu_millis cannot be changed), cannot have a /data
 	// volume and does not count towards the memory and CPU allowance.
-	Static       bool            `json:"static" doc:"A static site: fixed small size, no /data, not counted in the memory and CPU allowance"`
-	GitSource    *GitSourceState `json:"git_source"`
-	Current      *Deployment     `json:"current_deployment"`
-	Domains      []Domain        `json:"domains"`
-	StartedAt    *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
-	RestartCount int64           `json:"restart_count"`
+	Static bool `json:"static" doc:"A static site: fixed small size, no /data, not counted in the memory and CPU allowance"`
+	// CatalogID and CatalogVersion say which one-click app this app was made
+	// from ("" when it was not). CatalogUpdate is the catalog's current version
+	// when it differs from CatalogVersion, else null.
+	CatalogID      string          `json:"catalog_id" doc:"The one-click app this app was made from, or empty"`
+	CatalogVersion string          `json:"catalog_version" doc:"The version of that one-click app the app runs"`
+	CatalogUpdate  *string         `json:"catalog_update" doc:"The catalog's newer version, or null when the app is up to date or not from the catalog"`
+	GitSource      *GitSourceState `json:"git_source"`
+	Current        *Deployment     `json:"current_deployment"`
+	Domains        []Domain        `json:"domains"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
+	RestartCount   int64           `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
 	Live      *MetricPoint `json:"live"`
 	CreatedAt time.Time    `json:"created_at"`

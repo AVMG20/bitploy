@@ -1,0 +1,6 @@
+FROM actualbudget/actual-server:26.11.0
+ENV ACTUAL_DATA_DIR=/data \
+    ACTUAL_HOSTNAME=0.0.0.0 \
+    ACTUAL_PORT=5006
+USER node
+EXPOSE 5006
