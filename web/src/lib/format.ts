@@ -24,6 +24,12 @@ export function appStatusInfo(status: string): { label: string; tone: Tone } {
   }
 }
 
+/** States of a build that can still be stopped. Not `swapping`: by then it is going live. */
+const CANCELLABLE = ['queued', 'fetching', 'validating', 'building', 'starting', 'health_check']
+export function canCancelDeployment(state: string): boolean {
+  return CANCELLABLE.includes(state)
+}
+
 export function deploymentStateInfo(state: string): { label: string; tone: Tone } {
   switch (state as DeploymentState) {
     case 'queued':

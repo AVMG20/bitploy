@@ -10,6 +10,26 @@ import (
 	"database/sql"
 )
 
+const cancelQueuedDeployment = `-- name: CancelQueuedDeployment :execrows
+UPDATE deployments
+SET state = 'cancelled', error_code = 'cancelled', error_message = ?, finished_at = ?
+WHERE id = ? AND state = 'queued'
+`
+
+type CancelQueuedDeploymentParams struct {
+	ErrorMessage sql.NullString
+	FinishedAt   sql.NullInt64
+	ID           string
+}
+
+func (q *Queries) CancelQueuedDeployment(ctx context.Context, arg CancelQueuedDeploymentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelQueuedDeployment, arg.ErrorMessage, arg.FinishedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelQueuedDeployments = `-- name: CancelQueuedDeployments :many
 UPDATE deployments SET state = 'cancelled', finished_at = ? WHERE app_id = ? AND state = 'queued' RETURNING id
 `
@@ -114,6 +134,23 @@ func (q *Queries) FailDeployment(ctx context.Context, arg FailDeploymentParams) 
 		arg.FinishedAt,
 		arg.ID,
 	)
+	return err
+}
+
+const finishCancelledDeployment = `-- name: FinishCancelledDeployment :exec
+UPDATE deployments
+SET state = 'cancelled', error_code = 'cancelled', error_message = ?, finished_at = ?
+WHERE id = ?
+`
+
+type FinishCancelledDeploymentParams struct {
+	ErrorMessage sql.NullString
+	FinishedAt   sql.NullInt64
+	ID           string
+}
+
+func (q *Queries) FinishCancelledDeployment(ctx context.Context, arg FinishCancelledDeploymentParams) error {
+	_, err := q.db.ExecContext(ctx, finishCancelledDeployment, arg.ErrorMessage, arg.FinishedAt, arg.ID)
 	return err
 }
 

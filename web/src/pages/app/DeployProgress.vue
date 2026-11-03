@@ -47,6 +47,8 @@ const list = useQuery({
 const latest = computed(() => list.data.value?.[0] ?? null)
 const step = computed(() => STEPS.findIndex((s) => s.state === latest.value?.state))
 const failed = computed(() => latest.value?.state === 'failed')
+// A cancelled build is not a failure: no red, no "copy for AI", just a way to start again.
+const cancelled = computed(() => latest.value?.state === 'cancelled')
 const active = computed(() => !!latest.value && !['running', 'failed', 'superseded', 'cancelled'].includes(latest.value.state))
 // While the build runs, the lines come live from the event stream; the polled
 // log tail is the fallback, and what is shown once the deployment has ended.
@@ -77,11 +79,11 @@ watch(
   <slot v-else-if="!latest" />
   <Card v-else>
     <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
-      <CardTitle>{{ failed ? 'The deploy failed' : latest.state === 'running' ? 'Almost there' : 'Putting your app online' }}</CardTitle>
+      <CardTitle>{{ failed ? 'The deploy failed' : cancelled ? 'The build was cancelled' : latest.state === 'running' ? 'Almost there' : 'Putting your app online' }}</CardTitle>
       <StatusBadge v-bind="deploymentStateInfo(latest.state)" />
     </CardHeader>
     <CardContent class="grid gap-4">
-      <ol v-if="!failed" class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 lg:grid-cols-7" aria-label="Deploy steps">
+      <ol v-if="!failed && !cancelled" class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 lg:grid-cols-7" aria-label="Deploy steps">
         <li
           v-for="(s, i) in STEPS"
           :key="s.state"
@@ -96,7 +98,7 @@ watch(
         </li>
       </ol>
 
-      <div v-if="latest.error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+      <div v-if="latest.error && !cancelled" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">
         <p class="font-medium">{{ latest.error.message }}</p>
         <p v-if="plainHint(latest.error.code, latest.error.hint)" class="mt-1">{{ plainHint(latest.error.code, latest.error.hint) }}</p>
       </div>
@@ -106,11 +108,11 @@ watch(
         <pre ref="logEl" class="max-h-56 overflow-auto rounded-lg border bg-background/60 p-3 font-mono text-xs whitespace-pre-wrap">{{ log.join('\n') }}</pre>
       </div>
 
-      <div v-if="failed" class="flex flex-wrap items-center gap-2">
+      <div v-if="failed || cancelled" class="flex flex-wrap items-center gap-2">
         <Button :disabled="redeploy.isPending.value" @click="redeploy.mutate()">
-          <RefreshCw :class="redeploy.isPending.value && 'animate-spin'" /> Try again
+          <RefreshCw :class="redeploy.isPending.value && 'animate-spin'" /> {{ cancelled ? 'Build again' : 'Try again' }}
         </Button>
-        <CopyForAiButton v-if="app" :app="app" :deployment="latest" variant="outline" />
+        <CopyForAiButton v-if="app && failed" :app="app" :deployment="latest" variant="outline" />
       </div>
 
       <p class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

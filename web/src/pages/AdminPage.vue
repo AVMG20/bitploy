@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import AdminApps from './admin/AdminApps.vue'
@@ -11,16 +11,22 @@ import AdminServer from './admin/AdminServer.vue'
 import AdminUsers from './admin/AdminUsers.vue'
 
 const route = useRoute()
+const router = useRouter()
 // GitHub sends the admin back here with ?code=...&state=... after creating the app.
 const tabs = ['users', 'invites', 'server', 'apps', 'github', 'audit']
 const asked = route.query.code ? 'github' : String(route.query.tab ?? '')
 const tab = ref(tabs.includes(asked) ? asked : 'users')
+// bitploy's own database has a wide page of its own.
+function onTab(v: string | number) {
+  if (v === 'database') void router.push({ name: 'admin-database' })
+  else tab.value = String(v)
+}
 </script>
 
 <template>
   <div class="grid gap-6">
     <PageHeader title="Admin" description="People, invites, GitHub and the health of the server." />
-    <Tabs v-model="tab" class="min-w-0">
+    <Tabs :model-value="tab" class="min-w-0" @update:model-value="onTab">
       <div class="-mx-1 overflow-x-auto px-1">
         <TabsList>
           <TabsTrigger value="users">People</TabsTrigger>
@@ -29,6 +35,7 @@ const tab = ref(tabs.includes(asked) ? asked : 'users')
           <TabsTrigger value="apps">All apps</TabsTrigger>
           <TabsTrigger value="github">GitHub</TabsTrigger>
           <TabsTrigger value="audit">Activity log</TabsTrigger>
+          <TabsTrigger value="database">Database</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="users" class="mt-4"><AdminUsers /></TabsContent>

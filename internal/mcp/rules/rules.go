@@ -41,6 +41,7 @@ const RuntimeContract = `## Runtime contract
 - No database server runs next to the app. Use SQLite with the file in /data (for example /data/app.db) and the volume on.
 - The project expects Postgres or MySQL (docker-compose.yml, DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL, use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
 - Never install a database server (postgres, mysql, mariadb, redis) in the image or run several processes in one container.
+- To look at the data or fix a row, call query_db(app, path, sql): path is the SQLite file relative to /data (like app.db). It is read-only unless write=true (deploy token); take create_backup before a risky change and only write when the user asked. Start with SELECT name, sql FROM sqlite_schema. The user can also browse, edit and query the database in the dashboard (Storage tab, Open next to the file).
 - Run migrations when the app starts, in CMD: for example sh -c "npx prisma migrate deploy && node server.js", php artisan migrate --force, python manage.py migrate.
 - SQLite is safe here: with a volume a deploy stops the old container before the new one starts (never two writers), and create_backup freezes the app while it copies, so backups are consistent.
 - Need Redis for cache or queues? Laravel: CACHE_STORE=file and QUEUE_CONNECTION=sync (the laravel template sets both: there is no separate queue worker). Elsewhere an in-process cache or a SQLite-backed queue.
@@ -67,6 +68,7 @@ const RuntimeContract = `## Runtime contract
 - set_env: new values reach a running app only after restart_app (it recreates the container; no rebuild, a few seconds). If the app is failed, new or stopped-by-crash, call deploy (with only app=) instead, because restart_app needs a deployment that already ran.
 - update_app volume=true, memory_mb, cpu_millis: apply on restart_app. volume=false applies at once. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
 - Code or Dockerfile changes: a push (linked repository), or a new deploy_files or deploy.
+- cancel_deployment(id or app) stops a queued or in-progress deployment: the build ends, the new container goes and the live version keeps running. If a build is clearly wrong or stuck, call cancel_deployment instead of waiting for it, then fix the cause and deploy again. It is refused once the deployment is swapping (too_late_to_cancel) or finished (deployment_finished). A cancelled deployment is not a failure and does not count towards "3 failures".
 - rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last 3 images exist). Roll back only when the user asks.
 
 ## Fixing failures (read error.code, error.hint and log_tail of get_deployment)
@@ -97,7 +99,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 - create_backup(app) saves the /data folder of an app that has the volume on and has been deployed. It runs in the background (the app is frozen for a moment while its files are read): call list_backups until the backup is ready or failed (error says why). Backups count towards the account's storage allowance. Offer one before a risky change to an app that keeps data in /data; do not make them in a loop.
 - list_backups(app) shows the backups, the automatic backup settings, whether something is running (busy) and how the latest restore went.
 - Restoring is deliberately dashboard-only: it replaces every file in /data and stops the app for a moment. When the user wants to go back to a backup, tell them to open the app, go to the Storage tab and press Restore there. Downloading and uploading backup files and the automatic schedule are in the same tab.
-- The Storage tab also has a file browser for /data (download, upload or replace single files such as the SQLite database; make or delete folders). Send the user there to get one file out of /data or put one back.
+- The Storage tab also has a file browser for /data (download, upload or replace single files such as the SQLite database; make or delete folders). Send the user there to get one file out of /data or put one back. A SQLite file there can be opened in a viewer (tables, rows, edit, SQL console).
 - backup_busy: one backup or restore per app at a time; wait and try again. volume_not_ready: /data is on but the app was not started since, so restart_app first. storage_quota_exceeded: no room left for a backup; the user can delete an old backup or app.
 
 ## Dockerfile checks (validate_dockerfile)

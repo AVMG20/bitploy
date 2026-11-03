@@ -92,6 +92,11 @@ type getDeploymentIn struct {
 	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Wait up to this many seconds (max 50; larger counts as 50) until the deployment is running or failed. Use 30 while a deploy is in progress; leave out for an instant answer."`
 }
 
+type cancelDeploymentIn struct {
+	ID  string `json:"id,omitempty" jsonschema:"The deployment ID (dep_...) from deploy_files, deploy or get_deployment."`
+	App string `json:"app,omitempty" jsonschema:"Instead of id: an app slug or ID. Cancels that app's queued or in-progress deployment."`
+}
+
 type listDeploymentsIn struct {
 	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Limit  int    `json:"limit,omitempty" jsonschema:"How many to return, newest first. Default 10, max 100."`
@@ -136,6 +141,13 @@ type domainIn struct {
 type metricsIn struct {
 	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Window string `json:"window,omitempty" jsonschema:"1h (15-second samples), 24h (default) or 7d."`
+}
+
+type queryDBIn struct {
+	App   string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps. The app needs the /data volume (volume=true)."`
+	Path  string `json:"path" jsonschema:"The SQLite file inside /data, relative to /data, like app.db or db/main.sqlite. Look in the app's code for where it opens its database."`
+	SQL   string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20. To see the tables use SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view')."`
+	Write bool   `json:"write,omitempty" jsonschema:"false (default): the database is opened read-only and any change fails with db_read_only. true: INSERT, UPDATE, DELETE, CREATE and so on are allowed and committed at once; this needs a deploy token. Use true only when the user asked for the change."`
 }
 
 // enums limits string arguments to the values the tool understands, so the
@@ -419,7 +431,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_deployment", "Get a deployment",
-		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail) or superseded. Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
+		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail), superseded or cancelled (stopped on request, not a failure). Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in getDeploymentIn) (*result, error) {
 			wait := in.WaitSeconds
@@ -450,6 +462,27 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			return deploymentResult("Deployment", d), nil
+		})
+
+	addTool(s, "cancel_deployment", "Cancel a deployment",
+		"Stops a deployment that is queued or in progress (fetching, validating, building, starting, health_check): the build ends, the new container is removed and the version that is live keeps running. Use it when a build is clearly wrong or stuck, or the user asks, instead of waiting for it to time out; then fix the cause and deploy again. Pass id (dep_...) or just app to cancel that app's open deployment. Not possible once it is swapping (too_late_to_cancel: wait, then rollback if needed) or finished (deployment_finished). A cancelled deployment is not a failure.",
+		write(), true, nil,
+		func(ctx context.Context, a app.Actor, in cancelDeploymentIn) (*result, error) {
+			var d app.Deployment
+			var err error
+			switch {
+			case strings.TrimSpace(in.ID) != "":
+				d, err = svc.CancelDeployment(ctx, a, strings.TrimSpace(in.ID))
+			case strings.TrimSpace(in.App) != "":
+				d, err = svc.CancelAppDeployment(ctx, a, in.App)
+			default:
+				return nil, apperr.BadRequest("invalid_arguments", "cancel_deployment needs id (dep_...) or app.",
+					"Pass the deployment id from deploy_files/deploy, or app=<slug> to cancel that app's queued or in-progress deployment.").WithNext("list_apps")
+			}
+			if err != nil {
+				return nil, err
+			}
+			return deploymentResult("Cancel requested for deployment", d), nil
 		})
 
 	addTool(s, "list_deployments", "List deployments",
@@ -762,6 +795,40 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App),
 				Data:    toMap(l),
 				Next:    next,
+			}, nil
+		})
+
+	addTool(s, "query_db", "Query a SQLite database",
+		"Runs SQL on a SQLite file in the app's /data volume (apps keep their database there: create_app volume=true). Read-only unless write=true, so it is safe to look around: SELECT name, sql FROM sqlite_schema lists the tables with their definitions, then SELECT with LIMIT. Results come back as compact text tables (at most 200 rows and about 50 KB per call, so use WHERE, LIMIT and few columns; values over 200 characters and blobs are cut). With write=true (deploy token) each statement is committed at once: take a create_backup first for anything risky such as DELETE, DROP or UPDATE without a tight WHERE, and only change data when the user asked. The app keeps running, SQLite's locking keeps it safe; a busy app can give db_busy, try again. Statements that reach outside the database (ATTACH, load_extension, VACUUM INTO) are refused. For a file or folder other than a database the user uses the Storage tab of the app in the dashboard, which also has a database viewer.",
+		destructive(), false, nil,
+		func(ctx context.Context, a app.Actor, in queryDBIn) (*result, error) {
+			r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: in.Write})
+			if err != nil {
+				return nil, queryDBError(err)
+			}
+			text, shown, total, cut := formatSQLResults(r.Results)
+			var affected int64
+			for _, st := range r.Results {
+				if st.RowsAffected != nil {
+					affected += *st.RowsAffected
+				}
+			}
+			mode := "read-only"
+			if in.Write {
+				mode = "write"
+			}
+			next := []string{"Use WHERE and LIMIT to keep results small. To see the tables: SELECT name, sql FROM sqlite_schema."}
+			if cut {
+				next = []string{"Some rows are not shown. Narrow the query with WHERE or LIMIT, or select fewer columns."}
+			}
+			if in.Write {
+				next = append(next, "Tell the user what you changed. create_backup before the next risky change.")
+			}
+			return &result{
+				Summary: fmt.Sprintf("Ran %d statement(s) on %s in %s (%s); %d row(s) shown of %d.\n%s", len(r.Results), in.Path, in.App, mode, shown, total, text),
+				Data: data("statements", len(r.Results), "rows_shown", shown, "rows_returned", total, "rows_affected", affected,
+					"truncated", cut, "took_ms", r.TookMS),
+				Next: next,
 			}, nil
 		})
 }

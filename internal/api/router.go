@@ -13,8 +13,10 @@ import (
 
 const mcpBodyLimit = 4 << 20
 
-// maxAPIBody caps every /api/v1 request body before huma's own per-operation limits.
-const maxAPIBody = 8 << 20
+// maxAPIBody caps every /api/v1 request body before huma's own per-operation
+// limits (1 MiB unless an operation says otherwise). It is the biggest request
+// of the SQLite viewer: a text of 4 MiB with every character escaped.
+const maxAPIBody = 32 << 20
 
 // New returns bitploy's root handler: /healthz, /api/v1, /mcp (mcpHandler),
 // /u/{id} uploads, /docs/api, the catch-all app pages and the embedded SPA.
@@ -26,6 +28,8 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.appRoutes()
 	a.backupRoutes()
 	a.filesRoutes()
+	a.dbRoutes()
+	a.adminDBRoutes()
 	a.githubRoutes()
 	a.adminRoutes()
 	apiMux.HandleFunc("GET "+prefix+"/events", a.events)

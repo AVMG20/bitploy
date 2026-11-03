@@ -266,6 +266,9 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 		defer lock.Unlock()
 		ctx, cancel := s.backupCtx()
 		defer cancel()
+		// Database helpers that read the volume finish first: one that closes its
+		// last connection would remove a -wal file that is restored meanwhile.
+		s.waitDBReads(ctx, row.ID)
 		err := s.runRestore(ctx, row, owner, b, room, st)
 		s.finishRestoreState(row.ID, st, err)
 		if err != nil {

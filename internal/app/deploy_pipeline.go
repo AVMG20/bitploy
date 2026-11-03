@@ -138,6 +138,9 @@ func (p *pipeline) setState(ctx context.Context, state string) *apperr.Error {
 	if ctx.Err() != nil {
 		return errCancelled
 	}
+	if state == "swapping" && !p.s.commitSwap(p.dep.ID) {
+		return errCancelled
+	}
 	if err := p.s.Q.SetDeploymentState(ctx, db.SetDeploymentStateParams{State: state, ID: p.dep.ID}); err != nil {
 		return apperr.Internal(err)
 	}
@@ -795,6 +798,18 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 			return // bitploy is shutting down: the reconciler cleans up after restart
 		}
 		p.cleanupFailed(bg)
+		if who, ok := s.cancelRequester(p.dep.ID); ok {
+			// cancel_deployment: the live version stays, the app settles, and it is
+			// audited. Not a failure: no error hint, no failure audit row.
+			_ = s.Q.FinishCancelledDeployment(bg, db.FinishCancelledDeploymentParams{
+				ErrorMessage: nullStr(cancelledMessage), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+			})
+			p.logf("Cancelled by the user.")
+			s.settleStatusAfterCancel(bg, p.app.ID)
+			s.auditCancel(bg, who, p.app.Slug, p.dep.ID, p.dep.Seq, p.dep.State)
+			s.metricsMgr().MeasureSoon() // the image of the build is gone
+			return
+		}
 		_ = s.Q.FinishDeployment(bg, db.FinishDeploymentParams{State: "cancelled", FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID})
 		p.logf("Cancelled.")
 		return

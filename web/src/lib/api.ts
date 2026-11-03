@@ -11,6 +11,13 @@ import type {
   BackupSettings,
   DataFile,
   DataFileList,
+  DbKey,
+  DbRow,
+  DbRows,
+  DbRowsQuery,
+  DbSchema,
+  DbSqlResponse,
+  DbValue,
   Deployment,
   Domain,
   EnvVar,
@@ -93,6 +100,18 @@ export const paths = {
   appFileFolder: (slug: string) => `${V1}/apps/${enc(slug)}/files/folder`,
   appFileDownload: (slug: string) => `${V1}/apps/${enc(slug)}/files/download`,
   appFileUpload: (slug: string) => `${V1}/apps/${enc(slug)}/files/upload`,
+  appDb: (slug: string) => `${V1}/apps/${enc(slug)}/db`,
+  appDbRows: (slug: string) => `${V1}/apps/${enc(slug)}/db/rows`,
+  appDbInsert: (slug: string) => `${V1}/apps/${enc(slug)}/db/insert`,
+  appDbUpdate: (slug: string) => `${V1}/apps/${enc(slug)}/db/update`,
+  adminDb: `${V1}/admin/db`,
+  adminDbRows: `${V1}/admin/db/rows`,
+  adminDbSql: `${V1}/admin/db/sql`,
+  appDbCell: (slug: string) => `${V1}/apps/${enc(slug)}/db/cell`,
+  appDbUpdateMany: (slug: string) => `${V1}/apps/${enc(slug)}/db/update-many`,
+  appDbDelete: (slug: string) => `${V1}/apps/${enc(slug)}/db/delete`,
+  appDbSql: (slug: string) => `${V1}/apps/${enc(slug)}/db/sql`,
+  deploymentCancel: (id: string) => `${V1}/deployments/${enc(id)}/cancel`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
@@ -203,6 +222,12 @@ async function send(method: string, path: string, opts: RequestOptions = {}, acc
     }
     if (!body.message) body.message = fallbackMessage(res.status)
     if (!body.code) body.code = `http_${res.status}`
+    // The framework's own complaints (an unexpected field, a bad type) are for developers: say it plainly, keep the details in the console.
+    if (['invalid_request', 'unsupported_media_type', 'method_not_allowed'].includes(body.code)) {
+      console.error('bitploy API refused a request:', res.status, body.code, body.message)
+      body.message = 'Something went wrong talking to the server.'
+      body.hint = 'Reload the page and try again.'
+    }
     // A wrong current password is also a 401 (invalid_credentials), but the session is fine.
     const sessionGone = (res.status === 401 && body.code !== 'invalid_credentials') || body.code === 'account_suspended'
     if (sessionGone && !opts.noRedirect) unauthorizedHandler?.()
@@ -370,6 +395,7 @@ export const api = {
   stop: (slug: string) => request<App>('POST', paths.appStop(slug)),
   rollback: (slug: string, deploymentId: string) =>
     request<Deployment>('POST', paths.appRollback(slug), { body: { deployment_id: deploymentId } }),
+  cancelDeployment: (id: string) => request<Deployment>('POST', paths.deploymentCancel(id)),
   async deployments(slug: string): Promise<Deployment[]> {
     return listOf<Deployment>(await request<unknown>('GET', paths.appDeployments(slug), { query: { limit: 50 } }))
   },
@@ -418,6 +444,30 @@ export const api = {
       onSent,
       'application/octet-stream',
     ),
+
+  // SQLite databases in /data
+  dbSchema: (slug: string, path: string) => request<DbSchema>('GET', paths.appDb(slug), { query: { path } }),
+  dbRows: (slug: string, path: string, q: DbRowsQuery) => request<DbRows>('POST', paths.appDbRows(slug), { body: { path, ...q } }),
+  dbInsert: (slug: string, path: string, table: string, values: Record<string, DbValue>) =>
+    request<{ key: DbKey | null; row: DbRow }>('POST', paths.appDbInsert(slug), { body: { path, table, values } }),
+  /** `match`: the row as it was loaded; the server refuses (row_changed) when it is different now. */
+  dbUpdate: (slug: string, path: string, table: string, key: DbKey, values: Record<string, DbValue>, match?: Record<string, DbValue>) =>
+    request<{ row: DbRow }>('POST', paths.appDbUpdate(slug), { body: { path, table, key, values, match } }),
+  /** The whole value of one cell: a text that the grid shows cut. A string up to 4 MiB; longer ones and BLOBs come back in their wrapper shapes. */
+  dbCell: (slug: string, path: string, table: string, key: DbKey, column: string) =>
+    request<{ value: DbValue }>('POST', paths.appDbCell(slug), { body: { path, table, key, column } }),
+  /** The same values on many rows. A row that is gone is skipped (`updated` can be lower); a changed one refuses everything (row_changed, details.index). */
+  dbUpdateMany: (slug: string, path: string, table: string, keys: DbKey[], values: Record<string, DbValue>, match?: Record<string, DbValue>[]) =>
+    request<{ updated: number }>('POST', paths.appDbUpdateMany(slug), { body: { path, table, keys, values, match } }),
+  dbDelete: (slug: string, path: string, table: string, keys: DbKey[], match?: Record<string, DbValue>[]) =>
+    request<{ deleted: number }>('POST', paths.appDbDelete(slug), { body: { path, table, keys, match } }),
+  dbSql: (slug: string, path: string, sql: string, write: boolean) =>
+    request<DbSqlResponse>('POST', paths.appDbSql(slug), { body: { path, sql, write } }),
+
+  // bitploy's own database (admin, read-only)
+  adminDbSchema: () => request<DbSchema>('GET', paths.adminDb),
+  adminDbRows: (q: DbRowsQuery) => request<DbRows>('POST', paths.adminDbRows, { body: q }),
+  adminDbSql: (sql: string) => request<DbSqlResponse>('POST', paths.adminDbSql, { body: { sql } }),
 
   // admin
   async adminUsers(): Promise<AdminUser[]> {

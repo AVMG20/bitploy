@@ -14,6 +14,11 @@ export const keys = {
   env: (slug: string) => ['env', slug] as const,
   domains: (slug: string) => ['domains', slug] as const,
   backups: (slug: string) => ['backups', slug] as const,
+  dbSchema: (slug: string, path: string) => ['db', slug, path, 'schema'] as const,
+  /** Prefix of every rows query of one database file. */
+  dbRows: (slug: string, path: string) => ['db', slug, path, 'rows'] as const,
+  adminDbSchema: ['db', 'admin', 'schema'] as const,
+  adminDbRows: ['db', 'admin', 'rows'] as const,
   tokens: ['tokens'] as const,
   sessions: ['sessions'] as const,
   github: ['github'] as const,

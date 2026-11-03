@@ -56,6 +56,7 @@ type Config struct {
 	Dev               bool   // relaxes Secure cookies and HTTPS-only checks for localhost
 	GitHubAPIURL      string // GitHub REST API (BITPLOY_GITHUB_API_URL); tests point it at a fake
 	GitHubWebURL      string // github.com web address, for the app manifest, install and OAuth pages (BITPLOY_GITHUB_URL)
+	DBHelperBin       string // a bitploy binary built for Linux, for the SQLite viewer's helper image (BITPLOY_DB_HELPER_BIN); only needed when bitploy does not run on Linux itself
 }
 
 func Load() (*Config, error) {
@@ -80,6 +81,7 @@ func Load() (*Config, error) {
 		Dev:               env("BITPLOY_DEV", "") == "1",
 		GitHubAPIURL:      strings.TrimRight(env("BITPLOY_GITHUB_API_URL", "https://api.github.com"), "/"),
 		GitHubWebURL:      strings.TrimRight(env("BITPLOY_GITHUB_URL", "https://github.com"), "/"),
+		DBHelperBin:       env("BITPLOY_DB_HELPER_BIN", ""),
 		MaxParallelBuilds: 2,
 		MaxApps:           100,
 	}

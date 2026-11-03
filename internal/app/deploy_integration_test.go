@@ -715,4 +715,67 @@ func TestIntegrationKilledMidBuild(t *testing.T) {
 	}
 }
 
+// Cancelling a slow build stops it for real: the deployment ends as cancelled,
+// the docker build process and the step BuildKit runs for it are gone, the
+// build slot is free and nothing is left behind.
+func TestIntegrationCancelMidBuild(t *testing.T) {
+	e := itSetup(t)
+	ctx := context.Background()
+	app := e.newApp(t, CreateAppInput{})
+	const marker = "sleep 117" // a number nothing else on the machine sleeps for
+	d, err := e.s.DeployFiles(ctx, e.user, app.Slug, []FileInput{{Path: "Dockerfile", Content: "FROM alpine:3.20\nRUN " + marker + "\nEXPOSE 8080\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 90*time.Second, "building", func() bool {
+		got, _ := e.s.GetDeployment(ctx, e.user, d.ID, 0)
+		return got.State == "building"
+	})
+	tag := "bitploy/" + app.Slug + ":" // in the arguments of the docker build process
+	hostHas := func() bool {
+		out, _ := exec.Command("pgrep", "-f", tag).Output()
+		return strings.TrimSpace(string(out)) != ""
+	}
+	builderRuns := func() bool {
+		out, _ := exec.Command("docker", "top", deploy.BuilderContainer).CombinedOutput()
+		return strings.Contains(string(out), marker)
+	}
+	waitFor(t, 60*time.Second, "the build step to run", func() bool { return hostHas() && builderRuns() })
+
+	start := time.Now()
+	got, err := e.s.CancelDeployment(ctx, e.user, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "cancelled" || got.Error == nil || got.Error.Code != "cancelled" {
+		t.Fatalf("after cancel: %s %+v (%v)", got.State, got.Error, time.Since(start))
+	}
+	t.Logf("cancelled in %v", time.Since(start))
+	if hostHas() {
+		t.Error("the docker build process is still running")
+	}
+	waitFor(t, 30*time.Second, "BuildKit to stop the step", func() bool { return !builderRuns() })
+	if len(e.s.buildSlots()) != 0 || e.s.appBusy(app.ID) {
+		t.Error("slot or busy flag left")
+	}
+	if _, err := os.Stat(e.s.Cfg.BuildDir(d.ID)); !os.IsNotExist(err) {
+		t.Error("build dir left behind")
+	}
+	cs, _ := e.dk.ListAppContainers(ctx, app.ID)
+	if len(cs) != 0 {
+		t.Errorf("containers left behind: %d", len(cs))
+	}
+	if st, _ := s2(e.s.GetApp(ctx, e.user, app.Slug)); st.Status != "new" {
+		t.Errorf("app status %q", st.Status)
+	}
+	// The app can deploy again at once.
+	d2 := e.wait(t, e.deployStatic(t, app.Slug, "after the cancel").ID)
+	if d2.State != "running" {
+		t.Errorf("next deployment: %s", d2.State)
+	}
+	if err := e.s.DeleteApp(ctx, e.user, app.Slug, app.Slug); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func s2(a App, err error) (App, error) { return a, err }

@@ -1,9 +1,10 @@
 import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
-import { api } from '@/lib/api'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { ApiError, api } from '@/lib/api'
 import { keys } from '@/lib/live'
-import type { MetricWindow, TrafficWindow } from '@/lib/types'
+import type { DbSource } from '@/lib/dbSource'
+import type { DbRowsQuery, MetricWindow, TrafficWindow } from '@/lib/types'
 import { eventsConnected } from './useEvents'
 
 export const REFRESH_MS = 5_000
@@ -33,10 +34,11 @@ export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }
 
-export function useApp(slug: MaybeRefOrGetter<string>) {
+export function useApp(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
     queryKey: computed(() => keys.app(toValue(slug))),
     queryFn: () => api.app(toValue(slug)),
+    enabled: computed(() => toValue(enabled)),
     refetchInterval: livePoll(REFRESH_MS),
   })
 }
@@ -73,5 +75,52 @@ export function useBackups(slug: MaybeRefOrGetter<string>) {
     queryKey: computed(() => keys.backups(toValue(slug))),
     queryFn: () => api.backups(toValue(slug)),
     refetchInterval: (q) => liveMs(q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),
+  })
+}
+
+/** A busy database (locked, or too many queries at once) often is free a second later: ask once more. Other client errors are not repeated. */
+function dbRetry(count: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.code === 'db_busy') return count < 1
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false
+  return count < 2
+}
+
+/** Tables, views, columns and indexes of a database. Not polled: the page refreshes it after its own writes. */
+export function useDbSchema(source: MaybeRefOrGetter<DbSource>, enabled: MaybeRefOrGetter<boolean> = true) {
+  return useQuery({
+    queryKey: computed(() => toValue(source).schemaKey),
+    queryFn: () => toValue(source).schema(),
+    enabled: computed(() => toValue(enabled)),
+    staleTime: 10_000,
+    retry: dbRetry,
+    retryDelay: 1_000,
+  })
+}
+
+/** One page of rows of a table or view. The previous page stays on screen while the next loads. */
+export function useDbRows(source: MaybeRefOrGetter<DbSource>, query: MaybeRefOrGetter<DbRowsQuery>) {
+  return useQuery({
+    queryKey: computed(() => [...toValue(source).rowsKey, toValue(query)] as const),
+    queryFn: () => toValue(source).rows(toValue(query)),
+    placeholderData: keepPreviousData,
+    staleTime: 5_000,
+    retry: dbRetry,
+    retryDelay: 1_000,
+  })
+}
+
+/**
+ * The files at the top of /data, for the Database tab. It is the Storage tab's own query (same key, same
+ * function), so they share the cache. Each call starts a helper container: a generous staleTime, no
+ * refetch on focus, no retry, and nothing at all while /data is off.
+ */
+export function useDataRoot(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean>) {
+  return useQuery({
+    queryKey: computed(() => ['files', toValue(slug), ''] as const),
+    queryFn: () => api.files(toValue(slug), ''),
+    enabled: computed(() => toValue(enabled)),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
   })
 }

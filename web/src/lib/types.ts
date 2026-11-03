@@ -518,3 +518,115 @@ export interface DataFileList {
   /** The biggest file that can be uploaded now. */
   upload_max_bytes: number
 }
+
+// ---------------------------------------------------------------------------
+// SQLite database viewer (files in /data). See src/lib/dbvalue.ts for the value encoding.
+// ---------------------------------------------------------------------------
+
+export interface DbInt {
+  int: string
+}
+export interface DbReal {
+  real: string
+}
+export interface DbText {
+  text: string
+  size: number
+  truncated: true
+}
+export interface DbBlob {
+  /** Base64 of the first 4 KiB (or of everything, when sent to the server). */
+  blob: string
+  size?: number
+  truncated?: boolean
+}
+/** One SQLite value as JSON: null, a number, a string (TEXT), or one of the wrapper shapes. */
+export type DbValue = null | number | string | DbInt | DbReal | DbText | DbBlob
+
+export interface DbColumn {
+  name: string
+  type: string
+  notnull: boolean
+  default: string | null
+  pk: number
+  /** A hidden column (of a virtual table). */
+  hidden: boolean
+  /** A generated column: SQLite computes it, it cannot be written. */
+  generated: boolean
+  /** Admin database only: the server hides this column's values (secrets). */
+  redacted?: boolean
+}
+export interface DbIndex {
+  name: string
+  unique: boolean
+  columns: string[]
+  sql: string | null
+}
+export interface DbTable {
+  name: string
+  type: 'table' | 'view'
+  without_rowid: boolean
+  editable: boolean
+  rows: number | null
+  sql: string | null
+  columns: DbColumn[]
+  indexes: DbIndex[]
+}
+export interface DbSchema {
+  path: string
+  size: number
+  journal_mode: string
+  page_size: number
+  sqlite_version: string
+  tables: DbTable[]
+}
+
+export type DbKey = Record<string, DbValue>
+export type DbFilterOp = '=' | '!=' | '<' | '<=' | '>' | '>=' | 'like' | 'not like' | 'is null' | 'is not null'
+export interface DbFilter {
+  column: string
+  op: DbFilterOp
+  value?: DbValue
+}
+export interface DbRowsQuery {
+  table: string
+  limit: number
+  offset: number
+  order_by?: string
+  desc?: boolean
+  filters?: DbFilter[]
+  /** Text to find in any column (the server trims it; at most 200 characters). */
+  search?: string
+}
+export interface DbRow {
+  key: DbKey | null
+  values: DbValue[]
+}
+export interface DbRows {
+  columns: string[]
+  key_columns: string[]
+  editable: boolean
+  rows: DbRow[]
+  total: number | null
+  offset: number
+  limit: number
+}
+
+export interface DbSqlResult {
+  sql: string
+  columns: string[]
+  rows: DbValue[][]
+  truncated: boolean
+  rows_affected: number | null
+  last_insert_rowid: number | null
+  took_ms: number
+}
+export interface DbSqlResponse {
+  results: DbSqlResult[]
+  took_ms: number
+}
+/** `details` of a `sql_error`: the failed statement (1-based, as the server counts) and the ones that ran before it. */
+export interface DbSqlErrorDetails {
+  statement?: number
+  results?: DbSqlResult[]
+}

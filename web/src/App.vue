@@ -8,5 +8,5 @@ import { TooltipProvider } from '@/components/ui/tooltip'
   <TooltipProvider :delay-duration="200">
     <RouterView />
   </TooltipProvider>
-  <Toaster position="bottom-right" rich-colors close-button />
+  <Toaster position="top-center" rich-colors close-button />
 </template>

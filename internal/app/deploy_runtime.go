@@ -16,7 +16,9 @@ type deployRuntime struct {
 	mu            sync.Mutex
 	busy          map[string]string             // appID -> deployment ID whose pipeline is running
 	cancels       map[string]context.CancelFunc // deployment ID -> cancel
-	byUser        map[string]bool               // deployment IDs cancelled on purpose (stop, delete)
+	byUser        map[string]bool               // deployment IDs cancelled on purpose (stop, delete, cancel_deployment)
+	cancelReq     map[string]Actor              // deployment ID -> who cancelled it (cancel_deployment)
+	committed     map[string]bool               // deployment IDs that passed the point of no return (swapping)
 	candidates    map[string]string             // appID -> candidate upstream being health-checked
 	draining      map[string]bool               // container names that will be stopped after a swap
 	locks         map[string]*sync.Mutex        // per-app lifecycle lock
@@ -34,6 +36,8 @@ func (r *deployRuntime) init() {
 		r.busy = map[string]string{}
 		r.cancels = map[string]context.CancelFunc{}
 		r.byUser = map[string]bool{}
+		r.cancelReq = map[string]Actor{}
+		r.committed = map[string]bool{}
 		r.candidates = map[string]string{}
 		r.draining = map[string]bool{}
 		r.locks = map[string]*sync.Mutex{}
@@ -100,6 +104,8 @@ func (s *Service) clearBusy(appID, depID string) {
 	}
 	delete(r.cancels, depID)
 	delete(r.byUser, depID)
+	delete(r.cancelReq, depID)
+	delete(r.committed, depID)
 	delete(r.candidates, appID)
 }
 
@@ -139,6 +145,57 @@ func (s *Service) cancelledByUser(depID string) bool {
 	defer r.mu.Unlock()
 	r.init()
 	return r.byUser[depID]
+}
+
+// requestCancel cancels the pipeline of a deployment on behalf of a user. found
+// is false when no pipeline of that deployment runs in this process; tooLate
+// when it passed the point of no return (swapping). Decided under the same
+// lock as commitSwap, so a pipeline never both swaps and is cancelled.
+func (s *Service) requestCancel(depID string, a Actor) (found, tooLate bool) {
+	r := &s.deployRT
+	r.mu.Lock()
+	r.init()
+	cancel, ok := r.cancels[depID]
+	if !ok {
+		r.mu.Unlock()
+		return false, false
+	}
+	if r.committed[depID] {
+		r.mu.Unlock()
+		return true, true
+	}
+	r.byUser[depID] = true
+	if _, dup := r.cancelReq[depID]; !dup {
+		r.cancelReq[depID] = a
+	}
+	r.mu.Unlock()
+	cancel()
+	return true, false
+}
+
+// commitSwap is called by a pipeline right before it goes live. It returns
+// false when the deployment was cancelled meanwhile; after true no user cancel
+// is accepted any more (too_late_to_cancel).
+func (s *Service) commitSwap(depID string) bool {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.init()
+	if r.byUser[depID] {
+		return false
+	}
+	r.committed[depID] = true
+	return true
+}
+
+// cancelRequester is who cancelled the deployment with cancel_deployment.
+func (s *Service) cancelRequester(depID string) (Actor, bool) {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.init()
+	a, ok := r.cancelReq[depID]
+	return a, ok
 }
 
 // cancelInflight cancels the running pipeline of an app (stop, delete) and

@@ -227,6 +227,8 @@ func defaultNextTool(tool string, ae *apperr.Error) string {
 		return "get_app"
 	case "no_container":
 		return "get_deployment"
+	case "db_not_found", "table_not_found", "row_not_found", "not_sqlite":
+		return "query_db"
 	}
 	switch {
 	case ae.HTTPStatus == 401 || ae.HTTPStatus == 403:

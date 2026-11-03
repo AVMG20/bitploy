@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { ChevronRight, Download, File as FileIcon, Folder, FolderPlus, Link as LinkIcon, Loader2, Trash2, Upload } from 'lucide-vue-next'
+import { RouterLink } from 'vue-router'
+import { ChevronRight, Database, Download, File as FileIcon, Folder, FolderPlus, Link as LinkIcon, Loader2, Trash2, Upload } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
@@ -14,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { keys } from '@/composables/queries'
 import { ApiError, api } from '@/lib/api'
+import { isDbFileName } from '@/lib/dbvalue'
 import { formatBytes, formatDateTime } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { DataFile } from '@/lib/types'
@@ -53,7 +55,13 @@ function refresh() {
   void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
 }
 
-const hasDatabase = computed(() => !!list.value?.items.some((f) => f.type === 'file' && /\.(db|sqlite|sqlite3)$/i.test(f.name)))
+const hasDatabase = computed(() => !!list.value?.items.some(isDatabase))
+
+// A SQLite file opens in the database viewer.
+function isDatabase(f: DataFile) {
+  return f.type === 'file' && isDbFileName(f.name)
+}
+const viewerTo = (f: DataFile) => ({ name: 'app-database', params: { slug: props.slug }, query: { path: child(f.name) } })
 
 function icon(f: DataFile) {
   return f.type === 'dir' ? Folder : f.type === 'symlink' ? LinkIcon : FileIcon
@@ -220,7 +228,7 @@ const remove = useMutation({
     <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
       <div class="grid min-w-0 gap-1">
         <CardTitle>Files</CardTitle>
-        <CardDescription>Download a file from <span class="font-mono">/data</span>, or upload one to replace it.</CardDescription>
+        <CardDescription>Download a file from <span class="font-mono">/data</span>, or upload one to replace it. Open a SQLite database to browse it.</CardDescription>
       </div>
       <div v-if="list" class="flex flex-wrap gap-2">
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick" />
@@ -295,6 +303,10 @@ const remove = useMutation({
                     <component :is="icon(f)" class="size-4 shrink-0 text-muted-foreground" />
                     <span class="min-w-0 break-all">{{ f.name }}</span>
                   </button>
+                  <RouterLink v-else-if="isDatabase(f)" :to="viewerTo(f)" class="flex items-center gap-2 font-medium hover:underline" title="Open as a database">
+                    <Database class="size-4 shrink-0 text-muted-foreground" />
+                    <span class="min-w-0 break-all">{{ f.name }}</span>
+                  </RouterLink>
                   <span v-else class="flex items-center gap-2">
                     <component :is="icon(f)" class="size-4 shrink-0 text-muted-foreground" />
                     <span class="min-w-0 break-all">{{ f.name }}</span>
@@ -308,6 +320,9 @@ const remove = useMutation({
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex justify-end gap-1">
+                    <Button v-if="isDatabase(f)" as-child size="sm" variant="outline" title="Browse this database">
+                      <RouterLink :to="viewerTo(f)"><Database /> Open</RouterLink>
+                    </Button>
                     <Button v-if="f.type === 'file'" as-child size="icon-sm" variant="ghost" title="Download">
                       <a :href="api.dataFileDownloadUrl(slug, child(f.name))" download aria-label="Download this file"><Download /></a>
                     </Button>
