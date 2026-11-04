@@ -38,7 +38,7 @@ const sections = [
   { id: 'general', label: 'General' },
   { id: 'build', label: 'Build' },
   { id: 'size', label: 'Size' },
-  { id: 'delete', label: 'Delete app' },
+  { id: 'delete', label: 'Delete project' },
 ]
 function jump(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -483,7 +483,7 @@ const del = useMutation({
       </Card>
     </SettingsSection>
 
-    <SettingsSection id="delete" class="scroll-mt-16" title="Delete app" description="Removes the app, its address, its saved files, its backups and all old versions.">
+    <SettingsSection id="delete" class="scroll-mt-16" title="Delete project" description="Removes the project with all its services, its address, its saved files, its backups and all old versions.">
       <Card class="border-destructive/40">
         <CardContent class="flex flex-wrap items-center justify-between gap-3">
           <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need the data.</p>
@@ -506,7 +506,7 @@ const del = useMutation({
       v-model:open="deleteOpen"
       :title="`Delete ${app.data.value?.name ?? 'this app'} for good?`"
       description="Everything about it is removed, including its saved files and its backups."
-      confirm-label="Delete app"
+      confirm-label="Delete project"
       :type-to-confirm="slug"
       :loading="del.isPending.value"
       @confirm="del.mutate()"

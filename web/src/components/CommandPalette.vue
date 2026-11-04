@@ -66,7 +66,7 @@ const items = computed<Item[]>(() => {
   for (const a of list) {
     out.push({
       id: `app-${a.id}`,
-      group: 'Apps',
+      group: 'Projects',
       label: a.name,
       hint: a.type === 'web' ? hostOf(a.url) : 'Background worker',
       keywords: `${a.slug} ${a.url}`,
@@ -78,12 +78,12 @@ const items = computed<Item[]>(() => {
   for (const a of list) {
     for (const t of APP_TABS) {
       if (t.name === 'app' || t.database || (t.webOnly && a.type === 'worker')) continue
-      out.push({ id: `tab-${a.id}-${t.name}`, group: 'Apps', label: `${a.name} › ${t.label}`, keywords: a.slug, to: { name: t.name, params: { slug: a.slug } }, searchOnly: true })
+      out.push({ id: `tab-${a.id}-${t.name}`, group: 'Projects', label: `${a.name} › ${t.label}`, keywords: a.slug, to: { name: t.name, params: { slug: a.slug } }, searchOnly: true })
     }
   }
   out.push(
-    { id: 'p-apps', group: 'Go to', label: 'All apps', icon: Box, keywords: 'home overview', to: { name: 'overview' } },
-    { id: 'p-new', group: 'Go to', label: 'New app', icon: Plus, keywords: 'create deploy upload', to: { name: 'new-app' } },
+    { id: 'p-apps', group: 'Go to', label: 'All projects', icon: Box, keywords: 'home overview apps', to: { name: 'overview' } },
+    { id: 'p-new', group: 'Go to', label: 'New project', icon: Plus, keywords: 'create deploy upload app', to: { name: 'new-app' } },
     { id: 'p-connect', group: 'Go to', label: 'Connect AI', icon: Sparkles, keywords: 'mcp assistant claude', to: '/connect' },
     { id: 'p-settings', group: 'Go to', label: 'Settings', icon: Settings, keywords: 'account profile password', to: { name: 'settings' } },
     { id: 'p-tokens', group: 'Go to', label: 'API tokens', icon: KeyRound, keywords: 'settings token', to: { name: 'settings-tokens' } },
@@ -171,7 +171,7 @@ function choose(item: Item | undefined) {
           ref="inputEl"
           v-model="query"
           class="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="Go to an app or a page..."
+          placeholder="Go to a project or a page..."
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"

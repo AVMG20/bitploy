@@ -111,12 +111,12 @@ const submit = form.handleSubmit((v) => {
 <template>
   <div class="grid gap-6">
     <RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft class="size-4" /> New app
+      <ArrowLeft class="size-4" /> New project
     </RouterLink>
 
     <Alert v-if="notFound" variant="destructive">
       <AlertTitle>This ready-made app does not exist.</AlertTitle>
-      <AlertDescription><RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="underline">Back to New app</RouterLink></AlertDescription>
+      <AlertDescription><RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="underline">Back to New project</RouterLink></AlertDescription>
     </Alert>
     <QueryError v-else-if="entry.isError.value" :error="entry.error.value" @retry="entry.refetch()" />
     <div v-else-if="!entry.data.value" class="grid gap-4">

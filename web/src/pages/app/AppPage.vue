@@ -106,8 +106,8 @@ const pending = useRestartNeeded(data, () => env.data.value)
 
 <template>
   <div class="grid grid-cols-[minmax(0,1fr)] gap-5">
-    <EmptyState v-if="notFound" title="We cannot find that app." description="It may have been deleted, or the address has a typo.">
-      <Button as-child><RouterLink to="/">Back to your apps</RouterLink></Button>
+    <EmptyState v-if="notFound" title="We cannot find that project." description="It may have been deleted, or the address has a typo.">
+      <Button as-child><RouterLink to="/">Back to your projects</RouterLink></Button>
     </EmptyState>
     <QueryError v-else-if="app.isError.value && !data" :error="app.error.value" @retry="app.refetch()" />
 

@@ -237,9 +237,9 @@ const submit = form.handleSubmit(run)
 <template>
   <div class="grid gap-6">
     <RouterLink to="/" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft class="size-4" /> All apps
+      <ArrowLeft class="size-4" /> All projects
     </RouterLink>
-    <PageHeader title="New app" description="Name it, choose where the code is, and bitploy puts it online." />
+    <PageHeader title="New project" description="Name it, choose where the code is, and bitploy puts it online." />
 
     <form novalidate class="grid gap-6" @submit.prevent="submit">
       <Card>

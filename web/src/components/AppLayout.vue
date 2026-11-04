@@ -20,7 +20,7 @@ usePaletteShortcut()
 const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 const app = useApp(slug, () => !!slug.value)
 const crumbs = computed(() => {
-  if (slug.value) return [{ label: 'Apps', to: '/' }, { label: app.data.value?.slug === slug.value ? app.data.value.name : slug.value }]
+  if (slug.value) return [{ label: 'Projects', to: '/' }, { label: app.data.value?.slug === slug.value ? app.data.value.name : slug.value }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
@@ -54,7 +54,7 @@ watch(
         <button
           type="button"
           class="ml-auto inline-flex h-8 shrink-0 items-center gap-2 rounded-md border bg-card px-2 text-sm text-muted-foreground shadow-card transition-colors hover:bg-accent hover:text-foreground sm:w-56 sm:px-2.5"
-          aria-label="Go to an app or a page"
+          aria-label="Go to a project or a page"
           aria-keyshortcuts="Meta+K Control+K"
           @click="paletteOpen = true"
         >
