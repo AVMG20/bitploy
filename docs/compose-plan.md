@@ -265,3 +265,35 @@ returns `service` per variable. Database endpoints take `volume` (query or body)
   unchanged image service avoids it on later deploys.
 - A failed compose deployment of a single app can leave `deployment_services`
   rows for that deployment (harmless: the deployment is failed).
+
+## Phase 4: lean into Railway (agreed 2026-11-04)
+
+The user: "take Railway as an example of a good easy deploy application", "be
+bold", "go nuts". Single Dockerfile + SQLite stays the recommended default, but
+the product shape moves to Railway's: a project is a small private network of
+services you can add to with one click.
+
+- **Add to a project** (Railway's "+ New"): a button on the project page and an
+  MCP tool. Choices: a database or other ready service from a template
+  (PostgreSQL, MySQL/MariaDB, Redis/Valkey, Meilisearch, more later), any
+  published Docker image (port, public or private), or a ready-made app.
+- Added services are stored by bitploy (not taken from a compose file) and are
+  kept across deploys of the project's source; unchanged services keep running.
+  Adding a service to a one-service project converts it to several services
+  explicitly (the existing single -> multi path; /data kept).
+- **Connection variables, wired for you.** A database template generates its
+  credentials (secret, encrypted) and publishes connection variables such as
+  `DATABASE_URL`, `REDIS_URL`, `MEILI_URL`/`MEILI_MASTER_KEY`. Other services
+  get them through references, Railway style: `${{postgres.DATABASE_URL}}`,
+  resolved at start. Adding a database offers "Connect to <service>" (on by
+  default), which adds the reference variable to that service and redeploys it.
+- **Per-service settings** for added services: image version, memory/CPU,
+  variables, volume size, public or private, remove (type the name; says the
+  data goes too).
+- Databases are only reachable inside their project (the firewall blocks
+  everything else; there are no TCP ports to the internet). The UI says so in
+  plain words, and the ready-made page's databases are added to a project
+  (pick one, or start a new project with it).
+- MCP: `add_service`, `update_service`, `remove_service`,
+  `list_service_templates`. Instructions keep saying: SQLite in /data first;
+  add a database only when the user asks or the app needs it.
