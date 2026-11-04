@@ -29,6 +29,8 @@ import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
 import type { BuildMode, UpdateAppInput } from '@/lib/types'
+import ServiceIcon from '@/components/ServiceIcon.vue'
+import { isMulti, serviceRole, sortServices } from '@/lib/services'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
@@ -47,6 +49,11 @@ const qc = useQueryClient()
 const app = useApp(() => props.slug)
 const me = useMe()
 const quota = computed(() => me.data.value?.quota)
+// Several services: build and size come from the compose file, one per service.
+const multi = computed(() => isMulti(app.data.value))
+const services = computed(() => sortServices(app.data.value?.services ?? []))
+const totalMB = computed(() => services.value.reduce((n, s) => n + s.memory_mb, 0))
+const totalCPU = computed(() => services.value.reduce((n, s) => n + s.cpu_millis, 0))
 
 // A link to settings#build opens at that section once the page has drawn.
 const route = useRoute()
@@ -352,7 +359,7 @@ const del = useMutation({
       </a>
     </nav>
 
-    <SettingsSection id="general" class="scroll-mt-16" title="General" description="What the app is called in bitploy, where people open it, and who may see it.">
+    <SettingsSection id="general" class="scroll-mt-16" title="General" :description="`What the ${multi ? 'project' : 'app'} is called in bitploy, where people open it, and who may see it.`">
       <div class="grid gap-4">
         <Card>
           <CardHeader>
@@ -413,7 +420,17 @@ const del = useMutation({
           <GitConnect v-else :app="app.data.value" />
         </template>
 
-        <Card v-if="showDockerfile">
+        <Card v-if="multi">
+          <CardHeader>
+            <CardTitle>Compose file</CardTitle>
+            <CardDescription>
+              This project runs {{ services.length }} services from <span class="font-mono">{{ app.data.value?.compose_path || 'compose.yaml' }}</span>.
+              Each one is built from your code or pulled as a ready-made image. To add a service or change one, edit the file and deploy again.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+
+        <Card v-if="showDockerfile && !multi">
           <CardHeader>
             <CardTitle>Dockerfile</CardTitle>
             <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Saved files are kept.</CardDescription>
@@ -433,7 +450,7 @@ const del = useMutation({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card v-if="!multi">
           <CardHeader>
             <CardTitle>Type</CardTitle>
             <CardDescription>How bitploy builds your files. Changes apply on the next deploy.</CardDescription>
@@ -448,7 +465,32 @@ const del = useMutation({
       </div>
     </SettingsSection>
 
-    <SettingsSection id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT} A change applies after a restart.`">
+    <SettingsSection
+      v-if="multi"
+      id="size"
+      class="scroll-mt-16"
+      title="Size"
+      :description="`How much memory and CPU each service may use. ${CPU_HINT} They are set in your compose file (mem_limit and cpus); change them there and deploy again.`"
+    >
+      <Card class="py-0">
+        <CardContent class="px-0">
+          <ul class="divide-y">
+            <li v-for="s in services" :key="s.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+              <ServiceIcon :role="serviceRole(s).key" size="sm" />
+              <span class="font-medium">{{ serviceRole(s).label }}</span>
+              <span class="font-mono text-xs text-muted-foreground">{{ s.name }}</span>
+              <span class="ml-auto tabular-nums">{{ formatMB(s.memory_mb) }} <span class="text-muted-foreground">memory,</span> {{ formatCPUMillis(s.cpu_millis) }}</span>
+            </li>
+            <li class="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-2.5 text-sm">
+              <span class="font-medium">Together</span>
+              <span class="ml-auto font-medium tabular-nums">{{ formatMB(totalMB) }} <span class="font-normal text-muted-foreground">memory,</span> {{ formatCPUMillis(totalCPU) }}</span>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+    </SettingsSection>
+
+    <SettingsSection v-else id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT} A change applies after a restart.`">
       <Card>
         <CardContent>
           <p v-if="isStatic" class="mb-4 text-sm text-muted-foreground">Static sites have a fixed size and do not count towards your memory and CPU allowance.</p>

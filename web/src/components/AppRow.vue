@@ -8,6 +8,7 @@ import RelativeTime from './RelativeTime.vue'
 import { nowMs } from '@/composables/useNow'
 import { cpuFromPercent, formatCPU, formatMB, hostOf, uptime } from '@/lib/format'
 import type { App } from '@/lib/types'
+import { isMulti, serviceRole, sortServices } from '@/lib/services'
 
 const props = defineProps<{ app: App }>()
 const router = useRouter()
@@ -15,6 +16,9 @@ const router = useRouter()
 const running = computed(() => props.app.status === 'running')
 // The list already carries the latest 15-second sample; no per-row metrics query.
 const latest = computed(() => (running.value ? props.app.live : null))
+// A project with several services says how many, and what they are on hover.
+const serviceCount = computed(() => (isMulti(props.app) ? props.app.services.length : 0))
+const serviceTitle = computed(() => sortServices(props.app.services ?? []).map((s) => `${serviceRole(s).label} (${s.name})`).join(', '))
 const lastDeploy = computed(() => {
   const d = props.app.current_deployment
   return d?.finished_at ?? d?.queued_at ?? null
@@ -28,6 +32,11 @@ const lastDeploy = computed(() => {
         <RouterLink :to="{ name: 'app', params: { slug: app.slug } }" class="truncate font-medium hover:underline" @click.stop>
           {{ app.name }}
         </RouterLink>
+        <span
+          v-if="serviceCount"
+          class="shrink-0 rounded-md border px-1.5 text-[11px] text-muted-foreground tabular-nums"
+          :title="serviceTitle"
+        >{{ serviceCount }} services</span>
         <span
           v-if="app.catalog_update"
           class="inline-flex shrink-0 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
