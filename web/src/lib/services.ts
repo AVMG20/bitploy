@@ -144,3 +144,9 @@ export function serviceSource(s: ServiceLike & { build?: unknown }): string {
   const ctx = typeof b === 'string' ? b : b && typeof b === 'object' && 'context' in b ? String((b as { context?: unknown }).context ?? '') : ''
   return ctx && ctx !== '.' ? `Built from ${ctx.replace(/^\.\//, '')}/` : 'Built from your code'
 }
+
+/** "The api service: It did not answer.", unless the message names the service already. */
+export function aboutService(message: string, service: string | undefined): string {
+  if (!service || new RegExp(`\\b${service.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(message)) return message
+  return `The ${service} service: ${message}`
+}

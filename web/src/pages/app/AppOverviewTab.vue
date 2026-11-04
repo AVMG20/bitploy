@@ -24,7 +24,7 @@ import FirstSteps from './FirstSteps.vue'
 import { plainHint } from '@/lib/errors'
 import UploadVersionButton from './UploadVersionButton.vue'
 import ProjectServices from './ProjectServices.vue'
-import { isMulti } from '@/lib/services'
+import { aboutService, isMulti } from '@/lib/services'
 
 const props = defineProps<{ slug: string }>()
 const app = useApp(() => props.slug)
@@ -58,7 +58,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <AlertTitle>{{ data.status === 'crashed' ? `This ${multi ? 'project' : 'app'} keeps crashing.` : `This ${multi ? 'project' : 'app'} stopped working.` }}</AlertTitle>
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
-        <p v-if="dep?.error"><template v-if="multi && dep.error.service">The <span class="font-mono">{{ dep.error.service }}</span> service: </template>{{ dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>
+        <p v-if="dep?.error">{{ multi ? aboutService(dep.error.message, dep.error.service) : dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>
         <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
           <CopyForAiButton :app="data" />
           <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Open the logs</RouterLink>
