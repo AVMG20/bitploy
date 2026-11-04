@@ -185,6 +185,90 @@ var entries = []Entry{
 			"Open {url} and pick a tool.",
 		},
 	},
+	// Version: https://hub.docker.com/v2/repositories/n8nio/n8n/tags (2.46.6 is "stable").
+	{
+		ID:          "n8n",
+		Name:        "n8n",
+		Tagline:     "Automate work between your apps with visual workflows",
+		Description: "n8n connects hundreds of services, such as email, Slack, Google Sheets and webhooks, in workflows you build by dragging nodes on a canvas. Workflows run on a schedule, on a webhook or by hand. Workflows, credentials and run history are kept in a SQLite database in /data.",
+		Category:    "Automation",
+		Version:     "2.46.6",
+		Website:     "https://n8n.io",
+		Port:        5678,
+		MemoryMB:    768,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/healthz",
+		Env: []EnvSpec{
+			{Name: "N8N_ENCRYPTION_KEY", Generate: "secret", Description: "Encrypts the credentials n8n stores. Keep it: without it saved credentials cannot be read."},
+			{Name: "WEBHOOK_URL", Value: "{url}", Description: "The address n8n puts in webhook URLs."},
+			{Name: "N8N_EDITOR_BASE_URL", Value: "{url}", Description: "The address n8n uses in links to the editor, such as in emails."},
+		},
+		FirstSteps: []string{
+			"Open {url} and set up the owner account at once: the first visitor gets to do it.",
+			"Schedules use the America/New_York time zone until you add the environment variable GENERIC_TIMEZONE with your own, such as Europe/Amsterdam, and restart the app.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/sissbruecker/linkding/tags
+	{
+		ID:          "linkding",
+		Name:        "Linkding",
+		Tagline:     "Save and tag your bookmarks in one place",
+		Description: "Linkding is a bookmark manager: save links with tags and notes, search them, and share some publicly if you like. Browser extensions for Firefox and Chrome add the page you are on. Bookmarks are kept in a SQLite database in /data.",
+		Category:    "Productivity",
+		Version:     "1.47.0",
+		Website:     "https://linkding.link",
+		Port:        9090,
+		MemoryMB:    256,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/health",
+		Env: []EnvSpec{
+			{Name: "LD_CSRF_TRUSTED_ORIGINS", Value: "{url}", Description: "The address of this app. Linkding refuses forms sent from other addresses."},
+		},
+		FirstSteps: []string{
+			"Linkding has no sign-up page. Add the environment variables LD_SUPERUSER_NAME and LD_SUPERUSER_PASSWORD with a name and a long password of your own, restart the app, then sign in at {url}.",
+			"Install the browser extension from Settings > Integrations to save pages in one click.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/privatebin/nginx-fpm-alpine/tags (2.1.0 is "stable").
+	{
+		ID:          "privatebin",
+		Name:        "PrivateBin",
+		Tagline:     "Share text that only the people with the link can read",
+		Description: "PrivateBin is a pastebin where text is encrypted in your browser before it is sent, so the server never sees what you share. Pastes can expire after a set time or burn after the first read. The encrypted pastes are kept as files in /data.",
+		Category:    "Security",
+		Version:     "2.1.0",
+		Website:     "https://privatebin.info",
+		Port:        8080,
+		MemoryMB:    128,
+		Volume:      true,
+		VolumeMB:    512,
+		HealthPath:  "/",
+		FirstSteps: []string{
+			"Open {url}, type or paste your text, pick when it expires and send the link to the other person.",
+			"There are no accounts: anyone who has the address can create pastes.",
+		},
+	},
+	// Version: Excalidraw publishes only "latest"; the digest is from
+	// https://hub.docker.com/v2/repositories/excalidraw/excalidraw/tags (image built 2026-05-06).
+	{
+		ID:          "excalidraw",
+		Name:        "Excalidraw",
+		Tagline:     "A whiteboard for sketches and diagrams that look hand-drawn",
+		Description: "Excalidraw is a drawing board in the browser for diagrams, wireframes and quick sketches. Drawings are saved in your own browser, and you can export them as PNG, SVG or an .excalidraw file. It is a static site: it stores nothing on the server and needs no /data.",
+		Category:    "Productivity",
+		Version:     "2026.05.06",
+		Website:     "https://excalidraw.com",
+		Port:        8080,
+		MemoryMB:    64,
+		Volume:      false,
+		HealthPath:  "/",
+		FirstSteps: []string{
+			"Open {url} and start drawing. Export your drawing before you clear the browser's data.",
+			"Live collaboration and share links go through excalidraw.com's servers, not this app.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
