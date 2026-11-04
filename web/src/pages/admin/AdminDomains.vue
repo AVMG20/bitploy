@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Plus } from 'lucide-vue-next'
+import { ChevronRight, Plus } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +35,7 @@ function refresh() {
 const domain = ref('')
 const cert = ref('')
 const key = ref('')
+const showCert = ref(false)
 const example = computed(() => domain.value.trim().toLowerCase().replace(/^\*\./, '') || 'example.com')
 
 const add = useMutation({
@@ -42,6 +44,7 @@ const add = useMutation({
   onSuccess: (d) => {
     toastOk(`${d.domain} added`, 'Choose who may use it under People.')
     domain.value = cert.value = key.value = ''
+    showCert.value = false
     refresh()
   },
   onError: (e) => toastError(e),
@@ -99,7 +102,7 @@ function who(d: AppDomain): string {
 }
 function certInfo(d: AppDomain): { label: string; tone: string } {
   if (d.certificate === 'install') return { label: 'Set up with bitploy', tone: 'text-muted-foreground' }
-  if (d.certificate === 'none' || !d.cert_expires_at) return { label: 'Missing', tone: 'text-destructive' }
+  if (d.certificate === 'none' || !d.cert_expires_at) return { label: 'None, fine for Full', tone: 'text-muted-foreground' }
   const until = new Date(d.cert_expires_at)
   const soon = until.getTime() - Date.now() < 30 * 86_400_000
   return { label: `Valid until ${until.toLocaleDateString()}`, tone: soon ? 'text-destructive' : 'text-muted-foreground' }
@@ -126,7 +129,6 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
             <TableCell>
               <span class="font-mono text-[13px]">{{ d.domain }}</span>
               <Badge v-if="d.default" variant="secondary" class="ml-1">Default</Badge>
-              <p v-if="d.certificate === 'none'" class="text-xs text-destructive md:hidden">No certificate yet</p>
             </TableCell>
             <TableCell class="tabular-nums">{{ d.app_count }}</TableCell>
             <TableCell class="hidden text-sm sm:table-cell">{{ who(d) }}</TableCell>
@@ -134,7 +136,7 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
             <TableCell>
               <div v-if="!d.default" class="flex gap-1">
                 <Button size="sm" variant="outline" :aria-label="`Certificate for ${d.domain}`" @click="openCert(d)">
-                  {{ d.certificate === 'none' ? 'Add certificate' : 'Certificate' }}
+                  {{ d.certificate === 'none' ? 'Add certificate' : 'Replace certificate' }}
                 </Button>
                 <Button
                   size="sm"
@@ -180,11 +182,10 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
             </span>
           </li>
           <li>
-            Go to <b>SSL/TLS → Origin Server</b> and click <b>Create certificate</b>. Keep the settings; the hostnames must be
-            <span class="font-mono">{{ example }}</span> and <span class="font-mono">*.{{ example }}</span>. Paste the certificate and the private key below.
+            Go to <b>SSL/TLS → Overview</b> and set the encryption mode to <b>Full</b>. Cloudflare then encrypts the connection to this server without checking its
+            certificate, so you don't need one.
           </li>
-          <li>Go to <b>SSL/TLS → Overview</b> and set the encryption mode to <b>Full (strict)</b>.</li>
-          <li>Add the domain here. Then choose who may use it under <b>People</b>. Admins can always use every domain.</li>
+          <li>Add the domain below. Then choose who may use it under <b>People</b>. Admins can always use every domain.</li>
         </ol>
 
         <form class="grid gap-4" novalidate @submit.prevent="add.mutate()">
@@ -192,20 +193,31 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
             <Label for="app-domain">Domain</Label>
             <Input id="app-domain" v-model="domain" placeholder="example.com" autocapitalize="off" autocomplete="off" spellcheck="false" class="font-mono" />
           </div>
-          <div class="grid gap-4 lg:grid-cols-2">
-            <div class="grid gap-1.5">
-              <Label for="app-domain-cert">Origin certificate</Label>
-              <Textarea id="app-domain-cert" v-model="cert" rows="5" placeholder="-----BEGIN CERTIFICATE-----" spellcheck="false" class="font-mono text-xs" />
-            </div>
-            <div class="grid gap-1.5">
-              <Label for="app-domain-key">Private key</Label>
-              <Textarea id="app-domain-key" v-model="key" rows="5" placeholder="-----BEGIN PRIVATE KEY-----" autocomplete="off" spellcheck="false" class="font-mono text-xs" />
-            </div>
-          </div>
-          <p class="text-xs text-muted-foreground">
-            You can add the certificate later, but apps on the domain only open once it is there: without it, Cloudflare's Full (strict) mode refuses the connection and
-            visitors see an error. The private key is stored encrypted and never shown again.
-          </p>
+          <Collapsible v-model:open="showCert">
+            <CollapsibleTrigger as-child>
+              <button type="button" class="inline-flex items-center gap-1 text-sm font-medium hover:underline">
+                <ChevronRight :class="['size-4 transition-transform', showCert && 'rotate-90']" /> Optional: a certificate for Full (strict)
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent class="mt-3 grid gap-4">
+              <p class="text-xs text-muted-foreground">
+                In <b>Full (strict)</b> mode Cloudflare also checks that this server has a valid certificate for the domain. To use it, go to
+                <b>SSL/TLS → Origin Server</b>, click <b>Create certificate</b> for <span class="font-mono">{{ example }}</span> and
+                <span class="font-mono">*.{{ example }}</span>, paste both parts here, and switch the mode to Full (strict) once the domain is added. You can also do this
+                later. The private key is stored encrypted and never shown again.
+              </p>
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div class="grid gap-1.5">
+                  <Label for="app-domain-cert">Origin certificate</Label>
+                  <Textarea id="app-domain-cert" v-model="cert" rows="5" placeholder="-----BEGIN CERTIFICATE-----" spellcheck="false" class="font-mono text-xs" />
+                </div>
+                <div class="grid gap-1.5">
+                  <Label for="app-domain-key">Private key</Label>
+                  <Textarea id="app-domain-key" v-model="key" rows="5" placeholder="-----BEGIN PRIVATE KEY-----" autocomplete="off" spellcheck="false" class="font-mono text-xs" />
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           <div><Button type="submit" :disabled="add.isPending.value || !domain.trim()"><Plus /> {{ add.isPending.value ? 'Adding...' : 'Add domain' }}</Button></div>
         </form>
       </CardContent>
@@ -216,7 +228,8 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
         <DialogHeader>
           <DialogTitle>Certificate for {{ certFor?.domain }}</DialogTitle>
           <DialogDescription>
-            In Cloudflare: SSL/TLS → Origin Server → Create certificate, for {{ certFor?.domain }} and *.{{ certFor?.domain }}. Paste both parts here.
+            Only needed for Cloudflare's Full (strict) mode. In Cloudflare, go to SSL/TLS → Origin Server → Create certificate for {{ certFor?.domain }} and
+            *.{{ certFor?.domain }}, paste both parts here, then set the mode to Full (strict).
           </DialogDescription>
         </DialogHeader>
         <form id="app-domain-cert-form" class="grid gap-4" novalidate @submit.prevent="certFor && saveCert.mutate(certFor)">
