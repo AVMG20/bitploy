@@ -269,6 +269,96 @@ var entries = []Entry{
 			"Live collaboration and share links go through excalidraw.com's servers, not this app.",
 		},
 	},
+	// Version: https://ghcr.io/v2/open-webui/open-webui/tags/list (v0.13.0-slim).
+	{
+		ID:          "open-webui",
+		Name:        "Open WebUI",
+		Tagline:     "A private chat interface for OpenAI and other AI models",
+		Description: "Open WebUI is a chat app like ChatGPT that talks to any OpenAI-compatible API, such as OpenAI, OpenRouter or Groq, with your own API key. It keeps chats, users and settings in a SQLite database in /data. Searching your own documents needs a vector database, which this version does not include.",
+		Category:    "AI",
+		Version:     "0.13.0",
+		Website:     "https://openwebui.com",
+		Port:        8080,
+		MemoryMB:    1024,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/health",
+		Env: []EnvSpec{
+			{Name: "WEBUI_SECRET_KEY", Generate: "secret", Description: "Signs sign-in sessions. Changing it signs everyone out."},
+			{Name: "WEBUI_URL", Value: "{url}", Description: "The address of this app, used in links and for sign-in."},
+		},
+		FirstSteps: []string{
+			"Open {url} and create the first account at once: it becomes the admin. Later sign-ups wait for the admin's approval.",
+			"Add your API key under Admin Panel > Settings > Connections, then pick a model and start a chat.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/vikunja/vikunja/tags
+	{
+		ID:          "vikunja",
+		Name:        "Vikunja",
+		Tagline:     "To-do lists and projects, with lists, boards and a calendar",
+		Description: "Vikunja organizes tasks into projects you can view as a list, a board, a table or a Gantt chart. Tasks get due dates, reminders, labels and attachments, and you can share projects with others. Tasks and attachments are kept in /data.",
+		Category:    "Productivity",
+		Version:     "2.7.1",
+		Website:     "https://vikunja.io",
+		Port:        3456,
+		MemoryMB:    256,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/health",
+		Env: []EnvSpec{
+			{Name: "VIKUNJA_SERVICE_PUBLICURL", Value: "{url}", Description: "The address of this app, used in links and emails."},
+			{Name: "VIKUNJA_SERVICE_SECRET", Generate: "secret", Description: "Signs sign-in tokens. Changing it signs everyone out."},
+		},
+		FirstSteps: []string{
+			"Open {url} and register your account. Anyone who reaches the address can register until you turn it off.",
+			"Then turn registration off: add the environment variable VIKUNJA_SERVICE_ENABLEREGISTRATION with the value false and restart the app.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/binwiederhier/ntfy/tags
+	{
+		ID:          "ntfy",
+		Name:        "ntfy",
+		Tagline:     "Send push notifications to your phone from scripts and apps",
+		Description: "ntfy delivers notifications to the ntfy phone app or the browser: send a message with a plain HTTP request to a topic, and everyone subscribed to that topic gets it. Many tools, such as Uptime Kuma and backup scripts, can send to it. Messages, users and attachments are kept in /data.",
+		Category:    "Monitoring",
+		Version:     "2.37.2",
+		Website:     "https://ntfy.sh",
+		Port:        2586,
+		MemoryMB:    128,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/v1/health",
+		Env: []EnvSpec{
+			{Name: "NTFY_BASE_URL", Value: "{url}", Description: "The address of this app. ntfy needs it for attachments and links."},
+		},
+		FirstSteps: []string{
+			"In the ntfy phone app, add {url} as a server and subscribe to a topic. Send a test with: curl -d \"Hello\" {url}/your-topic",
+			"Anyone who knows a topic name can read and send to it. Use long, hard-to-guess names, or add the environment variable NTFY_AUTH_DEFAULT_ACCESS with the value deny-all and create users (see the access control docs on ntfy.sh).",
+		},
+	},
+	// Version: https://ghcr.io/v2/mealie-recipes/mealie/tags/list
+	{
+		ID:          "mealie",
+		Name:        "Mealie",
+		Tagline:     "Your recipes, meal plans and shopping lists in one place",
+		Description: "Mealie saves recipes, including ones imported from a recipe website's address, and turns them into meal plans and shopping lists. Share it with your household. Recipes, images and the database are kept in /data.",
+		Category:    "Home",
+		Version:     "3.30.0",
+		Website:     "https://mealie.io",
+		Port:        9000,
+		MemoryMB:    512,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/api/app/about",
+		Env: []EnvSpec{
+			{Name: "BASE_URL", Value: "{url}", Description: "The address of this app, used in links and emails."},
+		},
+		FirstSteps: []string{
+			"Sign in at {url} with changeme@example.com and the password MyPassword, then change both right away under your profile.",
+			"Invite your household under Settings > Users; sign-ups are off.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
