@@ -52,7 +52,12 @@ needs Postgres/Redis next to it), not the new normal. So:
 - **Quota**: `quota_apps` counts projects. At most 6 services per project.
   The project's memory and CPU reservation is the sum of its services.
 - **Dashboard**: a card grid of services (not a draggable canvas), with a side
-  panel per service. Keep the current visual language (see web/src/style.css).
+  panel per service. The user explicitly invited a **bold, creative redesign**
+  of the project page and the New project form — don't just bolt services onto
+  the current tabs; rethink the layout so it fits projects and services.
+  Constraints: Vercel/Linear-like dark, neutral near-black greys, orange
+  accent, no blue (use the tokens in web/src/style.css), beginner-friendly words,
+  and a one-service project must still feel simple.
 
 ## Data model
 
