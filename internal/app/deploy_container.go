@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/proxy"
 	"github.com/AVMG20/bitploy/internal/store/db"
@@ -25,6 +26,10 @@ type startPlan struct {
 	// Service is the service to start. nil: the only service of a
 	// single-layout app, built from App.
 	Service *serviceSpec
+	// ExtraEnv has the lowest precedence: the environment of the compose
+	// file a single-service app is built from on its first deploy (it is
+	// stored as the app's variables when that deployment goes live).
+	ExtraEnv map[string]string
 }
 
 // spec is the service the plan starts.
@@ -44,36 +49,54 @@ func startFailed(msg, hint string) *apperr.Error {
 
 // containerEnv decrypts the app's env vars and adds PORT, BITPLOY_APP and BITPLOY_URL.
 func (s *Service) containerEnv(ctx context.Context, app db.App, port int64) ([]string, *apperr.Error) {
-	return s.serviceEnv(ctx, app, nil, port)
+	env, _, ae := s.serviceEnv(ctx, app, nil, nil, port)
+	return env, ae
 }
 
 // serviceEnv is the environment of one service. From low to high
-// precedence: the service's environment from the compose file, the app's
-// shared variables (set_env), the service's own variables, then PORT,
-// BITPLOY_APP and BITPLOY_URL. svc nil is the only service of a
-// single-layout app.
-func (s *Service) serviceEnv(ctx context.Context, app db.App, svc *serviceSpec, port int64) ([]string, *apperr.Error) {
+// precedence: extra (see startPlan.ExtraEnv), the service's environment from
+// the compose file (its ${VAR} references filled in from the shared
+// variables), the app's shared variables (set_env), the service's own
+// variables, then PORT, BITPLOY_APP and BITPLOY_URL. svc nil is the only
+// service of a single-layout app. shared are the decrypted shared variables,
+// for the references in the service's command and healthcheck.
+func (s *Service) serviceEnv(ctx context.Context, app db.App, svc *serviceSpec, extra map[string]string, port int64) (env []string, shared map[string]string, ae *apperr.Error) {
 	service := singleService
 	if svc != nil {
 		service = svc.Name
 	}
 	rows, err := s.Q.ListServiceEnvVars(ctx, db.ListServiceEnvVarsParams{AppID: app.ID, Service: service})
 	if err != nil {
-		return nil, apperr.Internal(err)
+		return nil, nil, apperr.Internal(err)
 	}
-	vars := map[string]string{}
-	if svc != nil {
-		for k, v := range svc.Environment {
-			vars[k] = v
-		}
-	}
-	for _, r := range rows { // shared ('') sort before the service's own
+	shared = map[string]string{}
+	own := map[string]string{}
+	for _, r := range rows {
 		v, err := s.Crypto.Open(r.ValueEnc, envAADFor(app.ID, r.Service, r.Name))
 		if err != nil {
-			return nil, startFailed("The environment variable "+r.Name+" cannot be decrypted.",
+			return nil, nil, startFailed("The environment variable "+r.Name+" cannot be decrypted.",
 				"Set it again with set_env. (This happens when the server's secret key changed.)")
 		}
-		vars[r.Name] = string(v)
+		if r.Service == "" {
+			shared[r.Name] = string(v)
+		} else {
+			own[r.Name] = string(v)
+		}
+	}
+	vars := map[string]string{}
+	for k, v := range extra {
+		vars[k] = v
+	}
+	if svc != nil {
+		for k, v := range svc.Environment {
+			vars[k] = deploy.ExpandEnvRefs(v, lookupIn(shared))
+		}
+	}
+	for k, v := range shared {
+		vars[k] = v
+	}
+	for k, v := range own {
+		vars[k] = v
 	}
 	if port > 0 {
 		vars["PORT"] = fmt.Sprint(port)
@@ -89,7 +112,26 @@ func (s *Service) serviceEnv(ctx context.Context, app db.App, svc *serviceSpec, 
 	for _, n := range names {
 		out = append(out, n+"="+vars[n])
 	}
-	return out, nil
+	return out, shared, nil
+}
+
+func lookupIn(m map[string]string) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		v, ok := m[name]
+		return v, ok
+	}
+}
+
+// expandAll fills in the shared variable references of a command.
+func expandAll(list []string, shared map[string]string) []string {
+	if list == nil {
+		return nil
+	}
+	out := make([]string, len(list))
+	for i, v := range list {
+		out[i] = deploy.ExpandEnvRefs(v, lookupIn(shared))
+	}
+	return out
 }
 
 func envAAD(appID, name string) string { return "env:" + appID + ":" + name }
@@ -109,7 +151,7 @@ func envAADFor(appID, service, name string) string {
 func (s *Service) runSpec(ctx context.Context, p startPlan) (dockerx.RunSpec, *apperr.Error) {
 	app := p.App
 	spec := p.spec()
-	env, ae := s.serviceEnv(ctx, app, p.Service, p.Port)
+	env, shared, ae := s.serviceEnv(ctx, app, p.Service, p.ExtraEnv, p.Port)
 	if ae != nil {
 		return dockerx.RunSpec{}, ae
 	}
@@ -128,7 +170,12 @@ func (s *Service) runSpec(ctx context.Context, p startPlan) (dockerx.RunSpec, *a
 		return rs, nil
 	}
 	rs.MemoryMB, rs.CPUMillis = spec.MemoryMB, spec.CPUMillis
-	rs.Cmd, rs.Entrypoint, rs.Healthcheck = spec.Command, spec.Entrypoint, spec.Healthcheck.config()
+	rs.Cmd, rs.Entrypoint = expandAll(spec.Command, shared), expandAll(spec.Entrypoint, shared)
+	if hc := spec.Healthcheck.config(); hc != nil {
+		hc.Test = expandAll(hc.Test, shared)
+		rs.Healthcheck = hc
+	}
+	rs.User, rs.WorkingDir = spec.User, spec.WorkingDir
 	for _, m := range spec.Mounts {
 		rs.Mounts = append(rs.Mounts, dockerx.VolumeMount{Source: m.VolumeName, Target: m.MountPath})
 	}
@@ -212,7 +259,9 @@ func (s *Service) startRunSpec(ctx context.Context, p startPlan, rs dockerx.RunS
 // hostnames, and a candidate while a health check is in progress.
 func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
 	r := proxy.Route{Slug: app.Slug, Host: s.Cfg.AppHostOn(app.Slug, app.BaseDomain)}
-	if app.Type == "web" {
+	// A candidate on a worker: the first compose deployment of the app has a
+	// public service, and apps.type follows it once that deployment is live.
+	if app.Type == "web" || s.candidate(app.ID) != "" {
 		if hs, err := s.ActiveHostnames(ctx, app.ID); err == nil {
 			r.Custom = hs
 		}

@@ -149,7 +149,11 @@ type App struct {
 	HealthPath        string `json:"health_path"`
 	DockerfilePath    string `json:"dockerfile_path"`
 	ContextDir        string `json:"context_dir"`
-	BuildMode         string `json:"build_mode"` // dockerfile | auto | node | static_build | static
+	BuildMode         string `json:"build_mode"` // dockerfile | auto | node | static_build | static | compose
+	// ComposePath is where the compose file is in the source; "" means the
+	// first of compose.yaml, compose.yml, docker-compose.yaml,
+	// docker-compose.yml (in context_dir, then at the root).
+	ComposePath string `json:"compose_path" doc:"Build mode compose: the compose file in the source. Empty: compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml"`
 	// OutputDir is the folder a static build serves; empty means the default of
 	// the detected framework (dist, build or out).
 	OutputDir string `json:"output_dir"`
@@ -452,8 +456,10 @@ type CreateAppInput struct {
 	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
 	MemoryMB  *int64 `json:"memory_mb,omitempty"`
 	CPUMillis *int64 `json:"cpu_millis,omitempty"`
-	// BuildMode is how the source is built: dockerfile (default), auto, node, static_build or static.
-	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else detect: a Node.js app, a static build (Vite, Astro, SvelteKit with adapter-static, ...) or a plain website (index.html at the top). node: always a Node.js app from package.json. static_build: build with the build script and serve the output folder with nginx (a static site). static: always a plain website."`
+	// BuildMode is how the source is built: dockerfile (default), auto, node, static_build, static or compose.
+	BuildMode string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static,compose" doc:"dockerfile: the source needs a Dockerfile (default). auto: a Dockerfile if there is one, else detect: a Node.js app, a static build (Vite, Astro, SvelteKit with adapter-static, ...) or a plain website (index.html at the top). node: always a Node.js app from package.json. static_build: build with the build script and serve the output folder with nginx (a static site). static: always a plain website, compose: run the services of the project's compose file (an app with a database or Redis next to it); auto also picks compose on the first deploy when the compose file has several services."`
+	// ComposePath is the compose file, for build mode compose.
+	ComposePath string `json:"compose_path,omitempty" doc:"Build mode compose: the compose file in the source, like deploy/compose.yaml. Empty: compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml"`
 	// OutputDir is the folder a static build serves.
 	OutputDir string `json:"output_dir,omitempty" doc:"Build modes auto and static_build: the folder the build writes to and nginx serves, relative to the project, like dist, build or out. Empty: the default of the detected framework."`
 	// HomePage is the page for "/" when a static site has no index.html and several pages.
@@ -470,7 +476,8 @@ type UpdateAppInput struct {
 	HealthPath     *string `json:"health_path,omitempty"`
 	DockerfilePath *string `json:"dockerfile_path,omitempty"`
 	ContextDir     *string `json:"context_dir,omitempty"`
-	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static" doc:"dockerfile, auto, node, static_build or static (see create app). Applies on the next deploy."`
+	BuildMode      *string `json:"build_mode,omitempty" enum:"dockerfile,auto,node,static_build,static,compose" doc:"dockerfile, auto, node, static_build, static or compose (see create app). Applies on the next deploy. compose turns an app with one service into one with the services of its compose file on the next deploy (its /data volume is kept); there is no way back."`
+	ComposePath    *string `json:"compose_path,omitempty" doc:"Build mode compose: the compose file in the source; empty: the usual names. Applies on the next deploy."`
 	OutputDir      *string `json:"output_dir,omitempty" doc:"output folder of a static build (see create app); empty clears it. Applies on the next deploy."`
 	HomePage       *string `json:"home_page,omitempty" doc:"page for / of a static site without index.html (see create app); empty clears it"`
 	Volume         *bool   `json:"volume,omitempty"`

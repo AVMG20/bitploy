@@ -127,6 +127,10 @@ ON CONFLICT (deployment_id, service) DO UPDATE SET
     image = excluded.image, container_name = excluded.container_name, port = excluded.port,
     has_healthcheck = excluded.has_healthcheck;
 
+-- name: DeleteDeploymentService :exec
+-- The "app" row a compose deployment of a single-service app got when it was queued.
+DELETE FROM deployment_services WHERE deployment_id = ? AND service = ?;
+
 -- name: ListDeploymentServices :many
 SELECT * FROM deployment_services WHERE deployment_id = ? ORDER BY service;
 

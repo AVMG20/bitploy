@@ -64,6 +64,21 @@ func (q *Queries) DeleteAppVolumeRow(ctx context.Context, arg DeleteAppVolumeRow
 	return err
 }
 
+const deleteDeploymentService = `-- name: DeleteDeploymentService :exec
+DELETE FROM deployment_services WHERE deployment_id = ? AND service = ?
+`
+
+type DeleteDeploymentServiceParams struct {
+	DeploymentID string
+	Service      string
+}
+
+// The "app" row a compose deployment of a single-service app got when it was queued.
+func (q *Queries) DeleteDeploymentService(ctx context.Context, arg DeleteDeploymentServiceParams) error {
+	_, err := q.db.ExecContext(ctx, deleteDeploymentService, arg.DeploymentID, arg.Service)
+	return err
+}
+
 const deleteSingleAppVolumeIfOff = `-- name: DeleteSingleAppVolumeIfOff :exec
 DELETE FROM app_volumes
 WHERE app_id = ?1 AND name = 'data'

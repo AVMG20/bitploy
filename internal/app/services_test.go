@@ -224,9 +224,6 @@ func TestPickServiceErrors(t *testing.T) {
 	wantCode(t, err, "service_not_found")
 	_, err = e.svc.UpdateApp(ctx, e.owner, "duo", UpdateAppInput{MemoryMB: ptr(int64(512))})
 	wantCode(t, err, "set_per_service")
-	// Only a rollback deploys an app with several services in this phase.
-	_, err = e.svc.queueDeployment(ctx, e.owner, row, queueSpec{kind: "files"})
-	wantCode(t, err, "services_not_buildable")
 
 	// A single-service app accepts its own service name and nothing else.
 	e.addApp(t, "app_2", "solo", "usr_owner", "web")

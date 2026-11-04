@@ -85,6 +85,21 @@ type pipeline struct {
 	runs    []*serviceRun
 	primary *serviceRun
 	failed  *serviceRun // the run a health check failed on
+
+	// compose: the deployment runs the services of a compose file (or rolls
+	// back to such a deployment). specs and vols are its services and volumes
+	// (deployments.services_spec); the app gets them when it goes live.
+	compose    bool
+	specs      []serviceSpec
+	vols       []volumeSpec
+	wasSingle  bool     // the app had one service before this deployment
+	images     []string // images this deployment built, removed when it fails
+	// singleFrom: the compose file's one service, built like a Dockerfile app
+	// (auto mode, first deploy). Its environment (extraEnv) becomes the app's
+	// variables and its volume the /data volume when the deployment goes live.
+	singleFrom *deploy.ComposeService
+	extraEnv   map[string]string
+	enableData int64 // MB: /data is turned on when the deployment goes live
 }
 
 // serviceRun is one service of a deployment on its way to running.
@@ -191,12 +206,17 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 		if info, err := p.s.Docker.InspectImage(ctx, p.image); err == nil {
 			p.hcCfg = info.Healthcheck
 		}
-		p.logf("Rolling back to the image of deployment %s (%s).", p.dep.SourceRef, p.image)
-	} else {
-		if isMulti(p.app) {
-			p.releaseSlot()
-			return servicesNotBuildable(p.app)
+		if p.dep.ServicesSpec != "" {
+			specs, vols, err := parseServicesSpec(p.dep.ServicesSpec)
+			if err != nil {
+				return apperr.Internal(err)
+			}
+			p.compose, p.specs, p.vols = true, specs, vols
+			p.logf("Rolling back to the services of deployment %s.", p.dep.SourceRef)
+		} else {
+			p.logf("Rolling back to the image of deployment %s (%s).", p.dep.SourceRef, p.image)
 		}
+	} else {
 		if ae := p.setState(ctx, "fetching"); ae != nil {
 			return ae
 		}
@@ -212,7 +232,12 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 		if ae := p.setState(ctx, "building"); ae != nil {
 			return ae
 		}
-		ae := p.build(ctx)
+		var ae *apperr.Error
+		if p.compose {
+			ae = p.buildCompose(ctx)
+		} else {
+			ae = p.build(ctx)
+		}
 		p.releaseSlot()
 		if ae != nil {
 			return ae
@@ -321,10 +346,21 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		}
 		return b
 	}
+	// The compose file, when the deployment runs it (chooseCompose).
+	ch, ae := p.s.chooseCompose(ctx, p.app, files, read)
+	if ae != nil {
+		return ae
+	}
+	if ch.multi {
+		return p.validateCompose(ctx, ch, files, read)
+	}
+	if ch.single != nil {
+		p.useSingleService(ctx, ch)
+	}
 	// The build mode decides between the app's Dockerfile and a static site.
 	effApp, plan, files, read, perr := planBuild(p.app, files, read)
 	if perr != nil {
-		return perr
+		return composeHintOnMissing(perr, files, p.app)
 	}
 	if plan.Why != "" {
 		p.logf("%s", plan.Why)
@@ -343,11 +379,13 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 	p.kind = plan.Kind
 	res, ctxFiles := p.s.runChecks(p.app, files, read)
 	res = templateFindings(plan, res)
+	res.Findings = p.s.dropSingleServiceComposeWarning(ctx, p.app, res.Findings, files, read)
+	res.Findings = append(res.Findings, p.findings...)
 	for _, f := range res.Findings {
 		p.logf("check %s (%s): %s", f.Code, f.Severity, f.Message)
 	}
 	if cerr := checkError(res, ctxFiles); cerr != nil {
-		return apperr.As(cerr)
+		return composeHintOnMissing(apperr.As(cerr), files, p.app)
 	}
 	p.port = int64(res.Port)
 	p.hasHC = res.HasHealthcheck
@@ -390,6 +428,12 @@ func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
 	if err != nil {
 		return errCancelled // app deleted
 	}
+	if p.compose {
+		if p.dep.SourceKind == "rollback" { // a build checked it before building
+			return p.s.composeQuotaErr(ctx, fresh, p.specs, p.vols)
+		}
+		return nil
+	}
 	if deploy.IsStaticKind(p.kind) {
 		p.setSize, p.sizeMem, p.sizeCPU = true, staticMemoryMB, staticCPUMillis
 		if fresh.MemoryMb != staticMemoryMB || fresh.CpuMillis != staticCPUMillis {
@@ -413,6 +457,16 @@ func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
 	}
 	if err := p.s.checkStartQuota(ctx, fresh); err != nil {
 		return apperr.As(err)
+	}
+	if p.enableData > 0 && fresh.VolumeEnabled == 0 {
+		// The compose file's one service keeps files in /data.
+		u, err := p.s.activeUser(ctx, fresh.UserID)
+		if err != nil {
+			return apperr.As(err)
+		}
+		if err := p.s.checkVolumeQuota(ctx, u, fresh.ID, p.enableData); err != nil {
+			return apperr.As(err)
+		}
 	}
 	return nil
 }
@@ -450,32 +504,10 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
 	p.builtHere = true
 	p.logf("Building %s with docker buildx.", p.image)
-	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}, p.writeLog)
+	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld,
+	}, p.writeLog)
 	if err != nil {
-		if ctx.Err() != nil {
-			return errCancelled
-		}
-		p.failTail = p.ring.Lines()
-		var ae *apperr.Error
-		switch {
-		case errors.Is(err, deploy.ErrBuildTimeout):
-			return apperr.Unprocessable("build_failed", fmt.Sprintf("The build took longer than %d minutes and was stopped.", int(deploy.BuildTimeout.Minutes())),
-				"Make the build faster: use a smaller base image, order the Dockerfile so dependency installs are cached, and leave big files out with .dockerignore.")
-		case errors.As(err, &ae):
-			return ae
-		}
-		if deploy.BuildOutOfMemory(p.failTail) {
-			return apperr.Unprocessable("build_failed",
-				"The build ran out of memory. Builds on this server can use up to "+bld.MemoryLimit()+".",
-				"Make the build use less memory, for example by building fewer things at once, or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
-		}
-		summary := deploy.BuildFailureSummary(p.failTail)
-		msg := "The build failed."
-		if summary != "" {
-			msg = "The build failed: " + summary
-		}
-		return apperr.Unprocessable("build_failed", msg,
-			"Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again.")
+		return p.buildFailed(ctx, err, bld)
 	}
 	info, err := s.Docker.InspectImage(ctx, p.image)
 	if err != nil {
@@ -495,6 +527,34 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	}
 	p.logf("Built %s (%d MB).", p.image, info.SizeBytes>>20)
 	return nil
+}
+
+// buildFailed is the error of a failed build.
+func (p *pipeline) buildFailed(ctx context.Context, err error, bld *deploy.Builder) *apperr.Error {
+	if ctx.Err() != nil {
+		return errCancelled
+	}
+	p.failTail = p.ring.Lines()
+	var ae *apperr.Error
+	switch {
+	case errors.Is(err, deploy.ErrBuildTimeout):
+		return apperr.Unprocessable("build_failed", fmt.Sprintf("The build took longer than %d minutes and was stopped.", int(deploy.BuildTimeout.Minutes())),
+			"Make the build faster: use a smaller base image, order the Dockerfile so dependency installs are cached, and leave big files out with .dockerignore.")
+	case errors.As(err, &ae):
+		return ae
+	}
+	if deploy.BuildOutOfMemory(p.failTail) {
+		return apperr.Unprocessable("build_failed",
+			"The build ran out of memory. Builds on this server can use up to "+bld.MemoryLimit()+".",
+			"Make the build use less memory, for example by building fewer things at once, or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
+	}
+	summary := deploy.BuildFailureSummary(p.failTail)
+	msg := "The build failed."
+	if summary != "" {
+		msg = "The build failed: " + summary
+	}
+	return apperr.Unprocessable("build_failed", msg,
+		"Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again.")
 }
 
 // resolveImagePort picks the port of a web app that had none before the build
@@ -549,6 +609,11 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	if p.setSize {
 		p.app.MemoryMb, p.app.CpuMillis = p.sizeMem, p.sizeCPU
 	}
+	if p.compose {
+		p.overlayCompose()
+	} else if p.enableData > 0 && p.app.VolumeEnabled == 0 {
+		p.app.VolumeEnabled, p.app.VolumeMb = 1, p.enableData
+	}
 	if p.app.CurrentDeploymentID.Valid && p.app.CurrentDeploymentID.String != p.dep.ID {
 		if d, err := s.Q.GetDeployment(ctx, p.app.CurrentDeploymentID.String); err == nil && (d.ContainerName.Valid || isMulti(p.app)) {
 			p.prev = &d
@@ -569,14 +634,6 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	return nil
 }
 
-// servicesNotBuildable refuses a deploy from source of an app with several
-// services: phase 1 of compose support runs them, it cannot build them yet.
-func servicesNotBuildable(a db.App) *apperr.Error {
-	return apperr.Unprocessable("services_not_buildable",
-		"The app "+a.Slug+" has several services, and bitploy cannot build several services from source yet.",
-		"Roll back to an earlier deployment with rollback, or restart the app with restart_app. get_app lists the services.").WithNext("get_app")
-}
-
 // planRuns decides what each service of the deployment runs: the image just
 // built (a single-service app), or the images recorded per service (a
 // rollback of an app with several services).
@@ -587,9 +644,12 @@ func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
 		p.runs, p.primary = []*serviceRun{r}, r
 		return nil
 	}
-	specs, _, err := s.appSpecs(ctx, p.app)
-	if err != nil {
-		return apperr.Internal(err)
+	specs := p.specs
+	if !p.compose {
+		var err error
+		if specs, _, err = s.appSpecs(ctx, p.app); err != nil {
+			return apperr.Internal(err)
+		}
 	}
 	order, err := startOrder(specs)
 	if err != nil {
@@ -632,6 +692,9 @@ func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
 		if hc := sp.Healthcheck.config(); hc != nil {
 			r.hcCfg = hc
 		}
+		if sp.Healthcheck.off() {
+			r.hcCfg = nil
+		}
 		r.hasHC = r.hcCfg != nil
 		p.runs = append(p.runs, r)
 		if sp.Public && p.primary == nil {
@@ -640,6 +703,22 @@ func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
 	}
 	if p.primary == nil && len(p.runs) > 0 {
 		p.primary = p.runs[0]
+	}
+	if p.wasSingle && p.prev != nil && p.prev.ContainerName.Valid {
+		// The container of the app's one service gives way to the service that
+		// takes over its /data volume (stopped first: one writer at a time), or
+		// else the public one.
+		heir := p.primary
+		for _, r := range p.runs {
+			for _, m := range r.spec.Mounts {
+				if m.VolumeName == appVolumeName(p.app) {
+					heir = r
+				}
+			}
+		}
+		if heir != nil {
+			heir.prevName = p.prev.ContainerName.String
+		}
 	}
 	if p.primary != nil {
 		p.port, p.hasHC, p.hcCfg, p.prevName = p.primary.port, p.primary.hasHC, p.primary.hcCfg, p.primary.prevName
@@ -665,10 +744,11 @@ func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 		if ae := p.waitForDependencies(ctx, r); ae != nil {
 			return ae
 		}
-		plan := startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: r.image, Port: r.port}
+		plan := startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: r.image, Port: r.port, ExtraEnv: p.extraEnv}
 		if multi {
 			sp := r.spec
 			plan.Service = &sp
+			plan.ExtraEnv = nil
 		}
 		rs, ae := s.runSpec(ctx, plan)
 		if ae != nil {
@@ -676,7 +756,11 @@ func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 		}
 		if multi {
 			if info, err := s.Docker.InspectImage(ctx, r.image); err == nil {
-				r.hash = serviceConfigHash(info.ID, rs)
+				id := info.Fingerprint
+				if id == "" {
+					id = info.ID
+				}
+				r.hash = serviceConfigHash(id, rs)
 			}
 			if r.hash != "" && r.prevName != "" && prevHash[r.spec.Name] == r.hash && p.running(ctx, r.prevName) {
 				r.name, r.kept = r.prevName, true
@@ -1014,6 +1098,10 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 		code, next = "out_of_memory", "update_app"
 		msg = "Your app ran out of memory and was killed."
 		hint = fmt.Sprintf("Raise memory_mb with update_app (it has %d MB now; whoami shows your quota) and call deploy with only app=, or make the app use less memory.", p.app.MemoryMb)
+		if isMulti(p.app) && p.failed != nil {
+			code, next = "out_of_memory", "validate_compose"
+			hint = fmt.Sprintf("Give the %s service more memory in the compose file (deploy.resources.limits.memory; it has %d MB now, whoami shows your quota) and deploy again, or make it use less memory.", p.failed.spec.Name, p.failed.spec.MemoryMB)
+		}
 	case strings.HasPrefix(detail, "exited") || detail == "keeps restarting":
 		code = "app_crashed"
 		if kind == "worker" {
@@ -1078,6 +1166,15 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 				return err
 			}
 		}
+		if p.compose {
+			if err := p.writeCompose(ctx, q, now); err != nil {
+				return err
+			}
+		} else if p.singleFrom != nil {
+			if err := p.writeSingleFromCompose(ctx, q, now); err != nil {
+				return err
+			}
+		}
 		return q.SetAppCurrentDeployment(ctx, db.SetAppCurrentDeploymentParams{
 			CurrentDeploymentID: nullStr(p.dep.ID), UpdatedAt: now, ID: p.app.ID,
 		})
@@ -1106,6 +1203,7 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 				delay = 0
 			}
 			s.retireContainer(r.prevName, delay)
+			keep[r.prevName] = true
 		}
 	}
 	if isMulti(p.app) && p.prev != nil {
@@ -1168,7 +1266,9 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		if p.buildDir != "" {
 			_ = os.RemoveAll(p.buildDir)
 		}
-		_ = s.Q.SyncSingleDeploymentService(bg, p.dep.ID) // no-op for multi-service apps
+		if !p.compose {
+			_ = s.Q.SyncSingleDeploymentService(bg, p.dep.ID) // no-op for multi-service apps
+		}
 		s.events.flushBuild(p.dep.ID)
 		s.NotifyDeployment(p.dep.ID)
 	}()
@@ -1253,8 +1353,13 @@ func (p *pipeline) cleanupFailed(ctx context.Context) {
 		}
 	}
 	_ = s.syncRouteLocked(ctx, p.app.ID)
-	if dk != nil && p.builtHere && p.image != "" {
+	if dk != nil && p.builtHere && p.image != "" && !p.compose {
 		_ = dk.RemoveImage(ctx, p.image)
+	}
+	if dk != nil {
+		for _, img := range p.images {
+			_ = dk.RemoveImage(ctx, img)
+		}
 	}
 }
 

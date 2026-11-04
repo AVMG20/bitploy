@@ -54,9 +54,25 @@ func normalizeBuildMode(m string) (string, error) {
 	}
 	if !deploy.ValidBuildMode(m) {
 		return "", apperr.BadRequest("build_mode_invalid", "The build mode "+quote(m)+" is not known.",
-			"Use dockerfile (the source needs a Dockerfile, the default), auto (detect what the source is), node (a Node.js app), static_build (build a site and serve the output folder) or static (always a plain website).")
+			"Use dockerfile (the source needs a Dockerfile, the default), auto (detect what the source is), node (a Node.js app), static_build (build a site and serve the output folder), static (always a plain website) or compose (run the services of the project's compose file).")
 	}
 	return m, nil
+}
+
+// normalizeComposePath validates where the compose file is: empty (the usual
+// names) or a relative path to a .yaml or .yml file inside the project.
+func normalizeComposePath(p string) (string, error) {
+	p = strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
+	if p == "" {
+		return "", nil
+	}
+	clean, err := deploy.CleanRelPath(p)
+	lower := strings.ToLower(clean)
+	if err != nil || len(clean) > 200 || !(strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")) {
+		return "", apperr.BadRequest("compose_path_invalid", "The compose file path "+quote(p)+" is not allowed.",
+			"Use a relative path to a .yaml or .yml file inside the project, like compose.yaml or deploy/compose.prod.yaml, or leave it empty.")
+	}
+	return clean, nil
 }
 
 // normalizeOutputDir validates the folder a static build serves: empty (the
@@ -141,6 +157,10 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		return App{}, err
 	}
 	outputDir, err := normalizeOutputDir(in.OutputDir)
+	if err != nil {
+		return App{}, err
+	}
+	composePath, err := normalizeComposePath(in.ComposePath)
 	if err != nil {
 		return App{}, err
 	}
@@ -247,6 +267,11 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		if err := syncSingleLayout(ctx, q, id); err != nil {
 			return err
+		}
+		if composePath != "" {
+			if err := q.SetAppComposePath(ctx, db.SetAppComposePathParams{ComposePath: composePath, UpdatedAt: now, ID: id}); err != nil {
+				return err
+			}
 		}
 		// The slug is now really in use; the owner's old reservation is spent.
 		return q.DeleteSlugReservation(ctx, slug)
@@ -387,6 +412,15 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		}
 		buildMode = bm
 		changed["build_mode"] = bm
+	}
+	composePath := row.ComposePath
+	if in.ComposePath != nil {
+		cp, err := normalizeComposePath(*in.ComposePath)
+		if err != nil {
+			return App{}, err
+		}
+		composePath = cp
+		changed["compose_path"] = cp
 	}
 	homePage := row.HomePage
 	if in.HomePage != nil {
@@ -535,6 +569,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	}
 	if buildMode != row.BuildMode || homePage != row.HomePage || outputDir != row.OutputDir {
 		if err := s.Q.SetAppBuildMode(ctx, db.SetAppBuildModeParams{BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+			return App{}, apperr.Internal(err)
+		}
+	}
+	if composePath != row.ComposePath {
+		if err := s.Q.SetAppComposePath(ctx, db.SetAppComposePathParams{ComposePath: composePath, UpdatedAt: s.now(), ID: row.ID}); err != nil {
 			return App{}, apperr.Internal(err)
 		}
 	}
@@ -1035,7 +1074,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, Domain: s.appDomainOf(r), OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
-		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, HomePage: r.HomePage, OutputDir: r.OutputDir,
+		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, ComposePath: r.ComposePath, HomePage: r.HomePage, OutputDir: r.OutputDir,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}
