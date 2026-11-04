@@ -9,6 +9,7 @@ import { ArrowLeft, FileCode, Github, LayoutGrid, TriangleAlert, Upload } from '
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
+import DomainSelect from '@/components/DomainSelect.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
@@ -25,7 +26,7 @@ import { api } from '@/lib/api'
 import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
-import { slugify, slugSchema } from '@/lib/slug'
+import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 import type { BuildMode, DockerfileFinding, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
@@ -58,10 +59,8 @@ function editAddress() {
   editingAddress.value = true
   addressEdited.value = true
 }
-const addressParts = computed(() => {
-  const [before = 'https://', after = '.example.com'] = (me.data.value?.app_url_template ?? 'https://{slug}.example.com').split('{slug}')
-  return { before, after }
-})
+const domain = ref('') // "" is the default domain
+const addressParts = computed(() => toAddressParts(me.data.value, domain.value))
 
 // ---------------------------------------------------------------- source
 const github = useQuery({ queryKey: keys.github, queryFn: api.github })
@@ -179,6 +178,7 @@ async function run(v: { name: string; slug: string }) {
     const created = await api.createApp({
       name: v.name,
       slug: v.slug,
+      domain: domain.value || undefined,
       volume: volume.value,
       build_mode: source.value === 'dockerfile' ? 'dockerfile' : mode.value,
       port: source.value === 'dockerfile' && port.value.trim() ? Number(port.value) : undefined,
@@ -260,7 +260,7 @@ const submit = form.handleSubmit(run)
               </div>
               <div v-if="editingAddress" class="flex min-w-0 items-center gap-2">
                 <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" :disabled="busy" v-bind="componentField" /></FormControl>
-                <span class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">{{ addressParts.after }}</span>
+                <DomainSelect v-model="domain" :disabled="busy" />
               </div>
               <p class="truncate rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[13px] text-muted-foreground" data-testid="address-preview">
                 {{ addressParts.before }}<span class="font-medium text-foreground">{{ form.values.slug || 'your-app' }}</span>{{ addressParts.after }}
@@ -291,7 +291,7 @@ const submit = form.handleSubmit(run)
             <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
           </template>
 
-          <CatalogPicker v-if="source === 'ready-made'" :name="form.values.name" :slug="addressEdited ? form.values.slug : undefined" />
+          <CatalogPicker v-if="source === 'ready-made'" :name="form.values.name" :slug="addressEdited ? form.values.slug : undefined" :domain="domain" />
 
           <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
 

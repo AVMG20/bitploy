@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useQueryParam } from '@/composables/useQueryParam'
 import AdminApps from './admin/AdminApps.vue'
 import AdminAudit from './admin/AdminAudit.vue'
+import AdminDomains from './admin/AdminDomains.vue'
 import AdminGithub from './admin/AdminGithub.vue'
 import AdminInvites from './admin/AdminInvites.vue'
 import AdminServer from './admin/AdminServer.vue'
@@ -21,6 +22,7 @@ const tabs = [
   { value: 'invites', label: 'Invites' },
   { value: 'server', label: 'Server' },
   { value: 'apps', label: 'All apps' },
+  { value: 'domains', label: 'Domains' },
   { value: 'github', label: 'GitHub' },
   { value: 'audit', label: 'Activity log' },
   { value: 'database', label: 'Database' },
@@ -48,6 +50,7 @@ function onTab(v: string | number) {
       <TabsContent value="invites" class="pt-6"><AdminInvites /></TabsContent>
       <TabsContent value="server" class="pt-6"><AdminServer /></TabsContent>
       <TabsContent value="apps" class="pt-6"><AdminApps /></TabsContent>
+      <TabsContent value="domains" class="pt-6"><AdminDomains /></TabsContent>
       <TabsContent value="github" class="pt-6"><AdminGithub /></TabsContent>
       <TabsContent value="audit" class="pt-6"><AdminAudit /></TabsContent>
     </Tabs>

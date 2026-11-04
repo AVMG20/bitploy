@@ -131,17 +131,29 @@ func offValue(v string) bool {
 	return false
 }
 
-// AppURL is the public URL of an app subdomain.
-func (c *Config) AppURL(slug string) string {
-	host := slug + "." + c.AppsDomain
+// AppURL is the public URL of an app subdomain on the default domain.
+func (c *Config) AppURL(slug string) string { return c.AppURLOn(slug, "") }
+
+// AppURLOn is the public URL of an app on domain ("" is the default domain).
+func (c *Config) AppURLOn(slug, domain string) string {
+	host := c.AppHostOn(slug, domain)
 	if c.AppsPort != "" {
 		host += ":" + c.AppsPort
 	}
 	return c.AppsScheme + "://" + host
 }
 
-// AppHost is the Host header value Traefik routes for an app.
-func (c *Config) AppHost(slug string) string { return slug + "." + c.AppsDomain }
+// AppHost is the Host header value Traefik routes for an app on the default domain.
+func (c *Config) AppHost(slug string) string { return c.AppHostOn(slug, "") }
+
+// AppHostOn is the Host header value Traefik routes for an app on domain
+// ("" is the default domain).
+func (c *Config) AppHostOn(slug, domain string) string {
+	if domain == "" {
+		domain = c.AppsDomain
+	}
+	return slug + "." + domain
+}
 
 func (c *Config) Path(parts ...string) string {
 	return filepath.Join(append([]string{c.DataDir}, parts...)...)

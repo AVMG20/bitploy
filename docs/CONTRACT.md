@@ -84,10 +84,28 @@ rename or remove anything, and mention it in your final summary.
   `Host: proxy.CandidateHost(slug)`. Traefik has an unpublished entrypoint
   `internal` on `:8081` for this (dev publishes it on `localhost:8081`).
   Traefik is connected to every `bp-<slug>` network (container `cfg.TraefikContainer`).
-- **Catch-all**: Traefik sends unknown `*.APPS_DOMAIN` hosts to bitploy
+- **Catch-all**: Traefik sends unknown `*.<app domain>` hosts to bitploy
   (`cfg.InternalURL`). The root router renders "No app here" / "This app is
-  stopped" for any Host that is a subdomain of `AppsDomain` and isn't the
-  public URL's host.
+  stopped" for any Host that is a subdomain of an app domain (`AppsDomain` or
+  an extra one) and isn't the public URL's host. `_catchall.yml` is written at
+  startup and again whenever an admin adds or removes an app domain
+  (`Service.ApplyAppDomains`).
+- **App domains** (`internal/app/app_domains.go`, `internal/domains/appdomain.go`,
+  migration `00200`, queries `app_domains.sql`): extra wildcard domains in
+  `app_domains` (certificate PEM, private key sealed with `store.Crypto`, AAD
+  `app-domain-key\x00<id>`), grants in `user_app_domains`, and
+  `apps.base_domain` (`''` = the default domain). An app's address is
+  `cfg.AppURLOn(slug, app.BaseDomain)` everywhere (`App.url`, `App.domain`,
+  deployment `url`, the deploy log's `Live:` line, `BITPLOY_URL`); the route Host
+  is `cfg.AppHostOn`. Slugs stay globally unique. `Me.app_domains` lists the
+  domains a user may use (default first; admins: all). `CreateAppInput.domain`,
+  `UpdateAppInput.domain`, `CatalogDeployInput.domain` and the MCP `domain`
+  argument go through `pickAppDomain` (403 `domain_not_allowed`). Admin API:
+  `GET/POST /admin/app-domains`, `PUT /admin/app-domains/{id}/certificate`,
+  `DELETE /admin/app-domains/{id}` (409 `app_domain_in_use` while apps use it),
+  `PUT /admin/users/{id}/app-domains {domain_ids}`. The key is never returned.
+  Certificates are written as `<RoutesDir>/certs/<domain>.crt|.key` (0600) and
+  `_certs.yml` (`tls.certificates`, paths under `/dynamic`).
 - **Local dev**: `BITPLOY_DEV=1 BITPLOY_APPS_DOMAIN=localhost BITPLOY_APPS_SCHEME=http
   BITPLOY_APPS_PORT=8000 BITPLOY_PUBLIC_URL=http://localhost:5173
   BITPLOY_TRAEFIK_INTERNAL_URL=http://localhost:8081

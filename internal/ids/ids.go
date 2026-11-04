@@ -20,6 +20,7 @@ const (
 	Upload     = "upl"
 	Domain     = "dom"
 	Backup     = "bak"
+	AppDomain  = "apd"
 )
 
 // New returns prefix + "_" + 20 random base62 characters (~119 bits).

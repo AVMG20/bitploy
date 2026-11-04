@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var testRules = Rules{AppsDomain: "bitploy.nl", PublicHost: "bitploy.nl", EdgeHost: "edge.bitploy.nl"}
+var testRules = Rules{AppsDomains: []string{"bitploy.nl"}, PublicHost: "bitploy.nl", EdgeHost: "edge.bitploy.nl"}
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
@@ -65,7 +65,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestValidateReservedExternalPublicHost(t *testing.T) {
-	r := Rules{AppsDomain: "apps.example.net", PublicHost: "console.example.net", EdgeHost: "edge.example.net"}
+	r := Rules{AppsDomains: []string{"apps.example.net"}, PublicHost: "console.example.net", EdgeHost: "edge.example.net"}
 	for _, h := range []string{"console.example.net", "edge.example.net", "x.apps.example.net"} {
 		if _, err := Validate(h, r); err == nil || err.Code != "domain_reserved" {
 			t.Errorf("Validate(%q) = %v, want domain_reserved", h, err)

@@ -26,6 +26,23 @@ export function slugify(name: string): string {
     .replace(/-+$/g, '')
 }
 
+/**
+ * The parts around the name in an app's address on a domain: "https://" and
+ * ".example.com". domain "" is the default domain.
+ */
+export function addressParts(
+  me: { apps_domain: string; app_url_template: string; app_domains?: { domain: string; url_template: string }[] } | undefined,
+  domain = '',
+): { before: string; after: string } {
+  const base = me?.app_url_template ?? 'https://{slug}.example.com'
+  let template = me?.app_domains?.find((d) => d.domain === domain)?.url_template
+  // A domain the person may no longer pick (an app that stays on it): the
+  // default address with the domain swapped.
+  if (!template && domain && me) template = base.replace(`{slug}.${me.apps_domain}`, `{slug}.${domain}`)
+  const [before = 'https://', after = '.example.com'] = (template ?? base).split('{slug}')
+  return { before, after }
+}
+
 /** The app's address from the server's template ("https://{slug}.example.com"). */
 export function appAddress(template: string | undefined, slug: string): string {
   return (template || 'https://{slug}.example.com').replace('{slug}', slug || 'your-app')

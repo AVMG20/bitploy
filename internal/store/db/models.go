@@ -63,6 +63,7 @@ type App struct {
 	OutputDir           string
 	CatalogID           string
 	CatalogVersion      string
+	BaseDomain          string
 }
 
 type AppBackup struct {
@@ -83,6 +84,15 @@ type AppDisk struct {
 	VolumeBytes int64
 	MeasuredAt  int64
 	SourceBytes int64
+}
+
+type AppDomain struct {
+	ID           string
+	Domain       string
+	CertPem      string
+	KeyEnc       []byte
+	CertNotAfter sql.NullInt64
+	CreatedAt    int64
 }
 
 type AuditLog struct {
@@ -351,4 +361,10 @@ type User struct {
 	QuotaVolumeMb       int64
 	CreatedAt           int64
 	UpdatedAt           int64
+}
+
+type UserAppDomain struct {
+	UserID    string
+	DomainID  string
+	CreatedAt int64
 }

@@ -1,5 +1,7 @@
 import type {
   AdminUser,
+  AppDomain,
+  AppDomainList,
   ApiErrorBody,
   App,
   AuditEntry,
@@ -133,6 +135,10 @@ export const paths = {
   adminApps: `${V1}/admin/apps`,
   adminAppStop: (slug: string) => `${V1}/admin/apps/${enc(slug)}/stop`,
   adminAudit: `${V1}/admin/audit`,
+  adminAppDomains: `${V1}/admin/app-domains`,
+  adminAppDomain: (id: string) => `${V1}/admin/app-domains/${enc(id)}`,
+  adminAppDomainCert: (id: string) => `${V1}/admin/app-domains/${enc(id)}/certificate`,
+  adminUserAppDomains: (id: string) => `${V1}/admin/users/${enc(id)}/app-domains`,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -513,6 +519,14 @@ export const api = {
     return listAll<App>(paths.adminApps)
   },
   adminStopApp: (slug: string) => request<unknown>('POST', paths.adminAppStop(slug)),
+  adminAppDomains: () => request<AppDomainList>('GET', paths.adminAppDomains),
+  addAppDomain: (input: { domain: string; certificate?: string; private_key?: string }) =>
+    request<AppDomain>('POST', paths.adminAppDomains, { body: input }),
+  setAppDomainCert: (id: string, input: { certificate: string; private_key: string }) =>
+    request<AppDomain>('PUT', paths.adminAppDomainCert(id), { body: input }),
+  removeAppDomain: (id: string) => request<void>('DELETE', paths.adminAppDomain(id)),
+  setUserAppDomains: (id: string, domainIds: string[]) =>
+    request<AdminUser>('PUT', paths.adminUserAppDomains(id), { body: { domain_ids: domainIds } }),
   audit: (cursor?: string) =>
     request<Page<AuditEntry>>('GET', paths.adminAudit, { query: { limit: 50, cursor } }),
 }

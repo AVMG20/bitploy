@@ -5,6 +5,7 @@ package proxy
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -60,6 +61,10 @@ type Writer struct {
 	// InternalEntryPoint is an unpublished Traefik entrypoint (":8081") used
 	// for candidate health checks. Default "internal".
 	InternalEntryPoint string
+	// TraefikDir is where Traefik sees Dir (its file provider directory), for
+	// the certificate paths in _certs.yml. Default "/dynamic", as in both
+	// compose files.
+	TraefikDir string
 }
 
 // Names are "app-<slug>" for the app's own router and service, and
@@ -217,7 +222,7 @@ func (w *Writer) Write(r Route) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(w.Dir, r.Slug+".yml"), b)
+	return atomicWrite(filepath.Join(w.Dir, r.Slug+".yml"), b, 0o644)
 }
 
 // Remove deletes an app's route file. Traefik's file watcher (notably on
@@ -240,7 +245,7 @@ func (w *Writer) Remove(slug string) error {
 func (w *Writer) nudge() {
 	path := filepath.Join(w.Dir, "_catchall.yml")
 	if b, err := os.ReadFile(path); err == nil {
-		_ = atomicWrite(path, b)
+		_ = atomicWrite(path, b, 0o644)
 	}
 }
 
@@ -270,14 +275,15 @@ func (w *Writer) Read(slug string) ([]byte, error) {
 }
 
 // WriteCatchAll writes _catchall.yml: a lowest-priority router for any host
-// under appsDomain that sends unknown and stopped apps to bitploy's friendly
-// "No app here" / "This app is stopped" page at bitployURL.
-func (w *Writer) WriteCatchAll(appsDomain, bitployURL string) error {
+// directly under one of the app domains that sends unknown and stopped apps
+// to bitploy's friendly "No app here" / "This app is stopped" page at
+// bitployURL. It is written at startup and again when an admin adds or
+// removes an app domain.
+func (w *Writer) WriteCatchAll(appsDomains []string, bitployURL string) error {
 	var f file
 	f.HTTP.Routers = map[string]router{}
 	f.HTTP.Services = map[string]service{}
-	rule := fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(appsDomain, ".", `\.`))
-	rt := router{Rule: rule, EntryPoints: []string{w.entry()}, Service: "bitploy-catchall", Priority: 1}
+	rt := router{Rule: CatchAllRule(appsDomains), EntryPoints: []string{w.entry()}, Service: "bitploy-catchall", Priority: 1}
 	if w.TLS {
 		rt.TLS = &tlsConf{}
 	}
@@ -287,10 +293,103 @@ func (w *Writer) WriteCatchAll(appsDomain, bitployURL string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(w.Dir, "_catchall.yml"), b)
+	return atomicWrite(filepath.Join(w.Dir, "_catchall.yml"), b, 0o644)
 }
 
-func atomicWrite(path string, b []byte) error {
+// CatchAllRule matches a host with one label below any of the domains.
+func CatchAllRule(domains []string) string {
+	quoted := make([]string, 0, len(domains))
+	for _, d := range domains {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			quoted = append(quoted, strings.ReplaceAll(d, ".", `\.`))
+		}
+	}
+	if len(quoted) == 1 {
+		return fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", quoted[0])
+	}
+	return fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.(%s)$`)", strings.Join(quoted, "|"))
+}
+
+// Cert is the certificate of one app domain, PEM-encoded.
+type Cert struct {
+	Domain string
+	Cert   string
+	Key    string
+}
+
+// certsDirName is the folder below Dir that holds certificate files.
+// Traefik's file provider reads subfolders too, but only .yml, .yaml and
+// .toml files in them, so it leaves the .crt and .key files alone.
+const certsDirName = "certs"
+
+// WriteCerts stores the certificate and key of every app domain that has one
+// as files (mode 0600) in Dir/certs and lists them in _certs.yml under
+// tls.certificates, so Traefik picks the right one by SNI. Hosts without a
+// matching certificate get the default certificate (_tls.yml). Files of
+// domains that are no longer listed are removed. _certs.yml is written after
+// the files it names: Traefik reloads when it changes.
+func (w *Writer) WriteCerts(certs []Cert) error {
+	dir := filepath.Join(w.Dir, certsDirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	type certFile struct {
+		CertFile string `yaml:"certFile"`
+		KeyFile  string `yaml:"keyFile"`
+	}
+	var conf struct {
+		TLS struct {
+			Certificates []certFile `yaml:"certificates"`
+		} `yaml:"tls"`
+	}
+	conf.TLS.Certificates = []certFile{}
+	keep := map[string]bool{}
+	sorted := append([]Cert(nil), certs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Domain < sorted[j].Domain })
+	for _, c := range sorted {
+		name := strings.ToLower(c.Domain)
+		if name == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") || c.Cert == "" || c.Key == "" {
+			continue
+		}
+		if err := atomicWrite(filepath.Join(dir, name+".crt"), []byte(c.Cert), 0o600); err != nil {
+			return err
+		}
+		if err := atomicWrite(filepath.Join(dir, name+".key"), []byte(c.Key), 0o600); err != nil {
+			return err
+		}
+		keep[name+".crt"], keep[name+".key"] = true, true
+		conf.TLS.Certificates = append(conf.TLS.Certificates, certFile{
+			CertFile: path.Join(w.traefikDir(), certsDirName, name+".crt"),
+			KeyFile:  path.Join(w.traefikDir(), certsDirName, name+".key"),
+		})
+	}
+	b, err := yaml.Marshal(&conf)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(filepath.Join(w.Dir, "_certs.yml"), b, 0o644); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() && !keep[e.Name()] {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+	return nil
+}
+
+func (w *Writer) traefikDir() string {
+	if w.TraefikDir != "" {
+		return w.TraefikDir
+	}
+	return "/dynamic"
+}
+
+func atomicWrite(path string, b []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err
@@ -300,7 +399,7 @@ func atomicWrite(path string, b []byte) error {
 		os.Remove(tmp.Name())
 		return err
 	}
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
 		os.Remove(tmp.Name())
 		return err

@@ -155,8 +155,8 @@ func (q *Queries) GetUpload(ctx context.Context, id string) (Upload, error) {
 const insertApp = `-- name: InsertApp :exec
 
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  build_mode, home_page, output_dir, desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
+                  build_mode, home_page, output_dir, base_domain, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
 `
 
 type InsertAppParams struct {
@@ -174,6 +174,7 @@ type InsertAppParams struct {
 	BuildMode     string
 	HomePage      string
 	OutputDir     string
+	BaseDomain    string
 	CreatedAt     int64
 	UpdatedAt     int64
 }
@@ -195,6 +196,7 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) error {
 		arg.BuildMode,
 		arg.HomePage,
 		arg.OutputDir,
+		arg.BaseDomain,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -575,7 +577,7 @@ func (q *Queries) SumVolumeMBByUser(ctx context.Context, arg SumVolumeMBByUserPa
 const updateAppSettings = `-- name: UpdateAppSettings :exec
 UPDATE apps
 SET slug = ?, name = ?, type = ?, port = ?, health_path = ?, dockerfile_path = ?, context_dir = ?,
-    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
+    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, base_domain = ?, updated_at = ?
 WHERE id = ?
 `
 
@@ -591,6 +593,7 @@ type UpdateAppSettingsParams struct {
 	VolumeMb       int64
 	MemoryMb       int64
 	CpuMillis      int64
+	BaseDomain     string
 	UpdatedAt      int64
 	ID             string
 }
@@ -608,6 +611,7 @@ func (q *Queries) UpdateAppSettings(ctx context.Context, arg UpdateAppSettingsPa
 		arg.VolumeMb,
 		arg.MemoryMb,
 		arg.CpuMillis,
+		arg.BaseDomain,
 		arg.UpdatedAt,
 		arg.ID,
 	)

@@ -15,6 +15,7 @@ import GitConnect from './GitConnect.vue'
 import GitLinked from './GitLinked.vue'
 import PasswordProtection from './PasswordProtection.vue'
 import SettingsSection from '@/components/SettingsSection.vue'
+import DomainSelect from '@/components/DomainSelect.vue'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -75,16 +76,19 @@ const generalForm = useForm({
 })
 
 let generalLoadedFor = ''
+const domain = ref('')
 watch(
   () => app.data.value,
   (a) => {
     if (a && generalLoadedFor !== a.id) {
       generalLoadedFor = a.id
       generalForm.resetForm({ values: { name: a.name, slug: a.slug } })
+      domain.value = a.domain
     }
   },
   { immediate: true },
 )
+const domainChanged = computed(() => !!domain.value && !!app.data.value && domain.value !== app.data.value.domain)
 
 // A new subdomain moves the app, so it is confirmed first.
 const pendingRename = ref<{ name: string; slug: string } | null>(null)
@@ -100,15 +104,18 @@ const saveGeneral = useMutation({
     const input: UpdateAppInput = {}
     if (v.name !== app.data.value?.name) input.name = v.name
     if (v.slug !== props.slug) input.slug = v.slug
+    if (domainChanged.value) input.domain = domain.value
     return api.updateApp(props.slug, input)
   },
   onSuccess: async (updated) => {
     const oldSlug = props.slug
+    const moved = updated.domain !== app.data.value?.domain
     pendingRename.value = null
     generalForm.resetForm({ values: { name: updated.name, slug: updated.slug } })
+    domain.value = updated.domain
     void qc.invalidateQueries({ queryKey: keys.apps })
     if (updated.slug === oldSlug) {
-      toastOk('Name saved')
+      toastOk(moved ? 'Address changed' : 'Name saved', moved && updated.url ? `The app now lives at ${updated.url}. The old address no longer works.` : undefined)
       void qc.invalidateQueries({ queryKey: keys.app(oldSlug) })
       return
     }
@@ -126,11 +133,11 @@ const saveGeneral = useMutation({
   },
 })
 const submitGeneral = generalForm.handleSubmit((v) => {
-  if (v.slug !== props.slug) pendingRename.value = v
+  if (v.slug !== props.slug || domainChanged.value) pendingRename.value = v
   else if (v.name !== app.data.value?.name) saveGeneral.mutate(v)
 })
 const renameDescription = computed(() => {
-  const to = `${pendingRename.value?.slug ?? ''}.${me.data.value?.apps_domain ?? ''}`
+  const to = `${pendingRename.value?.slug ?? ''}.${domain.value || me.data.value?.apps_domain || ''}`
   return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Saved files are kept.`
 })
 
@@ -368,7 +375,7 @@ const del = useMutation({
                       <FormLabel>Address</FormLabel>
                       <div class="flex min-w-0 items-center gap-2">
                         <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
-                        <span v-if="me.data.value" class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">.{{ me.data.value.apps_domain }}</span>
+                        <DomainSelect v-if="me.data.value && app.data.value" v-model="domain" :current="app.data.value.domain" />
                       </div>
                       <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
                       <FormMessage />

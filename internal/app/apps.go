@@ -192,16 +192,20 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 	}
 
+	baseDomain, err := s.pickAppDomain(ctx, user, in.Domain)
+	if err != nil {
+		return App{}, err
+	}
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	generated := slug == ""
 	if !generated {
-		if err := s.checkSlugFree(ctx, slug, user.ID); err != nil {
+		if err := s.checkSlugFree(ctx, slug, user.ID, baseDomain); err != nil {
 			return App{}, err
 		}
 	} else {
 		for i := 0; ; i++ {
 			slug = deploy.GenerateSlug()
-			if s.checkSlugFree(ctx, slug, user.ID) == nil {
+			if s.checkSlugFree(ctx, slug, user.ID, baseDomain) == nil {
 				break
 			}
 			if i > 50 {
@@ -223,6 +227,9 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := checkAppCaps(q); err != nil {
 			return err
 		}
+		if err := checkDomainStillThere(ctx, q, baseDomain); err != nil {
+			return err
+		}
 		// The volume is named after the slug, unless a renamed app still uses that
 		// name for its own volume (volumes keep their name across renames).
 		volName := dockerx.VolumeName(slug)
@@ -234,7 +241,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
-			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, CreatedAt: now, UpdatedAt: now,
+			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, BaseDomain: baseDomain, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -251,7 +258,11 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		return App{}, apperr.Internal(err)
 	}
-	s.Audit(ctx, a, "app.create", "app", id, map[string]any{"slug": slug, "type": typ, "build_mode": buildMode})
+	created := map[string]any{"slug": slug, "type": typ, "build_mode": buildMode}
+	if baseDomain != "" {
+		created["domain"] = baseDomain
+	}
+	s.Audit(ctx, a, "app.create", "app", id, created)
 	row, err := s.Q.GetApp(ctx, id)
 	if err != nil {
 		return App{}, apperr.Internal(err)
@@ -303,7 +314,8 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	p := db.UpdateAppSettingsParams{
 		ID: row.ID, Slug: row.Slug, Name: row.Name, Type: row.Type, Port: row.Port,
 		HealthPath: row.HealthPath, DockerfilePath: row.DockerfilePath, ContextDir: row.ContextDir,
-		VolumeEnabled: row.VolumeEnabled, VolumeMb: row.VolumeMb, MemoryMb: row.MemoryMb, CpuMillis: row.CpuMillis, UpdatedAt: s.now(),
+		VolumeEnabled: row.VolumeEnabled, VolumeMb: row.VolumeMb, MemoryMb: row.MemoryMb, CpuMillis: row.CpuMillis,
+		BaseDomain: row.BaseDomain, UpdatedAt: s.now(),
 	}
 	changed := map[string]any{}
 
@@ -458,11 +470,25 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		}
 	}
 
+	// A new domain moves the address, like a new slug. The owner must be
+	// allowed to use it; keeping the current one is always fine, also after an
+	// admin took the domain away from them.
+	moved := false
+	if in.Domain != nil && s.normalizeBaseDomain(*in.Domain) != row.BaseDomain {
+		nd, err := s.pickAppDomain(ctx, owner, *in.Domain)
+		if err != nil {
+			return App{}, err
+		}
+		p.BaseDomain = nd
+		moved = true
+		changed["domain"], changed["old_domain"] = s.appDomainOf(db.App{BaseDomain: nd}), s.appDomainOf(row)
+	}
+
 	renamed := false
 	if in.Slug != nil {
 		ns := strings.ToLower(strings.TrimSpace(*in.Slug))
 		if ns != row.Slug {
-			if err := s.checkSlugFree(ctx, ns, row.UserID); err != nil {
+			if err := s.checkSlugFree(ctx, ns, row.UserID, p.BaseDomain); err != nil {
 				return App{}, err
 			}
 			p.Slug = ns
@@ -470,10 +496,25 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			changed["slug"] = ns
 		}
 	}
+	if moved && !renamed {
+		if err := s.reservedHostErr(row.Slug, p.BaseDomain); err != nil {
+			return App{}, err
+		}
+	}
 
 	if renamed {
 		if err := s.renameApp(ctx, row, p); err != nil {
 			return App{}, err
+		}
+	} else if moved {
+		err := s.Store.Tx(ctx, func(q *db.Queries) error {
+			if err := checkDomainStillThere(ctx, q, p.BaseDomain); err != nil {
+				return err
+			}
+			return q.UpdateAppSettings(ctx, p)
+		})
+		if err != nil {
+			return App{}, apperr.As(err)
 		}
 	} else if err := s.Q.UpdateAppSettings(ctx, p); err != nil {
 		return App{}, apperr.Internal(err)
@@ -492,8 +533,9 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["old_slug"] = row.Slug
 		s.Audit(ctx, a, "app.update", "app", row.ID, changed)
 	}
-	// Port and health path changes apply to the route at once.
-	if !renamed && (in.Port != nil || in.Type != nil) {
+	// Port and health path changes apply to the route at once, and so does a
+	// new domain (the route file is named after the slug, only its Host changes).
+	if !renamed && (in.Port != nil || in.Type != nil || moved) {
 		_ = s.SyncRoute(ctx, row.ID)
 	}
 	fresh, err := s.Q.GetApp(ctx, row.ID)
@@ -541,6 +583,11 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 	// 2. Database: new slug, deployment names, reservation of the old slug.
 	now := s.now()
 	err := s.Store.Tx(ctx, func(q *db.Queries) error {
+		if p.BaseDomain != row.BaseDomain {
+			if err := checkDomainStillThere(ctx, q, p.BaseDomain); err != nil {
+				return err
+			}
+		}
 		if err := q.UpdateAppSettings(ctx, p); err != nil {
 			return err
 		}
@@ -555,6 +602,10 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 		return q.DeleteSlugReservation(ctx, newSlug)
 	})
 	if err != nil {
+		var ae *apperr.Error
+		if errors.As(err, &ae) {
+			return ae
+		}
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return slugTaken(newSlug)
 		}
@@ -916,19 +967,18 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 	return nil
 }
 
-// checkSlugFree validates a slug and checks it is not taken or reserved for someone else.
-func (s *Service) checkSlugFree(ctx context.Context, slug, userID string) error {
+// checkSlugFree validates a slug and checks it is not taken or reserved for
+// someone else. Slugs are unique across all app domains; baseDomain (empty
+// for the default) is the domain the app's address will be on.
+func (s *Service) checkSlugFree(ctx context.Context, slug, userID, baseDomain string) error {
 	if e := deploy.ValidateSlug(slug); e != nil {
 		return e
 	}
-	// The dashboard and the edge host may live below the apps domain
+	// The dashboard and the edge host may live below an app domain
 	// (BITPLOY_PUBLIC_URL, BITPLOY_EDGE_HOST). An app with that label would get
 	// a router for the same hostname and could serve a fake login page there.
-	rules := s.domainRules()
-	if host := slug + "." + rules.AppsDomain; host == rules.PublicHost || (rules.EdgeHost != "" && host == rules.EdgeHost) {
-		return apperr.Unprocessable("slug_reserved",
-			"The subdomain "+quote(slug)+" is reserved by bitploy.",
-			"Pick another name. bitploy uses "+host+" itself.")
+	if err := s.reservedHostErr(slug, baseDomain); err != nil {
+		return err
 	}
 	n, err := s.Q.AppSlugExists(ctx, slug)
 	if err != nil {
@@ -959,7 +1009,7 @@ func (s *Service) appViews(ctx context.Context, a Actor, rows []db.App) []App {
 // container's start time and restart count from Docker.
 func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
-		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, OwnerID: r.UserID,
+		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, Domain: s.appDomainOf(r), OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
 		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, HomePage: r.HomePage, OutputDir: r.OutputDir,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
@@ -978,7 +1028,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		v.BackupsMB = round1(float64(n) / mib)
 	}
 	if r.Type == "web" {
-		v.URL = s.Cfg.AppURL(r.Slug)
+		v.URL = s.appURL(r)
 		if r.ProtectEnabled != 0 {
 			v.Protected, v.ProtectedUsername = true, r.ProtectUsername
 		}
@@ -992,7 +1042,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v.GitSource = s.gitSourceState(ctx, a, r)
 	if r.CurrentDeploymentID.Valid {
 		if d, err := s.Q.GetDeployment(ctx, r.CurrentDeploymentID.String); err == nil {
-			dv := s.deploymentView(d, r.Slug, r.Type)
+			dv := s.deploymentView(d, r.Slug, r.Type, r.BaseDomain)
 			v.Current = &dv
 			v.Static = deploy.IsStaticKind(d.BuildKind)
 			if s.Docker != nil && r.DesiredState == "running" && d.ContainerName.Valid {

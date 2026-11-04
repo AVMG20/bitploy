@@ -7,7 +7,7 @@ import { useCatalog } from '@/composables/queries'
 
 // The ready-made apps, as the fourth answer to "Where is the code?". Each one
 // opens its own page; the name typed so far goes along.
-defineProps<{ name?: string; slug?: string }>()
+defineProps<{ name?: string; slug?: string; domain?: string }>()
 const catalog = useCatalog()
 </script>
 
@@ -23,7 +23,7 @@ const catalog = useCatalog()
         v-for="c in catalog.data.value"
         v-else
         :key="c.id"
-        :to="{ name: 'new-catalog', params: { catalogId: c.id }, query: name?.trim() ? { name: name.trim(), slug: slug || undefined } : undefined }"
+        :to="{ name: 'new-catalog', params: { catalogId: c.id }, query: name?.trim() || domain ? { name: name?.trim() || undefined, slug: slug || undefined, domain: domain || undefined } : undefined }"
         class="group flex min-w-0 items-center gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
       >
         <CatalogMonogram :name="c.name" size="sm" />

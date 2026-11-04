@@ -17,9 +17,9 @@ const ChallengePrefix = "_bitploy-challenge."
 
 // Rules says which hostnames bitploy owns and so cannot be added as custom domains.
 type Rules struct {
-	AppsDomain string // bitploy.nl: it and everything under it is off limits
-	PublicHost string // host of BITPLOY_PUBLIC_URL
-	EdgeHost   string // edge.bitploy.nl
+	AppsDomains []string // bitploy.nl and the extra app domains: they and everything under them are off limits
+	PublicHost  string   // host of BITPLOY_PUBLIC_URL
+	EdgeHost    string   // edge.bitploy.nl
 }
 
 // Normalize lower-cases a hostname and strips spaces and a trailing dot.
@@ -78,10 +78,12 @@ func Validate(host string, rules Rules) (string, *apperr.Error) {
 		}
 	}
 
-	if rules.AppsDomain != "" && (h == rules.AppsDomain || strings.HasSuffix(h, "."+rules.AppsDomain)) {
-		return "", apperr.BadRequest("domain_reserved",
-			quote(h)+" is part of bitploy's own domain "+rules.AppsDomain+".",
-			"Every app already has its own address on "+rules.AppsDomain+". Add a domain you own instead.")
+	for _, d := range rules.AppsDomains {
+		if d != "" && (h == d || strings.HasSuffix(h, "."+d)) {
+			return "", apperr.BadRequest("domain_reserved",
+				quote(h)+" is part of bitploy's own domain "+d+".",
+				"Every app already has its own address on a bitploy domain. Add a domain you own instead.")
+		}
 	}
 	if h == rules.PublicHost || (rules.EdgeHost != "" && h == rules.EdgeHost) {
 		return "", apperr.BadRequest("domain_reserved", quote(h)+" is used by bitploy itself.",

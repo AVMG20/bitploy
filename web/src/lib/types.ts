@@ -50,8 +50,39 @@ export interface Me {
   apps_domain: string
   /** An app's address with {slug} in place of its subdomain, for previews. */
   app_url_template: string
+  /** The domains this person may put apps on, the default first. */
+  app_domains: AppDomainChoice[]
   public_url: string
   scope: Scope
+}
+
+/** A domain an app's address can be on: https://<slug>.<domain>. */
+export interface AppDomainChoice {
+  domain: string
+  default: boolean
+  /** The address with {slug} in place of the app's name. */
+  url_template: string
+}
+
+/** A domain apps can live under, as an admin sees it. */
+export interface AppDomain {
+  /** apd_..., or "default" for the domain from the server settings. */
+  id: string
+  domain: string
+  default: boolean
+  /** install: the certificate set up with bitploy. own: added here. none: no matching certificate. */
+  certificate: 'install' | 'own' | 'none'
+  cert_expires_at: string | null
+  app_count: number
+  /** People (admins aside) allowed to use it. */
+  user_count: number
+  created_at: string | null
+}
+
+export interface AppDomainList {
+  items: AppDomain[]
+  server_ipv4: string
+  server_ipv6: string
 }
 
 export interface SessionInfo {
@@ -265,6 +296,8 @@ export interface App {
   name: string
   type: 'web' | 'worker'
   url: string
+  /** The domain of the address: <slug>.<domain>. */
+  domain: string
   owner_id: string
   status: AppStatus
   status_message?: string
@@ -317,6 +350,8 @@ export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfil
 export interface CreateAppInput {
   name: string
   slug?: string
+  /** One of me.app_domains; leave out for the default. */
+  domain?: string
   volume?: boolean
   build_mode?: BuildMode
   output_dir?: string
@@ -328,6 +363,8 @@ export interface CreateAppInput {
 export interface UpdateAppInput {
   name?: string
   slug?: string
+  /** Move the address to another domain (one of me.app_domains). */
+  domain?: string
   type?: 'web' | 'worker'
   port?: number
   health_path?: string
@@ -441,6 +478,8 @@ export interface AdminUser extends User {
   quota: Quota
   usage: Usage
   app_count: number
+  /** Extra app domains this person may use (the default domain is always allowed). */
+  app_domain_ids: string[]
 }
 
 export interface ServerStats {
@@ -688,6 +727,7 @@ export interface CatalogApp {
 export interface CatalogDeployInput {
   name?: string
   slug?: string
+  domain?: string
   memory_mb?: number
   volume_mb?: number
 }

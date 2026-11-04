@@ -390,7 +390,7 @@ func (s *Service) GetDeployment(ctx context.Context, a Actor, id string, wait ti
 		if err != nil {
 			return Deployment{}, err
 		}
-		v := s.deploymentView(d, app.Slug, app.Type)
+		v := s.deploymentView(d, app.Slug, app.Type, app.BaseDomain)
 		left := time.Until(deadline)
 		if v.Terminal() || left <= 0 || ctx.Err() != nil {
 			return v, nil
@@ -457,7 +457,7 @@ func (s *Service) ListDeployments(ctx context.Context, a Actor, ref string, limi
 			page.NextCursor = strconv.FormatInt(rows[limit-1].Seq, 10)
 			break
 		}
-		page.Items = append(page.Items, s.deploymentView(d, row.Slug, row.Type))
+		page.Items = append(page.Items, s.deploymentView(d, row.Slug, row.Type, row.BaseDomain))
 	}
 	return page, nil
 }
@@ -633,7 +633,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	if err != nil {
 		return Deployment{}, apperr.Internal(err)
 	}
-	return s.deploymentView(d, app.Slug, app.Type), nil
+	return s.deploymentView(d, app.Slug, app.Type, app.BaseDomain), nil
 }
 
 func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.User) error {
@@ -668,7 +668,9 @@ func deployAgainIn(mins int64) string {
 
 // ---- read side ----
 
-func (s *Service) deploymentView(d db.Deployment, slug, appType string) Deployment {
+// deploymentView builds the public Deployment. baseDomain is the app's
+// apps.base_domain (empty for the default domain), for its URL.
+func (s *Service) deploymentView(d db.Deployment, slug, appType, baseDomain string) Deployment {
 	v := Deployment{
 		ID: d.ID, AppID: d.AppID, AppSlug: slug, Seq: d.Seq, State: d.State,
 		SourceKind: d.SourceKind, SourceRef: d.SourceRef, Channel: d.Channel,
@@ -677,7 +679,7 @@ func (s *Service) deploymentView(d db.Deployment, slug, appType string) Deployme
 		CommitSHA: strPtr(d.CommitSha), CommitMessage: strPtr(d.CommitMessage), Image: strPtr(d.Image),
 	}
 	if appType != "worker" {
-		v.URL = s.Cfg.AppURL(slug)
+		v.URL = s.Cfg.AppURLOn(slug, baseDomain)
 	}
 	if d.StartedAt.Valid && d.FinishedAt.Valid {
 		sec := float64(d.FinishedAt.Int64 - d.StartedAt.Int64)
@@ -969,7 +971,7 @@ func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Dep
 		return Deployment{}, err
 	}
 	view := func(d db.Deployment) (Deployment, error) {
-		return s.deploymentView(d, app.Slug, app.Type), nil
+		return s.deploymentView(d, app.Slug, app.Type, app.BaseDomain), nil
 	}
 	reload := func() error {
 		var err error

@@ -47,7 +47,7 @@ func (s *Service) containerEnv(ctx context.Context, app db.App, port int64) ([]s
 		vars["PORT"] = fmt.Sprint(port)
 	}
 	vars["BITPLOY_APP"] = app.Slug
-	vars["BITPLOY_URL"] = s.Cfg.AppURL(app.Slug)
+	vars["BITPLOY_URL"] = s.appURL(app)
 	names := make([]string, 0, len(vars))
 	for n := range vars {
 		names = append(names, n)
@@ -131,7 +131,7 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 // state: the current container (if the app should be running), active custom
 // hostnames, and a candidate while a health check is in progress.
 func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
-	r := proxy.Route{Slug: app.Slug, Host: s.Cfg.AppHost(app.Slug)}
+	r := proxy.Route{Slug: app.Slug, Host: s.Cfg.AppHostOn(app.Slug, app.BaseDomain)}
 	if app.Type == "web" {
 		if hs, err := s.ActiveHostnames(ctx, app.ID); err == nil {
 			r.Custom = hs

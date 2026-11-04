@@ -54,8 +54,10 @@ type Me struct {
 	AppsDomain string `json:"apps_domain"`
 	// AppURLTemplate is the address of an app with {slug} in place of its subdomain, for previews.
 	AppURLTemplate string `json:"app_url_template"`
-	PublicURL      string `json:"public_url"`
-	Scope          Scope  `json:"scope"`
+	// AppDomains are the domains this user may put apps on, the default first.
+	AppDomains []AppDomainChoice `json:"app_domains"`
+	PublicURL  string            `json:"public_url"`
+	Scope      Scope             `json:"scope"`
 }
 
 type SessionInfo struct {
@@ -128,11 +130,13 @@ type GitSourceState struct {
 }
 
 type App struct {
-	ID            string `json:"id"`
-	Slug          string `json:"slug"`
-	Name          string `json:"name"`
-	Type          string `json:"type"` // web | worker
-	URL           string `json:"url"`
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	Type string `json:"type"` // web | worker
+	URL  string `json:"url"`
+	// Domain is the domain the app's address is on: <slug>.<domain>.
+	Domain        string `json:"domain"`
 	OwnerID       string `json:"owner_id"`
 	Status        string `json:"status"` // new | deploying | running | stopped | failed | crashed
 	StatusMessage string `json:"status_message,omitempty"`
@@ -353,6 +357,9 @@ type AdminUser struct {
 	Quota    Quota `json:"quota"`
 	Usage    Usage `json:"usage"`
 	AppCount int64 `json:"app_count"`
+	// AppDomainIDs are the extra app domains this person may use (the default
+	// domain is always allowed; admins may use every domain).
+	AppDomainIDs []string `json:"app_domain_ids"`
 }
 
 type ServerStats struct {
@@ -401,6 +408,7 @@ type CreateAppInput struct {
 	Name      string `json:"name"`
 	Type      string `json:"type,omitempty"` // web (default) | worker
 	Slug      string `json:"slug,omitempty"`
+	Domain    string `json:"domain,omitempty" doc:"The domain of the address, one of app_domains in whoami. Empty: the default domain."`
 	Port      *int64 `json:"port,omitempty"`
 	Volume    bool   `json:"volume,omitempty"`
 	VolumeMB  *int64 `json:"volume_mb,omitempty"` // storage limit of /data, default 5120
@@ -418,6 +426,7 @@ type CreateAppInput struct {
 type UpdateAppInput struct {
 	Name           *string `json:"name,omitempty"`
 	Slug           *string `json:"slug,omitempty"`
+	Domain         *string `json:"domain,omitempty" doc:"Move the address to another domain (one of app_domains in whoami). Applies at once; the old address stops working."`
 	Type           *string `json:"type,omitempty"`
 	Port           *int64  `json:"port,omitempty"` // 0 clears it (use EXPOSE)
 	HealthPath     *string `json:"health_path,omitempty"`

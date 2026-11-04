@@ -36,35 +36,36 @@ type pageData struct {
 	Home  string
 }
 
-// appHostSlug reports whether host (no port) is a subdomain of the apps
+// appHostSlug reports whether host (no port) is a subdomain of an app
 // domain that is not the dashboard's own host, and returns the part before it.
-func (a *API) appHostSlug(hostHeader string) (string, bool) {
+func (a *API) appHostSlug(hostHeader string) (slug, domain string, ok bool) {
 	host := hostHeader
 	if h, _, err := net.SplitHostPort(hostHeader); err == nil {
 		host = h
 	}
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	if host == "" {
-		return "", false
+		return "", "", false
 	}
 	if u, err := url.Parse(a.cfg.PublicURL); err == nil && strings.EqualFold(u.Hostname(), host) {
-		return "", false
+		return "", "", false
 	}
-	suffix := "." + strings.ToLower(a.cfg.AppsDomain)
-	if !strings.HasSuffix(host, suffix) {
-		return "", false
-	}
-	return strings.TrimSuffix(host, suffix), true
+	return a.svc.AppHostSlug(host)
 }
 
 // appPage is the friendly catch-all for unknown and stopped app subdomains.
-func (a *API) appPage(w http.ResponseWriter, r *http.Request, slug string) {
+// domain is the app domain of the address: an app that lives on another
+// domain is not here.
+func (a *API) appPage(w http.ResponseWriter, r *http.Request, slug, domain string) {
 	d := pageData{Home: a.cfg.PublicURL}
 	status := http.StatusNotFound
 	d.Title = "No app here"
 	d.Lines = []string{"Nothing is deployed at this address yet.", "If you own it, ask your AI assistant to deploy it with bitploy."}
 	if slug != "" && !strings.Contains(slug, ".") {
 		row, err := a.svc.Q.GetAppBySlug(r.Context(), slug)
+		if err == nil && !strings.EqualFold(a.svc.AppDomainOf(row), domain) {
+			err = sql.ErrNoRows
+		}
 		switch {
 		case err == nil && row.Status == "running" && row.DesiredState == "running":
 			status = http.StatusServiceUnavailable

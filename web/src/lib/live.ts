@@ -33,6 +33,7 @@ export const keys = {
   adminServer: ['admin', 'server'] as const,
   adminApps: ['admin', 'apps'] as const,
   adminAudit: ['admin', 'audit'] as const,
+  adminAppDomains: ['admin', 'app-domains'] as const,
 }
 
 export type LiveEvent =

@@ -341,6 +341,7 @@ func (s *Service) Me(ctx context.Context, a Actor) (Me, error) {
 		Usage:          usage,
 		AppsDomain:     s.Cfg.AppsDomain,
 		AppURLTemplate: s.Cfg.AppURL("{slug}"),
+		AppDomains:     s.appDomainChoices(ctx, u),
 		PublicURL:      s.Cfg.PublicURL,
 		Scope:          a.Scope,
 	}, nil

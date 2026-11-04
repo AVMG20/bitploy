@@ -30,7 +30,7 @@ func (s *Service) domainRules() domains.Rules {
 	if u, err := url.Parse(s.Cfg.PublicURL); err == nil {
 		host = strings.ToLower(u.Hostname())
 	}
-	return domains.Rules{AppsDomain: strings.ToLower(s.Cfg.AppsDomain), PublicHost: host, EdgeHost: strings.ToLower(s.Cfg.EdgeHost)}
+	return domains.Rules{AppsDomains: s.AllAppDomains(), PublicHost: host, EdgeHost: strings.ToLower(s.Cfg.EdgeHost)}
 }
 
 func (s *Service) dnsResolvers() []domains.Named {

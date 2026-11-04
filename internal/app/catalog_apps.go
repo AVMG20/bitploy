@@ -47,6 +47,7 @@ type CatalogApp struct {
 type CatalogDeployInput struct {
 	Name     string `json:"name,omitempty"`
 	Slug     string `json:"slug,omitempty"`
+	Domain   string `json:"domain,omitempty" doc:"The domain of the address, one of app_domains in whoami. Empty: the default domain."`
 	MemoryMB *int64 `json:"memory_mb,omitempty"`
 	VolumeMB *int64 `json:"volume_mb,omitempty"`
 }
@@ -116,7 +117,7 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	}
 	port := int64(e.Port)
 	create := CreateAppInput{
-		Name: name, Type: "web", Port: &port, Volume: e.Volume, MemoryMB: &mem, BuildMode: "dockerfile",
+		Name: name, Type: "web", Port: &port, Volume: e.Volume, MemoryMB: &mem, BuildMode: "dockerfile", Domain: in.Domain,
 	}
 	if e.Volume {
 		vol := int64(e.VolumeMB)

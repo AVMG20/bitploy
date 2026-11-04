@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { ArrowLeft, ChevronRight, ExternalLink } from 'lucide-vue-next'
 import CatalogMonogram from '@/components/CatalogMonogram.vue'
 import CodeBlock from '@/components/CodeBlock.vue'
+import DomainSelect from '@/components/DomainSelect.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -22,7 +23,7 @@ import { api, ApiError } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB } from '@/lib/format'
-import { slugify, slugSchema } from '@/lib/slug'
+import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
 const router = useRouter()
@@ -72,10 +73,9 @@ function editAddress() {
   editingAddress.value = true
   addressEdited.value = true
 }
-const addressParts = computed(() => {
-  const [before = 'https://', after = '.example.com'] = (me.data.value?.app_url_template ?? 'https://{slug}.example.com').split('{slug}')
-  return { before, after }
-})
+const domain = ref('') // "" is the default domain
+const addressParts = computed(() => toAddressParts(me.data.value, domain.value))
+if (typeof route.query.domain === 'string') domain.value = route.query.domain
 
 // ---------------------------------------------------------------- deploy
 const SLUG_CODES = new Set(['slug_invalid', 'slug_reserved', 'slug_taken'])
@@ -83,7 +83,7 @@ const error = ref<FriendlyError | null>(null)
 const showFile = ref(false)
 
 const deploy = useMutation({
-  mutationFn: (v: { name: string; slug: string }) => api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug }),
+  mutationFn: (v: { name: string; slug: string }) => api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined }),
   onSuccess: async (r) => {
     qc.setQueryData(keys.app(r.app.slug), r.app)
     void qc.invalidateQueries({ queryKey: keys.apps })
@@ -149,7 +149,7 @@ const submit = form.handleSubmit((v) => {
                 </div>
                 <div v-if="editingAddress" class="flex min-w-0 items-center gap-2">
                   <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" :disabled="deploy.isPending.value" v-bind="componentField" /></FormControl>
-                  <span class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">{{ addressParts.after }}</span>
+                  <DomainSelect v-model="domain" :disabled="deploy.isPending.value" />
                 </div>
                 <p class="truncate rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[13px] text-muted-foreground" data-testid="address-preview">
                   {{ addressParts.before }}<span class="font-medium text-foreground">{{ form.values.slug || 'your-app' }}</span>{{ addressParts.after }}

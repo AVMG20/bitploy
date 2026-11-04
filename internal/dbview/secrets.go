@@ -37,6 +37,7 @@ var controlSecrets = map[string][]string{
 	"github_app":       {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted
 	"apps":             {"protect_hash"},                                               // hash of the password of a protected app
 	"domains":          {"txt_token"},                                                  // DNS ownership token, derived from the server secret
+	"app_domains":      {"key_enc"},                                                    // private key of an app domain's certificate, encrypted
 	"idempotency_keys": {"key", "body"},                                                // a client's key, and the stored answer (may hold a token)
 	"sqlite_stat4":     {"sample"},                                                     // ANALYZE keeps samples of indexed values (hashes) here
 }

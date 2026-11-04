@@ -33,6 +33,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.adminDBRoutes()
 	a.githubRoutes()
 	a.adminRoutes()
+	a.appDomainRoutes()
 	apiMux.HandleFunc("GET "+prefix+"/events", a.events)
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })
 
@@ -85,8 +86,8 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	mux.Handle("/", static)
 
 	root := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if slug, ok := a.appHostSlug(r.Host); ok {
-			a.appPage(w, r, slug)
+		if slug, domain, ok := a.appHostSlug(r.Host); ok {
+			a.appPage(w, r, slug, domain)
 			return
 		}
 		mux.ServeHTTP(w, r)

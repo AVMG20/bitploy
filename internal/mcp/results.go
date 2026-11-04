@@ -57,6 +57,13 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	b.WriteString(md)
 	b.WriteString("\n## This server\n\n")
 	fmt.Fprintf(&b, "- Apps are served at %s (base domain %s).\n", s.svc.Cfg.AppURL("<slug>"), s.svc.Cfg.AppsDomain)
+	if me, err := s.svc.Me(ctx, a); err == nil && len(me.AppDomains) > 1 {
+		names := make([]string, 0, len(me.AppDomains)-1)
+		for _, d := range me.AppDomains[1:] {
+			names = append(names, d.Domain)
+		}
+		fmt.Fprintf(&b, "- This user may also put apps on: %s. Pass domain= to create_app, update_app or deploy_catalog_app, only when the user asks for it.\n", strings.Join(names, ", "))
+	}
 	fmt.Fprintf(&b, "- Dashboard (API tokens, usage, and Settings > GitHub for private repos): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)

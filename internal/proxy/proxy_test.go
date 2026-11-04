@@ -79,7 +79,7 @@ func TestWriteRemoveAndList(t *testing.T) {
 	if err := w.Write(Route{Slug: "a-app", Host: "a-app.localhost", Upstream: "http://bp-a-app-1:80"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.WriteCatchAll("localhost", "http://bitploy:8080"); err != nil {
+	if err := w.WriteCatchAll([]string{"localhost"}, "http://bitploy:8080"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := w.List(); len(got) != 1 || got[0] != "a-app" {
@@ -108,7 +108,7 @@ func TestWriteRemoveAndList(t *testing.T) {
 func TestRemoveRewritesCatchAll(t *testing.T) {
 	w := &Writer{Dir: t.TempDir(), EntryPoint: "web"}
 	w.Write(Route{Slug: "a-app", Host: "a-app.localhost", Upstream: "http://bp-a-app-1:80"})
-	w.WriteCatchAll("localhost", "http://bitploy:8080")
+	w.WriteCatchAll([]string{"localhost"}, "http://bitploy:8080")
 	catch := filepath.Join(w.Dir, "_catchall.yml")
 	before, _ := os.ReadFile(catch)
 	i1, _ := os.Stat(catch)

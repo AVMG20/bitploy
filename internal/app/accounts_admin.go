@@ -24,7 +24,11 @@ func (s *Service) adminUser(ctx context.Context, u db.User) (AdminUser, error) {
 	if usage.Apps < n {
 		usage.Apps = n
 	}
-	return AdminUser{User: acctUserFromRow(u), Quota: acctQuotaFromRow(u), Usage: usage, AppCount: n}, nil
+	grants, err := s.Q.ListUserAppDomainIDs(ctx, u.ID)
+	if err != nil {
+		return AdminUser{}, apperr.Internal(err)
+	}
+	return AdminUser{User: acctUserFromRow(u), Quota: acctQuotaFromRow(u), Usage: usage, AppCount: n, AppDomainIDs: grants}, nil
 }
 
 func (s *Service) AdminListUsers(ctx context.Context, a Actor) ([]AdminUser, error) {

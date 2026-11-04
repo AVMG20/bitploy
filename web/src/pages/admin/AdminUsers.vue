@@ -18,6 +18,7 @@ import { api } from '@/lib/api'
 import { formatMB } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { AdminUser } from '@/lib/types'
+import UserDomainsSelect from './UserDomainsSelect.vue'
 
 interface QuotaForm {
   apps: number
@@ -153,6 +154,7 @@ const setStatus = useMutation({
             </TableCell>
             <TableCell>
               <div class="flex gap-1">
+                <UserDomainsSelect :user="u" />
                 <Button size="sm" variant="outline" :aria-label="`Limits for ${u.name}`" @click="edit(u)">Limits</Button>
                 <Button size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" :aria-label="`${u.status === 'suspended' ? 'Reactivate' : 'Suspend'} ${u.name}`" @click="toggling = u">
                   {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}

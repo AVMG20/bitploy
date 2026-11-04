@@ -786,7 +786,7 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 		}
 		s.retireContainer(p.prevName, delay)
 	}
-	p.logf("Live: %s", s.Cfg.AppURL(p.app.Slug))
+	p.logf("Live: %s", s.appURL(p.app))
 	s.NotifyDeployment(p.dep.ID)
 	s.Audit(ctx, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.running", "deployment", p.dep.ID, map[string]any{"app": p.app.Slug, "seq": p.dep.Seq})
 	return nil

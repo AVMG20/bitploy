@@ -132,8 +132,10 @@ func serve(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if err := svc.Routes.WriteCatchAll(svc.Cfg.AppsDomain, svc.Cfg.InternalURL); err != nil {
-		return fmt.Errorf("write catch-all route: %w", err)
+	// The catch-all route for every app domain and the certificates of the
+	// extra domains (both rewritten whenever an admin changes the domains).
+	if err := svc.ApplyAppDomains(ctx); err != nil {
+		return fmt.Errorf("write catch-all route and app domain certificates: %w", err)
 	}
 
 	go svc.RunReconciler(ctx)

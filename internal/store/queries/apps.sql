@@ -2,8 +2,8 @@
 
 -- name: InsertApp :exec
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  build_mode, home_page, output_dir, desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
+                  build_mode, home_page, output_dir, base_domain, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?);
 
 -- name: SetAppBuildMode :exec
 UPDATE apps SET build_mode = ?, home_page = ?, output_dir = ?, updated_at = ? WHERE id = ?;
@@ -11,7 +11,7 @@ UPDATE apps SET build_mode = ?, home_page = ?, output_dir = ?, updated_at = ? WH
 -- name: UpdateAppSettings :exec
 UPDATE apps
 SET slug = ?, name = ?, type = ?, port = ?, health_path = ?, dockerfile_path = ?, context_dir = ?,
-    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, updated_at = ?
+    volume_enabled = ?, volume_mb = ?, memory_mb = ?, cpu_millis = ?, base_domain = ?, updated_at = ?
 WHERE id = ?;
 
 -- name: DeleteAppRow :exec

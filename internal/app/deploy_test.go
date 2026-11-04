@@ -1152,7 +1152,7 @@ func TestSyncRouteAndReconcileRoutes(t *testing.T) {
 	path := filepath.Join(e.s.Cfg.RoutesDir(), app.Slug+".yml")
 	_ = os.WriteFile(path, []byte("garbage"), 0o644)
 	_ = os.WriteFile(filepath.Join(e.s.Cfg.RoutesDir(), "ghost-app.yml"), []byte("x"), 0o644)
-	_ = e.s.Routes.WriteCatchAll("bitploy.test", "http://bitploy:8080")
+	_ = e.s.Routes.WriteCatchAll([]string{"bitploy.test"}, "http://bitploy:8080")
 	e.s.reconcileRoutes(ctx)
 	if got, _ := e.s.Routes.Read(app.Slug); string(got) != string(b) {
 		t.Errorf("tampered route not repaired:\n%s", got)
@@ -1279,7 +1279,7 @@ func TestDeploymentViewShapes(t *testing.T) {
 		"queued": "get_deployment", "building": "get_deployment", "running": "link", "failed": "after 3 failures",
 		"superseded": "newer deployment", "cancelled": "get_app",
 	} {
-		d := e.s.deploymentView(dbDep(state), "my-app", "web")
+		d := e.s.deploymentView(dbDep(state), "my-app", "web", "")
 		if len(d.NextSteps) == 0 || !strings.Contains(strings.ToLower(strings.Join(d.NextSteps, " ")), wantStep) {
 			t.Errorf("%s: next_steps %v", state, d.NextSteps)
 		}
@@ -1290,7 +1290,7 @@ func TestDeploymentViewShapes(t *testing.T) {
 			t.Errorf("url %q", d.URL)
 		}
 	}
-	if d := e.s.deploymentView(dbDep("running"), "w", "worker"); d.URL != "" {
+	if d := e.s.deploymentView(dbDep("running"), "w", "worker", ""); d.URL != "" {
 		t.Errorf("worker deployment url %q", d.URL)
 	}
 }

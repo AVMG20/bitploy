@@ -1010,7 +1010,7 @@ func TestWebhookPushMatching(t *testing.T) {
 	if got.GitSource.LastPushAt == nil {
 		t.Fatal("last_push_at not recorded")
 	}
-	if dv := g.s.deploymentView(newest, "site", "web"); dv.Channel != "github" || dv.CommitSHA == nil || *dv.CommitSHA != sha1a {
+	if dv := g.s.deploymentView(newest, "site", "web", ""); dv.Channel != "github" || dv.CommitSHA == nil || *dv.CommitSHA != sha1a {
 		t.Fatalf("view: %+v", dv)
 	}
 

@@ -61,6 +61,17 @@ Apps live on subdomains of your domain (the examples use `bitploy.nl`). Create t
 - Create an **Origin CA certificate** (SSL/TLS, Origin Server, Create Certificate) for `bitploy.nl` and `*.bitploy.nl`, format PEM. `install.sh` offers to paste it (or uses a self-signed one until you do); Traefik serves it as the default certificate.
 - Custom domains of your users do not go through Cloudflare. They point at `edge.bitploy.nl` (DNS only) and get their own Let's Encrypt certificate from Traefik.
 
+#### More app domains
+
+An admin can add more domains for app addresses under Admin, Domains (for example `example.com`, so apps can live at `name.example.com`). Each one is a Cloudflare domain set up like the one above:
+
+1. DNS: `*.example.com`, A (and AAAA if `BITPLOY_SERVER_IPV6` is set) to the server IP, **Proxied**. The Domains page shows the IPs from `BITPLOY_SERVER_IPV4`/`_IPV6`.
+2. SSL/TLS, Origin Server, Create Certificate for `example.com` and `*.example.com`; paste the certificate and private key into the form. bitploy keeps the key encrypted in its database (with `BITPLOY_SECRET_KEY`, like env vars), writes both to `<data dir>/traefik/dynamic/certs/` (mode 0600) and lists them in `_certs.yml`, so Traefik picks the right certificate by name. Without one, Traefik serves the default certificate and Cloudflare's Full (strict) mode refuses the connection.
+3. SSL/TLS mode **Full (strict)** for that domain.
+4. Add the domain under Admin, Domains, then give people access with the domain menu next to their name under People. Admins may always use every domain; everyone may use the default one.
+
+Slugs stay unique across all domains. When a person may use more than one domain, New app, ready-made apps and the app's Settings show a domain menu next to the name; AI assistants pass `domain` to `create_app`, `update_app` or `deploy_catalog_app` (`whoami` lists them). Moving an app to another domain changes its address at once. A domain that apps still use cannot be removed; taking a domain away from a person leaves their apps where they are. No compose or install changes are needed: the certificate files sit in the folder Traefik already reads.
+
 ### 2. Hetzner Cloud Firewall
 
 | Port | Allow from |
@@ -130,7 +141,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | Variable | Example | Meaning |
 | --- | --- | --- |
 | `BITPLOY_PUBLIC_URL` | `https://bitploy.nl` | Dashboard, API and MCP origin; also the CSRF origin |
-| `BITPLOY_APPS_DOMAIN` | `bitploy.nl` | Parent domain of app subdomains |
+| `BITPLOY_APPS_DOMAIN` | `bitploy.nl` | Default parent domain of app subdomains (admins can add more under Admin, Domains) |
 | `BITPLOY_EDGE_HOST` | `edge.bitploy.nl` | DNS-only name that custom domains point to (default `edge.<apps domain>`) |
 | `BITPLOY_SERVER_IPV4`, `BITPLOY_SERVER_IPV6` | `203.0.113.10` | Shown in DNS instructions and accepted by DNS checks |
 | `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials. `openssl rand -base64 32` |

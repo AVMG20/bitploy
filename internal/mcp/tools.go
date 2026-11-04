@@ -40,6 +40,7 @@ type createAppIn struct {
 	Name     string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
 	Type     string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
 	Slug     string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
+	Domain   string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami, like example.com, so the app lives at <slug>.example.com. Leave out for the default domain."`
 	Port     *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
 	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys, for the SQLite database (like /data/app.db) and uploads. Any app that stores data needs it, and must write its files to /data."`
 	VolumeMB *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
@@ -49,6 +50,7 @@ type updateAppIn struct {
 	App            string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Name           *string `json:"name,omitempty" jsonschema:"New display name, 1-80 characters."`
 	Slug           *string `json:"slug,omitempty" jsonschema:"Rename the subdomain (the URL changes, old URL stops working, a few seconds of downtime). 3-40 characters of a-z, 0-9 and -. Files in /data are kept."`
+	Domain         *string `json:"domain,omitempty" jsonschema:"Move the app to another domain, one of app_domains in whoami (the URL changes at once and the old one stops working). Only when the user asks."`
 	Type           *string `json:"type,omitempty" jsonschema:"web or worker."`
 	Port           *int64  `json:"port,omitempty" jsonschema:"The port the app listens on, like 3000. 0 clears it so the Dockerfile EXPOSE is used. Applies on the next deploy."`
 	HealthPath     *string `json:"health_path,omitempty" jsonschema:"Path bitploy requests to see the app is healthy, like /healthz. Starts with /. Default /. Any status below 500 passes. Applies on the next deploy."`
@@ -73,9 +75,10 @@ type deployFilesIn struct {
 }
 
 type catalogDeployIn struct {
-	ID   string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
-	Name string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
-	Slug string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+	ID     string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
+	Name   string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
+	Slug   string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+	Domain string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
 }
 
 type gitSourceIn struct {
@@ -180,7 +183,7 @@ func (s *srv) registerTools() {
 	adminURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/admin"
 
 	addTool(s, "whoami", "Who am I",
-		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>), quotas, current usage and hard limits (inline 2 MB/200 files, zip 95 MB). Next: list_apps.",
+		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>) and app_domains (every domain this user may put apps on), quotas, current usage and hard limits (inline 2 MB/200 files, zip 95 MB). Next: list_apps.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			me, err := svc.Me(ctx, a)
@@ -196,9 +199,17 @@ func (s *srv) registerTools() {
 			if me.Scope == app.ScopeRead {
 				next = []string{"This token is read-only: you can look but not deploy. Ask the user for a token with the deploy scope (dashboard, Tokens), then call list_apps to look around."}
 			}
+			domainsLine := ""
+			if len(me.AppDomains) > 1 {
+				names := make([]string, 0, len(me.AppDomains)-1)
+				for _, d := range me.AppDomains[1:] {
+					names = append(names, d.Domain)
+				}
+				domainsLine = " Other domains this user may use (pass domain= to create_app, update_app or deploy_catalog_app, only when the user asks): " + strings.Join(names, ", ") + "."
+			}
 			return &result{
-				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %d MB of %d MB memory reserved (static sites do not count). Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.",
-					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, me.Usage.MemoryReservedMB, me.Quota.MemoryMB),
+				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %d MB of %d MB memory reserved (static sites do not count). Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",
+					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, me.Usage.MemoryReservedMB, me.Quota.MemoryMB, domainsLine),
 				Data: d,
 				Next: next,
 			}, nil
@@ -313,7 +324,7 @@ func (s *srv) registerTools() {
 		write(), true,
 		enums(map[string][]string{"type": {"web", "worker"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
-			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB})
+			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB})
 			if err != nil {
 				return nil, err
 			}
@@ -333,11 +344,11 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) applies at once and changes the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
+		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
-				Name: in.Name, Slug: in.Slug, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
+				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis,
 			})
@@ -387,7 +398,7 @@ func (s *srv) registerTools() {
 		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in catalogDeployIn) (*result, error) {
-			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug})
+			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug, Domain: in.Domain})
 			if err != nil {
 				return nil, err
 			}
