@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, Boxes, FileCode, Github, LayoutGrid, TriangleAlert, Upload, X } from 'lucide-vue-next'
+import { ArrowLeft, Boxes, FileCode, Github, LayoutGrid, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
@@ -13,7 +13,6 @@ import DomainSelect from '@/components/DomainSelect.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import ComposePreview from '@/components/ComposePreview.vue'
-import { Textarea } from '@/components/ui/textarea'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -67,8 +66,8 @@ const addressParts = computed(() => toAddressParts(me.data.value, domain.value))
 // ---------------------------------------------------------------- source
 const github = useQuery({ queryKey: keys.github, queryFn: api.github })
 const canPick = computed(() => (github.data.value?.installations ?? []).some((i) => i.status === 'active'))
-// The four single-container sources come first; a pasted compose file (several
-// services) is the extra door below them.
+// One "Docker" tab takes a pasted Dockerfile (one container) or a compose file
+// (several services); the text decides which, so source is 'dockerfile' or 'compose'.
 type Source = 'github' | 'upload' | 'dockerfile' | 'ready-made' | 'compose'
 const SOURCES: Source[] = ['github', 'upload', 'dockerfile', 'ready-made', 'compose']
 // ?source= opens a tab directly, e.g. coming back from a ready-made app.
@@ -77,6 +76,16 @@ const chosenSource = ref<Source | null>(SOURCES.includes(route.query.source as S
 const source = computed({
   get: () => chosenSource.value ?? (canPick.value ? 'github' : 'upload'),
   set: (v) => (chosenSource.value = v),
+})
+// The Docker tab's text: a compose file has a top-level services: key, anything else is a Dockerfile.
+const pasted = ref('')
+const pastedKind = computed<'dockerfile' | 'compose'>(() => (/^services\s*:/m.test(pasted.value) ? 'compose' : 'dockerfile'))
+const tab = computed({
+  get: () => (source.value === 'dockerfile' || source.value === 'compose' ? 'docker' : source.value),
+  set: (v: string) => (source.value = v === 'docker' ? pastedKind.value : (v as Source)),
+})
+watch(pastedKind, (k) => {
+  if (source.value === 'dockerfile' || source.value === 'compose') source.value = k
 })
 
 const repo = ref<GitSourceInput | null>(null)
@@ -89,7 +98,8 @@ const homePage = ref('')
 const volume = ref(false)
 
 // ---------------------------------------------------------------- several services (a compose file)
-const composeText = ref('')
+const composeText = pasted
+const PASTE_PLACEHOLDER = 'FROM ghcr.io/owner/image:1.2.3\n\n# or a compose file:\nservices:\n  web:\n    image: ghcr.io/owner/app:1.0\n    ports: ["3000"]\n    depends_on: [postgres]\n  postgres:\n    image: postgres:16'
 const composeCheck = ref<ComposeCheck | null | undefined>(undefined)
 // An upload with a compose file at the top runs all its services, unless the person picks one container.
 const uploadCompose = computed(() => (source.value === 'upload' ? (upload.value?.compose ?? null) : null))
@@ -108,8 +118,8 @@ const previewFrom = computed(() => (source.value === 'compose' ? '' : uploadComp
 const composeBlocked = computed(() => !!previewText.value && (composeCheck.value === undefined || !!composeCheck.value?.errors?.length))
 const previewAddress = computed(() => `${addressParts.value.before}${form.values.slug || 'your-app'}${addressParts.value.after}`.replace(/^https?:\/\//, ''))
 
-// The Dockerfile tab: the text is the whole source.
-const dockerfile = ref('')
+// A pasted Dockerfile: the text is the whole source.
+const dockerfile = pasted
 const port = ref('')
 const portError = computed(() => {
   const p = String(port.value).trim()
@@ -120,6 +130,7 @@ const portError = computed(() => {
 const findings = ref<DockerfileFinding[]>([])
 let checked = ''
 async function checkDockerfile() {
+  if (source.value !== 'dockerfile') return
   const text = dockerfile.value
   const key = `${text}\n${port.value}`
   if (!text.trim() || key === checked) return
@@ -163,7 +174,7 @@ const sourceReady = computed(() => {
 // What is missing before Deploy works, when it is not said elsewhere already.
 const waitingFor = computed(() => {
   if (source.value === 'github') return canPick.value ? 'Pick a repository to continue.' : ''
-  if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Write a Dockerfile to continue.'
+  if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Paste a Dockerfile or a compose file to continue.'
   if (source.value === 'ready-made') return ''
   if (source.value === 'compose') return composeText.value.trim() ? (composeCheck.value === undefined ? 'Checking the compose file...' : composeBlocked.value ? 'Fix the problems above to continue.' : '') : 'Paste a compose file to continue.'
   if (uploadCompose.value && useUploadCompose.value && composeBlocked.value) return composeCheck.value === undefined ? 'Checking the compose file...' : 'Fix the compose file, or run one container instead.'
@@ -309,44 +320,14 @@ const submit = form.handleSubmit(run)
         <CardContent class="grid gap-4">
           <div class="grid gap-1">
             <Label>Where is the code?</Label>
-            <Tabs v-model="source" class="min-w-0">
+            <Tabs v-model="tab" class="min-w-0">
               <TabsList class="max-w-full overflow-x-auto">
                 <TabsTrigger value="github" :disabled="busy"><Github class="size-4" /> GitHub</TabsTrigger>
                 <TabsTrigger value="upload" :disabled="busy"><Upload class="size-4" /> Upload</TabsTrigger>
-                <TabsTrigger value="dockerfile" :disabled="busy"><FileCode class="size-4" /> Dockerfile</TabsTrigger>
+                <TabsTrigger value="docker" :disabled="busy"><FileCode class="size-4" /> Docker</TabsTrigger>
                 <TabsTrigger value="ready-made" :disabled="busy"><LayoutGrid class="size-4" /> Ready-made</TabsTrigger>
               </TabsList>
             </Tabs>
-            <p v-if="source !== 'compose'" class="mt-1 text-xs text-muted-foreground">
-              Most projects are one container: a website, an API or a bot.
-              <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" :disabled="busy" @click="source = 'compose'">
-                Several services, like an app with its database? Paste a compose file
-              </button>
-            </p>
-          </div>
-
-          <div v-if="source === 'compose'" class="grid gap-3">
-            <div class="flex items-start justify-between gap-3">
-              <div class="grid gap-1">
-                <Label for="new-compose" class="inline-flex items-center gap-2"><Boxes class="size-4 text-muted-foreground" /> Compose file</Label>
-                <p class="text-[0.8rem] text-muted-foreground">
-                  The <span class="font-mono">compose.yaml</span> or <span class="font-mono">docker-compose.yml</span> of your project, for services that use ready-made images like
-                  <span class="font-mono">postgres</span> or <span class="font-mono">redis</span>. To build your own code too, upload the folder or use GitHub instead.
-                </p>
-              </div>
-              <Button type="button" variant="ghost" size="sm" :disabled="busy" @click="source = canPick ? 'github' : 'upload'"><X /> One container</Button>
-            </div>
-            <Textarea
-              id="new-compose"
-              v-model="composeText"
-              rows="12"
-              spellcheck="false"
-              autocomplete="off"
-              :disabled="busy"
-              class="max-h-[28rem] font-mono text-xs leading-relaxed"
-              placeholder="services:&#10;  web:&#10;    image: ghcr.io/you/app:1.0&#10;    ports: [&quot;3000&quot;]&#10;    depends_on: [postgres]&#10;  postgres:&#10;    image: postgres:16&#10;    volumes: [pgdata:/var/lib/postgresql/data]&#10;volumes:&#10;  pgdata:"
-            />
-            <ComposePreview v-if="composeText.trim()" v-model:check="composeCheck" :text="composeText" :address="previewAddress" />
           </div>
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
@@ -386,18 +367,31 @@ const submit = form.handleSubmit(run)
             <ComposePreview v-if="useUploadCompose" v-model:check="composeCheck" :text="uploadCompose.text" :from="previewFrom" :address="previewAddress" />
           </div>
 
-          <div v-if="source === 'dockerfile'" class="grid gap-4">
+          <div v-if="source === 'dockerfile' || source === 'compose'" class="grid gap-4">
             <div class="grid gap-1.5">
-              <Label for="new-dockerfile">Dockerfile</Label>
+              <div class="flex items-center justify-between gap-3">
+                <Label for="new-docker">Dockerfile or compose file</Label>
+                <span v-if="pasted.trim()" class="inline-flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="pasted-kind">
+                  <component :is="source === 'compose' ? Boxes : FileCode" class="size-3.5" />
+                  {{ source === 'compose' ? 'Compose file: several services' : 'Dockerfile: one container' }}
+                </span>
+              </div>
               <DockerfileEditor
-                id="new-dockerfile"
-                v-model="dockerfile"
-                placeholder="FROM ghcr.io/owner/image:1.2.3"
+                id="new-docker"
+                v-model="pasted"
+                :rows="12"
+                :placeholder="PASTE_PLACEHOLDER"
                 :disabled="busy"
-                :invalid="findings.some((f) => f.severity === 'error')"
+                :invalid="source === 'dockerfile' && findings.some((f) => f.severity === 'error')"
                 @blur="checkDockerfile"
               />
-              <p class="text-[0.8rem] text-muted-foreground">
+              <p v-if="!pasted.trim()" class="text-[0.8rem] text-muted-foreground">
+                A Dockerfile runs one container. A compose file runs several services, like an app with its database. The page recognises which one you paste.
+              </p>
+              <p v-else-if="source === 'compose'" class="text-[0.8rem] text-muted-foreground">
+                Every service needs a published image, like <span class="font-mono">postgres</span> or <span class="font-mono">redis</span>. If a service builds your own code, upload the folder or pick the GitHub repository instead.
+              </p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">
                 For a published image or a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, the port is the one the image declares. Files are kept only under <span class="font-mono">/data</span>, with the switch below.
               </p>
               <ul v-if="findings.length" class="grid gap-1.5" data-testid="dockerfile-findings">
@@ -414,7 +408,8 @@ const submit = form.handleSubmit(run)
                 </li>
               </ul>
             </div>
-            <div class="grid max-w-48 gap-1.5">
+            <ComposePreview v-if="source === 'compose' && composeText.trim()" v-model:check="composeCheck" :text="composeText" :address="previewAddress" />
+            <div v-if="source === 'dockerfile'" class="grid max-w-48 gap-1.5">
               <Label for="new-port">Port</Label>
               <Input id="new-port" v-model="port" type="text" inputmode="numeric" autocomplete="off" placeholder="Image default" :disabled="busy" :aria-invalid="!!portError || undefined" @blur="checkDockerfile" />
               <p v-if="portError" class="text-[0.8rem] text-destructive">{{ portError }}</p>
