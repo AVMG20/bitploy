@@ -38,6 +38,32 @@ func (q *Queries) CopyDeploymentServices(ctx context.Context, arg CopyDeployment
 	return err
 }
 
+const deleteAppServices = `-- name: DeleteAppServices :exec
+DELETE FROM app_services WHERE app_id = ?
+`
+
+// A compose deployment that goes live replaces the app's services.
+func (q *Queries) DeleteAppServices(ctx context.Context, appID string) error {
+	_, err := q.db.ExecContext(ctx, deleteAppServices, appID)
+	return err
+}
+
+const deleteAppVolumeRow = `-- name: DeleteAppVolumeRow :exec
+DELETE FROM app_volumes WHERE app_id = ? AND name = ?
+`
+
+type DeleteAppVolumeRowParams struct {
+	AppID string
+	Name  string
+}
+
+// Only for a row whose Docker volume moves to a volume of another name
+// (the /data volume of a single-service app that becomes a compose app).
+func (q *Queries) DeleteAppVolumeRow(ctx context.Context, arg DeleteAppVolumeRowParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAppVolumeRow, arg.AppID, arg.Name)
+	return err
+}
+
 const deleteSingleAppVolumeIfOff = `-- name: DeleteSingleAppVolumeIfOff :exec
 DELETE FROM app_volumes
 WHERE app_id = ?1 AND name = 'data'
@@ -49,11 +75,27 @@ func (q *Queries) DeleteSingleAppVolumeIfOff(ctx context.Context, appID string) 
 	return err
 }
 
+const detachAppVolume = `-- name: DetachAppVolume :exec
+UPDATE app_volumes SET service = '', mount_path = '' WHERE app_id = ? AND name = ?
+`
+
+type DetachAppVolumeParams struct {
+	AppID string
+	Name  string
+}
+
+// A volume the compose file no longer has: no service mounts it, its data
+// stays (and counts) until the app is deleted.
+func (q *Queries) DetachAppVolume(ctx context.Context, arg DetachAppVolumeParams) error {
+	_, err := q.db.ExecContext(ctx, detachAppVolume, arg.AppID, arg.Name)
+	return err
+}
+
 const insertAppService = `-- name: InsertAppService :exec
 INSERT INTO app_services (app_id, name, kind, image, context_dir, dockerfile_path, public, port, health_path,
                           memory_mb, cpu_millis, command, entrypoint, healthcheck, depends_on, environment,
-                          position, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          run_user, working_dir, position, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAppServiceParams struct {
@@ -73,6 +115,8 @@ type InsertAppServiceParams struct {
 	Healthcheck    string
 	DependsOn      string
 	Environment    string
+	RunUser        string
+	WorkingDir     string
 	Position       int64
 	CreatedAt      int64
 	UpdatedAt      int64
@@ -96,6 +140,8 @@ func (q *Queries) InsertAppService(ctx context.Context, arg InsertAppServicePara
 		arg.Healthcheck,
 		arg.DependsOn,
 		arg.Environment,
+		arg.RunUser,
+		arg.WorkingDir,
 		arg.Position,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -211,7 +257,7 @@ func (q *Queries) ListAppDeploymentImages(ctx context.Context, appID string) ([]
 const listAppServices = `-- name: ListAppServices :many
 
 
-SELECT app_id, name, kind, image, context_dir, dockerfile_path, public, port, health_path, memory_mb, cpu_millis, command, entrypoint, healthcheck, depends_on, environment, position, created_at, updated_at FROM app_services WHERE app_id = ? ORDER BY position, name
+SELECT app_id, name, kind, image, context_dir, dockerfile_path, public, port, health_path, memory_mb, cpu_millis, command, entrypoint, healthcheck, depends_on, environment, position, created_at, updated_at, run_user, working_dir FROM app_services WHERE app_id = ? ORDER BY position, name
 `
 
 // Owned by the deploy agent: an app's services and volumes, and the
@@ -246,6 +292,8 @@ func (q *Queries) ListAppServices(ctx context.Context, appID string) ([]AppServi
 			&i.Position,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RunUser,
+			&i.WorkingDir,
 		); err != nil {
 			return nil, err
 		}
@@ -481,6 +529,21 @@ func (q *Queries) RewriteDeploymentServiceNames(ctx context.Context, arg Rewrite
 	return err
 }
 
+const setAppComposePath = `-- name: SetAppComposePath :exec
+UPDATE apps SET compose_path = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppComposePathParams struct {
+	ComposePath string
+	UpdatedAt   int64
+	ID          string
+}
+
+func (q *Queries) SetAppComposePath(ctx context.Context, arg SetAppComposePathParams) error {
+	_, err := q.db.ExecContext(ctx, setAppComposePath, arg.ComposePath, arg.UpdatedAt, arg.ID)
+	return err
+}
+
 const setAppServiceLayout = `-- name: SetAppServiceLayout :exec
 UPDATE apps SET service_layout = ?, updated_at = ? WHERE id = ?
 `
@@ -507,6 +570,27 @@ type SetAppVolumeUsedParams struct {
 
 func (q *Queries) SetAppVolumeUsed(ctx context.Context, arg SetAppVolumeUsedParams) error {
 	_, err := q.db.ExecContext(ctx, setAppVolumeUsed, arg.UsedBytes, arg.VolumeName)
+	return err
+}
+
+const setMultiAppPublic = `-- name: SetMultiAppPublic :exec
+UPDATE apps SET
+    type = CASE WHEN EXISTS (SELECT 1 FROM app_services s WHERE s.app_id = apps.id AND s.public = 1) THEN 'web' ELSE 'worker' END,
+    port = (SELECT s.port FROM app_services s WHERE s.app_id = apps.id AND s.public = 1),
+    health_path = COALESCE((SELECT s.health_path FROM app_services s WHERE s.app_id = apps.id AND s.public = 1), '/'),
+    updated_at = ?1
+WHERE id = ?2 AND service_layout = 'multi'
+`
+
+type SetMultiAppPublicParams struct {
+	UpdatedAt int64
+	AppID     string
+}
+
+// apps.type, port and health_path of an app with several services follow
+// its public service; without one the app is a worker.
+func (q *Queries) SetMultiAppPublic(ctx context.Context, arg SetMultiAppPublicParams) error {
+	_, err := q.db.ExecContext(ctx, setMultiAppPublic, arg.UpdatedAt, arg.AppID)
 	return err
 }
 
@@ -575,6 +659,41 @@ ON CONFLICT (deployment_id, service) DO UPDATE SET
 // its one deployment_services row mirrors it.
 func (q *Queries) SyncSingleDeploymentService(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, syncSingleDeploymentService, id)
+	return err
+}
+
+const upsertAppVolume = `-- name: UpsertAppVolume :exec
+INSERT INTO app_volumes (app_id, name, volume_name, size_mb, service, mount_path, position, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (app_id, name) DO UPDATE SET
+    volume_name = excluded.volume_name, size_mb = excluded.size_mb, service = excluded.service,
+    mount_path = excluded.mount_path, position = excluded.position
+`
+
+type UpsertAppVolumeParams struct {
+	AppID      string
+	Name       string
+	VolumeName string
+	SizeMb     int64
+	Service    string
+	MountPath  string
+	Position   int64
+	CreatedAt  int64
+}
+
+// A compose deployment that goes live: the volume keeps its Docker volume
+// (and its data) and measured size when it is already there.
+func (q *Queries) UpsertAppVolume(ctx context.Context, arg UpsertAppVolumeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAppVolume,
+		arg.AppID,
+		arg.Name,
+		arg.VolumeName,
+		arg.SizeMb,
+		arg.Service,
+		arg.MountPath,
+		arg.Position,
+		arg.CreatedAt,
+	)
 	return err
 }
 

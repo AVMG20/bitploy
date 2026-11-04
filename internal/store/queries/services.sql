@@ -9,8 +9,25 @@ SELECT * FROM app_services WHERE app_id = ? ORDER BY position, name;
 -- name: InsertAppService :exec
 INSERT INTO app_services (app_id, name, kind, image, context_dir, dockerfile_path, public, port, health_path,
                           memory_mb, cpu_millis, command, entrypoint, healthcheck, depends_on, environment,
-                          position, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                          run_user, working_dir, position, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: DeleteAppServices :exec
+-- A compose deployment that goes live replaces the app's services.
+DELETE FROM app_services WHERE app_id = ?;
+
+-- name: SetMultiAppPublic :exec
+-- apps.type, port and health_path of an app with several services follow
+-- its public service; without one the app is a worker.
+UPDATE apps SET
+    type = CASE WHEN EXISTS (SELECT 1 FROM app_services s WHERE s.app_id = apps.id AND s.public = 1) THEN 'web' ELSE 'worker' END,
+    port = (SELECT s.port FROM app_services s WHERE s.app_id = apps.id AND s.public = 1),
+    health_path = COALESCE((SELECT s.health_path FROM app_services s WHERE s.app_id = apps.id AND s.public = 1), '/'),
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(app_id) AND service_layout = 'multi';
+
+-- name: SetAppComposePath :exec
+UPDATE apps SET compose_path = ?, updated_at = ? WHERE id = ?;
 
 -- name: SyncSingleAppService :exec
 -- A single-layout app keeps its settings on the apps row; its one service
@@ -50,6 +67,25 @@ ON CONFLICT (app_id, name) DO UPDATE SET volume_name = excluded.volume_name, siz
 DELETE FROM app_volumes
 WHERE app_id = sqlc.arg(app_id) AND name = 'data'
   AND EXISTS (SELECT 1 FROM apps a WHERE a.id = sqlc.arg(app_id) AND a.service_layout = 'single' AND a.volume_enabled = 0);
+
+-- name: UpsertAppVolume :exec
+-- A compose deployment that goes live: the volume keeps its Docker volume
+-- (and its data) and measured size when it is already there.
+INSERT INTO app_volumes (app_id, name, volume_name, size_mb, service, mount_path, position, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (app_id, name) DO UPDATE SET
+    volume_name = excluded.volume_name, size_mb = excluded.size_mb, service = excluded.service,
+    mount_path = excluded.mount_path, position = excluded.position;
+
+-- name: DeleteAppVolumeRow :exec
+-- Only for a row whose Docker volume moves to a volume of another name
+-- (the /data volume of a single-service app that becomes a compose app).
+DELETE FROM app_volumes WHERE app_id = ? AND name = ?;
+
+-- name: DetachAppVolume :exec
+-- A volume the compose file no longer has: no service mounts it, its data
+-- stays (and counts) until the app is deleted.
+UPDATE app_volumes SET service = '', mount_path = '' WHERE app_id = ? AND name = ?;
 
 -- name: SetAppVolumeUsed :exec
 UPDATE app_volumes SET used_bytes = ? WHERE volume_name = ?;

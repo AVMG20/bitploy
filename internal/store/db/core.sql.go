@@ -22,7 +22,7 @@ func (q *Queries) CountAllApps(ctx context.Context) (int64, error) {
 }
 
 const getApp = `-- name: GetApp :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout FROM apps WHERE id = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path FROM apps WHERE id = ?
 `
 
 func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
@@ -71,12 +71,13 @@ func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
 		&i.CatalogVersion,
 		&i.BaseDomain,
 		&i.ServiceLayout,
+		&i.ComposePath,
 	)
 	return i, err
 }
 
 const getAppBySlug = `-- name: GetAppBySlug :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout FROM apps WHERE slug = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path FROM apps WHERE slug = ?
 `
 
 func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
@@ -125,12 +126,13 @@ func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
 		&i.CatalogVersion,
 		&i.BaseDomain,
 		&i.ServiceLayout,
+		&i.ComposePath,
 	)
 	return i, err
 }
 
 const getDeployment = `-- name: GetDeployment :one
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version FROM deployments WHERE id = ?
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE id = ?
 `
 
 func (q *Queries) GetDeployment(ctx context.Context, id string) (Deployment, error) {
@@ -166,6 +168,7 @@ func (q *Queries) GetDeployment(ctx context.Context, id string) (Deployment, err
 		&i.FinishedAt,
 		&i.BuildKind,
 		&i.CatalogVersion,
+		&i.ServicesSpec,
 	)
 	return i, err
 }
@@ -257,7 +260,7 @@ func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error 
 }
 
 const listAllApps = `-- name: ListAllApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout FROM apps ORDER BY created_at DESC
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path FROM apps ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
@@ -312,6 +315,7 @@ func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
 			&i.CatalogVersion,
 			&i.BaseDomain,
 			&i.ServiceLayout,
+			&i.ComposePath,
 		); err != nil {
 			return nil, err
 		}
@@ -327,7 +331,7 @@ func (q *Queries) ListAllApps(ctx context.Context) ([]App, error) {
 }
 
 const listAppsByUser = `-- name: ListAppsByUser :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout FROM apps WHERE user_id = ? ORDER BY created_at DESC
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path FROM apps WHERE user_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAppsByUser(ctx context.Context, userID string) ([]App, error) {
@@ -382,6 +386,7 @@ func (q *Queries) ListAppsByUser(ctx context.Context, userID string) ([]App, err
 			&i.CatalogVersion,
 			&i.BaseDomain,
 			&i.ServiceLayout,
+			&i.ComposePath,
 		); err != nil {
 			return nil, err
 		}
