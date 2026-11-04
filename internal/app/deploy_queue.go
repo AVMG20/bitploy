@@ -483,6 +483,22 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 				"The image of that deployment was removed (bitploy keeps the last 3).",
 				"Pick a more recent deployment, or deploy the source again.").WithNext("list_deployments")
 		}
+		if isMulti(row) {
+			svcs, err := s.Q.ListDeploymentServices(ctx, target.ID)
+			if err != nil {
+				return Deployment{}, apperr.Internal(err)
+			}
+			for _, sv := range svcs {
+				if !sv.Image.Valid {
+					continue
+				}
+				if _, err := s.Docker.InspectImage(ctx, sv.Image.String); err != nil {
+					return Deployment{}, apperr.Conflict("rollback_unavailable",
+						"The image of the "+sv.Service+" service of that deployment was removed (bitploy keeps the last 3).",
+						"Pick a more recent deployment.").WithNext("list_deployments")
+				}
+			}
+		}
 	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
@@ -533,6 +549,9 @@ func (s *Service) checkDiskRoom() error {
 }
 
 func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs queueSpec) (Deployment, error) {
+	if isMulti(app) && qs.kind != "rollback" {
+		return Deployment{}, servicesNotBuildable(app)
+	}
 	if err := s.checkDiskRoom(); err != nil {
 		return Deployment{}, err
 	}
@@ -599,6 +618,14 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 			Channel: string(a.Channel), CreatedBy: nullStr(a.UserID), TokenID: nullStr(a.TokenID),
 			Image: nullStr(qs.image), Port: qs.port, HasHealthcheck: b2i(qs.hasHC), Warnings: warnings, BuildKind: qs.buildKind, QueuedAt: now,
 		}); err != nil {
+			return err
+		}
+		if isMulti(app) {
+			// A rollback runs the images every service of the target ran.
+			if err := q.CopyDeploymentServices(ctx, db.CopyDeploymentServicesParams{NewID: depID, FromID: qs.ref}); err != nil {
+				return err
+			}
+		} else if err := q.SyncSingleDeploymentService(ctx, depID); err != nil {
 			return err
 		}
 		if qs.catalogVersion != "" {

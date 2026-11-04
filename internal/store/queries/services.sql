@@ -75,6 +75,17 @@ ON CONFLICT (deployment_id, service) DO UPDATE SET
     image = excluded.image, container_name = excluded.container_name, port = excluded.port,
     has_healthcheck = excluded.has_healthcheck, config_hash = excluded.config_hash;
 
+-- name: SyncSingleDeploymentService :exec
+-- A deployment of a single-layout app is described by its deployments row;
+-- its one deployment_services row mirrors it.
+INSERT INTO deployment_services (deployment_id, service, image, container_name, port, has_healthcheck, config_hash)
+SELECT d.id, 'app', d.image, d.container_name, d.port, d.has_healthcheck, ''
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.id = ? AND a.service_layout = 'single'
+ON CONFLICT (deployment_id, service) DO UPDATE SET
+    image = excluded.image, container_name = excluded.container_name, port = excluded.port,
+    has_healthcheck = excluded.has_healthcheck;
+
 -- name: ListDeploymentServices :many
 SELECT * FROM deployment_services WHERE deployment_id = ? ORDER BY service;
 

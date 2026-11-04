@@ -78,6 +78,29 @@ type pipeline struct {
 	failTail   []string
 	slotHeld   bool
 	slotOnce   sync.Once
+
+	// runs are the services of the deployment in start order; one for a
+	// single-layout app. newName, prevName, oldStopped, port, hasHC and hcCfg
+	// above describe the primary run: the public service, else the first.
+	runs    []*serviceRun
+	primary *serviceRun
+	failed  *serviceRun // the run a health check failed on
+}
+
+// serviceRun is one service of a deployment on its way to running.
+type serviceRun struct {
+	spec       serviceSpec
+	image      string
+	port       int64
+	hasHC      bool
+	hcCfg      *container.HealthConfig
+	hash       string // serviceConfigHash; multi-service apps only
+	name       string // the container that runs the service for this deployment
+	created    bool   // this deployment created name, so a failure removes it
+	kept       bool   // name is the previous deployment's container, unchanged and still running
+	healthy    bool   // its HEALTHCHECK already reported healthy
+	prevName   string // the previous deployment's container of this service
+	oldStopped bool   // recreate mode stopped prevName for us
 }
 
 // runPipeline runs one claimed deployment to its end. slotHeld says the
@@ -170,6 +193,10 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 		}
 		p.logf("Rolling back to the image of deployment %s (%s).", p.dep.SourceRef, p.image)
 	} else {
+		if isMulti(p.app) {
+			p.releaseSlot()
+			return servicesNotBuildable(p.app)
+		}
 		if ae := p.setState(ctx, "fetching"); ae != nil {
 			return ae
 		}
@@ -523,30 +550,15 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 		p.app.MemoryMb, p.app.CpuMillis = p.sizeMem, p.sizeCPU
 	}
 	if p.app.CurrentDeploymentID.Valid && p.app.CurrentDeploymentID.String != p.dep.ID {
-		if d, err := s.Q.GetDeployment(ctx, p.app.CurrentDeploymentID.String); err == nil && d.ContainerName.Valid {
+		if d, err := s.Q.GetDeployment(ctx, p.app.CurrentDeploymentID.String); err == nil && (d.ContainerName.Valid || isMulti(p.app)) {
 			p.prev = &d
 			p.prevName = d.ContainerName.String
 		}
 	}
-	// Recreate mode: with a volume, never two writers at once.
-	if p.app.VolumeEnabled != 0 && p.prevName != "" {
-		if info, err := s.Docker.InspectContainer(ctx, p.prevName); err == nil {
-			wasRunning := info.State != nil && (info.State.Running || info.State.Restarting)
-			p.logf("Volume attached: stopping the old container before starting the new one.")
-			if err := s.Docker.StopContainerGrace(ctx, p.prevName, 10); err != nil {
-				return startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute.")
-			}
-			// A failed deploy restarts it only if it was running: a stopped or
-			// crash-looping app stays as it was.
-			p.oldStopped = wasRunning
-		}
+	if ae := p.planRuns(ctx); ae != nil {
+		return ae
 	}
-	p.newName = dockerx.ContainerName(p.app.Slug, p.dep.Seq)
-	p.logf("Starting container %s.", p.newName)
-	if ae := s.startContainer(ctx, startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: p.image, Port: p.port}); ae != nil {
-		if ctx.Err() != nil {
-			return errCancelled
-		}
+	if ae := p.startRuns(ctx); ae != nil {
 		return ae
 	}
 	if err := s.Q.SetDeploymentContainer(ctx, db.SetDeploymentContainerParams{
@@ -557,9 +569,284 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	return nil
 }
 
+// servicesNotBuildable refuses a deploy from source of an app with several
+// services: phase 1 of compose support runs them, it cannot build them yet.
+func servicesNotBuildable(a db.App) *apperr.Error {
+	return apperr.Unprocessable("services_not_buildable",
+		"The app "+a.Slug+" has several services, and bitploy cannot build several services from source yet.",
+		"Roll back to an earlier deployment with rollback, or restart the app with restart_app. get_app lists the services.").WithNext("get_app")
+}
+
+// planRuns decides what each service of the deployment runs: the image just
+// built (a single-service app), or the images recorded per service (a
+// rollback of an app with several services).
+func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
+	s := p.s
+	if !isMulti(p.app) {
+		r := &serviceRun{spec: singleSpec(p.app), image: p.image, port: p.port, hasHC: p.hasHC, hcCfg: p.hcCfg, prevName: p.prevName}
+		p.runs, p.primary = []*serviceRun{r}, r
+		return nil
+	}
+	specs, _, err := s.appSpecs(ctx, p.app)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	order, err := startOrder(specs)
+	if err != nil {
+		return apperr.Unprocessable("services_invalid", "The services of this app cannot be started: "+err.Error()+".",
+			"Fix depends_on in the app's services and deploy again.").WithNext("get_app")
+	}
+	rows, err := s.Q.ListDeploymentServices(ctx, p.dep.ID)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	mine := map[string]db.DeploymentService{}
+	for _, r := range rows {
+		mine[r.Service] = r
+	}
+	prev := map[string]string{}
+	if p.prev != nil {
+		if prows, err := s.Q.ListDeploymentServices(ctx, p.prev.ID); err == nil {
+			for _, r := range prows {
+				prev[r.Service] = r.ContainerName.String
+			}
+		}
+	}
+	p.runs = nil
+	for _, sp := range order {
+		row, ok := mine[sp.Name]
+		if !ok || !row.Image.Valid {
+			return apperr.Conflict("image_missing", "This deployment has no image for the "+sp.Name+" service.",
+				"Roll back to a deployment that ran every service of the app. get_app lists the services.").WithNext("get_app")
+		}
+		r := &serviceRun{spec: sp, image: row.Image.String, port: row.Port.Int64, prevName: prev[sp.Name]}
+		if r.port == 0 {
+			r.port = sp.Port
+		}
+		if info, err := s.Docker.InspectImage(ctx, r.image); err == nil {
+			r.hcCfg = info.Healthcheck
+		} else {
+			return apperr.Conflict("image_missing", "The image "+r.image+" of the "+sp.Name+" service is gone from the server.",
+				"Deploy the app again.").WithNext("get_app")
+		}
+		if hc := sp.Healthcheck.config(); hc != nil {
+			r.hcCfg = hc
+		}
+		r.hasHC = r.hcCfg != nil
+		p.runs = append(p.runs, r)
+		if sp.Public && p.primary == nil {
+			p.primary = r
+		}
+	}
+	if p.primary == nil && len(p.runs) > 0 {
+		p.primary = p.runs[0]
+	}
+	if p.primary != nil {
+		p.port, p.hasHC, p.hcCfg, p.prevName = p.primary.port, p.primary.hasHC, p.primary.hcCfg, p.primary.prevName
+	}
+	return nil
+}
+
+// startRuns starts the services in dependency order. This is the seam for
+// deploying a list of services: planRuns fills p.runs, startRuns brings them up.
+func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
+	s := p.s
+	multi := isMulti(p.app)
+	var prevHash map[string]string
+	if multi && p.prev != nil {
+		prevHash = map[string]string{}
+		if prows, err := s.Q.ListDeploymentServices(ctx, p.prev.ID); err == nil {
+			for _, r := range prows {
+				prevHash[r.Service] = r.ConfigHash
+			}
+		}
+	}
+	for _, r := range p.runs {
+		if ae := p.waitForDependencies(ctx, r); ae != nil {
+			return ae
+		}
+		plan := startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: r.image, Port: r.port}
+		if multi {
+			sp := r.spec
+			plan.Service = &sp
+		}
+		rs, ae := s.runSpec(ctx, plan)
+		if ae != nil {
+			return p.serviceErr(r, ae)
+		}
+		if multi {
+			if info, err := s.Docker.InspectImage(ctx, r.image); err == nil {
+				r.hash = serviceConfigHash(info.ID, rs)
+			}
+			if r.hash != "" && r.prevName != "" && prevHash[r.spec.Name] == r.hash && p.running(ctx, r.prevName) {
+				r.name, r.kept = r.prevName, true
+				p.logf("Service %s is unchanged: keeping container %s.", r.spec.Name, r.name)
+				if ae := p.recordRun(ctx, r); ae != nil {
+					return ae
+				}
+				continue
+			}
+		}
+		// Recreate mode: with a volume, never two writers at once.
+		if len(r.spec.Mounts) > 0 && r.prevName != "" {
+			if info, err := s.Docker.InspectContainer(ctx, r.prevName); err == nil {
+				wasRunning := info.State != nil && (info.State.Running || info.State.Restarting)
+				if multi {
+					p.logf("Service %s has a volume: stopping its old container before starting the new one.", r.spec.Name)
+				} else {
+					p.logf("Volume attached: stopping the old container before starting the new one.")
+				}
+				if err := s.Docker.StopContainerGrace(ctx, r.prevName, 10); err != nil {
+					return p.serviceErr(r, startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute."))
+				}
+				// A failed deploy restarts it only if it was running: a stopped or
+				// crash-looping app stays as it was.
+				r.oldStopped = wasRunning
+			}
+		}
+		r.name, r.created = rs.Name, true
+		if r == p.primary {
+			p.newName, p.oldStopped = r.name, r.oldStopped
+		}
+		p.logf("Starting container %s.", r.name)
+		if ae := s.startRunSpec(ctx, plan, rs); ae != nil {
+			if ctx.Err() != nil {
+				return errCancelled
+			}
+			return p.serviceErr(r, ae)
+		}
+		if ae := p.recordRun(ctx, r); ae != nil {
+			return ae
+		}
+	}
+	if p.primary != nil {
+		p.newName, p.oldStopped = p.primary.name, p.primary.oldStopped
+	}
+	return nil
+}
+
+// recordRun stores the container of a service of a multi-service app.
+// (A single-service deployment is its deployments row, see finish.)
+func (p *pipeline) recordRun(ctx context.Context, r *serviceRun) *apperr.Error {
+	if !isMulti(p.app) {
+		return nil
+	}
+	if err := p.s.Q.UpsertDeploymentService(ctx, db.UpsertDeploymentServiceParams{
+		DeploymentID: p.dep.ID, Service: r.spec.Name, Image: nullStr(r.image), ContainerName: nullStr(r.name),
+		Port: nullPort(r.port), HasHealthcheck: b2i(r.hasHC), ConfigHash: r.hash,
+	}); err != nil {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+func (p *pipeline) running(ctx context.Context, name string) bool {
+	info, err := p.s.Docker.InspectContainer(ctx, name)
+	return err == nil && info.State != nil && info.State.Running && !info.State.Restarting
+}
+
+// serviceErr names the service in an error of a multi-service app.
+func (p *pipeline) serviceErr(r *serviceRun, ae *apperr.Error) *apperr.Error {
+	if !isMulti(p.app) || ae == nil || ae == errCancelled {
+		return ae
+	}
+	out := *ae
+	out.Message = "Service " + r.spec.Name + ": " + ae.Message
+	return &out
+}
+
+// waitForDependencies waits for the services r depends on with condition
+// service_healthy and a HEALTHCHECK to report healthy. Without a HEALTHCHECK
+// the condition is the same as service_started: the service was started
+// before r, as startOrder guarantees.
+func (p *pipeline) waitForDependencies(ctx context.Context, r *serviceRun) *apperr.Error {
+	for _, d := range r.spec.DependsOn {
+		if d.Condition != condHealthy {
+			continue
+		}
+		dep := p.run(d.Service)
+		if dep == nil || dep.hcCfg == nil || dep.healthy {
+			continue
+		}
+		p.logf("Waiting for service %s to report healthy before starting %s.", dep.spec.Name, r.spec.Name)
+		if ae := p.waitHealthy(ctx, dep); ae != nil {
+			return ae
+		}
+	}
+	return nil
+}
+
+func (p *pipeline) run(service string) *serviceRun {
+	for _, r := range p.runs {
+		if r.spec.Name == service {
+			return r
+		}
+	}
+	return nil
+}
+
+// waitHealthy polls a run's Docker HEALTHCHECK until it reports healthy.
+func (p *pipeline) waitHealthy(ctx context.Context, r *serviceRun) *apperr.Error {
+	window := dockerx.HealthWindow(r.hcCfg)
+	last, ok := deploy.Poll(ctx, window, time.Second, func(c context.Context) deploy.PollResult {
+		info, err := p.s.Docker.InspectContainer(c, r.name)
+		if err != nil {
+			return deploy.PollResult{Detail: "inspect failed"}
+		}
+		if res := stateProblem(info); res.Fail {
+			return res
+		}
+		if info.State != nil && info.State.Health != nil {
+			switch info.State.Health.Status {
+			case container.Healthy:
+				return deploy.PollResult{Done: true}
+			case container.Unhealthy:
+				return deploy.PollResult{Fail: true, Detail: "the HEALTHCHECK reported unhealthy"}
+			}
+		}
+		return deploy.PollResult{Detail: "HEALTHCHECK still starting"}
+	})
+	if ctx.Err() != nil {
+		return errCancelled
+	}
+	if !ok {
+		p.failed = r
+		return p.unhealthy(last.Detail, "healthcheck")
+	}
+	r.healthy = true
+	return nil
+}
+
 // ---- health check ----
 
 func (p *pipeline) healthCheck(ctx context.Context) *apperr.Error {
+	if isMulti(p.app) {
+		// The other services first: each HEALTHCHECK must report healthy.
+		for _, r := range p.runs {
+			if r == p.primary || r.hcCfg == nil || r.healthy {
+				continue
+			}
+			p.logf("Waiting for the HEALTHCHECK of service %s to report healthy (up to %s).", r.spec.Name, dockerx.HealthWindow(r.hcCfg))
+			if ae := p.waitHealthy(ctx, r); ae != nil {
+				return ae
+			}
+		}
+	}
+	if ae := p.checkPrimary(ctx); ae != nil {
+		return ae
+	}
+	if len(p.runs) > 1 {
+		if r := p.aliveCheck(ctx); r.Fail {
+			return p.unhealthy(r.Detail, "worker")
+		}
+	}
+	return nil
+}
+
+// checkPrimary is the health check of the primary service: a worker must
+// keep running for 30 s, a HEALTHCHECK must report healthy, else GET
+// health_path through the candidate route must answer below 500.
+func (p *pipeline) checkPrimary(ctx context.Context) *apperr.Error {
 	s := p.s
 	app := p.app
 	start := time.Now()
@@ -590,12 +877,12 @@ func (p *pipeline) healthCheck(ctx context.Context) *apperr.Error {
 		window := dockerx.HealthWindow(p.hcCfg)
 		p.logf("Waiting for the Docker HEALTHCHECK to report healthy (up to %s).", window)
 		last, ok := deploy.Poll(ctx, window, time.Second, func(c context.Context) deploy.PollResult {
+			if r := p.aliveCheck(c); r.Fail {
+				return r
+			}
 			info, err := s.Docker.InspectContainer(c, p.newName)
 			if err != nil {
 				return deploy.PollResult{Detail: "inspect failed"}
-			}
-			if r := stateProblem(info); r.Fail {
-				return r
 			}
 			if info.State != nil && info.State.Health != nil {
 				switch info.State.Health.Status {
@@ -658,12 +945,28 @@ func (p *pipeline) healthCheck(ctx context.Context) *apperr.Error {
 	return nil
 }
 
+// aliveCheck reports a container of the deployment that exited or keeps
+// restarting, and remembers its service in p.failed.
 func (p *pipeline) aliveCheck(ctx context.Context) deploy.PollResult {
-	info, err := p.s.Docker.InspectContainer(ctx, p.newName)
-	if err != nil {
-		return deploy.PollResult{Detail: "inspect failed"}
+	names := []*serviceRun{p.primary}
+	if len(p.runs) > 1 {
+		names = p.runs
 	}
-	return stateProblem(info)
+	for _, r := range names {
+		name := p.newName
+		if r != nil {
+			name = r.name
+		}
+		info, err := p.s.Docker.InspectContainer(ctx, name)
+		if err != nil {
+			return deploy.PollResult{Detail: "inspect failed"}
+		}
+		if res := stateProblem(info); res.Fail {
+			p.failed = r
+			return res
+		}
+	}
+	return deploy.PollResult{}
 }
 
 // stateProblem reports a container that exited or keeps restarting.
@@ -690,7 +993,11 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 	lc, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var lines []string
-	if entries, err := s.Docker.TailLogs(lc, p.newName, runtimeTailLines, time.Time{}); err == nil {
+	logsOf := p.newName
+	if p.failed != nil && p.failed.name != "" {
+		logsOf = p.failed.name
+	}
+	if entries, err := s.Docker.TailLogs(lc, logsOf, runtimeTailLines, time.Time{}); err == nil {
 		for _, e := range entries {
 			lines = append(lines, e.Text)
 		}
@@ -724,6 +1031,12 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 	}
 	if deploy.MentionsLocalhost(lines) && detail != "oom" {
 		hint = deploy.LocalhostHint
+	}
+	if isMulti(p.app) && p.failed != nil {
+		msg = "Service " + p.failed.spec.Name + ": " + msg
+		if detail != "oom" {
+			hint += " Read the service's logs with get_logs service=" + p.failed.spec.Name + "."
+		}
 	}
 	return apperr.Unprocessable(code, msg, hint).WithNext(next)
 }
@@ -781,13 +1094,29 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 	if err := s.syncRouteLocked(context.WithoutCancel(ctx), p.app.ID); err != nil {
 		s.Log.Error("write route after swap; the reconciler will retry", "app", p.app.Slug, "err", err)
 	}
-	// Retire the previous container: after a drain delay for web apps.
-	if p.prevName != "" && p.prevName != p.newName {
-		delay := oldStopDelay
-		if p.app.Type == "worker" || p.oldStopped {
-			delay = 0
+	// Retire the previous containers: after a drain delay for web apps.
+	keep := map[string]bool{}
+	for _, r := range p.runs {
+		keep[r.name] = true
+	}
+	for _, r := range p.runs {
+		if r.prevName != "" && !keep[r.prevName] {
+			delay := oldStopDelay
+			if p.app.Type == "worker" || r.oldStopped {
+				delay = 0
+			}
+			s.retireContainer(r.prevName, delay)
 		}
-		s.retireContainer(p.prevName, delay)
+	}
+	if isMulti(p.app) && p.prev != nil {
+		// Services the previous deployment had and this one does not.
+		if prows, err := s.Q.ListDeploymentServices(context.WithoutCancel(ctx), p.prev.ID); err == nil {
+			for _, r := range prows {
+				if r.ContainerName.Valid && !keep[r.ContainerName.String] && p.run(r.Service) == nil {
+					s.retireContainer(r.ContainerName.String, 0)
+				}
+			}
+		}
 	}
 	p.logf("Live: %s", s.appURL(p.app))
 	s.NotifyDeployment(p.dep.ID)
@@ -839,6 +1168,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		if p.buildDir != "" {
 			_ = os.RemoveAll(p.buildDir)
 		}
+		_ = s.Q.SyncSingleDeploymentService(bg, p.dep.ID) // no-op for multi-service apps
 		s.events.flushBuild(p.dep.ID)
 		s.NotifyDeployment(p.dep.ID)
 	}()
@@ -902,13 +1232,24 @@ func (p *pipeline) cleanupFailed(ctx context.Context) {
 	l.Lock()
 	defer l.Unlock()
 	s.setCandidate(p.app.ID, "")
-	if dk != nil && p.newName != "" {
-		_ = dk.RemoveContainer(ctx, p.newName)
-	}
-	if dk != nil && p.oldStopped && p.prevName != "" {
-		p.logf("Restarting the previous version.")
-		if err := dk.StartContainer(ctx, p.prevName); err != nil {
-			s.Log.Error("restart previous container after failed recreate", "container", p.prevName, "err", err)
+	if dk != nil {
+		for _, r := range p.runs {
+			if r.created && r.name != "" {
+				_ = dk.RemoveContainer(ctx, r.name)
+			}
+		}
+		restarted := false
+		for _, r := range p.runs {
+			if !r.oldStopped || r.prevName == "" {
+				continue
+			}
+			if !restarted {
+				p.logf("Restarting the previous version.")
+				restarted = true
+			}
+			if err := dk.StartContainer(ctx, r.prevName); err != nil {
+				s.Log.Error("restart previous container after failed recreate", "container", r.prevName, "err", err)
+			}
 		}
 	}
 	_ = s.syncRouteLocked(ctx, p.app.ID)

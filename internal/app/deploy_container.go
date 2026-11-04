@@ -22,7 +22,21 @@ type startPlan struct {
 	Seq   int64
 	Image string
 	Port  int64
+	// Service is the service to start. nil: the only service of a
+	// single-layout app, built from App.
+	Service *serviceSpec
 }
+
+// spec is the service the plan starts.
+func (p startPlan) spec() serviceSpec {
+	if p.Service != nil {
+		return *p.Service
+	}
+	return singleSpec(p.App)
+}
+
+// name is the container the plan creates.
+func (p startPlan) name() string { return containerNameOf(p.App, p.spec().Name, p.Seq) }
 
 func startFailed(msg, hint string) *apperr.Error {
 	return apperr.Unprocessable("start_failed", msg, hint)
@@ -30,13 +44,31 @@ func startFailed(msg, hint string) *apperr.Error {
 
 // containerEnv decrypts the app's env vars and adds PORT, BITPLOY_APP and BITPLOY_URL.
 func (s *Service) containerEnv(ctx context.Context, app db.App, port int64) ([]string, *apperr.Error) {
-	rows, err := s.Q.ListEnvVars(ctx, app.ID)
+	return s.serviceEnv(ctx, app, nil, port)
+}
+
+// serviceEnv is the environment of one service. From low to high
+// precedence: the service's environment from the compose file, the app's
+// shared variables (set_env), the service's own variables, then PORT,
+// BITPLOY_APP and BITPLOY_URL. svc nil is the only service of a
+// single-layout app.
+func (s *Service) serviceEnv(ctx context.Context, app db.App, svc *serviceSpec, port int64) ([]string, *apperr.Error) {
+	service := singleService
+	if svc != nil {
+		service = svc.Name
+	}
+	rows, err := s.Q.ListServiceEnvVars(ctx, db.ListServiceEnvVarsParams{AppID: app.ID, Service: service})
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
 	vars := map[string]string{}
-	for _, r := range rows {
-		v, err := s.Crypto.Open(r.ValueEnc, envAAD(app.ID, r.Name))
+	if svc != nil {
+		for k, v := range svc.Environment {
+			vars[k] = v
+		}
+	}
+	for _, r := range rows { // shared ('') sort before the service's own
+		v, err := s.Crypto.Open(r.ValueEnc, envAADFor(app.ID, r.Service, r.Name))
 		if err != nil {
 			return nil, startFailed("The environment variable "+r.Name+" cannot be decrypted.",
 				"Set it again with set_env. (This happens when the server's secret key changed.)")
@@ -62,16 +94,69 @@ func (s *Service) containerEnv(ctx context.Context, app db.App, port int64) ([]s
 
 func envAAD(appID, name string) string { return "env:" + appID + ":" + name }
 
-// startContainer creates and starts bp-<slug>-<n> on network bp-<slug> with
-// the app's limits. A container with the same name (a leftover) is replaced.
+// envAADFor is the AAD of a variable of one service; shared variables
+// (service "") keep the format from before services.
+func envAADFor(appID, service, name string) string {
+	if service == "" {
+		return envAAD(appID, name)
+	}
+	return "env:" + appID + ":" + service + ":" + name
+}
+
+// runSpec is the container a plan creates: name, image, env, limits, volumes
+// and the service name as network alias. It has no side effects, so a
+// deployment can compare it with the running container (serviceConfigHash).
+func (s *Service) runSpec(ctx context.Context, p startPlan) (dockerx.RunSpec, *apperr.Error) {
+	app := p.App
+	spec := p.spec()
+	env, ae := s.serviceEnv(ctx, app, p.Service, p.Port)
+	if ae != nil {
+		return dockerx.RunSpec{}, ae
+	}
+	cl := s.Docker.ManagedLabels(app.ID, app.Slug)
+	cl[dockerx.LabelDeployment] = p.DepID
+	cl[dockerx.LabelSeq] = fmt.Sprint(p.Seq)
+	cl[dockerx.LabelService] = spec.Name
+	rs := dockerx.RunSpec{
+		Name: p.name(), Image: p.Image, Env: env, Labels: cl, Network: dockerx.NetworkName(app.Slug),
+		Aliases: []string{spec.Name}, MemoryMB: app.MemoryMb, CPUMillis: app.CpuMillis,
+	}
+	if !isMulti(app) {
+		if app.VolumeEnabled != 0 {
+			rs.Volume = appVolumeName(app)
+		}
+		return rs, nil
+	}
+	rs.MemoryMB, rs.CPUMillis = spec.MemoryMB, spec.CPUMillis
+	rs.Cmd, rs.Entrypoint, rs.Healthcheck = spec.Command, spec.Entrypoint, spec.Healthcheck.config()
+	for _, m := range spec.Mounts {
+		rs.Mounts = append(rs.Mounts, dockerx.VolumeMount{Source: m.VolumeName, Target: m.MountPath})
+	}
+	return rs, nil
+}
+
+// startContainer creates and starts the container of a plan on network
+// bp-<slug> with the app's limits: bp-<slug>-<n> for a single-service app,
+// bp-<slug>_<service>-<n> otherwise. A container with the same name (a
+// leftover) is replaced.
 func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error {
 	dk := s.Docker
 	if dk == nil {
 		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
 	}
+	rs, ae := s.runSpec(ctx, p)
+	if ae != nil {
+		return ae
+	}
+	return s.startRunSpec(ctx, p, rs)
+}
+
+// startRunSpec starts a container prepared by runSpec.
+func (s *Service) startRunSpec(ctx context.Context, p startPlan, rs dockerx.RunSpec) *apperr.Error {
+	dk := s.Docker
 	app := p.App
 	labels := dk.ManagedLabels(app.ID, app.Slug)
-	netName := dockerx.NetworkName(app.Slug)
+	netName := rs.Network
 	if err := dk.EnsureNetwork(ctx, netName, labels); err != nil {
 		return startFailed("Docker could not create the network for this app: "+apperr.Redact(dockerx.DescribeError(err)),
 			"Try again in a minute. If it keeps happening, tell the bitploy admin (the Docker address pool may be full).")
@@ -82,16 +167,17 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 				"This is a server problem, not your app. Tell the bitploy admin.")
 		}
 	}
-	env, ae := s.containerEnv(ctx, app, p.Port)
-	if ae != nil {
-		return ae
+	volumes := []string{}
+	if rs.Volume != "" {
+		volumes = append(volumes, rs.Volume)
 	}
-	volume := ""
-	if app.VolumeEnabled != 0 {
-		volume = appVolumeName(app)
+	for _, m := range rs.Mounts {
+		volumes = append(volumes, m.Source)
+	}
+	for _, volume := range volumes {
 		created, err := dk.EnsureVolume(ctx, volume, labels)
 		if err == nil && created {
-			// A new volume is root:root 755; make /data writable for the app's own user.
+			// A new volume is root:root 755; make it writable for the app's own user.
 			if perr := dk.PrepareVolume(ctx, volume); perr != nil {
 				_ = dk.RemoveVolume(context.WithoutCancel(ctx), volume) // so the next start prepares it again
 				err = perr
@@ -105,17 +191,11 @@ func (s *Service) startContainer(ctx context.Context, p startPlan) *apperr.Error
 			return startFailed("Docker could not create the data volume: "+apperr.Redact(dockerx.DescribeError(err)), "Try again in a minute, or tell the bitploy admin.")
 		}
 	}
-	name := dockerx.ContainerName(app.Slug, p.Seq)
+	name := rs.Name
 	if exists, _ := dk.ContainerExists(ctx, name); exists {
 		_ = dk.RemoveContainer(ctx, name)
 	}
-	cl := dk.ManagedLabels(app.ID, app.Slug)
-	cl[dockerx.LabelDeployment] = p.DepID
-	cl[dockerx.LabelSeq] = fmt.Sprint(p.Seq)
-	if _, err := dk.CreateContainer(ctx, dockerx.RunSpec{
-		Name: name, Image: p.Image, Env: env, Labels: cl, Network: netName,
-		MemoryMB: app.MemoryMb, CPUMillis: app.CpuMillis, Volume: volume,
-	}); err != nil {
+	if _, err := dk.CreateContainer(ctx, rs); err != nil {
 		return startFailed("Docker could not create the container: "+apperr.Redact(dockerx.DescribeError(err)),
 			"Check the Dockerfile's CMD and ENTRYPOINT, then deploy again. If this repeats, tell the bitploy admin.")
 	}
@@ -137,8 +217,8 @@ func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
 			r.Custom = hs
 		}
 		if app.DesiredState == "running" && app.CurrentDeploymentID.Valid {
-			if d, err := s.Q.GetDeployment(ctx, app.CurrentDeploymentID.String); err == nil && d.ContainerName.Valid && d.Port.Valid {
-				r.Upstream = fmt.Sprintf("http://%s:%d", dockerx.ContainerName(app.Slug, d.Seq), d.Port.Int64)
+			if d, err := s.Q.GetDeployment(ctx, app.CurrentDeploymentID.String); err == nil {
+				r.Upstream = s.publicUpstream(ctx, app, d)
 			}
 		}
 		r.Candidate = s.candidate(app.ID)
@@ -152,6 +232,34 @@ func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
 		}
 	}
 	return r
+}
+
+// publicUpstream is the address of a deployment's public service, or "".
+func (s *Service) publicUpstream(ctx context.Context, app db.App, d db.Deployment) string {
+	if !isMulti(app) {
+		if d.ContainerName.Valid && d.Port.Valid {
+			return fmt.Sprintf("http://%s:%d", dockerx.ContainerName(app.Slug, d.Seq), d.Port.Int64)
+		}
+		return ""
+	}
+	specs, _, err := s.appSpecs(ctx, app)
+	if err != nil {
+		return ""
+	}
+	pub := publicSpec(specs)
+	if pub == nil {
+		return ""
+	}
+	rows, err := s.depServices(ctx, app, d)
+	if err != nil {
+		return ""
+	}
+	for _, r := range rows {
+		if r.Service == pub.Name && r.ContainerName.Valid && r.Port.Valid {
+			return fmt.Sprintf("http://%s:%d", r.ContainerName.String, r.Port.Int64)
+		}
+	}
+	return ""
 }
 
 // SyncRoute rewrites an app's Traefik route file from the database: the
@@ -198,10 +306,11 @@ func (s *Service) retireContainer(name string, delay time.Duration) {
 	}()
 }
 
-// startCurrentLocked (re)creates the container of the app's current
-// deployment from its image and points the route at it. The caller holds the
+// startCurrentLocked (re)creates the containers of the app's current
+// deployment from their images, in dependency order, and points the route at
+// them. only names one service to restart on its own. The caller holds the
 // app lock. Used by start, restart, rename and the reconciler.
-func (s *Service) startCurrentLocked(ctx context.Context, app db.App) *apperr.Error {
+func (s *Service) startCurrentLocked(ctx context.Context, app db.App, only ...string) *apperr.Error {
 	if !app.CurrentDeploymentID.Valid {
 		return apperr.Conflict("app_not_deployed", "This app has not been deployed yet, so there is nothing to start.",
 			"Deploy it first with deploy_files, or upload a zip and call deploy. If a deploy was started before and failed, call deploy with only app= to retry without resending files.").WithNext("deploy_files")
@@ -210,6 +319,69 @@ func (s *Service) startCurrentLocked(ctx context.Context, app db.App) *apperr.Er
 	if err != nil {
 		return apperr.Internal(err)
 	}
+	if !isMulti(app) {
+		return s.startCurrentSingle(ctx, app, d)
+	}
+	if s.Docker == nil {
+		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
+	}
+	specs, _, err := s.appSpecs(ctx, app)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	order, err := startOrder(specs)
+	if err != nil {
+		return apperr.Unprocessable("services_invalid", "The services of this app cannot be started: "+err.Error()+".",
+			"Fix depends_on in the app's services and deploy again.").WithNext("get_app")
+	}
+	rows, err := s.depServices(ctx, app, d)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	byService := map[string]db.DeploymentService{}
+	for _, r := range rows {
+		byService[r.Service] = r
+	}
+	want := firstOpt(only)
+	for i := range order {
+		sp := order[i]
+		if want != "" && sp.Name != want {
+			continue
+		}
+		r, ok := byService[sp.Name]
+		if !ok || !r.Image.Valid {
+			return apperr.Conflict("app_not_deployed", "The current deployment has no image for the "+sp.Name+" service.", "Deploy the app again.").WithNext("deploy_files")
+		}
+		if _, err := s.Docker.InspectImage(ctx, r.Image.String); err != nil {
+			return apperr.Conflict("image_missing", "The image of the "+sp.Name+" service is gone from the server.", "Deploy the app again.").WithNext("deploy_files")
+		}
+		plan := startPlan{App: app, DepID: d.ID, Seq: d.Seq, Image: r.Image.String, Port: r.Port.Int64, Service: &sp}
+		name := plan.name()
+		if r.ContainerName.Valid && r.ContainerName.String != name {
+			// A container kept from an older deployment: replaced by one named after this one.
+			_ = s.Docker.RemoveContainer(ctx, r.ContainerName.String)
+		}
+		_ = s.Docker.StopContainerGrace(ctx, name, 10)
+		if ae := s.startContainer(ctx, plan); ae != nil {
+			ae.Message = "Service " + sp.Name + ": " + ae.Message
+			return ae
+		}
+		if !r.ContainerName.Valid || r.ContainerName.String != name {
+			r.ContainerName = nullStr(name)
+			if err := s.Q.UpsertDeploymentService(ctx, db.UpsertDeploymentServiceParams(r)); err != nil {
+				return apperr.Internal(err)
+			}
+			if sp.Public {
+				_ = s.Q.SetDeploymentContainer(ctx, db.SetDeploymentContainerParams{ContainerName: nullStr(name), Port: r.Port, HasHealthcheck: r.HasHealthcheck, ID: d.ID})
+			}
+		}
+	}
+	_ = s.syncRouteLocked(ctx, app.ID)
+	return nil
+}
+
+// startCurrentSingle is startCurrentLocked for a single-layout app.
+func (s *Service) startCurrentSingle(ctx context.Context, app db.App, d db.Deployment) *apperr.Error {
 	if !d.Image.Valid {
 		return apperr.Conflict("app_not_deployed", "The current deployment has no image.", "Deploy the app again.").WithNext("deploy_files")
 	}
@@ -232,6 +404,7 @@ func (s *Service) startCurrentLocked(ctx context.Context, app db.App) *apperr.Er
 		_ = s.Q.SetDeploymentContainer(ctx, db.SetDeploymentContainerParams{
 			ContainerName: nullStr(name), Port: d.Port, HasHealthcheck: d.HasHealthcheck, ID: d.ID,
 		})
+		_ = s.Q.SyncSingleDeploymentService(ctx, d.ID)
 	}
 	_ = s.syncRouteLocked(ctx, app.ID)
 	return nil

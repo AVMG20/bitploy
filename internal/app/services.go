@@ -105,23 +105,13 @@ func isMulti(a db.App) bool { return a.ServiceLayout == layoutMulti }
 // appSpecs returns the app's services in their order and its volumes.
 func (s *Service) appSpecs(ctx context.Context, a db.App) ([]serviceSpec, []volumeSpec, error) {
 	if !isMulti(a) {
-		svc := serviceSpec{
-			Name: singleService, Kind: "build", ContextDir: a.ContextDir, DockerfilePath: a.DockerfilePath,
-			Public: a.Type == "web", HealthPath: a.HealthPath, MemoryMB: a.MemoryMb, CPUMillis: a.CpuMillis,
-		}
-		if a.Port.Valid {
-			svc.Port = a.Port.Int64
-		}
-		var vols []volumeSpec
-		if a.VolumeEnabled != 0 {
-			v := volumeSpec{Name: singleVolume, VolumeName: appVolumeName(a), SizeMB: a.VolumeMb, Service: singleService, MountPath: dockerx.DataMount}
+		svc := singleSpec(a)
+		if len(svc.Mounts) > 0 {
 			if d, err := s.Q.GetAppDisk(ctx, a.ID); err == nil {
-				v.UsedBytes, v.Measured = d.VolumeBytes, true
+				svc.Mounts[0].UsedBytes, svc.Mounts[0].Measured = d.VolumeBytes, true
 			}
-			vols = append(vols, v)
-			svc.Mounts = vols
 		}
-		return []serviceSpec{svc}, vols, nil
+		return []serviceSpec{svc}, svc.Mounts, nil
 	}
 	rows, err := s.Q.ListAppServices(ctx, a.ID)
 	if err != nil {
@@ -149,6 +139,21 @@ func (s *Service) appSpecs(ctx context.Context, a db.App) ([]serviceSpec, []volu
 		specs = append(specs, sp)
 	}
 	return specs, vols, nil
+}
+
+// singleSpec is the one service of a single-layout app, from its apps row.
+func singleSpec(a db.App) serviceSpec {
+	svc := serviceSpec{
+		Name: singleService, Kind: "build", ContextDir: a.ContextDir, DockerfilePath: a.DockerfilePath,
+		Public: a.Type == "web", HealthPath: a.HealthPath, MemoryMB: a.MemoryMb, CPUMillis: a.CpuMillis,
+	}
+	if a.Port.Valid {
+		svc.Port = a.Port.Int64
+	}
+	if a.VolumeEnabled != 0 {
+		svc.Mounts = []volumeSpec{{Name: singleVolume, VolumeName: appVolumeName(a), SizeMB: a.VolumeMb, Service: singleService, MountPath: dockerx.DataMount}}
+	}
+	return svc
 }
 
 func specFromRow(r db.AppService) (serviceSpec, error) {

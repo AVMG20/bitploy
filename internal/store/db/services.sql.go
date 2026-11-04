@@ -555,6 +555,23 @@ func (q *Queries) SyncSingleAppVolume(ctx context.Context, id string) error {
 	return err
 }
 
+const syncSingleDeploymentService = `-- name: SyncSingleDeploymentService :exec
+INSERT INTO deployment_services (deployment_id, service, image, container_name, port, has_healthcheck, config_hash)
+SELECT d.id, 'app', d.image, d.container_name, d.port, d.has_healthcheck, ''
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.id = ? AND a.service_layout = 'single'
+ON CONFLICT (deployment_id, service) DO UPDATE SET
+    image = excluded.image, container_name = excluded.container_name, port = excluded.port,
+    has_healthcheck = excluded.has_healthcheck
+`
+
+// A deployment of a single-layout app is described by its deployments row;
+// its one deployment_services row mirrors it.
+func (q *Queries) SyncSingleDeploymentService(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, syncSingleDeploymentService, id)
+	return err
+}
+
 const upsertDeploymentService = `-- name: UpsertDeploymentService :exec
 
 INSERT INTO deployment_services (deployment_id, service, image, container_name, port, has_healthcheck, config_hash)
