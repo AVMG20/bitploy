@@ -104,7 +104,7 @@ func (a *API) follow(next http.Handler) http.Handler {
 				_, err := a.svc.LoadApp(ctx, actor, ref, false)
 				return err
 			}, func(ctx context.Context, emit func(app.LogLine) error) error {
-				return a.svc.FollowRuntimeLogs(ctx, actor, ref, tail, emit)
+				return a.svc.FollowRuntimeLogs(ctx, actor, ref, tail, emit, r.URL.Query().Get("service"))
 			})
 		default:
 			next.ServeHTTP(w, r)

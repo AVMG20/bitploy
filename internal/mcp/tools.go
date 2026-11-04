@@ -113,10 +113,16 @@ type listDeploymentsIn struct {
 }
 
 type getLogsIn struct {
-	App   string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	Kind  string `json:"kind" jsonschema:"build: the log of the latest build (use when a deploy failed while validating or building). runtime: what the running app prints (use when it crashes, errors or is unhealthy)."`
-	Tail  int    `json:"tail,omitempty" jsonschema:"Number of last lines. Default 200, max 1000."`
-	Since string `json:"since,omitempty" jsonschema:"Runtime logs only: lines since an age like 10m, 2h or 1d, or a time like 2026-10-29T12:00:00Z."`
+	App     string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Kind    string `json:"kind" jsonschema:"build: the log of the latest build (use when a deploy failed while validating or building). runtime: what the running app prints (use when it crashes, errors or is unhealthy)."`
+	Tail    int    `json:"tail,omitempty" jsonschema:"Number of last lines. Default 200, max 1000."`
+	Since   string `json:"since,omitempty" jsonschema:"Runtime logs only: lines since an age like 10m, 2h or 1d, or a time like 2026-10-29T12:00:00Z."`
+	Service string `json:"service,omitempty" jsonschema:"Runtime logs only, and only for an app with several services: the service name from services in get_app. Default: the public service. Leave it out for a normal app."`
+}
+
+type restartIn struct {
+	App     string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Not sure? Look in the project's .bitploy file or call list_apps."`
+	Service string `json:"service,omitempty" jsonschema:"Only for an app with several services: the service name from services in get_app. Leave it out for a normal app."`
 }
 
 type setEnvIn struct {
@@ -148,8 +154,9 @@ type domainIn struct {
 }
 
 type metricsIn struct {
-	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	Window string `json:"window,omitempty" jsonschema:"1h (15-second samples), 24h (default) or 7d."`
+	App     string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Window  string `json:"window,omitempty" jsonschema:"1h (15-second samples), 24h (default) or 7d."`
+	Service string `json:"service,omitempty" jsonschema:"Only for an app with several services: one service name from services in get_app. Default: the whole app (all services added up)."`
 }
 
 type queryDBIn struct {
@@ -305,7 +312,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), static (a static site: fixed small size, not counted in the memory and CPU quota), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count. Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), static (a static site: fixed small size, not counted in the memory and CPU quota), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count, services and volumes (an app with several services lists each one; pass its name as service= to get_logs, get_metrics and restart_app). Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
@@ -572,7 +579,7 @@ func (s *srv) registerTools() {
 		readOnly(), false,
 		enums(map[string][]string{"kind": {"build", "runtime"}}),
 		func(ctx context.Context, a app.Actor, in getLogsIn) (*result, error) {
-			opts := app.LogOptions{Kind: in.Kind, Tail: in.Tail}
+			opts := app.LogOptions{Kind: in.Kind, Tail: in.Tail, Service: in.Service}
 			if opts.Tail <= 0 {
 				opts.Tail = 200
 			}
@@ -673,9 +680,24 @@ func (s *srv) registerTools() {
 				}, nil
 			})
 	}
-	lifecycle("restart_app", "Restart an app",
-		"Recreates the container of a deployed app from its existing image (no rebuild, a few seconds of downtime) so it picks up new env vars (set_env), volume, memory and CPU settings (update_app). Fails with app_not_deployed if no deploy ever succeeded: call deploy instead.",
-		"Restarted", write(), svc.RestartApp)
+	addTool(s, "restart_app", "Restart an app",
+		"Recreates the container of a deployed app from its existing image (no rebuild, a few seconds of downtime) so it picks up new env vars (set_env), volume, memory and CPU settings (update_app). For an app with several services, service= restarts only that one. Fails with app_not_deployed if no deploy ever succeeded: call deploy instead.",
+		write(), true, nil,
+		func(ctx context.Context, a app.Actor, in restartIn) (*result, error) {
+			ap, err := svc.RestartApp(ctx, a, in.App, in.Service)
+			if err != nil {
+				return nil, err
+			}
+			what := ap.Slug
+			if in.Service != "" && len(ap.Services) > 1 {
+				what = "the " + in.Service + " service of " + ap.Slug
+			}
+			return &result{
+				Summary: fmt.Sprintf("Restarted %s: status %s.", what, ap.Status),
+				Data:    data("app", ap),
+				Next:    []string{"Call get_app in a few seconds: status should be running. If it says crashed, call get_logs with kind=runtime."},
+			}, nil
+		})
 	lifecycle("start_app", "Start an app",
 		"Starts an app that was stopped (stop_app). Only if the user wants it running again.",
 		"Started", write(), svc.StartApp)
@@ -795,7 +817,7 @@ func (s *srv) registerTools() {
 			if w == "" {
 				w = "24h"
 			}
-			m, err := svc.GetMetrics(ctx, a, in.App, w)
+			m, err := svc.GetMetrics(ctx, a, in.App, w, in.Service)
 			if err != nil {
 				return nil, err
 			}

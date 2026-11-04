@@ -216,7 +216,7 @@ type AppService struct {
 
 // AppVolume is one storage volume of an app (App.volumes).
 type AppVolume struct {
-	Name      string `json:"name" doc:"The volume name; pass it as volume= to the storage, files and backup tools"`
+	Name      string `json:"name" doc:"The volume name; pass it as volume= to the files and backups endpoints"`
 	Service   string `json:"service" doc:"The service that mounts it"`
 	MountPath string `json:"mount_path" doc:"Where the service sees it, like /data"`
 	SizeMB    int64  `json:"size_mb" doc:"Its storage limit"`

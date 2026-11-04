@@ -341,8 +341,48 @@ export interface App {
   restart_count: number
   /** Latest 15-second sample; null when the app is not running. */
   live?: MetricPoint | null
+  /**
+   * The services of the app. A normal app has one, named "app"; its
+   * settings are the fields above.
+   */
+  services: AppService[]
+  /** The storage volumes of the app; /data of a normal app is named "data". */
+  volumes: AppVolume[]
   created_at: string
   updated_at: string
+}
+
+/** One container of an app (App.services). */
+export interface AppService {
+  /** Also its hostname for the app's other services. */
+  name: string
+  /** build (from a Dockerfile) or image (a ready-made image). */
+  kind: 'build' | 'image'
+  image?: string
+  /** The app's address and domains point at this service. */
+  public: boolean
+  port: number | null
+  health_path: string
+  memory_mb: number
+  cpu_millis: number
+  /** Names of the volumes the service mounts. */
+  volumes: string[]
+  /** Services that start before this one. */
+  depends_on: string[]
+  /** The Docker container of the current deployment. */
+  container?: string
+}
+
+/** One storage volume of an app (App.volumes). */
+export interface AppVolume {
+  name: string
+  /** The service that mounts it. */
+  service: string
+  /** Where the service sees it, like /data. */
+  mount_path: string
+  size_mb: number
+  /** What the volume holds, measured hourly; null until measured. */
+  used_mb: number | null
 }
 
 export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfile'
@@ -401,6 +441,8 @@ export type MetricWindow = '1h' | '24h' | '7d'
 
 export interface Metrics {
   app: string
+  /** Set when the metrics are of one service, not the whole app. */
+  service?: string
   window: MetricWindow
   memory_limit_mb: number
   points: MetricPoint[] | null
@@ -531,6 +573,8 @@ export interface Backup {
   /** Why a failed backup failed, in plain words. */
   error?: string
   created_at: string
+  /** The volume it holds; only for an app with several services. */
+  volume?: string
 }
 
 export interface BackupSettings {

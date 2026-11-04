@@ -218,6 +218,16 @@ func appLine(ap app.App) string {
 	if ap.Current != nil {
 		s += ", deployment " + ap.Current.ID + " " + ap.Current.State
 	}
+	if len(ap.Services) > 1 {
+		names := make([]string, len(ap.Services))
+		for i, sv := range ap.Services {
+			names[i] = sv.Name
+			if sv.Public {
+				names[i] += " (public)"
+			}
+		}
+		s += ", services " + strings.Join(names, ", ")
+	}
 	if ap.StatusMessage != "" {
 		s += ". " + oneLine(ap.StatusMessage)
 	}

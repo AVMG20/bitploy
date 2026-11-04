@@ -48,14 +48,14 @@ type Manager struct {
 	// BuildCacheKeepBytes caps the BuildKit cache after the nightly prune.
 	BuildCacheKeepBytes int64
 
-	mu      sync.RWMutex
-	latest  map[string]Point // newest sample per running app
+	mu     sync.RWMutex
+	latest map[string]Point // newest sample per running app
 	// latestSvc is the newest sample per service of a running app, keyed by
 	// svcKey(app, service).
 	latestSvc map[string]Point
-	tracked map[string]*tracked
-	appUser map[string]string
-	dfCache dfCache
+	tracked   map[string]*tracked
+	appUser   map[string]string
+	dfCache   dfCache
 
 	crashes *crashTracker
 	oomAt   map[string]time.Time
