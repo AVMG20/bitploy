@@ -213,7 +213,10 @@ export interface DeployError {
   message: string
   hint?: string
   next_tool?: string
-  /** The service that failed, in a project with several. Assumed field (compose phase 2); may be missing. */
+  /**
+   * The service that failed, in an app with several. The server does not send
+   * it yet (it prefixes the message with "Service <name>: "); kept optional.
+   */
   service?: string
 }
 
@@ -260,9 +263,9 @@ export interface Deployment {
   url: string
   next_steps?: string[]
   /**
-   * What happened to each service in this deployment, for a project with
-   * several. Assumed field (compose phase 2): the dashboard shows the per-service
-   * rows only when it is there.
+   * What happened to each service in this deployment, for an app with several.
+   * Not sent by the server yet: the dashboard shows per-service rows only when
+   * it is there.
    */
   services?: DeploymentService[]
 }
@@ -283,8 +286,15 @@ export interface EnvVar {
   name: string
   masked: string
   updated_at: string
-  /** The service it is for; "" or missing: shared by every service of the project. */
-  service?: string
+  /** The service of the app it is for; "": shared by every service of the app. */
+  service: string
+  /**
+   * When the value points at another app of the project, the reference as
+   * typed, like ${{postgres.DATABASE_URL}}. A reference is not a secret, so the
+   * server may send it in full. Assumed field (projects, phase 4b); the
+   * dashboard also reads a reference out of `masked`.
+   */
+  reference?: string
 }
 
 export interface DNSRecord {
@@ -370,12 +380,68 @@ export interface App {
   services: AppService[]
   /** The storage volumes of the app; /data of a normal app is named "data". */
   volumes: AppVolume[]
-  /** single: one service whose settings are the fields above. multi: several services (from a compose file). May be missing. */
+  /** Not sent by the server (it is internal); an app with several services has more than one entry in `services`. */
   service_layout?: 'single' | 'multi'
-  /** Where the compose file is in the source, for build_mode compose. Assumed field; may be missing. */
-  compose_path?: string
+  /** Where the compose file is in the source, for build_mode compose; "" means the usual names. */
+  compose_path: string
+  /** The project the app is in (phase 4b). Missing on a server without projects. */
+  project?: ProjectRef
+  /**
+   * The app's short name in its project: its hostname for the other apps
+   * (postgres, web) and the name in ${{alias.VAR}}. Missing: the slug.
+   */
+  alias?: string
+  /** The service template it was made from (postgres, redis, ...), or null. */
+  template?: string | null
+  /** Where the other apps of the project reach it, like postgres:5432; "" or missing when it has no port. */
+  internal_host?: string
   created_at: string
   updated_at: string
+}
+
+/** The project an app is in, as App.project. */
+export interface ProjectRef {
+  id: string
+  name: string
+}
+
+/** A space that holds apps: a website, its API, its database (GET /projects). */
+export interface Project {
+  /** prj_... */
+  id: string
+  name: string
+  created_at: string
+  apps: App[]
+}
+
+/** A database or other ready service bitploy can add to a project (GET /service-templates). */
+export interface ServiceTemplate {
+  /** postgres, mysql, mariadb, redis, valkey, meilisearch */
+  id: string
+  /** PostgreSQL */
+  name: string
+  /** database, cache, queue, search, ... */
+  category: string
+  description: string
+  /** postgres:16-alpine */
+  image: string
+  version: string
+  port: number
+  memory_mb: number
+  volume_mb: number
+  /** The variables it publishes, like DATABASE_URL, PGHOST, PGPASSWORD. */
+  connection_vars: string[]
+  /** The one "Connect to" adds to the other app, like DATABASE_URL. */
+  main_var: string
+}
+
+/** POST /projects/{id}/services */
+export interface AddServiceInput {
+  template: string
+  /** Its short name in the project; the template id when missing. */
+  name?: string
+  /** Slugs of the apps that get ${{name.<main_var>}}, and are redeployed. */
+  connect_to?: string[]
 }
 
 /** One container of an app (App.services). */
@@ -397,9 +463,9 @@ export interface AppService {
   depends_on: string[]
   /** The Docker container of the current deployment. */
   container?: string
-  /** The status of this one service; the app's status when missing. Assumed field. */
+  /** The status of this one service. Not sent by the server yet: the app's status is used. */
   status?: AppStatus
-  /** Latest 15-second sample of this service; may be missing. Assumed field. */
+  /** Latest 15-second sample of this service. Not sent by the server yet: the metrics endpoint is asked. */
   live?: MetricPoint | null
 }
 
@@ -420,7 +486,11 @@ export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfil
 
 export interface CreateAppInput {
   name: string
+  /** web (default) has an address; worker has none. */
+  type?: 'web' | 'worker'
   slug?: string
+  /** The project to put it in (phase 4b). Without it a new project named after the app is made. */
+  project?: string
   /** One of me.app_domains; leave out for the default. */
   domain?: string
   volume?: boolean
@@ -428,11 +498,18 @@ export interface CreateAppInput {
   output_dir?: string
   home_page?: string
   memory_mb?: number
+  cpu_millis?: number
+  volume_mb?: number
   port?: number
+  compose_path?: string
 }
 
 export interface UpdateAppInput {
   name?: string
+  /** Move it to another project (phase 4b). */
+  project?: string
+  /** Its short name in the project (phase 4b). */
+  alias?: string
   slug?: string
   /** Move the address to another domain (one of me.app_domains). */
   domain?: string
@@ -450,6 +527,7 @@ export interface UpdateAppInput {
   volume_mb?: number
   memory_mb?: number
   cpu_millis?: number
+  compose_path?: string
 }
 
 export interface CreateTokenInput {
@@ -800,6 +878,8 @@ export interface CatalogApp {
 }
 
 export interface CatalogDeployInput {
+  /** The project to put it in (phase 4b, assumed); a new project when missing. */
+  project?: string
   name?: string
   slug?: string
   domain?: string
@@ -841,30 +921,29 @@ export interface DockerfileCheck {
 /** The file names bitploy looks for, in this order (docs/compose-plan.md "Deploy"). */
 export const COMPOSE_FILE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'] as const
 
-/** A volume a service mounts. The exact shape is not settled: a name, or an object with the name and where it is mounted. */
-export type ComposeServiceVolume = string | { name?: string; volume?: string; source?: string; target?: string; mount_path?: string }
-
 export interface ComposeService {
   name: string
   kind: 'build' | 'image'
   image?: string
-  /** The build context (a folder in the source). */
-  build?: string | { context?: string; dockerfile?: string }
+  /** How a build service is built (paths from the project root); null for an image service. */
+  build?: { context: string; dockerfile: string; target?: string } | null
   public: boolean
+  /** The port of the public service; null when it comes from the image. */
   port: number | null
+  health_path?: string
   memory_mb: number
   cpu_millis: number
-  /** Names, or {service, condition} as in the compose file's long form. */
-  depends_on: (string | { service: string; condition?: string })[] | null
-  volumes: ComposeServiceVolume[] | null
+  depends_on: string[] | null
+  /** The names of the volumes it mounts. */
+  volumes: string[] | null
 }
 
 export interface ComposeVolume {
   name: string
   size_mb: number
-  /** The service that mounts it, and where; may be missing. */
-  service?: string
-  mount_path?: string
+  /** The service that mounts it, and where. */
+  service: string
+  mount_path: string
 }
 
 /** A problem with a compose file, with the service and the compose key at fault. */
@@ -876,15 +955,26 @@ export interface ComposeIssue {
   hint?: string
 }
 
+/** How a compose file fits the account's allowance; the app's own use is left out. */
+export interface ComposeQuota {
+  memory_mb_left: number
+  cpu_millis_left: number
+  /** null: no storage limit. */
+  storage_mb_left: number | null
+  fits: boolean
+  /** Like: This needs 768 MB of memory of the 1.5 GB you have left. */
+  message: string
+}
+
+/** POST /compose/validate: a file with problems is a 200 with ok false. */
 export interface ComposeCheck {
+  ok?: boolean
   services: ComposeService[] | null
   volumes: ComposeVolume[] | null
   memory_mb_total: number
   cpu_millis_total: number
-  warnings: (string | ComposeIssue)[] | null
+  volume_mb_total?: number
+  quota?: ComposeQuota
+  warnings: ComposeIssue[] | null
   errors: ComposeIssue[] | null
-  /** May be sent along; the dashboard computes it from /me otherwise. */
-  memory_mb_left?: number
-  cpu_millis_left?: number
-  volume_mb_left?: number
 }

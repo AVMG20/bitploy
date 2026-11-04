@@ -1,4 +1,5 @@
 import type {
+  AddServiceInput,
   AdminUser,
   AppDomain,
   AppDomainList,
@@ -43,7 +44,9 @@ import type {
   TrafficListName,
   TrafficWindow,
   Page,
+  Project,
   ServerStats,
+  ServiceTemplate,
   Session,
   SessionInfo,
   Token,
@@ -83,6 +86,10 @@ export const paths = {
   tokens: `${V1}/tokens`,
   tokenById: (id: string) => `${V1}/tokens/${enc(id)}`,
   apps: `${V1}/apps`,
+  projects: `${V1}/projects`,
+  project: (id: string) => `${V1}/projects/${enc(id)}`,
+  projectServices: (id: string) => `${V1}/projects/${enc(id)}/services`,
+  serviceTemplates: `${V1}/service-templates`,
   app: (slug: string) => `${V1}/apps/${enc(slug)}`,
   appUpload: (slug: string) => `${V1}/apps/${enc(slug)}/upload`,
   appRedeploy: (slug: string) => `${V1}/apps/${enc(slug)}/redeploy`,
@@ -339,6 +346,11 @@ async function listAll<T>(path: string, query: RequestOptions['query'] = {}, key
   return out
 }
 
+/** The server does not know this endpoint (an older bitploy). */
+function missingEndpoint(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501)
+}
+
 // ---------------------------------------------------------------------------
 // Typed endpoints
 // ---------------------------------------------------------------------------
@@ -395,6 +407,34 @@ export const api = {
   createToken: (input: CreateTokenInput) => request<TokenCreated>('POST', paths.tokens, { body: input }),
   revokeToken: (id: string) => request<void>('DELETE', paths.tokenById(id)),
 
+  // projects (phase 4b): spaces that hold apps
+  /** null when this server has no projects yet (the endpoint is missing); the dashboard then makes one per app. */
+  async projects(): Promise<Project[] | null> {
+    try {
+      return listOf<Project>(await request<unknown>('GET', paths.projects), 'projects').map((p) => ({ ...p, apps: p.apps ?? [] }))
+    } catch (e) {
+      if (missingEndpoint(e)) return null
+      throw e
+    }
+  },
+  project: (id: string) => request<Project>('GET', paths.project(id)),
+  createProject: (input: { name: string }) => request<Project>('POST', paths.projects, { body: input }),
+  updateProject: (id: string, input: { name: string }) => request<Project>('PATCH', paths.project(id), { body: input }),
+  /** Refused while the project has apps, unless withApps (which deletes them too). */
+  deleteProject: (id: string, name: string, withApps = false) =>
+    request<void>('DELETE', paths.project(id), { query: { confirm: name, with_apps: withApps || undefined } }),
+  /** The databases and other ready services; null when this server has none (the endpoint is missing). */
+  async serviceTemplates(): Promise<ServiceTemplate[] | null> {
+    try {
+      return listOf<ServiceTemplate>(await request<unknown>('GET', paths.serviceTemplates), 'templates')
+    } catch (e) {
+      if (missingEndpoint(e)) return null
+      throw e
+    }
+  },
+  /** Makes an app from a template in the project, wires "Connect to" and deploys it. */
+  addService: (projectId: string, input: AddServiceInput) => request<App>('POST', paths.projectServices(projectId), { body: input }),
+
   // apps
   async apps(): Promise<App[]> {
     return listAll<App>(paths.apps)
@@ -425,10 +465,11 @@ export const api = {
     try {
       return await request<ComposeCheck>('POST', paths.composeValidate, { body: { compose } })
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501)) return null
+      if (missingEndpoint(e)) return null
       if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429) {
         const d = e.details as { service?: string; key?: string } | undefined
         return {
+          ok: false,
           services: [],
           volumes: [],
           memory_mb_total: 0,
