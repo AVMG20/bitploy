@@ -110,7 +110,7 @@ func (q *Queries) CountUserDeploymentsSince(ctx context.Context, arg CountUserDe
 
 const failDeployment = `-- name: FailDeployment :exec
 UPDATE deployments
-SET state = 'failed', error_code = ?, error_message = ?, error_hint = ?, error_next = ?, log_tail = ?, finished_at = ?
+SET state = 'failed', error_code = ?, error_message = ?, error_hint = ?, error_next = ?, error_service = ?, log_tail = ?, finished_at = ?
 WHERE id = ?
 `
 
@@ -119,6 +119,7 @@ type FailDeploymentParams struct {
 	ErrorMessage sql.NullString
 	ErrorHint    sql.NullString
 	ErrorNext    sql.NullString
+	ErrorService string
 	LogTail      sql.NullString
 	FinishedAt   sql.NullInt64
 	ID           string
@@ -130,6 +131,7 @@ func (q *Queries) FailDeployment(ctx context.Context, arg FailDeploymentParams) 
 		arg.ErrorMessage,
 		arg.ErrorHint,
 		arg.ErrorNext,
+		arg.ErrorService,
 		arg.LogTail,
 		arg.FinishedAt,
 		arg.ID,
@@ -170,7 +172,7 @@ func (q *Queries) FinishDeployment(ctx context.Context, arg FinishDeploymentPara
 }
 
 const getDeploymentBySeq = `-- name: GetDeploymentBySeq :one
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE app_id = ? AND seq = ?
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service FROM deployments WHERE app_id = ? AND seq = ?
 `
 
 type GetDeploymentBySeqParams struct {
@@ -212,6 +214,7 @@ func (q *Queries) GetDeploymentBySeq(ctx context.Context, arg GetDeploymentBySeq
 		&i.BuildKind,
 		&i.CatalogVersion,
 		&i.ServicesSpec,
+		&i.ErrorService,
 	)
 	return i, err
 }
@@ -294,7 +297,7 @@ func (q *Queries) InterruptDeployment(ctx context.Context, arg InterruptDeployme
 }
 
 const listAllDeploymentsByApp = `-- name: ListAllDeploymentsByApp :many
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE app_id = ? ORDER BY seq DESC
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service FROM deployments WHERE app_id = ? ORDER BY seq DESC
 `
 
 func (q *Queries) ListAllDeploymentsByApp(ctx context.Context, appID string) ([]Deployment, error) {
@@ -337,6 +340,7 @@ func (q *Queries) ListAllDeploymentsByApp(ctx context.Context, appID string) ([]
 			&i.BuildKind,
 			&i.CatalogVersion,
 			&i.ServicesSpec,
+			&i.ErrorService,
 		); err != nil {
 			return nil, err
 		}
@@ -352,7 +356,7 @@ func (q *Queries) ListAllDeploymentsByApp(ctx context.Context, appID string) ([]
 }
 
 const listDeploymentsByApp = `-- name: ListDeploymentsByApp :many
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE app_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service FROM deployments WHERE app_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?
 `
 
 type ListDeploymentsByAppParams struct {
@@ -401,6 +405,7 @@ func (q *Queries) ListDeploymentsByApp(ctx context.Context, arg ListDeploymentsB
 			&i.BuildKind,
 			&i.CatalogVersion,
 			&i.ServicesSpec,
+			&i.ErrorService,
 		); err != nil {
 			return nil, err
 		}
@@ -416,7 +421,7 @@ func (q *Queries) ListDeploymentsByApp(ctx context.Context, arg ListDeploymentsB
 }
 
 const listInterruptibleDeployments = `-- name: ListInterruptibleDeployments :many
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE state IN ('fetching', 'validating', 'building', 'starting', 'health_check', 'swapping')
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service FROM deployments WHERE state IN ('fetching', 'validating', 'building', 'starting', 'health_check', 'swapping')
 `
 
 func (q *Queries) ListInterruptibleDeployments(ctx context.Context) ([]Deployment, error) {
@@ -459,6 +464,7 @@ func (q *Queries) ListInterruptibleDeployments(ctx context.Context) ([]Deploymen
 			&i.BuildKind,
 			&i.CatalogVersion,
 			&i.ServicesSpec,
+			&i.ErrorService,
 		); err != nil {
 			return nil, err
 		}
@@ -474,7 +480,7 @@ func (q *Queries) ListInterruptibleDeployments(ctx context.Context) ([]Deploymen
 }
 
 const listQueuedDeployments = `-- name: ListQueuedDeployments :many
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec FROM deployments WHERE state = 'queued' ORDER BY queued_at, seq
+SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service FROM deployments WHERE state = 'queued' ORDER BY queued_at, seq
 `
 
 func (q *Queries) ListQueuedDeployments(ctx context.Context) ([]Deployment, error) {
@@ -517,6 +523,7 @@ func (q *Queries) ListQueuedDeployments(ctx context.Context) ([]Deployment, erro
 			&i.BuildKind,
 			&i.CatalogVersion,
 			&i.ServicesSpec,
+			&i.ErrorService,
 		); err != nil {
 			return nil, err
 		}

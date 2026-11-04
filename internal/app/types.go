@@ -154,6 +154,9 @@ type App struct {
 	// first of compose.yaml, compose.yml, docker-compose.yaml,
 	// docker-compose.yml (in context_dir, then at the root).
 	ComposePath string `json:"compose_path" doc:"Build mode compose: the compose file in the source. Empty: compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml"`
+	// ServiceLayout is single (one service, named app, whose settings are the
+	// fields of App) or multi (several services from a compose file).
+	ServiceLayout string `json:"service_layout" enum:"single,multi" doc:"single: one service whose settings are the app's fields; multi: several services from a compose file"`
 	// OutputDir is the folder a static build serves; empty means the default of
 	// the detected framework (dist, build or out).
 	OutputDir string `json:"output_dir"`
@@ -216,6 +219,9 @@ type AppService struct {
 	DependsOn  []string `json:"depends_on" doc:"Services that start before this one"`
 	// Container is the Docker container of the current deployment.
 	Container string `json:"container,omitempty"`
+	// Live is the service's latest 15-second sample, for a running app with
+	// several services; nil otherwise (App.live has the app's).
+	Live *MetricPoint `json:"live,omitempty" doc:"Latest 15-second sample of this service, for a running app with several services"`
 }
 
 // AppVolume is one storage volume of an app (App.volumes).
@@ -233,6 +239,24 @@ type DeployError struct {
 	Message string `json:"message"`
 	Hint    string `json:"hint,omitempty"`
 	Next    string `json:"next_tool,omitempty"`
+	// Service is the service the deployment failed in, for an app with
+	// several services; the message then starts with "Service <name>: ".
+	Service string `json:"service,omitempty" doc:"The service it failed in, for an app with several services"`
+}
+
+// DeploymentService is what one service did in a deployment of an app with
+// several services (Deployment.services).
+type DeploymentService struct {
+	Service string  `json:"service"`
+	Image   *string `json:"image" doc:"The image it runs; null until it is built or pulled"`
+	// State is the deployment's state while it moves. When the deployment
+	// failed, the service it failed in is failed and the others cancelled
+	// (the version that was live keeps running).
+	State string `json:"state" doc:"queued, ..., running, failed, superseded or cancelled; see Deployment.state"`
+	// Reused is true when the container of an earlier deployment was kept
+	// because the service's image and settings did not change.
+	Reused bool         `json:"reused" doc:"The running container of an earlier version was kept: nothing changed"`
+	Error  *DeployError `json:"error" doc:"Why this service failed; null for the others"`
 }
 
 type Deployment struct {
@@ -256,6 +280,8 @@ type Deployment struct {
 	DurationSec   *float64         `json:"duration_seconds"`
 	URL           string           `json:"url"`
 	NextSteps     []string         `json:"next_steps,omitempty"`
+	// Services is set for a deployment of an app with several services.
+	Services []DeploymentService `json:"services,omitempty" doc:"Per service, for an app with several services"`
 }
 
 // Terminal reports whether the deployment stopped moving.

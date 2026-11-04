@@ -178,6 +178,7 @@ type Deployment struct {
 	BuildKind       string
 	CatalogVersion  string
 	ServicesSpec    string
+	ErrorService    string
 }
 
 type DeploymentService struct {

@@ -1074,7 +1074,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, Domain: s.appDomainOf(r), OwnerID: r.UserID,
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
-		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, ComposePath: r.ComposePath, HomePage: r.HomePage, OutputDir: r.OutputDir,
+		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, ComposePath: r.ComposePath, ServiceLayout: r.ServiceLayout, HomePage: r.HomePage, OutputDir: r.OutputDir,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}
@@ -1105,7 +1105,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v.GitSource = s.gitSourceState(ctx, a, r)
 	if r.CurrentDeploymentID.Valid {
 		if d, err := s.Q.GetDeployment(ctx, r.CurrentDeploymentID.String); err == nil {
-			dv := s.deploymentView(d, r.Slug, r.Type, r.BaseDomain)
+			dv := s.deploymentView(ctx, d, r)
 			v.Current = &dv
 			v.Static = deploy.IsStaticKind(d.BuildKind)
 			if s.Docker != nil && r.DesiredState == "running" && d.ContainerName.Valid {

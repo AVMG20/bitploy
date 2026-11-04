@@ -835,7 +835,22 @@ func (p *pipeline) serviceErr(r *serviceRun, ae *apperr.Error) *apperr.Error {
 	}
 	out := *ae
 	out.Message = "Service " + r.spec.Name + ": " + ae.Message
+	out.Details = make(map[string]any, len(ae.Details)+1)
+	for k, v := range ae.Details {
+		out.Details[k] = v
+	}
+	out.Details["service"] = r.spec.Name
 	return &out
+}
+
+// errorService is the service an error of a multi-service deployment is
+// about (details.service), or "".
+func errorService(ae *apperr.Error) string {
+	if ae == nil {
+		return ""
+	}
+	name, _ := ae.Details["service"].(string)
+	return name
 }
 
 // waitForDependencies waits for the services r depends on with condition
@@ -1125,7 +1140,11 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 			hint += " Read the service's logs with get_logs service=" + p.failed.spec.Name + "."
 		}
 	}
-	return apperr.Unprocessable(code, msg, hint).WithNext(next)
+	out := apperr.Unprocessable(code, msg, hint).WithNext(next)
+	if isMulti(p.app) && p.failed != nil {
+		out.WithDetail("service", p.failed.spec.Name)
+	}
+	return out
 }
 
 // ---- swapping ----
@@ -1310,7 +1329,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	p.cleanupFailed(bg)
 	if err := s.Q.FailDeployment(bg, db.FailDeploymentParams{
 		ErrorCode: nullStr(ae.Code), ErrorMessage: nullStr(apperr.Redact(ae.Message)), ErrorHint: nullStr(apperr.Redact(ae.Hint)),
-		ErrorNext: nullStr(ae.Next), LogTail: nullStr(apperr.Redact(strings.Join(tail, "\n"))),
+		ErrorNext: nullStr(ae.Next), ErrorService: errorService(ae), LogTail: nullStr(apperr.Redact(strings.Join(tail, "\n"))),
 		FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
 	}); err != nil {
 		s.Log.Error("store deployment failure", "id", p.dep.ID, "err", err)
