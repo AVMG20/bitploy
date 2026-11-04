@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
-import { ArrowUpCircle, ExternalLink, GitBranch, Hammer, Link, Lock, MoreHorizontal, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-vue-next'
+import { ArrowUpCircle, ExternalLink, Plus, GitBranch, Hammer, Link, Lock, MoreHorizontal, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
@@ -31,23 +31,46 @@ import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 import ServiceSheet from './ServiceSheet.vue'
 import { isMulti } from '@/lib/services'
+import ServiceIcon from '@/components/ServiceIcon.vue'
+import StatusDot from '@/components/StatusDot.vue'
+import { useProject, useServiceTemplates } from '@/composables/queries'
+import { openAdd } from '@/composables/useAddToProject'
+import { appRoute, projectRoute } from '@/lib/appLinks'
+import { aliasOf, appRole, internalHostOf, isPublicApp, projectIdOf, roleTitle, sortProjectApps } from '@/lib/projects'
 
 const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
 const router = useRouter()
 const app = useApp(() => props.slug)
 const data = computed(() => app.data.value)
-const isWeb = computed(() => data.value?.type === 'web')
-// Several services: the overview is the service grid, actions act on all of them.
+const isWeb = computed(() => !!data.value && isPublicApp(data.value))
+// Several services (a compose file): the overview is the service grid, actions act on all of them.
 const multi = computed(() => isMulti(data.value))
-const thing = computed(() => (multi.value ? 'project' : 'app'))
+const thing = 'app'
+
+// The project around the app: its other apps, one click away.
+const pid = computed(() => props.projectId || (data.value ? projectIdOf(data.value) : ''))
+const { list: projectList, project } = useProject(pid)
+const templates = useServiceTemplates()
+const role = computed(() => (data.value ? appRole(data.value, templates.data.value ?? []) : null))
+const siblings = computed(() => sortProjectApps(project.value?.apps ?? [], templates.data.value ?? []))
+const canAdd = computed(() => !!project.value && !projectList.data.value?.fallback)
+// The address names the project; an old link with the wrong one is put right.
+watch(
+  () => data.value,
+  (a) => {
+    if (a && props.projectId && props.projectId !== projectIdOf(a) && project.value === null && projectList.data.value) {
+      void router.replace({ name: route.name ?? 'app', params: { ...route.params, projectId: projectIdOf(a) }, query: route.query, hash: route.hash })
+    }
+  },
+)
 
 // The Database tab shows when the saved files hold a SQLite file at the top. A failed or empty look shows no tab and no error.
 const root = useDataRoot(() => props.slug, () => !!data.value?.volume)
 const hasDatabase = computed(() => !!pickDatabase(root.data.value?.items ?? [], props.slug))
 // Background workers have no visitors and no web address.
 const shownTabs = computed(() =>
-  APP_TABS.filter((t) => (!t.webOnly || data.value?.type !== 'worker') && (!t.database || hasDatabase.value)).map((t) =>
+  APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value)).map((t) =>
     multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t,
   ),
 )
@@ -58,9 +81,9 @@ const notFound = computed(() => app.error.value instanceof ApiError && app.error
 // The browser tab says which app this is.
 const tabLabel = computed(() => (route.meta.title as string | undefined) ?? APP_TABS.find((t) => t.name === current.value && t.name !== 'app')?.label ?? '')
 watch(
-  () => [data.value?.name, tabLabel.value] as const,
-  ([name, tab]) => {
-    if (name) document.title = `${tab ? `${tab} - ` : ''}${name} - bitploy`
+  () => [data.value?.name, tabLabel.value, project.value?.name] as const,
+  ([name, tab, pname]) => {
+    if (name) document.title = `${tab ? `${tab} - ` : ''}${name}${pname && pname !== name ? ` - ${pname}` : ''} - bitploy`
   },
   { immediate: true },
 )
@@ -83,6 +106,8 @@ const shownStatus = computed(() => (actions.restart.isPending.value ? 'restartin
 const primary = computed<'git' | 'upload' | 'update' | 'open' | 'none'>(() => {
   const a = data.value
   if (!a) return 'none'
+  // A database or cache from a template: bitploy keeps its image up to date.
+  if (a.template) return 'none'
   if (a.git_source) return 'git'
   if (a.catalog_id) return a.catalog_update ? 'update' : isWeb.value && dep.value ? 'open' : 'none'
   return 'upload'
@@ -115,7 +140,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
 
 <template>
   <div class="grid grid-cols-[minmax(0,1fr)] gap-5">
-    <EmptyState v-if="notFound" title="We cannot find that project." description="It may have been deleted, or the address has a typo.">
+    <EmptyState v-if="notFound" title="We cannot find that app." description="It may have been deleted, or the address has a typo.">
       <Button as-child><RouterLink to="/">Back to your projects</RouterLink></Button>
     </EmptyState>
     <QueryError v-else-if="app.isError.value && !data" :error="app.error.value" @retry="app.refetch()" />
@@ -124,7 +149,9 @@ const pending = useRestartNeeded(data, () => env.data.value)
       <div v-if="data" class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
         <div class="min-w-0">
           <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <ServiceIcon v-if="role" :role="role.key" />
             <h1 class="min-w-0 truncate text-2xl font-semibold tracking-tight">{{ data.name }}</h1>
+            <span v-if="role" class="text-sm text-muted-foreground">{{ roleTitle(role) }}</span>
             <AppStatusBadge :status="shownStatus" />
             <button
               v-if="data.catalog_update"
@@ -143,7 +170,10 @@ const pending = useRestartNeeded(data, () => env.data.value)
                 <Lock class="size-3.5" aria-hidden="true" /> Private
               </span>
             </template>
-            <span v-else>Background worker</span>
+            <span v-else-if="data && internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
+              <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
+            </span>
+            <span v-else>Runs in the background, no web address</span>
             <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
             <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
             <span v-else>Not deployed yet</span>
@@ -169,7 +199,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
               <Button variant="outline" disabled>{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></Button>
             </span>
           </template>
-          <Button variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this project' : undefined" @click="restart">
+          <Button variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
             <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
             <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>
@@ -222,6 +252,28 @@ const pending = useRestartNeeded(data, () => env.data.value)
           <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
         </Button>
       </div>
+
+      <!-- The other apps of the project. -->
+      <nav v-if="project && (siblings.length > 1 || canAdd)" class="-mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs" :aria-label="`Apps in ${project.name}`">
+        <RouterLink :to="projectRoute(project.id)" class="mr-1 text-muted-foreground hover:text-foreground">In {{ project.name }}:</RouterLink>
+        <RouterLink
+          v-for="a in siblings"
+          :key="a.id"
+          :to="appRoute(a)"
+          :aria-current="a.slug === slug ? 'page' : undefined"
+          class="inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-1 font-mono transition-colors hover:border-foreground/25 aria-[current=page]:border-primary/40 aria-[current=page]:bg-primary/5"
+        >
+          <StatusDot :status="a.status" /> {{ aliasOf(a) }}
+        </RouterLink>
+        <button
+          v-if="canAdd"
+          type="button"
+          class="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+          @click="openAdd(project.id)"
+        >
+          <Plus class="size-3" /> Add
+        </button>
+      </nav>
 
       <Tabs :model-value="current" class="min-w-0">
         <div class="overflow-x-auto overflow-y-hidden border-b">

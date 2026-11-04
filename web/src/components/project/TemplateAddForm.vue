@@ -197,7 +197,7 @@ const busy = computed(() => stage.value === 'adding')
               <span class="font-medium">{{ a.name }}</span>
               <span class="ml-2 text-xs text-muted-foreground">{{ roleTitle(appRole(a)) }}</span>
             </span>
-            <span class="hidden truncate font-mono text-xs text-muted-foreground sm:inline">{{ aliasOf(a) }}</span>
+            <span v-if="aliasOf(a) !== a.name" class="hidden truncate font-mono text-xs text-muted-foreground sm:inline">{{ aliasOf(a) }}</span>
           </label>
         </div>
         <p class="text-[0.8rem] text-muted-foreground">

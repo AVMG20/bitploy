@@ -653,7 +653,7 @@ function me(): Me {
   const running = apps.filter((a) => a.status === 'running')
   return {
     user,
-    quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 20480 },
+    quota: { apps: 12, memory_mb: 4096, cpu_millis: 4000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 20480 },
     usage: {
       apps: apps.length,
       apps_running: running.length,

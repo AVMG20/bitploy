@@ -23,7 +23,7 @@ import { appRoute } from '@/lib/appLinks'
 import { friendlyError } from '@/lib/errors'
 import { appStatusInfo, formatMB, hostOf } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
-import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, projectLinks, projectUsage, sortProjectApps, talksTo, templateRole, usedBy } from '@/lib/projects'
+import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, projectLinks, projectUsage, sortProjectApps, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
 import type { Lane } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
@@ -79,50 +79,72 @@ const linkedTo = computed(() => {
 
 // ---------------------------------------------------------------- the lines behind the cards
 const board = ref<HTMLElement>()
-const paths = ref<{ key: string; d: string; from: string; to: string; label: string; x: number; y: number; ex: number; ey: number }[]>([])
+interface LinkPath {
+  key: string
+  d: string
+  from: string
+  to: string
+  label: string
+  /** Where the line enters the app it reads from, and on which side. */
+  ex: number
+  ey: number
+  side: 'l' | 'r'
+}
+const paths = ref<LinkPath[]>([])
 const size = ref({ w: 0, h: 0 })
 function measure() {
   const el = board.value
   if (!el) return
   const box = el.getBoundingClientRect()
   size.value = { w: box.width, h: box.height }
-  const rect = (id: string) => {
-    const card = el.querySelector<HTMLElement>(`[data-app="${CSS.escape(id)}"]`)
-    if (!card) return null
+  const rects = new Map<string, { l: number; r: number; t: number; b: number }>()
+  for (const card of el.querySelectorAll<HTMLElement>('[data-app]')) {
     const r = card.getBoundingClientRect()
-    return { l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top, cy: r.top - box.top + Math.min(r.height / 2, 44) }
+    rects.set(card.dataset.app!, { l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top })
   }
-  const out: typeof paths.value = []
-  for (const l of links.value) {
-    const a = rect(l.from)
-    const b = rect(l.to)
-    if (!a || !b) continue
+  // Which side of each card a line leaves or enters: toward the other card, or the right for one in the same column.
+  type End = { link: number; id: string; side: 'l' | 'r'; otherY: number; y: number }
+  const ends: End[] = []
+  const sides: { a: End; b: End }[] = []
+  links.value.forEach((l, i) => {
+    const a = rects.get(l.from)
+    const b = rects.get(l.to)
+    if (!a || !b) return
+    const [sa, sb]: ['l' | 'r', 'l' | 'r'] = b.l >= a.r - 4 ? ['r', 'l'] : a.l >= b.r - 4 ? ['l', 'r'] : ['r', 'r']
+    const ea = { link: i, id: l.from, side: sa, otherY: b.t, y: 0 }
+    const eb = { link: i, id: l.to, side: sb, otherY: a.t, y: 0 }
+    ends.push(ea, eb)
+    sides.push({ a: ea, b: eb })
+  })
+  // Several lines on one side of a card spread out instead of meeting in one point.
+  const bySide = new Map<string, End[]>()
+  for (const e of ends) {
+    const k = `${e.id}:${e.side}`
+    bySide.set(k, [...(bySide.get(k) ?? []), e])
+  }
+  for (const list of bySide.values()) {
+    const r = rects.get(list[0]!.id)!
+    list.sort((x, y) => x.otherY - y.otherY)
+    const step = Math.min(22, Math.max(10, (r.b - r.t - 60) / Math.max(1, list.length)))
+    list.forEach((e, i) => (e.y = r.t + 34 + i * step))
+  }
+  const out: LinkPath[] = []
+  for (const { a, b } of sides) {
+    const ra = rects.get(a.id)!
+    const rb = rects.get(b.id)!
+    const ax = a.side === 'r' ? ra.r : ra.l
+    const bx = b.side === 'r' ? rb.r : rb.l
     let d: string
-    let x: number
-    let y: number
-    let ex: number
-    if (b.l >= a.r - 4) {
-      // b is to the right: leave a's right edge, enter b's left edge.
-      const dx = Math.max(30, (b.l - a.r) / 2)
-      d = `M${a.r},${a.cy} C${a.r + dx},${a.cy} ${b.l - dx},${b.cy} ${b.l},${b.cy}`
-      x = (a.r + b.l) / 2
-      y = (a.cy + b.cy) / 2
-      ex = b.l
-    } else if (a.l >= b.r - 4) {
-      const dx = Math.max(30, (a.l - b.r) / 2)
-      d = `M${a.l},${a.cy} C${a.l - dx},${a.cy} ${b.r + dx},${b.cy} ${b.r},${b.cy}`
-      x = (a.l + b.r) / 2
-      y = (a.cy + b.cy) / 2
-      ex = b.r
+    if (a.side !== b.side) {
+      const dx = Math.max(28, Math.abs(bx - ax) / 2)
+      const dir = a.side === 'r' ? 1 : -1
+      d = `M${ax},${a.y} C${ax + dir * dx},${a.y} ${bx - dir * dx},${b.y} ${bx},${b.y}`
     } else {
-      // Same column: a loop on the right side.
-      const right = Math.max(a.r, b.r)
-      d = `M${a.r},${a.cy} C${right + 36},${a.cy} ${right + 36},${b.cy} ${b.r},${b.cy}`
-      x = right + 27
-      y = (a.cy + b.cy) / 2
-      ex = b.r
+      const right = Math.max(ra.r, rb.r) + 30
+      d = `M${ax},${a.y} C${right},${a.y} ${right},${b.y} ${bx},${b.y}`
     }
-    out.push({ key: `${l.from}>${l.to}`, d, from: l.from, to: l.to, label: l.vars.join(', '), x, y, ex, ey: b.cy })
+    const l = links.value[a.link]!
+    out.push({ key: `${l.from}>${l.to}`, d, from: l.from, to: l.to, label: l.vars.join(', '), ex: bx, ey: b.y, side: b.side })
   }
   paths.value = out
 }
@@ -287,7 +309,7 @@ const projectForAi = computed(() => {
               <ServiceIcon :role="templateRole(t)" size="sm" />
               <span class="min-w-0">
                 <span class="block truncate font-medium">{{ t.name }}</span>
-                <span class="block truncate text-xs text-muted-foreground">{{ t.main_var || t.category }}</span>
+                <span class="block truncate text-xs text-muted-foreground">{{ templateLabel(t) }}, {{ formatMB(t.memory_mb) }}</span>
               </span>
             </button>
           </div>
@@ -320,20 +342,13 @@ const projectForAi = computed(() => {
             />
             <circle :cx="p.ex" :cy="p.ey" r="3" class="fill-background stroke-foreground/40" stroke-width="1.5" />
           </g>
-          <!-- The variable names on the lines of the hovered app. -->
-          <template v-for="p in paths" :key="`${p.key}-label`">
-            <g v-if="hovered && (p.from === hovered || p.to === hovered)">
-              <rect :x="p.x - (p.label.length * 3.6 + 8)" :y="p.y - 10" :width="p.label.length * 7.2 + 16" height="20" rx="5" class="fill-card stroke-primary/40" />
-              <text :x="p.x" :y="p.y + 4" text-anchor="middle" class="fill-foreground font-mono text-[11px]">{{ p.label }}</text>
-            </g>
-          </template>
         </svg>
 
         <div class="relative grid gap-6 lg:gap-16" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 17rem), 1fr))` }">
           <section v-for="l in lanes" :key="l.key" class="grid content-start gap-3" :aria-labelledby="`lane-${l.key}`">
-            <div class="flex items-baseline justify-between gap-2 px-1">
-              <h2 :id="`lane-${l.key}`" class="text-xs font-medium tracking-wide text-muted-foreground uppercase">{{ l.title }}</h2>
-              <span class="text-[11px] text-muted-foreground/80">{{ l.text }}</span>
+            <div class="px-1">
+              <h2 :id="`lane-${l.key}`" class="truncate text-xs font-medium text-foreground/80">{{ l.title }}</h2>
+              <p class="truncate text-[11px] text-muted-foreground">{{ l.text }}</p>
             </div>
             <ProjectAppCard
               v-for="a in l.apps"
@@ -356,6 +371,16 @@ const projectForAi = computed(() => {
               <Plus class="size-4" /> Add an app or a database
             </button>
           </section>
+        </div>
+        <!-- The variables each line carries, on the lines of the hovered app. -->
+        <div class="pointer-events-none absolute inset-0 z-20 hidden lg:block" aria-hidden="true">
+          <template v-for="p in paths" :key="`${p.key}-label`">
+            <span
+              v-if="hovered && (p.from === hovered || p.to === hovered)"
+              class="absolute rounded-md border border-primary/40 bg-card px-1.5 py-0.5 font-mono text-[10.5px] whitespace-nowrap text-foreground shadow-card"
+              :style="{ left: `${p.side === 'l' ? p.ex - 8 : p.ex + 8}px`, top: `${p.ey}px`, transform: p.side === 'l' ? 'translate(-100%, -50%)' : 'translate(0, -50%)' }"
+            >{{ p.label }}</span>
+          </template>
         </div>
       </div>
     </template>

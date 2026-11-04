@@ -136,6 +136,11 @@ function labelOf(key: RoleKey): { label: string; blurb: string } {
   return APP_LABELS[key]
 }
 
+/** "Database", "Cache", "Search": what a template makes, in one word. */
+export function templateLabel(t: Pick<ServiceTemplate, 'id' | 'category' | 'image'>): string {
+  return APP_LABELS[templateRole(t)].label
+}
+
 /** "Database · PostgreSQL 16", or "Website". */
 export function roleTitle(role: Pick<Role, 'label' | 'product'>): string {
   return role.product ? `${role.label} · ${role.product}` : role.label
@@ -232,6 +237,20 @@ export function parseReferences(text: string | null | undefined): Reference[] {
   if (!text) return []
   const out: Reference[] = []
   for (const m of text.matchAll(REF)) out.push({ app: m[1]!, variable: m[2]!, raw: m[0] })
+  return out
+}
+
+/** A value cut into plain text and references, to show each reference as a chip naming the other app. */
+export function referenceParts(text: string | null | undefined): ({ text: string } | { ref: Reference })[] {
+  if (!text) return []
+  const out: ({ text: string } | { ref: Reference })[] = []
+  let at = 0
+  for (const m of text.matchAll(REF)) {
+    if (m.index! > at) out.push({ text: text.slice(at, m.index) })
+    out.push({ ref: { app: m[1]!, variable: m[2]!, raw: m[0] } })
+    at = m.index! + m[0].length
+  }
+  if (at < text.length) out.push({ text: text.slice(at) })
   return out
 }
 

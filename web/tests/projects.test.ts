@@ -17,10 +17,13 @@ import {
   projectHealth,
   projectLinks,
   projectsFromApps,
+  referenceParts,
   referenceText,
   roleTitle,
   sortProjectApps,
   talksTo,
+  templateLabel,
+  templateRole,
   usedBy,
 } from '../src/lib/projects.ts'
 import type { App, AppService, EnvVar, ServiceTemplate } from '../src/lib/types.ts'
@@ -249,4 +252,24 @@ test('pastedKind tells a compose file, an image and a Dockerfile apart', () => {
   assert.equal(pastedKind('nginx'), 'image')
   assert.equal(pastedKind('FROM nginx:1.27\nCOPY . /usr/share/nginx/html'), 'dockerfile')
   assert.equal(pastedKind('FROM nginx'), 'dockerfile')
+})
+
+test('referenceParts cuts a value into text and references', () => {
+  assert.deepEqual(referenceParts('http://${{api.HOST}}:8080'), [
+    { text: 'http://' },
+    { ref: { app: 'api', variable: 'HOST', raw: '${{api.HOST}}' } },
+    { text: ':8080' },
+  ])
+  assert.deepEqual(referenceParts('plain'), [{ text: 'plain' }])
+  assert.deepEqual(referenceParts(''), [])
+})
+
+test('templateRole and templateLabel name what a template makes', () => {
+  const t = (id: string, category: string, image: string) => ({ id, category, image })
+  assert.equal(templateRole(t('postgres', 'database', 'postgres:16')), 'database')
+  assert.equal(templateRole(t('redis', 'cache', 'redis:7')), 'cache')
+  assert.equal(templateRole(t('meili', 'search', 'getmeili/meilisearch:v1.10')), 'search')
+  // An unknown category falls back to the image.
+  assert.equal(templateRole(t('kv', 'other', 'valkey/valkey:8')), 'cache')
+  assert.equal(templateLabel(t('postgres', 'database', 'postgres:16')), 'Database')
 })

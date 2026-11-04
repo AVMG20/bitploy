@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { appPath } from '@/lib/appLinks'
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
@@ -111,7 +112,7 @@ const filtering = computed(() => kind.value !== 'all' || !!search.value.trim())
                 <span class="text-sm">{{ auditLabel(e.action) }}</span>
                 <template v-if="target(e)">
                   <span class="text-sm text-muted-foreground">: </span>
-                  <RouterLink v-if="target(e)?.slug" :to="{ name: 'app', params: { slug: target(e)!.slug } }" class="text-sm font-medium hover:underline">{{ target(e)!.text }}</RouterLink>
+                  <RouterLink v-if="target(e)?.slug" :to="appPath(target(e)!.slug!)" class="text-sm font-medium hover:underline">{{ target(e)!.text }}</RouterLink>
                   <span v-else class="text-sm font-medium">{{ target(e)!.text }}</span>
                 </template>
                 <span v-if="auditDetails(e.details).length" class="block max-w-md truncate text-xs text-muted-foreground" :title="auditDetails(e.details).join('\n')">

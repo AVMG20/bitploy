@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { appPath } from '@/lib/appLinks'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -251,7 +252,7 @@ async function run(v: { name: string; slug: string }) {
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.me })
     void qc.invalidateQueries({ queryKey: keys.deployments(slug) })
-    if (!gone) await router.push({ name: 'app', params: { slug } })
+    if (!gone) await router.push(appPath(slug))
   } catch (e) {
     const f = friendlyError(e)
     if (slug) {
@@ -440,7 +441,7 @@ const submit = form.handleSubmit(run)
         <AlertDescription>
           <p v-if="error.hint">{{ error.hint }}</p>
           <p v-if="leftover">
-            The app <RouterLink :to="{ name: 'app', params: { slug: leftover } }" class="underline">{{ leftover }}</RouterLink> was created but could not be removed again. Delete it in its Settings.
+            The app <RouterLink :to="appPath(leftover)" class="underline">{{ leftover }}</RouterLink> was created but could not be removed again. Delete it in its Settings.
           </p>
         </AlertDescription>
       </Alert>

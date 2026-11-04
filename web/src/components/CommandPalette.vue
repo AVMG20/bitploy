@@ -3,10 +3,13 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import { Box, CornerDownLeft, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
+import { Box, Boxes, CornerDownLeft, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
-import { useApps } from '@/composables/queries'
+import { useProjects } from '@/composables/queries'
+import { openAdd } from '@/composables/useAddToProject'
+import { appRoute, projectRoute } from '@/lib/appLinks'
+import { aliasOf, appRole, isPublicApp, roleTitle } from '@/lib/projects'
 import { useSession } from '@/composables/useSession'
 import { paletteOpen } from '@/composables/useShortcuts'
 import { APP_TABS } from '@/lib/appTabs'
@@ -14,8 +17,8 @@ import { appStatusInfo, hostOf } from '@/lib/format'
 import { setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
-// The quick switcher: type a few letters of an app or a page and press Enter.
-// "shop logs" finds the Logs tab of the app called shop.
+// The quick switcher: type a few letters of a project, an app or a page and
+// press Enter. "web logs" finds the Logs tab of the app called web.
 interface Item {
   id: string
   group: string
@@ -35,7 +38,7 @@ interface Item {
 
 const route = useRoute()
 const router = useRouter()
-const apps = useApps()
+const projects = useProjects()
 const { isAdmin } = useSession()
 
 const query = ref('')
@@ -52,38 +55,61 @@ const DOT: Record<string, string> = {
 }
 
 const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
+const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 
 const items = computed<Item[]>(() => {
-  const list = apps.data.value ?? []
+  const plist = projects.data.value?.projects ?? []
+  const fallback = !!projects.data.value?.fallback
+  const list = plist.flatMap((p) => p.apps)
+  const projectName = new Map(plist.flatMap((p) => p.apps.map((a) => [a.id, p.name] as const)))
   const out: Item[] = []
   const current = list.find((a) => a.slug === currentSlug.value)
   if (current) {
     for (const t of APP_TABS) {
-      if (t.database || (t.webOnly && current.type === 'worker')) continue
-      out.push({ id: `cur-${t.name}`, group: current.name, label: t.label, keywords: current.slug, to: { name: t.name, params: { slug: current.slug } } })
+      if (t.database || (t.webOnly && !isPublicApp(current))) continue
+      out.push({ id: `cur-${t.name}`, group: current.name, label: t.label, keywords: current.slug, to: appRoute(current, t.name) })
     }
   }
+  // The project you are in: add to it.
+  const here = plist.find((p) => p.id === currentProject.value)
+  if (here && !fallback) {
+    out.push({ id: 'add-here', group: here.name, label: `Add to ${here.name}`, icon: Plus, keywords: 'add database postgres redis service app', run: () => openAdd(here.id) })
+  }
+  for (const p of plist) {
+    if (fallback) break
+    out.push({
+      id: `project-${p.id}`,
+      group: 'Projects',
+      label: p.name,
+      hint: p.apps.length === 1 ? '1 app' : `${p.apps.length} apps`,
+      keywords: p.apps.map((a) => `${a.name} ${aliasOf(a)}`).join(' '),
+      icon: Boxes,
+      to: projectRoute(p.id),
+    })
+  }
   for (const a of list) {
+    const pn = projectName.get(a.id)
     out.push({
       id: `app-${a.id}`,
-      group: 'Projects',
-      label: a.name,
-      hint: a.type === 'web' ? hostOf(a.url) : 'Background worker',
-      keywords: `${a.slug} ${a.url}`,
+      group: 'Apps',
+      label: fallback || !pn || pn === a.name ? a.name : `${a.name} in ${pn}`,
+      hint: isPublicApp(a) ? hostOf(a.url) : roleTitle(appRole(a)),
+      keywords: `${a.slug} ${aliasOf(a)} ${a.url} ${pn ?? ''}`,
       dot: DOT[appStatusInfo(a.status).tone],
-      to: { name: 'app', params: { slug: a.slug } },
+      to: appRoute(a),
     })
   }
   // Every tab of every app, for "shop logs". Only while searching, or the list would be endless.
   for (const a of list) {
     for (const t of APP_TABS) {
-      if (t.name === 'app' || t.database || (t.webOnly && a.type === 'worker')) continue
-      out.push({ id: `tab-${a.id}-${t.name}`, group: 'Projects', label: `${a.name} › ${t.label}`, keywords: a.slug, to: { name: t.name, params: { slug: a.slug } }, searchOnly: true })
+      if (t.name === 'app' || t.database || (t.webOnly && !isPublicApp(a))) continue
+      out.push({ id: `tab-${a.id}-${t.name}`, group: 'Apps', label: `${a.name} › ${t.label}`, keywords: `${a.slug} ${projectName.get(a.id) ?? ''}`, to: appRoute(a, t.name), searchOnly: true })
     }
   }
   out.push(
     { id: 'p-apps', group: 'Go to', label: 'All projects', icon: Box, keywords: 'home overview apps', to: { name: 'overview' } },
-    { id: 'p-new', group: 'Go to', label: 'New project', icon: Plus, keywords: 'create deploy upload app', to: { name: 'new-app' } },
+    { id: 'p-new', group: 'Go to', label: 'New project', icon: Plus, keywords: 'create deploy upload app github', to: { name: 'new-app' } },
+    { id: 'p-ready', group: 'Go to', label: 'Ready-made apps and databases', icon: Boxes, keywords: 'catalog postgres redis mysql template', to: { name: 'ready-made' } },
     { id: 'p-connect', group: 'Go to', label: 'Connect AI', icon: Sparkles, keywords: 'mcp assistant claude', to: '/connect' },
     { id: 'p-settings', group: 'Go to', label: 'Settings', icon: Settings, keywords: 'account profile password', to: { name: 'settings' } },
     { id: 'p-tokens', group: 'Go to', label: 'API tokens', icon: KeyRound, keywords: 'settings token', to: { name: 'settings-tokens' } },
