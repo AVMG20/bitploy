@@ -40,7 +40,7 @@ const link = useMutation({
     qc.setQueryData(keys.app(slug.value), updated)
     void qc.invalidateQueries({ queryKey: keys.apps })
     const g = updated.git_source
-    toastOk('Repository connected', g?.push_ready ? `Every push to ${g.branch} deploys the app. Press Redeploy to build it now.` : 'Press Redeploy to build it now.')
+    toastOk('Repository connected', g?.push_ready ? `Every push to ${g.branch} deploys the app. Press Deploy latest to build it now.` : 'Press Deploy latest to build it now.')
   },
   onError: (e) => toastError(e),
 })

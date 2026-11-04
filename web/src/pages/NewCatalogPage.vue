@@ -171,7 +171,7 @@ const submit = form.handleSubmit((v) => {
               <dd>{{ formatMB(entry.data.value.memory_mb) }}</dd>
               <dt class="text-muted-foreground">Storage</dt>
               <dd>
-                <template v-if="entry.data.value.volume">{{ formatMB(entry.data.value.volume_mb) }} kept in <span class="font-mono">/data</span></template>
+                <template v-if="entry.data.value.volume">{{ formatMB(entry.data.value.volume_mb) }} of saved files <span class="font-mono text-xs text-muted-foreground">/data</span></template>
                 <template v-else>None. Nothing is kept between deploys.</template>
               </dd>
               <dt class="text-muted-foreground">Website</dt>
@@ -183,7 +183,7 @@ const submit = form.handleSubmit((v) => {
             </dl>
 
             <div v-if="entry.data.value.env.length" class="grid gap-2">
-              <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Settings it adds</p>
+              <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Environment variables it adds</p>
               <ul class="divide-y rounded-lg border">
                 <li v-for="v in entry.data.value.env" :key="v.name" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
                   <span class="font-mono text-[13px] font-medium">{{ v.name }}</span>

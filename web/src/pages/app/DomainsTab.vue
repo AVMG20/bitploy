@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -97,8 +98,11 @@ const remove = useMutation({
   <div class="grid gap-4">
     <Card>
       <CardHeader>
-        <CardTitle>Free address</CardTitle>
-        <CardDescription>Always works, also after you add your own domain.</CardDescription>
+        <CardTitle>Address</CardTitle>
+        <CardDescription>
+          Always works, also after you add your own domain. Change it in
+          <RouterLink :to="{ name: 'app-settings', params: { slug }, hash: '#general' }" class="underline">Settings</RouterLink>.
+        </CardDescription>
       </CardHeader>
       <CardContent v-if="app.data.value">
         <div class="flex items-center gap-1 rounded-lg border bg-muted/40 py-1 pr-1 pl-3">
@@ -161,8 +165,8 @@ const remove = useMutation({
               <tbody>
                 <tr v-for="(r, i) in d.records" :key="i" class="border-t align-top">
                   <td class="px-3 py-2 font-mono">{{ r.type }}</td>
-                  <td class="px-3 py-2"><div class="flex items-center gap-1"><span class="font-mono break-all">{{ r.name }}</span><CopyButton :value="r.name" what="Name copied" /></div></td>
-                  <td class="px-3 py-2"><div class="flex items-center gap-1"><span class="font-mono break-all">{{ r.value }}</span><CopyButton :value="r.value" what="Value copied" /></div></td>
+                  <td class="px-3 py-2"><div class="flex items-center gap-1"><span class="font-mono break-all">{{ r.name }}</span><CopyButton :value="r.name" what="Name copied" :label="`Copy the name of the ${r.type} record`" icon /></div></td>
+                  <td class="px-3 py-2"><div class="flex items-center gap-1"><span class="font-mono break-all">{{ r.value }}</span><CopyButton :value="r.value" what="Value copied" :label="`Copy the value of the ${r.type} record`" icon /></div></td>
                 </tr>
               </tbody>
             </table>
@@ -178,7 +182,7 @@ const remove = useMutation({
     <ConfirmDialog
       v-model:open="removeOpen"
       title="Remove this domain?"
-      :description="`${toRemove?.hostname ?? 'This domain'} will stop showing your app. Your free address keeps working.`"
+      :description="`${toRemove?.hostname ?? 'This domain'} will stop showing your app. Its bitploy address keeps working.`"
       confirm-label="Remove domain"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove.hostname)"

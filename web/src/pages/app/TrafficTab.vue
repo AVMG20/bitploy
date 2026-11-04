@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useQueryParam } from '@/composables/useQueryParam'
 import { RouterLink } from 'vue-router'
 import { ChartNoAxesColumn, ScrollText } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
@@ -19,7 +20,7 @@ import type { Traffic, TrafficCountry, TrafficItem, TrafficListName, TrafficWind
 
 const props = defineProps<{ slug: string }>()
 
-const windowSel = ref<TrafficWindow>('7d')
+const windowSel = useQueryParam<TrafficWindow>('window', '7d', ['24h', '7d', '30d'])
 const windows: { value: TrafficWindow; label: string; previous: string; lastly: string }[] = [
   { value: '24h', label: '24 hours', previous: 'the 24 hours before', lastly: 'Today and yesterday (UTC)' },
   { value: '7d', label: '7 days', previous: 'the 7 days before', lastly: 'Last 7 days' },
@@ -213,7 +214,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
         />
         <TrafficList
           title="Came from"
-          unit="Visits"
+          unit="Views"
           :rows="referrers"
           empty="No visits yet."
           :more="data.referrers.length >= TOP_N"
@@ -222,7 +223,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
         />
         <TrafficList
           title="Not found"
-          unit="Hits"
+          unit="Views"
           :rows="notFound"
           empty="No missing pages or files."
           :more="data.not_found.length >= TOP_N"
@@ -233,8 +234,8 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
     </template>
 
     <p class="text-xs text-muted-foreground">
-      Visitors count once per UTC day. Requests include files and bots. Errors are 5xx answers from your app. Arrows compare
-      with the period before. No cookies, no IP addresses stored. Country data by
+      Visitors are people, counted once per UTC day. Views are pages opened by people (not bots). Requests include files
+      and bots. Errors are 5xx answers from your app. Arrows compare with the period before. No cookies, no IP addresses stored. Country data by
       <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline">DB-IP.com</a>.
     </p>
   </div>

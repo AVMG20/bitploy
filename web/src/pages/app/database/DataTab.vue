@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import Toolbar from '@/components/Toolbar.vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useDebounceFn, useMediaQuery } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
@@ -478,7 +479,7 @@ const remove = useMutation({
 
 <template>
   <div class="grid min-w-0 gap-3">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Toolbar class="gap-x-3">
       <form class="relative min-w-48 flex-1 sm:max-w-xl" role="search" @submit.prevent="applySearch">
         <Search class="pointer-events-none absolute top-2 left-2.5 size-4 text-muted-foreground" />
         <Input
@@ -506,19 +507,19 @@ const remove = useMutation({
       </form>
       <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
         <template v-if="selected.size && canWrite">
-          <Button variant="outline" size="sm" @click="openBulk"><Pencil /> Edit {{ selected.size }}</Button>
-          <Button variant="destructive" size="sm" :disabled="remove.isPending.value" @click="confirmDelete = true"><Trash2 /> Delete {{ selected.size }}</Button>
+          <Button variant="outline" @click="openBulk"><Pencil /> Edit {{ selected.size }}</Button>
+          <Button variant="destructive" :disabled="remove.isPending.value" @click="confirmDelete = true"><Trash2 /> Delete {{ selected.size }}</Button>
         </template>
-        <Button variant="ghost" size="sm" class="text-muted-foreground" :aria-expanded="showFilters" @click="drafts.length ? (showFilters = !showFilters) : addFilter()">
+        <Button variant="ghost" class="text-muted-foreground" :aria-expanded="showFilters" @click="drafts.length ? (showFilters = !showFilters) : addFilter()">
           <ListFilter /> Filters
           <span v-if="applied.length" class="ml-0.5 rounded-full bg-primary px-1.5 text-[11px] leading-4 font-medium text-primary-foreground">{{ applied.length }}</span>
         </Button>
-        <Button variant="ghost" size="icon-sm" class="text-muted-foreground" title="Refresh" aria-label="Refresh rows" @click="refreshAll">
+        <Button variant="ghost" size="icon" class="text-muted-foreground" title="Refresh" aria-label="Refresh rows" @click="refreshAll">
           <RefreshCw :class="rows.isFetching.value && 'animate-spin'" />
         </Button>
-        <Button v-if="canWrite" size="sm" @click="openInsert"><Plus /> New row</Button>
+        <Button v-if="canWrite" @click="openInsert"><Plus /> New row</Button>
       </div>
-    </div>
+    </Toolbar>
 
     <p v-if="data" class="-mt-1 flex items-center gap-2 text-[0.8rem] text-muted-foreground tabular-nums">
       <span v-if="data.total !== null">{{ rowsLabel(data.total, narrowed) }}</span>
@@ -532,7 +533,7 @@ const remove = useMutation({
     </p>
 
     <form v-if="showFilters" class="grid gap-2 rounded-lg border bg-card p-2.5" @submit.prevent="(apply(), (showFilters = false))">
-      <div v-for="d in drafts" :key="d.id" class="flex flex-wrap items-center gap-2">
+      <Toolbar v-for="d in drafts" :key="d.id">
         <Select v-model="d.column">
           <SelectTrigger class="w-40" aria-label="Column"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -546,14 +547,14 @@ const remove = useMutation({
           </SelectContent>
         </Select>
         <Input v-if="!noValue(d.op)" v-model="d.value" class="min-w-32 flex-1 font-mono text-[13px] sm:max-w-xs" :placeholder="d.op === 'like' || d.op === 'not like' ? 'Use % as wildcard' : 'Value'" aria-label="Value" autocomplete="off" spellcheck="false" />
-        <Button type="button" variant="ghost" size="icon-sm" title="Remove filter" aria-label="Remove filter" @click="removeFilter(d.id)"><X /></Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" @click="addFilter"><Plus /> Add filter</Button>
+        <Button type="button" variant="ghost" size="icon" title="Remove filter" aria-label="Remove filter" @click="removeFilter(d.id)"><X /></Button>
+      </Toolbar>
+      <Toolbar>
+        <Button type="button" variant="ghost" @click="addFilter"><Plus /> Add filter</Button>
         <span class="flex-1" />
-        <Button type="button" variant="ghost" size="sm" @click="clearFilters">Clear</Button>
-        <Button type="submit" size="sm" :disabled="!dirtyFilters">Apply</Button>
-      </div>
+        <Button type="button" variant="ghost" @click="clearFilters">Clear</Button>
+        <Button type="submit" :disabled="!dirtyFilters">Apply</Button>
+      </Toolbar>
     </form>
 
     <p v-if="readOnlyReason && data" class="flex items-start gap-1.5 text-[0.8rem] text-muted-foreground">

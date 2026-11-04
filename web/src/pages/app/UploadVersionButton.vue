@@ -14,11 +14,12 @@ import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastOk } from '@/lib/notify'
+import { versionLabel } from '@/lib/format'
 import type { BuildMode, Deployment } from '@/lib/types'
 
 // "Upload new version": the same drop zone as the New app form, for an app
 // whose files were uploaded. Apps that build from git are updated by pushing.
-const props = withDefaults(defineProps<{ slug: string; label?: string }>(), { label: 'Upload new version' })
+const props = withDefaults(defineProps<{ slug: string; label?: string; variant?: 'default' | 'outline' }>(), { label: 'Upload new version', variant: 'outline' })
 const qc = useQueryClient()
 const app = useApp(() => props.slug)
 
@@ -81,7 +82,7 @@ async function deploy() {
       if (changed) await api.updateApp(props.slug, before).catch(() => {})
       throw e
     }
-    toastOk(`Deploying version #${d.seq}`, first.value ? 'Follow it on the Overview.' : 'Your app keeps running until the new version is ready.')
+    toastOk(`Deploying ${versionLabel(d.seq).toLowerCase()}`, first.value ? 'Follow it on the Overview.' : 'Your app keeps running until the new version is ready.')
     open.value = false
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
@@ -97,7 +98,7 @@ async function deploy() {
 
 <template>
   <template v-if="visible">
-    <Button variant="outline" @click="open = true"><Upload /> {{ label }}</Button>
+    <Button :variant="variant" @click="open = true"><Upload /> {{ label }}</Button>
     <Dialog v-model:open="open">
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>

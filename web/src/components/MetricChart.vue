@@ -19,6 +19,8 @@ const props = defineProps<{
   window: MetricWindow
   /** Upper bound for the y axis (the app's limit). */
   limit?: number
+  /** Multiplies the value, e.g. 0.01 to show CPU (sent as % of one core) in CPUs. */
+  scale?: number
   color: string
 }>()
 
@@ -34,7 +36,7 @@ const config = computed<ChartConfig>(() => ({
 const data = computed<Datum[]>(() =>
   props.points.map((p) => ({
     date: new Date(p.ts),
-    [props.field]: Math.round((props.field === 'cpu' ? p.cpu : p.memory_mb) * 10) / 10,
+    [props.field]: props.field === 'cpu' ? Math.round(p.cpu * (props.scale ?? 1) * 1000) / 1000 : Math.round(p.memory_mb * 10) / 10,
   })),
 )
 
@@ -65,7 +67,7 @@ const template = componentToString(config.value, ChartTooltipContent, {
       <VisArea :x="x" :y="y" :color="`var(--color-${field})`" :opacity="0.15" />
       <VisLine :x="x" :y="y" :color="`var(--color-${field})`" />
       <VisAxis type="x" :x="x" :num-ticks="4" :tick-format="(t: number) => fmtTime(t)" :grid-line="false" />
-      <VisAxis type="y" :num-ticks="4" :tick-format="(t: number) => `${Math.round(t * 10) / 10}`" :domain-line="false" />
+      <VisAxis type="y" :num-ticks="4" :tick-format="(t: number) => `${field === 'cpu' ? Math.round(t * 100) / 100 : Math.round(t * 10) / 10}`" :domain-line="false" />
       <ChartCrosshair :x="x" :y="[y]" :template="template" :color="`var(--color-${field})`" />
       <ChartTooltip />
     </VisXYContainer>

@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { channelLabel, commitUrl, deploymentStateInfo, describeSource, formatDuration, shortSha } from '@/lib/format'
+import { commitUrl, deployedVia, deploymentStateInfo, describeSource, formatDuration, shortSha, versionLabel } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { Deployment } from '@/lib/types'
 import CancelBuildButton from './CancelBuildButton.vue'
@@ -41,7 +41,7 @@ const rollback = useMutation({
   mutationFn: (d: Deployment) => api.rollback(props.slug, d.id),
   onSuccess: (_r, d) => {
     toastOk(
-      `Going back to version #${d.seq}`,
+      `Going back to ${versionLabel(d.seq).toLowerCase()}`,
       app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : 'Your app keeps running while the old version starts.',
     )
     target.value = null
@@ -52,6 +52,15 @@ const rollback = useMutation({
   onError: (e) => toastError(e),
 })
 
+// Every new version shows up here; how you send one depends on where the code is.
+const emptyText = computed(() => {
+  const a = app.data.value
+  const end = 'Every version shows up here, and you can go back to an earlier one.'
+  if (a?.git_source) return `Push to ${a.git_source.branch} to build the first version. ${end}`
+  if (a?.catalog_id) return `The first version is being prepared. ${end}`
+  return `Upload your files, or ask your AI assistant to deploy to this app. ${end}`
+})
+
 function canRollback(d: Deployment): boolean {
   return d.state === 'superseded' && !!d.image && d.id !== app.data.value?.current_deployment?.id
 }
@@ -59,9 +68,6 @@ function canRollback(d: Deployment): boolean {
 
 <template>
   <div class="grid gap-3">
-    <div v-if="app.data.value && !app.data.value.git_source" class="flex justify-end">
-      <UploadVersionButton :slug="slug" />
-    </div>
     <QueryError v-if="list.isError.value" :error="list.error.value" @retry="list.refetch()" />
     <div v-else-if="list.isPending.value" class="grid gap-2">
       <Skeleton v-for="i in 3" :key="i" class="h-20 w-full" />
@@ -70,17 +76,18 @@ function canRollback(d: Deployment): boolean {
       v-else-if="!list.data.value?.length"
       :icon="History"
       title="No deployments yet."
-      description="Every version your AI assistant deploys shows up here, and you can go back to any of them."
+      :description="emptyText"
     >
-      <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
+      <UploadVersionButton v-if="app.data.value && !app.data.value.git_source && !app.data.value.catalog_id" :slug="slug" variant="default" label="Upload files" />
+      <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
     </EmptyState>
     <template v-else>
       <article v-for="d in list.data.value" :key="d.id" class="grid gap-2 rounded-xl border bg-card p-4 shadow-card">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span class="font-semibold">#{{ d.seq }}</span>
+          <span class="font-semibold">{{ versionLabel(d.seq) }}</span>
           <StatusBadge v-bind="deploymentStateInfo(d.state)" />
-          <span v-if="d.id === app.data.value?.current_deployment?.id" class="text-xs font-medium text-success">Current version</span>
-          <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /></span>
+          <span v-if="d.id === app.data.value?.current_deployment?.id" class="rounded-md bg-success/10 px-1.5 py-0.5 text-xs font-medium text-success">Live</span>
+          <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /> {{ deployedVia(d.channel) }}</span>
           <span v-if="d.duration_seconds !== null" class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
           <div class="ml-auto flex flex-wrap gap-2">
             <Button as-child size="sm" variant="ghost">
@@ -93,7 +100,6 @@ function canRollback(d: Deployment): boolean {
           </div>
         </div>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span>Via {{ channelLabel(d.channel) }}</span>
           <span>{{ describeSource(d, app.data.value) }}</span>
           <span v-if="d.commit_sha">
             <a v-if="commitUrl(app.data.value, d.commit_sha)" :href="commitUrl(app.data.value, d.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-foreground hover:underline">{{ shortSha(d.commit_sha) }}</a>
@@ -125,7 +131,7 @@ function canRollback(d: Deployment): boolean {
     <ConfirmDialog
       v-model:open="confirmOpen"
       title="Go back to this version?"
-      :description="`Your app will run version #${target?.seq ?? ''} again. The version running now stays available to switch back to.`"
+      :description="`Your app will run ${versionLabel(target?.seq).toLowerCase()} again. The version running now stays available to switch back to.`"
       confirm-label="Go back"
       :loading="rollback.isPending.value"
       @confirm="target && rollback.mutate(target)"

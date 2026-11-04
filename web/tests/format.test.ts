@@ -11,3 +11,12 @@ test('a cancelled build is neutral, not a failure', () => {
   assert.equal(deploymentStateInfo('cancelled').tone, 'muted')
   assert.equal(deploymentStateInfo('failed').tone, 'danger')
 })
+
+test('CPU is always shown in CPUs', async () => {
+  const { formatCPU, formatCPUMillis, cpuFromPercent } = await import('../src/lib/format.ts')
+  assert.equal(formatCPUMillis(500), '0.5 CPU')
+  assert.equal(formatCPUMillis(2000), '2 CPU')
+  assert.equal(formatCPU(cpuFromPercent(12.345)), '0.12 CPU')
+  assert.equal(formatCPU(cpuFromPercent(0.2)), '<0.01 CPU')
+  assert.equal(formatCPU(0), '0 CPU')
+})

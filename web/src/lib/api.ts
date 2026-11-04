@@ -534,22 +534,32 @@ export function logPath(t: LogTarget): { path: string; query: Record<string, str
   return { path: paths.appLogs(t.slug), query: { kind: t.kind, tail: 500 } }
 }
 
+/** One log line; runtime lines also say when they were written. */
+export interface LogEntry {
+  text: string
+  time?: string
+}
+
 /** One log line from either a plain text line or a JSON LogLine. */
-export function parseLogLine(raw: string): string {
+export function parseLogEntry(raw: string): LogEntry {
   const s = raw.replace(/\r$/, '')
   if (s.startsWith('{') && s.endsWith('}')) {
     try {
-      const j = JSON.parse(s) as { text?: unknown }
-      if (typeof j.text === 'string') return j.text
+      const j = JSON.parse(s) as { text?: unknown; time?: unknown }
+      if (typeof j.text === 'string') return { text: j.text, time: typeof j.time === 'string' ? j.time : undefined }
     } catch {
       // plain text that happens to look like JSON
     }
   }
-  return s
+  return { text: s }
+}
+
+export function parseLogLine(raw: string): string {
+  return parseLogEntry(raw).text
 }
 
 /** Fetch a snapshot of the log. Accepts text, a JSON array or {items|lines:[...]}. */
-export async function fetchLogLines(t: LogTarget, signal?: AbortSignal): Promise<string[]> {
+export async function fetchLogEntries(t: LogTarget, signal?: AbortSignal): Promise<LogEntry[]> {
   const { path, query } = logPath(t)
   const res = await send('GET', path, { query, signal }, 'application/json, text/plain')
   const type = res.headers.get('content-type') || ''
@@ -558,12 +568,20 @@ export async function fetchLogLines(t: LogTarget, signal?: AbortSignal): Promise
     try {
       const data = JSON.parse(text) as unknown
       const arr = listOf<unknown>(data, 'lines')
-      return arr.map((l) => (typeof l === 'string' ? l : String((l as { text?: string }).text ?? '')))
+      return arr.map((l) => {
+        if (typeof l === 'string') return { text: l }
+        const o = l as { text?: string; time?: string }
+        return { text: String(o.text ?? ''), time: typeof o.time === 'string' ? o.time : undefined }
+      })
     } catch {
       // fall through to plain text
     }
   }
-  return text.split('\n').filter((l, i, a) => l !== '' || i < a.length - 1).map(parseLogLine)
+  return text.split('\n').filter((l, i, a) => l !== '' || i < a.length - 1).map(parseLogEntry)
+}
+
+export async function fetchLogLines(t: LogTarget, signal?: AbortSignal): Promise<string[]> {
+  return (await fetchLogEntries(t, signal)).map((e) => e.text)
 }
 
 /** URL for the live tail (Server-Sent Events). */

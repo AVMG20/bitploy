@@ -15,7 +15,7 @@ const s = computed(() => server.data.value)
   <div>
     <QueryError v-if="server.isError.value" :error="server.error.value" @retry="server.refetch()" />
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <StatCard title="Processor" :loading="!s" :value="s ? formatPercent(s.cpu_percent) : ''" :sub="s ? `Load ${s.load1.toFixed(2)}` : ''" :progress="s?.cpu_percent" />
+      <StatCard title="CPU" :loading="!s" :value="s ? formatPercent(s.cpu_percent) : ''" suffix="of the whole server" :sub="s ? `Load ${s.load1.toFixed(2)}` : ''" :progress="s?.cpu_percent" />
       <StatCard
         title="Memory"
         :loading="!s"

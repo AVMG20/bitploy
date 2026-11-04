@@ -289,7 +289,7 @@ onBeforeUnmount(() => abort?.abort())
 
     <template v-if="choice && !packing">
       <p v-if="choice.skipped.length" class="text-xs text-muted-foreground">
-        Left out: {{ choice.skipped.join(', ') }}.<template v-if="choice.skipped.some((s) => s.toLowerCase().startsWith('.env'))"> Put the values from .env in the app's Settings under Environment variables.</template>
+        Left out: {{ choice.skipped.join(', ') }}.<template v-if="choice.skipped.some((s) => s.toLowerCase().startsWith('.env'))"> Put the values from .env in the app's Variables tab: it can read a pasted .env file.</template>
       </p>
 
       <div v-if="detected" class="grid min-w-0 gap-2 rounded-lg border p-3 text-sm">

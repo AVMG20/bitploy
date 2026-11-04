@@ -86,7 +86,7 @@ const pw = useForm({
 const savePw = useMutation({
   mutationFn: (v: { current: string; next: string }) => api.changePassword({ current_password: v.current, new_password: v.next }),
   onSuccess: () => {
-    toastOk('Password changed', 'You were signed out on your other devices.')
+    toastOk('Password changed', 'You were logged out on your other devices.')
     pw.resetForm()
     void qc.invalidateQueries({ queryKey: keys.sessions })
   },
@@ -125,7 +125,7 @@ const submitPw = pw.handleSubmit((v) => savePw.mutate(v))
       </FormScope>
     </SettingsSection>
 
-    <SettingsSection title="Password" description="Changing it signs you out on all your other devices. API tokens keep working.">
+    <SettingsSection title="Password" description="Changing it logs you out on all your other devices. API tokens keep working.">
       <FormScope :form="pw">
         <form novalidate @submit.prevent="submitPw">
           <Card>

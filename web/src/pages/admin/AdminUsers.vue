@@ -45,7 +45,7 @@ const form = useForm({
     z.object({
       apps: whole('Apps', 0),
       memory_mb: whole('Memory', 64),
-      cpus: z.coerce.number({ invalid_type_error: 'CPUs: enter a number.' }).min(0.1, 'CPUs: at least 0.1.'),
+      cpus: z.coerce.number({ invalid_type_error: 'CPU: enter a number.' }).min(0.1, 'CPU: at least 0.1.'),
       deploys_per_hour: whole('Deploys per hour', 1),
       domains_per_app: whole('Domains', 0),
       volume_mb: whole('Storage', 0),
@@ -57,7 +57,7 @@ const form = useForm({
 const fields = [
   { name: 'apps', label: 'Apps' },
   { name: 'memory_mb', label: 'Memory in total (MB)' },
-  { name: 'cpus', label: 'CPUs in total' },
+  { name: 'cpus', label: 'CPU in total' },
   { name: 'deploys_per_hour', label: 'Deploys per hour' },
   { name: 'domains_per_app', label: 'Custom domains per app' },
   { name: 'volume_mb', label: 'Storage in total (MB)' },

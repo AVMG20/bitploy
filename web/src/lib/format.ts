@@ -174,8 +174,51 @@ export function formatGB(gb: number | null | undefined): string {
   return `${gb.toFixed(1)} GB`
 }
 
+/**
+ * CPU is always shown in CPUs: 1 CPU is one processor core, so "0.25 CPU" is a
+ * quarter of one. Limits arrive in millis (1000 = 1 CPU), live use as a percent
+ * of one core (100 = 1 CPU); both go through here.
+ */
+export function formatCPU(cpus: number | null | undefined): string {
+  if (cpus === null || cpus === undefined || Number.isNaN(cpus)) return '-'
+  if (cpus > 0 && cpus < 0.01) return '<0.01 CPU'
+  const v = cpus >= 10 ? Math.round(cpus * 10) / 10 : Math.round(cpus * 100) / 100
+  return `${v} CPU`
+}
+
+/** A CPU limit (1000 millis = 1 CPU). */
 export function formatCPUMillis(millis: number): string {
-  return `${millis / 1000} CPU`
+  return formatCPU(millis / 1000)
+}
+
+/** Live CPU use, sent as a percent of one core (100% = 1 CPU). */
+export function cpuFromPercent(p: number): number {
+  return p / 100
+}
+
+export const CPU_HINT = '1 CPU is one processor core.'
+
+/** "Version 12": how a deployment is named everywhere. */
+export function versionLabel(seq: number | null | undefined): string {
+  return seq ? `Version ${seq}` : 'Version'
+}
+
+/** How a deployment was started, as the end of "Deployed 5 min ago ...". */
+export function deployedVia(channel: string): string {
+  switch (channel) {
+    case 'mcp':
+      return 'by an AI assistant'
+    case 'api':
+      return 'through the API'
+    case 'dashboard':
+      return 'from the dashboard'
+    case 'system':
+      return 'by bitploy'
+    case 'github':
+      return 'by a GitHub push'
+    default:
+      return channel ? `via ${channel}` : ''
+  }
 }
 
 export function formatPercent(p: number | null | undefined): string {
@@ -224,6 +267,11 @@ export function describeSource(d: Deployment, app?: App | null): string {
     default:
       return d.source_kind
   }
+}
+
+/** Text order as people expect it: no case, numbers by value ("app 2" before "app 10"). */
+export function compareText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
 }
 
 export function formatCount(n: number): string {

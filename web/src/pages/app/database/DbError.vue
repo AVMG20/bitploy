@@ -49,7 +49,7 @@ const INFO: Record<string, Info> = {
     description: 'It may be damaged, encrypted, or written by a newer SQLite than this server has.',
     retry: false,
   },
-  file_symlink: { icon: FileQuestion, title: 'This is a link, not a file.', description: 'The viewer only opens real files in /data.', retry: false },
+  file_symlink: { icon: FileQuestion, title: 'This is a link, not a file.', description: 'The viewer only opens real files among the saved files.', retry: false },
   not_a_file: { icon: FileQuestion, title: 'This is not a file.', description: 'Go back to Storage and pick a database file.', retry: false },
   db_helper_unavailable: {
     icon: DatabaseZap,
@@ -58,8 +58,8 @@ const INFO: Record<string, Info> = {
     retry: false,
   },
   admin_only: { icon: Lock, title: 'Only admins can open this.', description: 'Ask an admin if you need to look at bitploy\'s own database.', retry: false },
-  volume_off: { icon: HardDrive, title: '/data is turned off for this app.', description: 'Turn it on in Storage to look at its files.', retry: false },
-  volume_not_ready: { icon: FolderOpen, title: 'No /data folder yet.', description: 'Restart or redeploy the app to create it.', retry: false },
+  volume_off: { icon: HardDrive, title: 'Saved files are turned off for this app.', description: 'Turn them on in Storage to look at its files.', retry: false },
+  volume_not_ready: { icon: FolderOpen, title: 'The saved files folder is not there yet.', description: 'Restart or redeploy the app to create it.', retry: false },
 }
 const BUSY: Record<string, { icon: Component; title: string; description: string }> = {
   db_busy: {

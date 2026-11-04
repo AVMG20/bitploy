@@ -1,29 +1,62 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
-import { Download, Pause, Play, Search } from 'lucide-vue-next'
+import { ArrowDown, Clock, Download, Pause, Play } from 'lucide-vue-next'
+import ListSearch from '@/components/ListSearch.vue'
+import Toolbar from '@/components/Toolbar.vue'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { keys, livePoll, REFRESH_MS } from '@/composables/queries'
-import { api, fetchLogLines, logStreamUrl, parseLogLine } from '@/lib/api'
-import type { LogKind, LogTarget } from '@/lib/api'
+import { useQueryParam } from '@/composables/useQueryParam'
+import { api, fetchLogEntries, logStreamUrl, parseLogEntry } from '@/lib/api'
+import type { LogEntry, LogKind, LogTarget } from '@/lib/api'
+import { versionLabel } from '@/lib/format'
 import { toastError } from '@/lib/notify'
+import { cn } from '@/lib/utils'
 
 const props = defineProps<{ slug: string }>()
 
 const MAX_LINES = 5000
 
-// ?kind=build opens the build log (the first-deploy card on the Overview links
-// here), ?deployment=<id> that of one deployment (the Deployments tab).
-const route = useRoute()
-const kind = ref<LogKind>(route.query.kind === 'build' ? 'build' : 'runtime')
+// What you look at lives in the address: ?kind=build opens the build log (the
+// first-deploy card on the Overview links here), ?deployment=<id> that of one
+// deployment (the Deployments tab), ?q= the filter.
+const kind = useQueryParam<LogKind>('kind', 'runtime', ['runtime', 'build'])
 const live = ref(true)
-const filter = ref('')
-const chosenDeployment = ref<string | undefined>(typeof route.query.deployment === 'string' ? route.query.deployment : undefined)
-const lines = shallowRef<string[]>([])
+const filter = useQueryParam('q', '')
+const chosen = useQueryParam('deployment', '')
+const chosenDeployment = computed(() => chosen.value || undefined)
+const lines = shallowRef<LogEntry[]>([])
+
+// Timestamps in front of each line: a preference kept in this browser.
+const TIME_KEY = 'bitploy.logs.time'
+function readTime(): boolean {
+  try {
+    return localStorage.getItem(TIME_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+const showTime = ref(readTime())
+function toggleTime() {
+  showTime.value = !showTime.value
+  try {
+    localStorage.setItem(TIME_KEY, showTime.value ? '1' : '0')
+  } catch {
+    // only for this visit
+  }
+}
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+const dayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+function stamp(t: string | undefined): string {
+  if (!t) return ''
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return ''
+  const today = new Date().toDateString() === d.toDateString()
+  return today ? timeFmt.format(d) : `${dayFmt.format(d)} ${timeFmt.format(d)}`
+}
+const hasTimes = computed(() => lines.value.some((l) => !!l.time))
 const status = ref<'idle' | 'connecting' | 'live' | 'reconnecting' | 'ended' | 'snapshot' | 'failed'>('idle')
 const streamError = ref('')
 const scroller = ref<HTMLElement | null>(null)
@@ -48,12 +81,12 @@ const canFollow = computed(() => kind.value === 'runtime' || inProgress.value)
 
 const visible = computed(() => {
   const f = filter.value.trim().toLowerCase()
-  return f ? lines.value.filter((l) => l.toLowerCase().includes(f)) : lines.value
+  return f ? lines.value.filter((l) => l.text.toLowerCase().includes(f)) : lines.value
 })
 
 let source: EventSource | null = null
 let abort: AbortController | null = null
-let pending: string[] = []
+let pending: LogEntry[] = []
 let flushTimer: number | null = null
 
 function stickToBottom(): boolean {
@@ -62,10 +95,17 @@ function stickToBottom(): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 60
 }
 
+// Scrolled up to read: new lines do not pull you down, a button brings you back.
+const atBottom = ref(true)
+function onScroll() {
+  atBottom.value = stickToBottom()
+}
+
 async function scrollDown() {
   await nextTick()
   const el = scroller.value
   if (el) el.scrollTop = el.scrollHeight
+  atBottom.value = true
 }
 
 function flush() {
@@ -79,7 +119,7 @@ function flush() {
 }
 
 function push(text: string) {
-  for (const l of text.split('\n')) pending.push(parseLogLine(l))
+  for (const l of text.split('\n')) pending.push(parseLogEntry(l))
   if (flushTimer === null) flushTimer = window.setTimeout(flush, 100)
 }
 
@@ -99,7 +139,7 @@ async function snapshot() {
   status.value = 'snapshot'
   abort = new AbortController()
   try {
-    lines.value = await fetchLogLines(target.value, abort.signal)
+    lines.value = await fetchLogEntries(target.value, abort.signal)
     void scrollDown()
   } catch (e) {
     if (!(e instanceof DOMException)) toastError(e)
@@ -180,7 +220,8 @@ const statusText = computed(() => {
     case 'ended':
       return 'Stream ended'
     case 'snapshot':
-      return 'Paused'
+      // A finished build log is complete; a runtime log you paused is not.
+      return canFollow.value ? 'Paused' : 'Complete log'
     case 'failed':
       return streamError.value || 'The live stream stopped.'
     default:
@@ -189,7 +230,7 @@ const statusText = computed(() => {
 })
 
 function download() {
-  const blob = new Blob([lines.value.join('\n') + '\n'], { type: 'text/plain' })
+  const blob = new Blob([lines.value.map((l) => (l.time ? `${l.time} ${l.text}` : l.text)).join('\n') + '\n'], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -202,8 +243,8 @@ function download() {
 </script>
 
 <template>
-  <div class="grid gap-3">
-    <div class="flex flex-wrap items-center gap-2">
+  <div class="grid grid-cols-[minmax(0,1fr)] gap-3">
+    <Toolbar>
       <Tabs v-model="kind">
         <TabsList>
           <TabsTrigger value="runtime">App log</TabsTrigger>
@@ -211,41 +252,62 @@ function download() {
         </TabsList>
       </Tabs>
 
-      <Select v-if="kind === 'build' && deployments.data.value?.length" :model-value="deploymentId" @update:model-value="(v) => (chosenDeployment = String(v))">
-        <SelectTrigger class="w-44"><SelectValue placeholder="Pick a version" /></SelectTrigger>
+      <Select v-if="kind === 'build' && deployments.data.value?.length" :model-value="deploymentId" @update:model-value="(v) => (chosen = String(v))">
+        <SelectTrigger class="w-44" aria-label="Version"><SelectValue placeholder="Pick a version" /></SelectTrigger>
         <SelectContent>
-          <SelectItem v-for="d in deployments.data.value" :key="d.id" :value="d.id">Version #{{ d.seq }}</SelectItem>
+          <SelectItem v-for="d in deployments.data.value" :key="d.id" :value="d.id">{{ versionLabel(d.seq) }}</SelectItem>
         </SelectContent>
       </Select>
 
-      <div class="relative min-w-40 flex-1 sm:max-w-xs">
-        <Search class="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
-        <Input v-model="filter" class="pl-8" placeholder="Filter lines" aria-label="Filter log lines" />
-      </div>
+      <ListSearch v-model="filter" class="min-w-0 flex-[1_1_10rem] sm:max-w-xs" placeholder="Filter lines" label="Filter log lines" />
 
-      <div class="ml-auto flex items-center gap-2">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
         <span class="text-xs text-muted-foreground" aria-live="polite">
           <span v-if="status === 'live'" class="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-success align-middle" />{{ statusText }}
         </span>
-        <Button v-if="canFollow" variant="outline" size="sm" @click="live = !live">
+        <Button
+          v-if="hasTimes"
+          variant="outline"
+          :aria-pressed="showTime"
+          :class="showTime && 'bg-accent'"
+          title="Show when each line was written"
+          @click="toggleTime"
+        >
+          <Clock /> Times
+        </Button>
+        <Button v-if="canFollow" variant="outline" @click="live = !live">
           <component :is="live ? Pause : Play" /> {{ live ? 'Pause' : 'Follow live' }}
         </Button>
-        <Button variant="outline" size="sm" :disabled="!lines.length" @click="download"><Download /> Download</Button>
+        <Button variant="outline" :disabled="!lines.length" @click="download"><Download /> Download</Button>
       </div>
-    </div>
+    </Toolbar>
 
+    <div class="relative">
     <div
       ref="scroller"
       class="h-[60vh] min-h-64 overflow-auto rounded-xl border bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-100"
       role="log"
       tabindex="0"
       :aria-label="kind === 'build' ? 'Build log' : 'App log'"
+      @scroll.passive="onScroll"
     >
       <p v-if="noBuildYet" class="text-neutral-400">There is no build log yet. It appears after the first deploy.</p>
       <p v-else-if="!visible.length" class="text-neutral-400">
         {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : 'Nothing logged yet. Anything your app prints shows up here.' }}
       </p>
-      <div v-for="(l, i) in visible" :key="i" class="break-words whitespace-pre-wrap">{{ l }}</div>
+      <div v-for="(l, i) in visible" :key="i" :class="cn('break-words whitespace-pre-wrap', showTime && l.time && 'flex gap-3')">
+        <span v-if="showTime && l.time" class="shrink-0 text-neutral-500 select-none" :title="l.time">{{ stamp(l.time) }}</span>
+        <span class="min-w-0">{{ l.text }}</span>
+      </div>
+    </div>
+    <Button
+      v-if="!atBottom && visible.length"
+      size="sm"
+      class="absolute right-4 bottom-4 shadow-lg"
+      @click="scrollDown"
+    >
+      <ArrowDown /> Jump to latest
+    </Button>
     </div>
   </div>
 </template>

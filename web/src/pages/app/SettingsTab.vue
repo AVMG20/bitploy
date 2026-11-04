@@ -1,41 +1,61 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import FormScope from '@/components/FormScope.vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { KeyRound, Pencil, Trash2 } from 'lucide-vue-next'
+import { ArrowUpCircle, Trash2 } from 'lucide-vue-next'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import GitConnect from './GitConnect.vue'
 import GitLinked from './GitLinked.vue'
 import PasswordProtection from './PasswordProtection.vue'
-import RelativeTime from '@/components/RelativeTime.vue'
+import SettingsSection from '@/components/SettingsSection.vue'
+import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
-import { formatMB } from '@/lib/format'
+import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
+import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
 import type { BuildMode, UpdateAppInput } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
+
+// The page is grouped in sections; the links at the top jump to them.
+const sections = [
+  { id: 'general', label: 'General' },
+  { id: 'build', label: 'Build' },
+  { id: 'size', label: 'Size' },
+  { id: 'delete', label: 'Delete app' },
+]
+function jump(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const qc = useQueryClient()
 const app = useApp(() => props.slug)
 const me = useMe()
 const quota = computed(() => me.data.value?.quota)
+
+// A link to settings#build opens at that section once the page has drawn.
+const route = useRoute()
+watch(
+  () => [route.hash, !!app.data.value] as const,
+  ([hash, ready]) => {
+    if (hash && ready) void nextTick(() => jump(hash.slice(1)))
+  },
+  { immediate: true },
+)
 
 // ---------------------------------------------------------------- name and address
 const generalForm = useForm({
@@ -111,61 +131,7 @@ const submitGeneral = generalForm.handleSubmit((v) => {
 })
 const renameDescription = computed(() => {
   const to = `${pendingRename.value?.slug ?? ''}.${me.data.value?.apps_domain ?? ''}`
-  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Files in /data are kept.`
-})
-
-// ---------------------------------------------------------------- env vars
-const env = useQuery({
-  queryKey: computed(() => keys.env(props.slug)),
-  queryFn: () => api.env(props.slug),
-})
-
-const envForm = useForm({
-  validationSchema: toTypedSchema(
-    z.object({
-      name: z
-        .string()
-        .trim()
-        .min(1, 'Give the variable a name.')
-        .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Use letters, numbers and underscores only, like API_KEY.'),
-      value: z.string(),
-    }),
-  ),
-  initialValues: { name: '', value: '' },
-})
-
-const saveEnv = useMutation({
-  mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, []),
-  onSuccess: (_r, v) => {
-    toastOk(`Saved ${v.name}`, 'Restart the app to use the new value.')
-    envForm.resetForm({ values: { name: '', value: '' } })
-    void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
-  },
-  onError: (e) => toastError(e),
-})
-const submitEnv = envForm.handleSubmit((v) => saveEnv.mutate({ name: v.name.trim(), value: v.value }))
-
-async function editEnv(name: string) {
-  envForm.resetForm({ values: { name, value: '' } })
-  await nextTick()
-  document.querySelector<HTMLElement>('#env-form textarea')?.focus()
-}
-
-const envToRemove = ref<string | null>(null)
-const envRemoveOpen = computed({
-  get: () => envToRemove.value !== null,
-  set: (v) => {
-    if (!v) envToRemove.value = null
-  },
-})
-const removeEnv = useMutation({
-  mutationFn: (name: string) => api.setEnv(props.slug, {}, [name]),
-  onSuccess: (_r, name) => {
-    toastOk(`Removed ${name}`)
-    envToRemove.value = null
-    void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
-  },
-  onError: (e) => toastError(e),
+  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Saved files are kept.`
 })
 
 // ---------------------------------------------------------------- type
@@ -231,7 +197,7 @@ const resForm = useForm({
         cpus: z.coerce
           .number({ invalid_type_error: 'Enter a number.' })
           .min(0.1, 'At least 0.1.')
-          .max(room.value?.cpus ?? 100, `You have ${room.value?.cpus ?? ''} CPUs left for this app.`),
+          .max(room.value?.cpus ?? 100, `You have ${room.value?.cpus ?? ''} CPU left for this app.`),
       }),
     ),
   ),
@@ -256,8 +222,10 @@ watch(
 const saveRes = useMutation({
   mutationFn: (v: { memory_mb: number; cpus: number }) =>
     api.updateApp(props.slug, { memory_mb: v.memory_mb, cpu_millis: Math.round(v.cpus * 1000) }),
-  onSuccess: () => {
-    toastOk('Size saved', 'Restart the app to apply it.')
+  onSuccess: (updated) => {
+    toastOk('Size saved', app.data.value?.status === 'running' ? 'Restart the app to apply it.' : 'It applies the next time the app starts.')
+    markRestartNeeded(app.data.value, 'size')
+    resForm.resetForm({ values: { memory_mb: updated.memory_mb, cpus: updated.cpu_millis / 1000 } })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -337,21 +305,10 @@ const saveDockerfile = useMutation({
 const catalogEntry = useCatalogApp(() => app.data.value?.catalog_id ?? '')
 const catalogName = computed(() => catalogEntry.data.value?.name ?? app.data.value?.catalog_id ?? '')
 const updateOpen = ref(false)
-const catalogUpdate = useMutation({
-  mutationFn: () => api.catalogUpdate(props.slug),
-  onSuccess: () => {
-    updateOpen.value = false
-    // The update replaces the Dockerfile: drop local edits so the new one shows.
-    dockerfileBase.value = null
-    void qc.invalidateQueries({ queryKey: keys.dockerfile(props.slug) })
-    deployStarted('Update started', 'A new version is being built.')
-  },
-  onError: (e) => {
-    updateOpen.value = false
-    toastError(e)
-    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
-  },
-})
+// The update replaces the Dockerfile: drop local edits so the new one shows.
+function catalogUpdated() {
+  dockerfileBase.value = null
+}
 
 // ---------------------------------------------------------------- delete
 const deleteOpen = ref(false)
@@ -375,195 +332,160 @@ const del = useMutation({
 </script>
 
 <template>
-  <div class="grid gap-4">
-    <Card>
-      <CardHeader>
-        <CardTitle>Name and address</CardTitle>
-        <CardDescription>The name is only shown in bitploy. The subdomain is the address people open.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FormScope :form="generalForm">
-          <form class="grid gap-4" novalidate @submit.prevent="submitGeneral">
-            <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
-              <FormField v-slot="{ componentField }" name="name">
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              </FormField>
-              <FormField v-slot="{ componentField }" name="slug">
-                <FormItem>
-                  <FormLabel>Subdomain</FormLabel>
-                  <div class="flex min-w-0 items-center gap-2">
-                    <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
-                    <span v-if="me.data.value" class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">.{{ me.data.value.apps_domain }}</span>
-                  </div>
-                  <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              </FormField>
-            </div>
-            <div><Button type="submit" :disabled="saveGeneral.isPending.value">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-          </form>
-        </FormScope>
-      </CardContent>
-    </Card>
+  <div class="grid gap-10">
+    <nav aria-label="Settings sections" class="-mb-4 flex flex-wrap items-center gap-1.5">
+      <a
+        v-for="sec in sections"
+        :key="sec.id"
+        :href="`#${sec.id}`"
+        class="rounded-md border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-card transition-colors hover:bg-accent hover:text-foreground"
+        @click.prevent="jump(sec.id)"
+      >
+        {{ sec.label }}
+      </a>
+    </nav>
 
-    <PasswordProtection v-if="app.data.value" :app="app.data.value" />
+    <SettingsSection id="general" class="scroll-mt-16" title="General" description="What the app is called in bitploy, where people open it, and who may see it.">
+      <div class="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Name and address</CardTitle>
+            <CardDescription>The name is only shown in bitploy. The address is where people open the app.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FormScope :form="generalForm">
+              <form class="grid gap-4" novalidate @submit.prevent="submitGeneral">
+                <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+                  <FormField v-slot="{ componentField }" name="name">
+                    <FormItem>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  </FormField>
+                  <FormField v-slot="{ componentField }" name="slug">
+                    <FormItem>
+                      <FormLabel>Address</FormLabel>
+                      <div class="flex min-w-0 items-center gap-2">
+                        <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
+                        <span v-if="me.data.value" class="max-w-[50%] shrink-0 truncate font-mono text-sm text-muted-foreground">.{{ me.data.value.apps_domain }}</span>
+                      </div>
+                      <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  </FormField>
+                </div>
+                <div><Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+              </form>
+            </FormScope>
+          </CardContent>
+        </Card>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Environment variables</CardTitle>
-        <CardDescription>
-          Passwords, API keys and other settings your app reads when it starts. Values are hidden after saving.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="grid gap-4">
-        <QueryError v-if="env.isError.value" :error="env.error.value" @retry="env.refetch()" />
-        <Skeleton v-else-if="env.isPending.value" class="h-20 w-full" />
-        <EmptyState v-else-if="!env.data.value?.length" :icon="KeyRound" title="No variables yet." description="Add one below, like DATABASE_URL." />
-        <ul v-else class="divide-y rounded-lg border">
-          <li v-for="v in env.data.value" :key="v.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-            <span class="font-mono text-sm font-medium">{{ v.name }}</span>
-            <span class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
-            <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
-            <div class="ml-auto flex gap-1">
-              <Button size="sm" variant="ghost" :aria-label="`Change ${v.name}`" @click="editEnv(v.name)"><Pencil /> Change</Button>
-              <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Remove ${v.name}`" @click="envToRemove = v.name"><Trash2 /> Remove</Button>
-            </div>
-          </li>
-        </ul>
+        <PasswordProtection v-if="app.data.value" :app="app.data.value" />
+      </div>
+    </SettingsSection>
 
-        <FormScope :form="envForm">
-          <form id="env-form" class="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-start" novalidate @submit.prevent="submitEnv">
-            <FormField v-slot="{ componentField }" name="name">
-              <FormItem>
-                <FormLabel>Name</FormLabel>
-                <FormControl><Input placeholder="API_KEY" autocapitalize="off" spellcheck="false" class="font-mono" v-bind="componentField" /></FormControl>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-            <FormField v-slot="{ componentField }" name="value">
-              <FormItem>
-                <FormLabel>Value</FormLabel>
-                <FormControl><Textarea rows="1" placeholder="Paste the secret value" autocomplete="off" spellcheck="false" class="min-h-8 resize-y py-[5px] leading-5 font-mono" v-bind="componentField" /></FormControl>
-                <FormMessage />
-              </FormItem>
-            </FormField>
-            <Button type="submit" class="sm:mt-[1.375rem]" :disabled="saveEnv.isPending.value">{{ saveEnv.isPending.value ? 'Saving...' : 'Save variable' }}</Button>
-          </form>
-        </FormScope>
-      </CardContent>
-    </Card>
+    <SettingsSection id="build" class="scroll-mt-16" title="Build" description="Where the code comes from and how bitploy turns it into a running app. Changes here apply on the next deploy.">
+      <div class="grid gap-4">
+        <Card v-if="app.data.value?.catalog_id">
+          <CardHeader>
+            <CardTitle>Ready-made app</CardTitle>
+            <CardDescription>
+              Based on {{ catalogName }} <span class="font-mono">{{ app.data.value.catalog_version }}</span>.
+              <template v-if="!app.data.value.catalog_update">This is the newest version in the catalog.</template>
+            </CardDescription>
+          </CardHeader>
+          <CardContent v-if="app.data.value.catalog_update" class="flex flex-wrap items-center gap-3">
+            <Button :disabled="deploying" @click="updateOpen = true"><ArrowUpCircle /> Update to {{ app.data.value.catalog_update }}</Button>
+            <p class="text-sm text-muted-foreground">{{ deploying ? 'A deployment is in progress. Update when it is done.' : 'A newer version is in the catalog.' }}</p>
+          </CardContent>
+        </Card>
 
-    <Card v-if="app.data.value?.catalog_id">
-      <CardHeader>
-        <CardTitle>Ready-made app</CardTitle>
-        <CardDescription>
-          Based on {{ catalogName }} <span class="font-mono">{{ app.data.value.catalog_version }}</span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent v-if="app.data.value.catalog_update" class="flex flex-wrap items-center gap-3">
-        <Button :disabled="catalogUpdate.isPending.value || deploying" @click="updateOpen = true">Update to {{ app.data.value.catalog_update }}</Button>
-        <p class="text-sm text-muted-foreground">{{ deploying ? 'A deployment is in progress. Update when it is done.' : 'A newer version is in the catalog.' }}</p>
-      </CardContent>
-    </Card>
+        <template v-if="app.data.value">
+          <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
+          <GitConnect v-else :app="app.data.value" />
+        </template>
 
-    <Card v-if="showDockerfile">
-      <CardHeader>
-        <CardTitle>Dockerfile</CardTitle>
-        <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Data in /data is kept.</CardDescription>
-        <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
-      </CardHeader>
-      <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
-        <QueryError v-if="dockerfile.isError.value && !dockerfile.data.value" :error="dockerfile.error.value" @retry="dockerfile.refetch()" />
-        <form v-else-if="dockerfile.data.value?.editable || dockerfile.data.value?.content" class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
-          <DockerfileEditor v-model="dockerfileText" :readonly="!dockerfile.data.value?.editable" :disabled="saveDockerfile.isPending.value" />
-          <p v-if="dockerfileStale" class="text-xs text-warning">The saved Dockerfile changed since you started editing. Discard to see it, or save to replace it.</p>
-          <div v-if="dockerfile.data.value?.editable" class="flex flex-wrap items-center gap-3">
-            <Button type="submit" :disabled="!dockerfileDirty || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
-            <Button v-if="dockerfileDirty" type="button" variant="ghost" :disabled="saveDockerfile.isPending.value" @click="discardDockerfile">Discard</Button>
-            <p v-if="dockerfileDirty" class="text-xs text-muted-foreground">Unsaved changes</p>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        <Card v-if="showDockerfile">
+          <CardHeader>
+            <CardTitle>Dockerfile</CardTitle>
+            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Saved files are kept.</CardDescription>
+            <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
+          </CardHeader>
+          <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
+            <QueryError v-if="dockerfile.isError.value && !dockerfile.data.value" :error="dockerfile.error.value" @retry="dockerfile.refetch()" />
+            <form v-else-if="dockerfile.data.value?.editable || dockerfile.data.value?.content" class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
+              <DockerfileEditor v-model="dockerfileText" :readonly="!dockerfile.data.value?.editable" :disabled="saveDockerfile.isPending.value" />
+              <p v-if="dockerfileStale" class="text-xs text-warning">The saved Dockerfile changed since you started editing. Discard to see it, or save to replace it.</p>
+              <div v-if="dockerfile.data.value?.editable" class="flex flex-wrap items-center gap-3">
+                <Button type="submit" :disabled="!dockerfileDirty || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
+                <Button v-if="dockerfileDirty" type="button" variant="ghost" :disabled="saveDockerfile.isPending.value" @click="discardDockerfile">Discard</Button>
+                <p v-if="dockerfileDirty" class="text-xs text-muted-foreground">Unsaved changes</p>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Type</CardTitle>
-        <CardDescription>How bitploy builds your files. Changes apply on the next deploy.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form class="grid gap-4" novalidate @submit.prevent="saveType.mutate()">
-          <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
-          <div><Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-        </form>
-      </CardContent>
-    </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Type</CardTitle>
+            <CardDescription>How bitploy builds your files. Changes apply on the next deploy.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form class="grid gap-4" novalidate @submit.prevent="saveType.mutate()">
+              <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
+              <div><Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </SettingsSection>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Size</CardTitle>
-        <CardDescription v-if="app.data.value?.static">Static sites have a fixed size and do not count towards your memory and CPU allowance.</CardDescription>
-        <CardDescription v-else>How much memory and processor power this app gets.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FormScope :form="resForm">
-          <form class="grid gap-4" novalidate @submit.prevent="submitRes">
-            <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
-              <FormField v-slot="{ componentField }" name="memory_mb">
-                <FormItem>
-                  <FormLabel>Memory (MB)</FormLabel>
-                  <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="room && quota && !isStatic">
-                    Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              </FormField>
-              <FormField v-slot="{ componentField }" name="cpus">
-                <FormItem>
-                  <FormLabel>Processor (CPUs)</FormLabel>
-                  <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="room && quota && !isStatic">
-                    Up to {{ room.cpus }} CPUs<template v-if="room.otherCPU">. Your other running apps have {{ room.otherCPU / 1000 }} of your {{ quota.cpu_millis / 1000 }}.</template><template v-else>.</template>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              </FormField>
-            </div>
-            <div><Button type="submit" :disabled="isStatic || saveRes.isPending.value">{{ saveRes.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-          </form>
-        </FormScope>
-      </CardContent>
-    </Card>
+    <SettingsSection id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT} A change applies after a restart.`">
+      <Card>
+        <CardContent>
+          <p v-if="isStatic" class="mb-4 text-sm text-muted-foreground">Static sites have a fixed size and do not count towards your memory and CPU allowance.</p>
+          <FormScope :form="resForm">
+            <form class="grid gap-4" novalidate @submit.prevent="submitRes">
+              <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+                <FormField v-slot="{ componentField }" name="memory_mb">
+                  <FormItem>
+                    <FormLabel>Memory (MB)</FormLabel>
+                    <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                    <FormDescription v-if="room && quota && !isStatic">
+                      Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                </FormField>
+                <FormField v-slot="{ componentField }" name="cpus">
+                  <FormItem>
+                    <FormLabel>CPU</FormLabel>
+                    <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                    <FormDescription v-if="room && quota && !isStatic">
+                      Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template>
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                </FormField>
+              </div>
+              <div><Button type="submit" :disabled="isStatic || saveRes.isPending.value || !resForm.meta.value.dirty">{{ saveRes.isPending.value ? 'Saving...' : 'Save size' }}</Button></div>
+            </form>
+          </FormScope>
+        </CardContent>
+      </Card>
+    </SettingsSection>
 
-    <template v-if="app.data.value">
-      <GitLinked v-if="app.data.value.git_source" :app="app.data.value" :source="app.data.value.git_source" />
-      <GitConnect v-else :app="app.data.value" />
-    </template>
+    <SettingsSection id="delete" class="scroll-mt-16" title="Delete app" description="Removes the app, its address, its saved files, its backups and all old versions.">
+      <Card class="border-destructive/40">
+        <CardContent class="flex flex-wrap items-center justify-between gap-3">
+          <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need the data.</p>
+          <Button variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete {{ app.data.value?.name ?? 'app' }}</Button>
+        </CardContent>
+      </Card>
+    </SettingsSection>
 
-    <Card class="border-destructive/40">
-      <CardHeader>
-        <CardTitle class="text-destructive">Delete this app</CardTitle>
-        <CardDescription>This removes the app, its address, its stored files, its backups and all old versions. It cannot be undone.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
-      </CardContent>
-    </Card>
-
-    <ConfirmDialog
-      v-model:open="updateOpen"
-      :title="`Update to ${app.data.value?.catalog_update ?? ''}?`"
-      :description="`Replaces the Dockerfile with the catalog's version ${app.data.value?.catalog_update ?? ''} and deploys it. Changes you made to the Dockerfile are lost. Data in /data is kept, but a new version may convert it so the old one cannot read it again: make a backup first.`"
-      :confirm-label="`Update to ${app.data.value?.catalog_update ?? ''}`"
-      :destructive="false"
-      :loading="catalogUpdate.isPending.value"
-      @confirm="catalogUpdate.mutate()"
-    />
+    <CatalogUpdateDialog v-if="app.data.value?.catalog_update && updateOpen" v-model:open="updateOpen" :app="app.data.value" @updated="catalogUpdated" />
     <ConfirmDialog
       v-model:open="renameOpen"
       title="Change the address?"
@@ -574,17 +496,9 @@ const del = useMutation({
       @confirm="pendingRename && saveGeneral.mutate(pendingRename)"
     />
     <ConfirmDialog
-      v-model:open="envRemoveOpen"
-      title="Remove this variable?"
-      :description="`${envToRemove ?? 'The variable'} will be gone the next time the app starts. Your app may stop working if it needs it.`"
-      confirm-label="Remove"
-      :loading="removeEnv.isPending.value"
-      @confirm="envToRemove && removeEnv.mutate(envToRemove)"
-    />
-    <ConfirmDialog
       v-model:open="deleteOpen"
-      title="Delete this app for good?"
-      description="Everything about it is removed, including the files in /data and its backups."
+      :title="`Delete ${app.data.value?.name ?? 'this app'} for good?`"
+      description="Everything about it is removed, including its saved files and its backups."
       confirm-label="Delete app"
       :type-to-confirm="slug"
       :loading="del.isPending.value"

@@ -17,7 +17,7 @@ const HINTS: Record<string, string> = {
   slug_taken: 'Pick another name for the address.',
   storage_quota_exceeded: 'Delete an app you no longer need, turn off /data on another app, or ask your admin for more storage.',
   memory_quota_exceeded: 'Stop or delete another app, or ask your admin for more memory.',
-  cpu_quota_exceeded: 'Stop or delete another app, or ask your admin for more processor time.',
+  cpu_quota_exceeded: 'Stop or delete another app, or ask your admin for more CPU.',
   server_disk_full: 'Tell your admin that the server disk is full. Your running apps are not affected.',
 }
 

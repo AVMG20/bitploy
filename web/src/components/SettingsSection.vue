@@ -4,7 +4,7 @@ defineProps<{ title: string; description?: string }>()
 
 <template>
   <section class="grid gap-x-10 gap-y-4 md:grid-cols-[15rem_minmax(0,1fr)]">
-    <div>
+    <div class="md:sticky md:top-16 md:self-start">
       <h2 class="text-sm font-semibold">{{ title }}</h2>
       <p v-if="description" class="mt-1 text-sm text-muted-foreground">{{ description }}</p>
       <div v-if="$slots.aside" class="mt-3"><slot name="aside" /></div>

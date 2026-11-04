@@ -227,8 +227,8 @@ const remove = useMutation({
   >
     <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
       <div class="grid min-w-0 gap-1">
-        <CardTitle>Files</CardTitle>
-        <CardDescription>Download a file from <span class="font-mono">/data</span>, or upload one to replace it. Open a SQLite database to browse it.</CardDescription>
+        <CardTitle>Browse saved files</CardTitle>
+        <CardDescription>Download a file, or upload one to add or replace it. Open a SQLite database to browse it.</CardDescription>
       </div>
       <div v-if="list" class="flex flex-wrap gap-2">
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick" />
@@ -243,13 +243,13 @@ const remove = useMutation({
       <template v-if="files.isError.value && !list && !notCreatedYet">
         <QueryError :error="files.error.value" @retry="files.refetch()" />
         <div v-if="path">
-          <Button variant="outline" size="sm" @click="path = ''">Back to /data</Button>
+          <Button variant="outline" size="sm" @click="path = ''">Back to the top folder</Button>
         </div>
       </template>
       <EmptyState
         v-else-if="notCreatedYet"
         :icon="Folder"
-        title="No /data folder yet."
+        title="The saved files folder is not there yet."
         description="Restart or redeploy the app to create it."
       />
       <Skeleton v-else-if="!list" class="h-40 w-full" />

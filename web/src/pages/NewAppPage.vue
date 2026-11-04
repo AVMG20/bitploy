@@ -339,7 +339,7 @@ const submit = form.handleSubmit(run)
         <CardContent>
           <div class="flex items-center justify-between gap-4">
             <div class="grid gap-1">
-              <Label for="new-volume">Keep files in /data</Label>
+              <Label for="new-volume">Keep saved files <span class="font-mono text-xs font-normal text-muted-foreground">/data</span></Label>
               <p class="text-[0.8rem] text-muted-foreground">
                 Turn this on if your app has a database or saves uploads. Files in <span class="font-mono">/data</span>, like a SQLite database, are kept between deploys. While this is on, each deploy takes the app offline for a few seconds.
               </p>

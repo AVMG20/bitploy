@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
+import { useQueryParam } from '@/composables/useQueryParam'
 import { RouterLink } from 'vue-router'
 import { ArrowRight, Rocket } from 'lucide-vue-next'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
@@ -16,7 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { channelLabel, commitUrl, describeSource, formatCount, formatCPUMillis, formatDuration, formatMB, formatPercent, pct, shortSha, uptime } from '@/lib/format'
+import { CPU_HINT, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCount, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
 import FirstSteps from './FirstSteps.vue'
@@ -26,7 +27,7 @@ import UploadVersionButton from './UploadVersionButton.vue'
 const props = defineProps<{ slug: string }>()
 const app = useApp(() => props.slug)
 
-const windowSel = ref<MetricWindow>('1h')
+const windowSel = useQueryParam<MetricWindow>('window', '1h', ['1h', '24h', '7d'])
 const windows: { value: MetricWindow; label: string }[] = [
   { value: '1h', label: '1 hour' },
   { value: '24h', label: '24 hours' },
@@ -43,7 +44,7 @@ const running = computed(() => data.value?.status === 'running')
 // What the app uses right now (the last few seconds), only while it runs. The
 // metrics query asks every few seconds; the app query only now and then.
 const live = computed(() => (running.value ? (metrics.data.value?.latest ?? data.value?.live ?? null) : null))
-const cpuLimitPct = computed(() => (data.value?.cpu_millis ?? 0) / 10) // 1000 millis = 100% of one core
+const cpuLimit = computed(() => (data.value?.cpu_millis ?? 0) / 1000) // in CPUs
 const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.value?.memory_mb ?? 0)
 </script>
 
@@ -97,12 +98,12 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
           <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :model-value="live ? pct(live.memory_mb, data.memory_mb) : 0" />
         </div>
         <div class="p-4 lg:border-l">
-          <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Processor now</p>
+          <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">CPU now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
-            {{ live ? formatPercent(live.cpu) : '-' }}
-            <span class="text-sm font-normal tracking-normal text-muted-foreground" title="100% is one processor core">of {{ formatPercent(cpuLimitPct) }} CPU</span>
+            {{ live ? formatCPU(cpuFromPercent(live.cpu)).replace(' CPU', '') : '-' }}
+            <span class="text-sm font-normal tracking-normal text-muted-foreground" :title="CPU_HINT">of {{ formatCPU(cpuLimit) }}</span>
           </p>
-          <Progress class="mt-2" :model-value="live ? pct(live.cpu, cpuLimitPct) : 0" />
+          <Progress class="mt-2" :model-value="live ? pct(cpuFromPercent(live.cpu), cpuLimit) : 0" />
         </div>
         <RouterLink
           v-if="isWeb"
@@ -136,10 +137,10 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
           <div v-else class="grid gap-6 md:grid-cols-2">
             <div class="min-w-0">
               <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
-                <span class="font-medium">Processor</span>
-                <span class="text-xs text-muted-foreground">% of one core</span>
+                <span class="font-medium">CPU</span>
+                <span class="text-xs text-muted-foreground" :title="CPU_HINT">limit {{ formatCPU(cpuLimit) }}</span>
               </p>
-              <MetricChart :points="points" field="cpu" label="Processor" unit="%" :window="windowSel" :limit="cpuLimitPct" color="var(--chart-1)" />
+              <MetricChart :points="points" field="cpu" label="CPU" unit="CPU" :scale="0.01" :window="windowSel" :limit="cpuLimit" color="var(--chart-1)" />
             </div>
             <div class="min-w-0">
               <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
@@ -155,8 +156,8 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <div class="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader class="flex flex-row items-center justify-between gap-2">
-            <CardTitle>Current version</CardTitle>
-            <span class="font-mono text-xs text-muted-foreground">#{{ dep.seq }}</span>
+            <CardTitle>Live version</CardTitle>
+            <span class="text-xs text-muted-foreground">{{ versionLabel(dep.seq) }}</span>
           </CardHeader>
           <CardContent class="flex flex-1 flex-col">
             <dl class="mb-5 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2.5 text-sm">
@@ -170,10 +171,8 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
                   <span v-if="dep.commit_message" class="block truncate text-muted-foreground">{{ dep.commit_message }}</span>
                 </dd>
               </template>
-              <dt class="text-muted-foreground">Started by</dt>
-              <dd>{{ channelLabel(dep.channel) }}</dd>
               <dt class="text-muted-foreground">Deployed</dt>
-              <dd><RelativeTime :date="dep.finished_at ?? dep.queued_at" /></dd>
+              <dd><RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</dd>
               <template v-if="dep.duration_seconds !== null">
                 <dt class="text-muted-foreground">Build took</dt>
                 <dd>{{ formatDuration(dep.duration_seconds) }}</dd>
@@ -211,7 +210,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
             </div>
             <div v-if="data.volume" class="grid gap-2">
               <div class="flex items-baseline justify-between gap-4">
-                <span class="text-muted-foreground">Saved data <span class="font-mono text-xs">/data</span></span>
+                <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">/data</span></span>
                 <span class="shrink-0 font-semibold tabular-nums">
                   <template v-if="data.volume_used_mb !== null">{{ formatMB(data.volume_used_mb) }} <span class="font-normal text-muted-foreground">of {{ formatMB(data.volume_mb) }}</span></template>
                   <template v-else><span class="font-normal text-muted-foreground">Limit</span> {{ formatMB(data.volume_mb) }}</template>
@@ -220,7 +219,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
             </div>
             <div v-else class="flex items-baseline justify-between gap-4">
-              <span class="text-muted-foreground">Saved data <span class="font-mono text-xs">/data</span></span>
+              <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">/data</span></span>
               <span class="text-muted-foreground">Off</span>
             </div>
             <div class="flex items-baseline justify-between gap-4">
@@ -229,7 +228,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
             </div>
             <div class="mt-auto flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
               <span>
-                <template v-if="data.disk_measured_at">Measured <RelativeTime :date="data.disk_measured_at" /> · </template>counts towards your storage<template v-if="data.volume">; the app stops if /data goes over its limit</template>
+                <template v-if="data.disk_measured_at">Measured <RelativeTime :date="data.disk_measured_at" /> · </template>counts towards your storage<template v-if="data.volume">; the app stops if its saved files go over their limit</template>
               </span>
               <RouterLink :to="{ name: 'app-storage', params: { slug } }" class="inline-flex shrink-0 items-center gap-1 font-medium text-foreground hover:underline">
                 Storage <ArrowRight class="size-3.5" />

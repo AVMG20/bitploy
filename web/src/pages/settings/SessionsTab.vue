@@ -22,7 +22,7 @@ const sessions = useQuery({ queryKey: keys.sessions, queryFn: api.sessions })
 const revokeOne = useMutation({
   mutationFn: (id: string) => api.revokeSession(id),
   onSuccess: () => {
-    toastOk('Device signed out')
+    toastOk('Device logged out')
     void qc.invalidateQueries({ queryKey: keys.sessions })
   },
   onError: (e) => toastError(e),
@@ -50,9 +50,9 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
 </script>
 
 <template>
-  <SettingsSection title="Where you are logged in" description="If you see a device you do not know, sign it out and change your password.">
+  <SettingsSection title="Where you are logged in" description="If you see a device you do not know, log it out and change your password.">
     <template #aside>
-      <Button variant="outline" size="sm" @click="everywhereOpen = true"><LogOut /> Sign out everywhere</Button>
+      <Button variant="outline" size="sm" @click="everywhereOpen = true"><LogOut /> Log out everywhere</Button>
     </template>
 
     <QueryError v-if="sessions.isError.value" :error="sessions.error.value" @retry="sessions.refetch()" />
@@ -66,18 +66,18 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
               {{ deviceName(s.user_agent) }}
               <Badge v-if="s.current" variant="secondary" class="ml-1">This device</Badge>
             </p>
-            <p class="text-xs text-muted-foreground">{{ s.ip }} &middot; last active <RelativeTime :date="s.last_seen_at" /> &middot; signed in <RelativeTime :date="s.created_at" /></p>
+            <p class="text-xs text-muted-foreground">{{ s.ip }} &middot; last active <RelativeTime :date="s.last_seen_at" /> &middot; logged in <RelativeTime :date="s.created_at" /></p>
           </div>
-          <Button v-if="!s.current" class="ml-auto" size="sm" variant="ghost" :disabled="revokeOne.isPending.value" :aria-label="`Sign out ${deviceName(s.user_agent)}`" @click="revokeOne.mutate(s.id)">Sign out</Button>
+          <Button v-if="!s.current" class="ml-auto" size="sm" variant="ghost" :disabled="revokeOne.isPending.value" :aria-label="`Log out ${deviceName(s.user_agent)}`" @click="revokeOne.mutate(s.id)">Log out</Button>
         </li>
       </ul>
     </Card>
 
     <ConfirmDialog
       v-model:open="everywhereOpen"
-      title="Sign out everywhere?"
+      title="Log out everywhere?"
       :description="`You will be logged out on this device${otherCount ? ` and ${otherCount} other${otherCount === 1 ? '' : 's'}` : ''}. API tokens keep working.`"
-      confirm-label="Sign out everywhere"
+      confirm-label="Log out everywhere"
       :loading="everywhere.isPending.value"
       @confirm="everywhere.mutate()"
     />

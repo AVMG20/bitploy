@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { ExternalLink } from 'lucide-vue-next'
+import { ArrowUpCircle, ExternalLink } from 'lucide-vue-next'
 import { TableCell, TableRow } from '@/components/ui/table'
 import AppStatusBadge from './AppStatusBadge.vue'
 import RelativeTime from './RelativeTime.vue'
 import { nowMs } from '@/composables/useNow'
-import { formatMB, formatPercent, hostOf, uptime } from '@/lib/format'
+import { cpuFromPercent, formatCPU, formatMB, hostOf, uptime } from '@/lib/format'
 import type { App } from '@/lib/types'
 
 const props = defineProps<{ app: App }>()
@@ -24,9 +24,18 @@ const lastDeploy = computed(() => {
 <template>
   <TableRow class="cursor-pointer" @click="router.push({ name: 'app', params: { slug: app.slug } })">
     <TableCell class="max-w-64">
-      <RouterLink :to="{ name: 'app', params: { slug: app.slug } }" class="block truncate font-medium hover:underline" @click.stop>
-        {{ app.name }}
-      </RouterLink>
+      <div class="flex min-w-0 items-center gap-2">
+        <RouterLink :to="{ name: 'app', params: { slug: app.slug } }" class="truncate font-medium hover:underline" @click.stop>
+          {{ app.name }}
+        </RouterLink>
+        <span
+          v-if="app.catalog_update"
+          class="inline-flex shrink-0 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 text-[11px] font-medium text-primary"
+          :title="`Version ${app.catalog_update} is available. Update it in the app's Settings.`"
+        >
+          <ArrowUpCircle class="size-3" aria-hidden="true" /> Update
+        </span>
+      </div>
       <a
         v-if="app.type === 'web'"
         :href="app.url"
@@ -41,7 +50,7 @@ const lastDeploy = computed(() => {
       <span v-else class="text-xs text-muted-foreground">Background worker</span>
     </TableCell>
     <TableCell><AppStatusBadge :status="app.status" /></TableCell>
-    <TableCell class="hidden text-right tabular-nums sm:table-cell">{{ latest ? formatPercent(latest.cpu) : '-' }}</TableCell>
+    <TableCell class="hidden text-right tabular-nums sm:table-cell">{{ latest ? formatCPU(cpuFromPercent(latest.cpu)) : '-' }}</TableCell>
     <TableCell class="hidden text-right tabular-nums sm:table-cell">{{ latest ? formatMB(latest.memory_mb) : '-' }}</TableCell>
     <TableCell class="hidden text-right tabular-nums md:table-cell">
       {{ running ? uptime(app.started_at, nowMs) : '-' }}

@@ -26,6 +26,7 @@ import DataFiles from '@/pages/app/DataFiles.vue'
 import { ApiError, api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
+import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import type { Backup, BackupKind } from '@/lib/types'
 
 const props = defineProps<{ slug: string }>()
@@ -86,7 +87,8 @@ const submitLimit = dataForm.handleSubmit((v) => saveLimit.mutate(v))
 const turnOn = useMutation({
   mutationFn: () => api.updateApp(props.slug, { volume: true }),
   onSuccess: (updated) => {
-    toastOk('/data is on', 'Restart or redeploy the app to start using it.')
+    toastOk('Saved files are on', data.value?.status === 'running' ? 'Restart the app to start using them.' : 'The app uses them the next time it starts.')
+    markRestartNeeded(data.value, 'storage')
     dataForm.resetForm({ values: { volume_gb: updated.volume_mb / 1024 } })
     refreshApp()
   },
@@ -102,7 +104,7 @@ const turnOff = useMutation({
   mutationFn: (deleteData: boolean) => api.updateApp(props.slug, { volume: false, delete_data: deleteData }),
   onSuccess: () => {
     confirmOffOpen.value = false
-    toastOk('/data is off')
+    toastOk('Saved files are off')
     refreshApp()
   },
   onError: (e) => {
@@ -133,7 +135,7 @@ function onSwitch(on: boolean) {
 const confirmOffText = computed(() => {
   const n = backupCount.value
   const backups = n === 0 ? '' : ` and all ${n} ${n === 1 ? 'backup' : 'backups'}`
-  return `This deletes all files in /data${backups}. This cannot be undone.`
+  return `This deletes all saved files${backups}. This cannot be undone.`
 })
 
 const storageFree = computed(() => {
@@ -328,8 +330,8 @@ const kindLabel: Record<BackupKind, string> = {
   <div v-if="data" class="grid gap-4">
     <Card>
       <CardHeader>
-        <CardTitle>Saved data</CardTitle>
-        <CardDescription>Each deploy starts from a fresh copy of your app. Files it saves in <span class="font-mono">/data</span>, like uploads or a database, are kept.</CardDescription>
+        <CardTitle>Saved files</CardTitle>
+        <CardDescription>Each deploy starts from a fresh copy of your app. Files it saves in the folder <span class="font-mono">/data</span>, like uploads or a database, are kept.</CardDescription>
       </CardHeader>
       <CardContent>
         <FormScope :form="dataForm">
@@ -347,7 +349,7 @@ const kindLabel: Record<BackupKind, string> = {
 
             <div class="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
               <div class="grid gap-1">
-                <Label for="keep-data">Keep files in /data</Label>
+                <Label for="keep-data">Keep saved files <span class="font-mono text-xs font-normal text-muted-foreground">/data</span></Label>
                 <p v-if="isStatic && !data.volume" class="text-[0.8rem] text-muted-foreground">Static sites do not need storage.</p>
                 <p v-else class="text-[0.8rem] text-muted-foreground">While this is on, each deploy takes the app offline for a few seconds.</p>
               </div>
@@ -384,7 +386,7 @@ const kindLabel: Record<BackupKind, string> = {
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>
           <CardDescription v-if="data.volume && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
-          <CardDescription v-else>Copies of /data that you can download or restore.</CardDescription>
+          <CardDescription v-else>Copies of the saved files that you can download or restore.</CardDescription>
         </div>
         <div v-if="data.volume" class="flex flex-wrap gap-2">
           <input ref="fileInput" type="file" accept=".gz,.tgz,application/gzip,application/x-gzip" class="hidden" @change="onFile" />
@@ -469,10 +471,10 @@ const kindLabel: Record<BackupKind, string> = {
         <EmptyState
           v-else-if="!list.items.length && !data.volume"
           :icon="HardDrive"
-          title="/data is off."
-          :description="isStatic ? `Static sites do not need storage.` : `Turn it on to keep your app's files between deploys and back them up.`"
+          title="Saved files are off."
+          :description="isStatic ? `Static sites do not need storage.` : `Turn them on to keep your app's files between deploys and back them up.`"
         >
-          <Button v-if="!isStatic" :disabled="switching" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on /data' }}</Button>
+          <Button v-if="!isStatic" :disabled="switching" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on saved files' }}</Button>
         </EmptyState>
         <EmptyState
           v-else-if="!list.items.length"
@@ -495,14 +497,14 @@ const kindLabel: Record<BackupKind, string> = {
             <div class="ml-auto flex gap-1">
               <template v-if="b.status === 'ready'">
                 <Button as-child size="sm" variant="ghost">
-                  <a :href="paths.appBackupDownload(slug, b.id)" download aria-label="Download this backup"><Download /> Download</a>
+                  <a :href="paths.appBackupDownload(slug, b.id)" download :aria-label="`Download the backup from ${formatDateTime(b.created_at)}`"><Download /> Download</a>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   :disabled="working || !data.volume"
-                  :title="data.volume ? undefined : 'Turn on /data to restore'"
-                  aria-label="Restore this backup"
+                  :title="data.volume ? undefined : 'Turn on saved files to restore'"
+                  :aria-label="`Restore the backup from ${formatDateTime(b.created_at)}`"
                   @click="toRestore = b"
                 >
                   <RotateCcw /> Restore
@@ -515,7 +517,7 @@ const kindLabel: Record<BackupKind, string> = {
                 class="text-muted-foreground hover:text-destructive"
                 :disabled="working"
                 title="Delete"
-                aria-label="Delete this backup"
+                :aria-label="`Delete the backup from ${formatDateTime(b.created_at)}`"
                 @click="toDelete = b"
               >
                 <Trash2 />
@@ -528,8 +530,8 @@ const kindLabel: Record<BackupKind, string> = {
 
     <ConfirmDialog
       v-model:open="restoreOpen"
-      title="Restore this backup?"
-      :description="`The files in /data are replaced by this backup.${appWillRestart ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`"
+      :title="`Restore the backup from ${toRestore ? formatDateTime(toRestore.created_at) : ''}?`"
+      :description="`The saved files are replaced by this backup.${appWillRestart ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`"
       confirm-label="Restore"
       :destructive="false"
       :loading="restore.isPending.value"
@@ -537,7 +539,7 @@ const kindLabel: Record<BackupKind, string> = {
     />
     <ConfirmDialog
       v-model:open="confirmOffOpen"
-      title="Turn off /data?"
+      title="Turn off saved files?"
       :description="confirmOffText"
       confirm-label="Delete and turn off"
       :type-to-confirm="slug"
@@ -546,8 +548,8 @@ const kindLabel: Record<BackupKind, string> = {
     />
     <ConfirmDialog
       v-model:open="deleteOpen"
-      title="Delete this backup?"
-      description="This cannot be undone."
+      :title="`Delete the backup from ${toDelete ? formatDateTime(toDelete.created_at) : ''}?`"
+      :description="toDelete ? `${kindLabel[toDelete.kind]} backup, ${formatBytes(toDelete.size_bytes)}. This cannot be undone.` : 'This cannot be undone.'"
       confirm-label="Delete"
       :loading="remove.isPending.value"
       @confirm="toDelete && remove.mutate(toDelete.id)"

@@ -1,19 +1,26 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ChevronRight } from 'lucide-vue-next'
+import { ChevronRight, Search } from 'lucide-vue-next'
+import { Kbd } from '@/components/ui/kbd'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { useApp } from '@/composables/queries'
 import { useEvents } from '@/composables/useEvents'
+import { modKey, paletteOpen, usePaletteShortcut } from '@/composables/useShortcuts'
 import AppSidebar from './AppSidebar.vue'
+import CommandPalette from './CommandPalette.vue'
 
 const route = useRoute()
 // Live updates for everything below: opens when you are signed in, closes when you leave (logout).
 useEvents()
+usePaletteShortcut()
 
-// Where you are, shown next to the sidebar toggle: "Apps › my-app".
+// Where you are, shown next to the sidebar toggle: "Apps › My app". The app
+// page asks for the same app, so this costs no extra request.
+const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
+const app = useApp(slug, () => !!slug.value)
 const crumbs = computed(() => {
-  const slug = route.params.slug
-  if (typeof slug === 'string' && slug) return [{ label: 'Apps', to: '/' }, { label: slug }]
+  if (slug.value) return [{ label: 'Apps', to: '/' }, { label: app.data.value?.slug === slug.value ? app.data.value.name : slug.value }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
@@ -44,10 +51,22 @@ watch(
             <span v-else class="truncate font-medium" aria-current="page">{{ c.label }}</span>
           </template>
         </nav>
+        <button
+          type="button"
+          class="ml-auto inline-flex h-8 shrink-0 items-center gap-2 rounded-md border bg-card px-2 text-sm text-muted-foreground shadow-card transition-colors hover:bg-accent hover:text-foreground sm:w-56 sm:px-2.5"
+          aria-label="Go to an app or a page"
+          aria-keyshortcuts="Meta+K Control+K"
+          @click="paletteOpen = true"
+        >
+          <Search class="size-4 shrink-0" />
+          <span class="hidden flex-1 text-left sm:inline">Go to...</span>
+          <Kbd class="hidden sm:inline-flex">{{ modKey }} K</Kbd>
+        </button>
       </header>
       <main :class="['mx-auto w-full flex-1 px-4 py-6 md:px-8 md:py-8', route.meta.wide ? 'max-w-[110rem]' : 'max-w-6xl']">
         <RouterView />
       </main>
     </SidebarInset>
+    <CommandPalette />
   </SidebarProvider>
 </template>
