@@ -57,7 +57,9 @@ needs Postgres/Redis next to it), not the new normal. So:
   the current tabs; rethink the layout so it fits projects and services.
   Constraints: Vercel/Linear-like dark, neutral near-black greys, orange
   accent, no blue (use the tokens in web/src/style.css), beginner-friendly words,
-  and a one-service project must still feel simple.
+  and a one-service project must still feel simple. Bold must never cost
+  clarity: every screen has to be easy to understand for all types of users,
+  from beginners to developers (obvious next step, plain labels, no guessing).
 
 ## Data model
 
