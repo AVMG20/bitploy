@@ -306,6 +306,9 @@ type LogLine struct {
 	Time   *time.Time `json:"time,omitempty"`
 	Stream string     `json:"stream,omitempty"` // stdout | stderr | build
 	Text   string     `json:"text"`
+	// Service is the service a runtime line came from, set only for an app
+	// with several services.
+	Service string `json:"service,omitempty"`
 }
 
 type MetricPoint struct {
@@ -514,6 +517,9 @@ type Backup struct {
 	SizeBytes int64     `json:"size_bytes"`
 	Error     string    `json:"error,omitempty"` // why a failed backup failed, in plain words
 	CreatedAt time.Time `json:"created_at"`
+	// Volume is the volume the backup holds, set only for an app with
+	// several services (a single-service app has one volume, data).
+	Volume string `json:"volume,omitempty"`
 }
 
 // BackupSettings are the automatic backups of one app.

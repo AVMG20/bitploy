@@ -95,9 +95,18 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, owner db.User, id 
 	if err != nil {
 		return 0, err
 	}
+	volName := singleVolume
+	if b, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: id, AppID: app.ID}); err == nil {
+		volName = b.Volume
+	}
+	vol, ok := s.volumeOf(ctx, app, volName)
+	if !ok {
+		_ = os.Remove(tmp)
+		return 0, dockerx.ErrNoVolume
+	}
 	size, err := func() (int64, error) {
 		defer f.Close()
-		arch, err := vs.PrepareArchive(ctx, appVolumeName(app))
+		arch, err := vs.PrepareArchive(ctx, vol.VolumeName)
 		if err != nil {
 			return 0, err
 		}
@@ -221,7 +230,11 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if b.Status != backupReady {
 		return BackupRestore{}, apperr.Conflict("backup_not_ready", "This backup is not finished or failed, so it cannot be restored.", "Pick a backup that is ready.")
 	}
-	if row.VolumeEnabled == 0 {
+	vol, ok, err := s.pickVolume(ctx, row, b.Volume)
+	if err != nil {
+		return BackupRestore{}, err
+	}
+	if !ok {
 		return BackupRestore{}, volumeOffErr()
 	}
 	if _, err := os.Stat(s.backupPath(row.ID, b.ID)); err != nil {
@@ -231,7 +244,7 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if err != nil {
 		return BackupRestore{}, err
 	}
-	if has, err := vs.HasVolume(ctx, appVolumeName(row)); err != nil {
+	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
 		return BackupRestore{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
 	} else if !has {
 		return BackupRestore{}, volumeNotReadyErr()
@@ -307,9 +320,10 @@ func (s *Service) finishRestoreState(appID string, st *BackupRestore, err error)
 
 // restoreLimits are the tar rules for putting backup b back: what bitploy made
 // itself from the volume is trusted, an uploaded file is not.
-func restoreLimits(ctx context.Context, app db.App, b db.AppBackup) tarLimits {
+func (s *Service) restoreLimits(ctx context.Context, app db.App, b db.AppBackup) tarLimits {
 	if b.Kind == BackupUploaded {
-		return tarLimits{MaxBytes: app.VolumeMb * mib, Ctx: ctx}
+		vol, _ := s.volumeOf(ctx, app, b.Volume)
+		return tarLimits{MaxBytes: vol.SizeMB * mib, Ctx: ctx}
 	}
 	return tarLimits{Trusted: true, Ctx: ctx}
 }
@@ -327,7 +341,7 @@ func (s *Service) checkBackupFile(ctx context.Context, app db.App, b db.AppBacku
 		return problem("the backup file is damaged")
 	}
 	defer gz.Close()
-	_, err = sanitizeTar(nil, tar.NewReader(gz), restoreLimits(ctx, app, b))
+	_, err = sanitizeTar(nil, tar.NewReader(gz), s.restoreLimits(ctx, app, b))
 	if errors.Is(err, errTarTooBig) {
 		return problem("the files in the backup are bigger than the /data limit of the app")
 	}
@@ -422,7 +436,7 @@ func (s *Service) runRestore(ctx context.Context, row db.App, owner db.User, b d
 	}
 
 	// A backup of what is there now, so a restore can be undone.
-	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore)
+	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore, b.Volume)
 	if err != nil {
 		return errors.New("Something went wrong on the server. Nothing was restored.")
 	}
@@ -497,13 +511,19 @@ func (s *Service) replaceFrom(ctx context.Context, vs volumeStore, app db.App, b
 	go func() {
 		defer close(done)
 		tw := tar.NewWriter(pw)
-		_, err := sanitizeTar(tw, tar.NewReader(gz), restoreLimits(ctx, app, b))
+		_, err := sanitizeTar(tw, tar.NewReader(gz), s.restoreLimits(ctx, app, b))
 		if err == nil {
 			err = tw.Close()
 		}
 		pw.CloseWithError(err)
 	}()
-	err = vs.ReplaceVolume(ctx, appVolumeName(app), pr, b.Kind == BackupUploaded)
+	vol, ok := s.volumeOf(ctx, app, b.Volume)
+	if !ok {
+		_ = pr.CloseWithError(dockerx.ErrNoVolume)
+		<-done
+		return dockerx.ErrNoVolume
+	}
+	err = vs.ReplaceVolume(ctx, vol.VolumeName, pr, b.Kind == BackupUploaded)
 	// The file and the gzip reader are closed on return: let the copier stop first.
 	_ = pr.Close()
 	<-done

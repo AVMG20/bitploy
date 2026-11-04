@@ -238,7 +238,12 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.U
 		return
 	}
 	app = fresh
-	b, err := s.insertBackup(ctx, app.ID, BackupScheduled)
+	// Automatic backups hold the app's first volume.
+	vol, ok, verr := s.pickVolume(ctx, app, "")
+	if verr != nil || !ok {
+		return
+	}
+	b, err := s.insertBackup(ctx, app.ID, BackupScheduled, vol.Name)
 	if err != nil {
 		return
 	}

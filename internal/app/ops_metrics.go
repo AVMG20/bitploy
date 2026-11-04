@@ -26,10 +26,20 @@ func round1(v float64) float64 { return float64(int64(v*10+0.5)) / 10 }
 // GetMetrics returns CPU, memory and network for window 1h | 24h | 7d.
 // 1h is raw 15-second samples ending at the live reading; 24h and 7d are 5-minute rollups (the newest
 // raw samples are folded into 5-minute buckets so the series is uniform).
-func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (Metrics, error) {
+// An optional service name narrows an app with several services to one of
+// them; without it the metrics are the sum over the app's services.
+func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string, service ...string) (Metrics, error) {
 	app, err := s.LoadApp(ctx, a, ref, false)
 	if err != nil {
 		return Metrics{}, err
+	}
+	sp, _, err := s.pickService(ctx, app, firstOpt(service))
+	if err != nil {
+		return Metrics{}, err
+	}
+	svc, limit := "", app.MemoryMb
+	if sp != nil && isMulti(app) { // a single-service app's one service is the app
+		svc, limit = sp.Name, sp.MemoryMB
 	}
 	window = strings.ToLower(strings.TrimSpace(window))
 	if window == "" {
@@ -39,7 +49,7 @@ func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (
 		return Metrics{}, apperr.BadRequest("invalid_window",
 			"The window "+quote(window)+" is not supported.", "Use 1h, 24h or 7d.")
 	}
-	series, err := s.metricsMgr().Series(ctx, app.ID, window)
+	series, err := s.metricsMgr().SeriesOf(ctx, app.ID, svc, window)
 	if err != nil {
 		return Metrics{}, apperr.Internal(err)
 	}
@@ -52,13 +62,19 @@ func (s *Service) GetMetrics(ctx context.Context, a Actor, ref, window string) (
 		}
 	}
 	latest := s.LatestSample(app.ID)
+	if svc != "" {
+		latest = nil
+		if p, ok := s.metricsMgr().LatestService(app.ID, svc); ok {
+			latest = pointFromSample(p)
+		}
+	}
 	// The hour chart ends at the live reading, so it moves between the
 	// 15-second samples while someone watches it.
 	if window == "1h" && latest != nil && (len(points) == 0 || latest.TS.After(points[len(points)-1].TS)) {
 		points = append(points, *latest)
 	}
 	return Metrics{
-		App: app.Slug, Window: window, MemoryLimitMB: app.MemoryMb, Points: points, Latest: latest,
+		App: app.Slug, Service: svc, Window: window, MemoryLimitMB: limit, Points: points, Latest: latest,
 	}, nil
 }
 

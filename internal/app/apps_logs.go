@@ -160,7 +160,7 @@ func (s *Service) Logs(ctx context.Context, a Actor, ref string, opts LogOptions
 		}
 		return buildLines(tailFile(s.Cfg.BuildLog(deps[0].ID), tail)), nil
 	case "runtime":
-		name, err := s.runtimeContainer(ctx, row)
+		name, svc, err := s.runtimeContainer(ctx, row, opts.Service)
 		if err != nil {
 			return nil, err
 		}
@@ -177,25 +177,31 @@ func (s *Service) Logs(ctx context.Context, a Actor, ref string, opts LogOptions
 		}
 		out := make([]LogLine, 0, len(entries))
 		for _, e := range entries {
-			out = append(out, runtimeLine(e))
+			l := runtimeLine(e)
+			l.Service = svc
+			out = append(out, l)
 		}
 		return out, nil
 	}
 	return nil, apperr.BadRequest("log_kind_invalid", "The log kind "+quote(opts.Kind)+" is not known.", "Use kind=build or kind=runtime.")
 }
 
-// FollowRuntimeLogs streams runtime logs from the current container.
-func (s *Service) FollowRuntimeLogs(ctx context.Context, a Actor, ref string, tail int, fn func(LogLine) error) error {
+// FollowRuntimeLogs streams runtime logs from the current container. An
+// optional service name picks the service; without it the public (or only)
+// service is followed.
+func (s *Service) FollowRuntimeLogs(ctx context.Context, a Actor, ref string, tail int, fn func(LogLine) error, service ...string) error {
 	row, err := s.LoadApp(ctx, a, ref, false)
 	if err != nil {
 		return err
 	}
-	name, err := s.runtimeContainer(ctx, row)
+	name, svc, err := s.runtimeContainer(ctx, row, firstOpt(service))
 	if err != nil {
 		return err
 	}
 	err = s.Docker.StreamLogs(ctx, name, dockerx.LogOptions{Tail: clampTail(tail, defaultLogTail, maxLogTail), Follow: true}, func(e dockerx.LogEntry) error {
-		return fn(runtimeLine(e))
+		l := runtimeLine(e)
+		l.Service = svc
+		return fn(l)
 	})
 	if dockerx.IsNotFound(err) {
 		return noContainerErr()
@@ -227,16 +233,45 @@ func noContainerErr() *apperr.Error {
 		"Deploy it first, then read the logs. For a failed deployment, get_deployment shows the log tail.").WithNext("get_deployment")
 }
 
-func (s *Service) runtimeContainer(ctx context.Context, row db.App) (string, error) {
+func serviceNoContainerErr(service string) *apperr.Error {
+	return apperr.Conflict("no_container", "The "+service+" service has no container yet, so there are no runtime logs.",
+		"Deploy the app first, then read the logs. For a failed deployment, get_deployment shows the log tail.").
+		WithDetail("service", service).WithNext("get_deployment")
+}
+
+// runtimeContainer picks the container whose logs to read: the named
+// service's, else the public service's, else the first service's. svc is the
+// service name for an app with several services and "" otherwise, so the
+// lines of a single-service app look as they always did.
+func (s *Service) runtimeContainer(ctx context.Context, row db.App, service string) (name, svc string, err error) {
+	sp, specs, err := s.pickService(ctx, row, service)
+	if err != nil {
+		return "", "", err
+	}
 	if s.Docker == nil {
-		return "", apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
+		return "", "", apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
 	}
 	if !row.CurrentDeploymentID.Valid {
-		return "", noContainerErr()
+		return "", "", noContainerErr()
 	}
-	d, err := s.Q.GetDeployment(ctx, row.CurrentDeploymentID.String)
-	if err != nil || !d.ContainerName.Valid {
-		return "", noContainerErr()
+	if !isMulti(row) {
+		d, err := s.Q.GetDeployment(ctx, row.CurrentDeploymentID.String)
+		if err != nil || !d.ContainerName.Valid {
+			return "", "", noContainerErr()
+		}
+		return d.ContainerName.String, "", nil
 	}
-	return d.ContainerName.String, nil
+	if sp == nil {
+		if sp = publicSpec(specs); sp == nil && len(specs) > 0 {
+			sp = &specs[0]
+		}
+	}
+	if sp == nil {
+		return "", "", noContainerErr()
+	}
+	name = s.currentContainers(ctx, row)[sp.Name]
+	if name == "" {
+		return "", "", serviceNoContainerErr(sp.Name)
+	}
+	return name, sp.Name, nil
 }

@@ -168,29 +168,37 @@ func filesBusyErr() *apperr.Error {
 // filesTarget loads the app and the store for its volume. The files are the
 // owner's data: only the owner (or the system) gets to them, never an admin
 // who looks at another user's app.
-func (s *Service) filesTarget(ctx context.Context, a Actor, ref string, write bool) (db.App, db.User, fileStore, error) {
+// volume names one volume of an app with several; "" is the first.
+func (s *Service) filesTarget(ctx context.Context, a Actor, ref string, write bool, volume string) (db.App, db.User, fileStore, volumeSpec, error) {
 	row, owner, err := s.backupApp(ctx, a, ref, write)
 	if err != nil {
-		return db.App{}, db.User{}, nil, err
+		return db.App{}, db.User{}, nil, volumeSpec{}, err
 	}
 	if row.UserID != a.UserID && a.Channel != ChannelSystem {
-		return db.App{}, db.User{}, nil, appNotFound(ref)
+		return db.App{}, db.User{}, nil, volumeSpec{}, appNotFound(ref)
 	}
-	if row.VolumeEnabled == 0 {
-		return db.App{}, db.User{}, nil, filesVolumeOffErr()
+	vol, ok, err := s.pickVolume(ctx, row, volume)
+	if err != nil {
+		return db.App{}, db.User{}, nil, volumeSpec{}, err
+	}
+	if !ok {
+		return db.App{}, db.User{}, nil, volumeSpec{}, filesVolumeOffErr()
+	}
+	fail := func(err error) (db.App, db.User, fileStore, volumeSpec, error) {
+		return db.App{}, db.User{}, nil, volumeSpec{}, err
 	}
 	vs, err := s.volumes()
 	if err != nil {
-		return db.App{}, db.User{}, nil, err
+		return fail(err)
 	}
 	fs, ok := vs.(fileStore)
 	if !ok {
-		return db.App{}, db.User{}, nil, apperr.Unavailable("docker_unavailable", "bitploy cannot reach the data folder right now.", "Try again in a minute.")
+		return fail(apperr.Unavailable("docker_unavailable", "bitploy cannot reach the data folder right now.", "Try again in a minute."))
 	}
-	if has, err := vs.HasVolume(ctx, appVolumeName(row)); err != nil {
-		return db.App{}, db.User{}, nil, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
+		return fail(apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute."))
 	} else if !has {
-		return db.App{}, db.User{}, nil, volumeNotReadyErr()
+		return fail(volumeNotReadyErr())
 	}
 	// While a backup is restored the folder is emptied and filled again.
 	s.backup.mu.Lock()
@@ -198,9 +206,9 @@ func (s *Service) filesTarget(ctx context.Context, a Actor, ref string, write bo
 	restoring := r != nil && r.State == "running"
 	s.backup.mu.Unlock()
 	if restoring {
-		return db.App{}, db.User{}, nil, backupBusyErr()
+		return fail(backupBusyErr())
 	}
-	return row, owner, fs, nil
+	return row, owner, fs, vol, nil
 }
 
 // withFilesLock runs a change of the files. It holds the backup lock, so no
@@ -256,9 +264,11 @@ func filesErr(err error) error {
 // (measured every few minutes). The /data limit is already part of the
 // owner's storage allowance, so the allowance needs no check of its own.
 // roomBound says it is the free space that sets the limit.
-func (s *Service) fileUploadLimit(ctx context.Context, row db.App) (limit int64, roomBound bool) {
+func (s *Service) fileUploadLimit(ctx context.Context, row db.App, vol volumeSpec) (limit int64, roomBound bool) {
 	room := row.VolumeMb * mib
-	if d, err := s.Q.GetAppDisk(ctx, row.ID); err == nil {
+	if isMulti(row) {
+		room = vol.SizeMB*mib - vol.UsedBytes
+	} else if d, err := s.Q.GetAppDisk(ctx, row.ID); err == nil {
 		room -= d.VolumeBytes
 	}
 	if room < 0 {
@@ -273,16 +283,16 @@ func (s *Service) fileUploadLimit(ctx context.Context, row db.App) (limit int64,
 // ---- list ----
 
 // ListFiles lists a folder of /data.
-func (s *Service) ListFiles(ctx context.Context, a Actor, ref, dir string) (FileList, error) {
+func (s *Service) ListFiles(ctx context.Context, a Actor, ref, dir string, volume ...string) (FileList, error) {
 	rel, err := cleanFilePath(dir)
 	if err != nil {
 		return FileList{}, err
 	}
-	row, _, fs, err := s.filesTarget(ctx, a, ref, false)
+	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, false, firstOpt(volume))
 	if err != nil {
 		return FileList{}, err
 	}
-	l, err := fs.ListFiles(ctx, appVolumeName(row), rel, maxFileEntries)
+	l, err := fs.ListFiles(ctx, vol.VolumeName, rel, maxFileEntries)
 	if err != nil {
 		return FileList{}, filesErr(err)
 	}
@@ -290,7 +300,7 @@ func (s *Service) ListFiles(ctx context.Context, a Actor, ref, dir string) (File
 	for _, e := range l.Entries {
 		out.Items = append(out.Items, FileEntry{Name: e.Name, Type: e.Kind, Size: e.Size, ModifiedAt: e.Mtime})
 	}
-	out.UploadMaxBytes, _ = s.fileUploadLimit(ctx, row)
+	out.UploadMaxBytes, _ = s.fileUploadLimit(ctx, row, vol)
 	return out, nil
 }
 
@@ -300,7 +310,7 @@ func (s *Service) ListFiles(ctx context.Context, a Actor, ref, dir string) (File
 // needs the deploy scope: a read-only token may see the names but not take the
 // data. The app keeps running, so a file that is being written can come out
 // cut off or inconsistent (a database: stop the app first).
-func (s *Service) OpenFile(ctx context.Context, a Actor, ref, file string) (*FileDownload, error) {
+func (s *Service) OpenFile(ctx context.Context, a Actor, ref, file string, volume ...string) (*FileDownload, error) {
 	rel, err := cleanFilePath(file)
 	if err != nil {
 		return nil, err
@@ -308,11 +318,11 @@ func (s *Service) OpenFile(ctx context.Context, a Actor, ref, file string) (*Fil
 	if rel == "" {
 		return nil, filesErr(dockerx.ErrWrongKind)
 	}
-	row, _, fs, err := s.filesTarget(ctx, a, ref, true)
+	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, true, firstOpt(volume))
 	if err != nil {
 		return nil, err
 	}
-	body, size, mtime, err := fs.OpenFile(ctx, appVolumeName(row), rel)
+	body, size, mtime, err := fs.OpenFile(ctx, vol.VolumeName, rel)
 	if err != nil {
 		return nil, filesErr(err)
 	}
@@ -325,7 +335,7 @@ func (s *Service) OpenFile(ctx context.Context, a Actor, ref, file string) (*Fil
 // UploadFile stores the body as the file name in the folder dir. An existing
 // file is only replaced with overwrite. contentLength is the size announced
 // by the client, or -1.
-func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string, overwrite bool, body io.Reader, contentLength int64) (FileEntry, error) {
+func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string, overwrite bool, body io.Reader, contentLength int64, volume ...string) (FileEntry, error) {
 	rel, err := cleanFilePath(dir)
 	if err != nil {
 		return FileEntry{}, err
@@ -333,7 +343,7 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 	if err := validFileName(name); err != nil {
 		return FileEntry{}, err
 	}
-	row, _, fs, err := s.filesTarget(ctx, a, ref, true)
+	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, true, firstOpt(volume))
 	if err != nil {
 		return FileEntry{}, err
 	}
@@ -341,11 +351,11 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 		return FileEntry{}, apperr.Unavailable("server_disk_full", "The server is almost out of disk space, so nothing can be uploaded.",
 			"Tell the bitploy admin that the server disk is full. Your apps are not affected.")
 	}
-	limit, roomBound := s.fileUploadLimit(ctx, row)
+	limit, roomBound := s.fileUploadLimit(ctx, row, vol)
 	tooBig := func() *apperr.Error {
 		if roomBound {
 			return apperr.New(413, "volume_full",
-				fmt.Sprintf("There is not enough room left in /data (the limit is %d MB).", row.VolumeMb),
+				fmt.Sprintf("There is not enough room left in /data (the limit is %d MB).", vol.SizeMB),
 				"Delete files you no longer need, or raise the /data limit of the app.")
 		}
 		return apperr.New(413, "file_too_large", fmt.Sprintf("Files can be up to %d MB.", maxFileUpload>>20),
@@ -383,7 +393,7 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 	}
 
 	err = s.withFilesLock(row, func() error {
-		return filesErr(fs.PutFile(ctx, appVolumeName(row), rel, name, size, tmp, overwrite))
+		return filesErr(fs.PutFile(ctx, vol.VolumeName, rel, name, size, tmp, overwrite))
 	})
 	if err != nil {
 		return FileEntry{}, err
@@ -397,7 +407,7 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 // ---- folders and delete ----
 
 // MakeFolder creates the folder name inside the folder dir.
-func (s *Service) MakeFolder(ctx context.Context, a Actor, ref, dir, name string) (FileEntry, error) {
+func (s *Service) MakeFolder(ctx context.Context, a Actor, ref, dir, name string, volume ...string) (FileEntry, error) {
 	rel, err := cleanFilePath(dir)
 	if err != nil {
 		return FileEntry{}, err
@@ -405,12 +415,12 @@ func (s *Service) MakeFolder(ctx context.Context, a Actor, ref, dir, name string
 	if err := validFileName(name); err != nil {
 		return FileEntry{}, err
 	}
-	row, _, fs, err := s.filesTarget(ctx, a, ref, true)
+	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, true, firstOpt(volume))
 	if err != nil {
 		return FileEntry{}, err
 	}
 	err = s.withFilesLock(row, func() error {
-		return filesErr(fs.MakeDir(ctx, appVolumeName(row), rel, name))
+		return filesErr(fs.MakeDir(ctx, vol.VolumeName, rel, name))
 	})
 	if err != nil {
 		return FileEntry{}, err
@@ -421,7 +431,7 @@ func (s *Service) MakeFolder(ctx context.Context, a Actor, ref, dir, name string
 
 // DeleteFile deletes a file, a link (not what it points to) or a folder with
 // everything in it. /data itself can not be deleted.
-func (s *Service) DeleteFile(ctx context.Context, a Actor, ref, target string) error {
+func (s *Service) DeleteFile(ctx context.Context, a Actor, ref, target string, volume ...string) error {
 	rel, err := cleanFilePath(target)
 	if err != nil {
 		return err
@@ -429,14 +439,14 @@ func (s *Service) DeleteFile(ctx context.Context, a Actor, ref, target string) e
 	if rel == "" {
 		return apperr.BadRequest("path_invalid", "The /data folder itself cannot be deleted.", "Choose a file or folder inside it.")
 	}
-	row, _, fs, err := s.filesTarget(ctx, a, ref, true)
+	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, true, firstOpt(volume))
 	if err != nil {
 		return err
 	}
 	dir, name := path.Split(rel)
 	dir = strings.TrimSuffix(dir, "/")
 	err = s.withFilesLock(row, func() error {
-		return filesErr(fs.RemoveFile(ctx, appVolumeName(row), dir, name))
+		return filesErr(fs.RemoveFile(ctx, vol.VolumeName, dir, name))
 	})
 	if err != nil {
 		return err
