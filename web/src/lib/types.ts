@@ -256,7 +256,7 @@ export interface Domain {
 
 export interface App {
   id: string
-  /** The one-click app this was made from; "" when it was not. */
+  /** The ready-made app this was made from; "" when it was not. */
   catalog_id: string
   catalog_version: string
   /** A newer catalog version, when there is one. */

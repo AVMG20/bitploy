@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, FileCode, Github, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowLeft, FileCode, Github, LayoutGrid, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
-import CatalogStrip from '@/components/CatalogStrip.vue'
+import CatalogPicker from '@/components/CatalogPicker.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
@@ -30,6 +30,7 @@ import type { BuildMode, DockerfileFinding, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
 const router = useRouter()
+const route = useRoute()
 const qc = useQueryClient()
 const me = useMe()
 
@@ -65,7 +66,10 @@ const addressParts = computed(() => {
 // ---------------------------------------------------------------- source
 const github = useQuery({ queryKey: keys.github, queryFn: api.github })
 const canPick = computed(() => (github.data.value?.installations ?? []).some((i) => i.status === 'active'))
-const chosenSource = ref<'github' | 'upload' | 'dockerfile' | null>(null)
+type Source = 'github' | 'upload' | 'dockerfile' | 'ready-made'
+const SOURCES: Source[] = ['github', 'upload', 'dockerfile', 'ready-made']
+// ?source= opens a tab directly, e.g. coming back from a ready-made app.
+const chosenSource = ref<Source | null>(SOURCES.includes(route.query.source as Source) ? (route.query.source as Source) : null)
 // GitHub first, and the default once it is connected.
 const source = computed({
   get: () => chosenSource.value ?? (canPick.value ? 'github' : 'upload'),
@@ -121,6 +125,7 @@ const showType = computed(() => source.value === 'github' || (source.value === '
 const typeLater = computed(() => source.value === 'github' || !upload.value?.paths)
 
 const sourceReady = computed(() => {
+  if (source.value === 'ready-made') return false
   if (source.value === 'dockerfile') return !!dockerfile.value.trim() && !portError.value
   if (outputDirError(outputDir.value)) return false
   if (source.value === 'github') return !!repo.value
@@ -134,6 +139,7 @@ const sourceReady = computed(() => {
 const waitingFor = computed(() => {
   if (source.value === 'github') return canPick.value ? 'Pick a repository to continue.' : ''
   if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Write a Dockerfile to continue.'
+  if (source.value === 'ready-made') return ''
   return upload.value ? '' : 'Add your files to continue.'
 })
 
@@ -229,16 +235,15 @@ const submit = form.handleSubmit(run)
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-2xl gap-6">
+  <div class="grid gap-6">
     <RouterLink to="/" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft class="size-4" /> All apps
     </RouterLink>
     <PageHeader title="New app" description="Name it, choose where the code is, and bitploy puts it online." />
-    <CatalogStrip />
 
     <form novalidate class="grid gap-6" @submit.prevent="submit">
       <Card>
-        <CardContent class="grid gap-5">
+        <CardContent class="grid items-start gap-5 lg:grid-cols-2">
           <FormField v-slot="{ componentField }" name="name">
             <FormItem>
               <FormLabel>Name</FormLabel>
@@ -272,10 +277,11 @@ const submit = form.handleSubmit(run)
           <div class="grid gap-1">
             <Label>Where is the code?</Label>
             <Tabs v-model="source" class="min-w-0">
-              <TabsList>
+              <TabsList class="max-w-full overflow-x-auto">
                 <TabsTrigger value="github" :disabled="busy"><Github class="size-4" /> GitHub</TabsTrigger>
                 <TabsTrigger value="upload" :disabled="busy"><Upload class="size-4" /> Upload</TabsTrigger>
                 <TabsTrigger value="dockerfile" :disabled="busy"><FileCode class="size-4" /> Dockerfile</TabsTrigger>
+                <TabsTrigger value="ready-made" :disabled="busy"><LayoutGrid class="size-4" /> Ready-made</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -284,6 +290,8 @@ const submit = form.handleSubmit(run)
           <template v-if="source === 'github'">
             <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
           </template>
+
+          <CatalogPicker v-if="source === 'ready-made'" :name="form.values.name" :slug="addressEdited ? form.values.slug : undefined" />
 
           <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
 
@@ -299,7 +307,7 @@ const submit = form.handleSubmit(run)
                 @blur="checkDockerfile"
               />
               <p class="text-[0.8rem] text-muted-foreground">
-                For a ready-made image or a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, the port is the one the image declares. Files are kept only under <span class="font-mono">/data</span>, with the switch below.
+                For a published image or a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, the port is the one the image declares. Files are kept only under <span class="font-mono">/data</span>, with the switch below.
               </p>
               <ul v-if="findings.length" class="grid gap-1.5" data-testid="dockerfile-findings">
                 <li
@@ -327,7 +335,7 @@ const submit = form.handleSubmit(run)
         </CardContent>
       </Card>
 
-      <Card>
+      <Card v-if="source !== 'ready-made'">
         <CardContent>
           <div class="flex items-center justify-between gap-4">
             <div class="grid gap-1">
@@ -351,7 +359,7 @@ const submit = form.handleSubmit(run)
         </AlertDescription>
       </Alert>
 
-      <div class="flex flex-wrap items-center gap-3">
+      <div v-if="source !== 'ready-made'" class="flex flex-wrap items-center gap-3">
         <Button type="submit" :disabled="busy || !sourceReady">{{ buttonLabel }}</Button>
         <Button as-child variant="ghost" :disabled="busy"><RouterLink to="/">Cancel</RouterLink></Button>
         <p v-if="!sourceReady && !busy && waitingFor" class="text-xs text-muted-foreground">{{ waitingFor }}</p>

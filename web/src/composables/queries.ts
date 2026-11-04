@@ -34,7 +34,7 @@ export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }
 
-/** The one-click apps. They change with bitploy releases, so there is no polling. */
+/** The ready-made apps. They change with bitploy releases, so there is no polling. */
 export function useCatalog() {
   return useQuery({ queryKey: keys.catalog, queryFn: api.catalog, staleTime: 5 * 60_000, retry: false })
 }

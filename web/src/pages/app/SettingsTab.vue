@@ -297,7 +297,7 @@ function discardDockerfile() {
 }
 // A GitHub app has its own card that says where the Dockerfile lives. The
 // reason alone is shown where a Dockerfile is expected: type Dockerfile or a
-// one-click app (a static site does not need a card saying it has none).
+// ready-made app (a static site does not need a card saying it has none).
 const showDockerfile = computed(() => {
   const a = app.data.value
   const d = dockerfile.data.value
@@ -333,7 +333,7 @@ const saveDockerfile = useMutation({
   onError: (e) => toastError(e),
 })
 
-// ---------------------------------------------------------------- one-click app
+// ---------------------------------------------------------------- ready-made app
 const catalogEntry = useCatalogApp(() => app.data.value?.catalog_id ?? '')
 const catalogName = computed(() => catalogEntry.data.value?.name ?? app.data.value?.catalog_id ?? '')
 const updateOpen = ref(false)
@@ -459,7 +459,7 @@ const del = useMutation({
 
     <Card v-if="app.data.value?.catalog_id">
       <CardHeader>
-        <CardTitle>One-click app</CardTitle>
+        <CardTitle>Ready-made app</CardTitle>
         <CardDescription>
           Based on {{ catalogName }} <span class="font-mono">{{ app.data.value.catalog_version }}</span>
         </CardDescription>

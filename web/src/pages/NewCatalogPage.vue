@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -26,6 +26,7 @@ import { slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
 const router = useRouter()
+const route = useRoute()
 const qc = useQueryClient()
 const me = useMe()
 const entry = useCatalogApp(() => props.catalogId)
@@ -42,21 +43,25 @@ const form = useForm({
   initialValues: { name: '', slug: '' },
 })
 
+const editingAddress = ref(false)
+const addressEdited = ref(false)
 let filledFor = ''
 watch(
   () => entry.data.value,
   (c) => {
     if (c && filledFor !== c.id) {
       filledFor = c.id
-      form.resetForm({ values: { name: c.name, slug: slugify(c.name) } })
+      // A name typed on New app before picking this one wins over the app's own.
+      const name = typeof route.query.name === 'string' && route.query.name.trim() ? route.query.name.trim() : c.name
+      const slug = typeof route.query.slug === 'string' && route.query.slug ? route.query.slug : ''
+      if (slug) addressEdited.value = true
+      form.resetForm({ values: { name, slug: slug || slugify(name) } })
     }
   },
   { immediate: true },
 )
 
 // The address follows the name until the person edits it.
-const editingAddress = ref(false)
-const addressEdited = ref(false)
 watch(
   () => form.values.name,
   (name) => {
@@ -104,14 +109,14 @@ const submit = form.handleSubmit((v) => {
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-2xl gap-6">
-    <RouterLink :to="{ name: 'new-app' }" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+  <div class="grid gap-6">
+    <RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft class="size-4" /> New app
     </RouterLink>
 
     <Alert v-if="notFound" variant="destructive">
-      <AlertTitle>This one-click app does not exist.</AlertTitle>
-      <AlertDescription><RouterLink :to="{ name: 'new-app' }" class="underline">Back to New app</RouterLink></AlertDescription>
+      <AlertTitle>This ready-made app does not exist.</AlertTitle>
+      <AlertDescription><RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="underline">Back to New app</RouterLink></AlertDescription>
     </Alert>
     <QueryError v-else-if="entry.isError.value" :error="entry.error.value" @retry="entry.refetch()" />
     <div v-else-if="!entry.data.value" class="grid gap-4">
@@ -127,7 +132,7 @@ const submit = form.handleSubmit((v) => {
 
       <form novalidate class="grid gap-6" @submit.prevent="submit">
         <Card>
-          <CardContent class="grid gap-5">
+          <CardContent class="grid items-start gap-5 lg:grid-cols-2">
             <FormField v-slot="{ componentField }" name="name">
               <FormItem>
                 <FormLabel>Name</FormLabel>
