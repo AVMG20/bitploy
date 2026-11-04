@@ -112,6 +112,28 @@ var entries = []Entry{
 		},
 	},
 	{
+		ID:          "arnotes",
+		Name:        "Arnotes",
+		Tagline:     "Projects and notes: kanban, list and calendar views",
+		Description: "Arnotes is a project manager for a team or for yourself: tasks on a board, in a list or on a calendar, with comments, attachments and notes next to them. The database and attachments are in /data, which bitploy backs up, so Arnotes' own daily snapshots are off.",
+		Category:    "Productivity",
+		Version:     "0.1.0",
+		Website:     "https://github.com/AVMG20/arnotes",
+		Port:        3000,
+		MemoryMB:    192,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/api/ready",
+		Env: []EnvSpec{
+			{Name: "ARNOTES_BACKUP_INTERVAL_HOURS", Value: "0", Description: "Hours between Arnotes' own database snapshots in /data/backups. 0 turns them off: bitploy already backs up /data, and the snapshots would count against your storage twice."},
+		},
+		FirstSteps: []string{
+			"Open {url} and create the first account right away: it becomes the instance admin. Anyone who reaches the address can sign up until you turn sign-ups off.",
+			"Then turn sign-ups off: add the environment variable ARNOTES_ALLOW_SIGNUP with the value 0 and restart the app. People you invite can still join through their invite link.",
+			"For an off-site copy of the database, set the ARNOTES_BACKUP_S3_* variables and ARNOTES_BACKUP_INTERVAL_HOURS (for example 24); see DEPLOY.md in the Arnotes repository.",
+		},
+	},
+	{
 		ID:          "pocketbase",
 		Name:        "PocketBase",
 		Tagline:     "A small backend with a database, login and file storage",

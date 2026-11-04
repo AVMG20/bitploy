@@ -39,7 +39,7 @@ make build              # one binary in bin/bitploy with the dashboard embedded
 
 ## One-click apps and pre-built images
 
-bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime Kuma, Memos, PocketBase, Actual Budget and IT-Tools. Each one is a Dockerfile with a pinned version that keeps its data in `/data`. Pick one under **New app** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
+bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime Kuma, Memos, Arnotes, PocketBase, Actual Budget and IT-Tools. Each one is a Dockerfile with a pinned version that keeps its data in `/data`. Pick one under **New app** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
 
 Any other published image works too: deploy a Dockerfile that is only `FROM <image>:<tag>` with a pinned tag. `EXPOSE` is optional; when it is missing and the app has no port setting, bitploy reads the port from the built image (and asks you to set the port if the image declares none, several, or a reserved one). Keep the image's data under `/data`. The Dockerfile of an app deployed from files or a zip can be read and replaced with `GET` and `PUT /api/v1/apps/{app}/dockerfile`.
 
