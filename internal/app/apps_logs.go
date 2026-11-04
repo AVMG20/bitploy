@@ -244,12 +244,20 @@ func serviceNoContainerErr(service string) *apperr.Error {
 // service name for an app with several services and "" otherwise, so the
 // lines of a single-service app look as they always did.
 func (s *Service) runtimeContainer(ctx context.Context, row db.App, service string) (name, svc string, err error) {
+	if s.Docker == nil {
+		if _, _, err := s.pickService(ctx, row, service); err != nil {
+			return "", "", err
+		}
+		return "", "", apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
+	}
+	return s.logContainer(ctx, row, service)
+}
+
+// logContainer is runtimeContainer without asking Docker.
+func (s *Service) logContainer(ctx context.Context, row db.App, service string) (name, svc string, err error) {
 	sp, specs, err := s.pickService(ctx, row, service)
 	if err != nil {
 		return "", "", err
-	}
-	if s.Docker == nil {
-		return "", "", apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
 	}
 	if !row.CurrentDeploymentID.Valid {
 		return "", "", noContainerErr()

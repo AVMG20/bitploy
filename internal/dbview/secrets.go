@@ -28,18 +28,19 @@ import (
 // A secret whose name does not look like one (uploads.id) is listed in
 // controlSecrets all the same; the test cannot find those, review must.
 var controlSecrets = map[string][]string{
-	"users":            {"password_hash"},                                              // argon2 hash of the password
-	"sessions":         {"id_hash", "csrf_token"},                                      // the session cookie (hashed) and its CSRF secret
-	"api_tokens":       {"hash"},                                                       // hash of an API token
-	"invites":          {"code_hash"},                                                  // hash of the invite link code
-	"env_vars":         {"value_enc"},                                                  // the app's secrets, encrypted
-	"uploads":          {"id"},                                                         // the id IS the credential of /u/{id}
-	"github_app":       {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted
-	"apps":             {"protect_hash"},                                               // hash of the password of a protected app
-	"domains":          {"txt_token"},                                                  // DNS ownership token, derived from the server secret
-	"app_domains":      {"key_enc"},                                                    // private key of an app domain's certificate, encrypted
-	"idempotency_keys": {"key", "body"},                                                // a client's key, and the stored answer (may hold a token)
-	"sqlite_stat4":     {"sample"},                                                     // ANALYZE keeps samples of indexed values (hashes) here
+	"users":               {"password_hash"},                                              // argon2 hash of the password
+	"sessions":            {"id_hash", "csrf_token"},                                      // the session cookie (hashed) and its CSRF secret
+	"api_tokens":          {"hash"},                                                       // hash of an API token
+	"invites":             {"code_hash"},                                                  // hash of the invite link code
+	"env_vars":            {"value_enc"},                                                  // the app's secrets, encrypted
+	"uploads":             {"id"},                                                         // the id IS the credential of /u/{id}
+	"github_app":          {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted
+	"apps":                {"protect_hash"},                                               // hash of the password of a protected app
+	"domains":             {"txt_token"},                                                  // DNS ownership token, derived from the server secret
+	"app_domains":         {"key_enc"},                                                    // private key of an app domain's certificate, encrypted
+	"idempotency_keys":    {"key", "body"},                                                // a client's key, and the stored answer (may hold a token)
+	"sqlite_stat4":        {"sample"},                                                     // ANALYZE keeps samples of indexed values (hashes) here
+	"deployment_services": {"config_hash"},                                                // sha256 over a container's settings, its env vars (secrets) included
 }
 
 // controlSafe: names that look secret and are not.
