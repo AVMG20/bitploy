@@ -65,6 +65,7 @@ type App struct {
 	CatalogVersion      string
 	BaseDomain          string
 	ServiceLayout       string
+	ComposePath         string
 }
 
 type AppBackup struct {
@@ -117,6 +118,8 @@ type AppService struct {
 	Position       int64
 	CreatedAt      int64
 	UpdatedAt      int64
+	RunUser        string
+	WorkingDir     string
 }
 
 type AppVolume struct {
@@ -174,6 +177,7 @@ type Deployment struct {
 	FinishedAt      sql.NullInt64
 	BuildKind       string
 	CatalogVersion  string
+	ServicesSpec    string
 }
 
 type DeploymentService struct {

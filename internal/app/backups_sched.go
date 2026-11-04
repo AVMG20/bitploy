@@ -135,6 +135,8 @@ func (s *Service) pruneLocked(ctx context.Context, app db.App) {
 		app = fresh
 	}
 	now := s.Now()
+	// Retention counts per kind and per volume: an app with several volumes
+	// keeps that many backups of each.
 	kinds := map[string][]retainable{}
 	for _, r := range rows {
 		switch {
@@ -143,7 +145,8 @@ func (s *Service) pruneLocked(ctx context.Context, app db.App) {
 				s.dropBackup(ctx, app, r.ID)
 			}
 		case r.Status == backupReady && (r.Kind == BackupScheduled || r.Kind == BackupBeforeRestore):
-			kinds[r.Kind] = append(kinds[r.Kind], retainable{ID: r.ID, CreatedAt: r.CreatedAt})
+			key := r.Kind + "/" + r.Volume
+			kinds[key] = append(kinds[key], retainable{ID: r.ID, CreatedAt: r.CreatedAt})
 		}
 	}
 	for _, items := range kinds {
@@ -226,11 +229,12 @@ func (s *Service) backupSem() chan struct{} {
 	return s.backup.sem
 }
 
-// runScheduledBackup makes one automatic backup; the caller holds the backup
-// lock. A backup that cannot be made is recorded as failed, with the reason, so
-// the user can see it; that also counts as this period's attempt, unless it was
-// cut short (bitploy stopped, or a deployment was in the way): those are tried
-// again at the next check.
+// runScheduledBackup makes the automatic backups of one app, one per volume
+// a service mounts; the caller holds the backup lock. A backup that cannot be
+// made is recorded as failed, with the reason, so the user can see it; that
+// also counts as this period's attempt, unless it was cut short (bitploy
+// stopped, or a deployment was in the way): those are tried again at the next
+// check.
 func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.User) {
 	// What the loop read may be minutes old.
 	fresh, err := s.Q.GetApp(ctx, app.ID)
@@ -238,14 +242,33 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.U
 		return
 	}
 	app = fresh
-	// Automatic backups hold the app's first volume.
-	vol, ok, verr := s.pickVolume(ctx, app, "")
-	if verr != nil || !ok {
-		return
-	}
-	b, err := s.insertBackup(ctx, app.ID, BackupScheduled, vol.Name)
+	_, vols, err := s.appSpecs(ctx, app)
 	if err != nil {
 		return
+	}
+	done := false
+	for _, vol := range vols {
+		if ctx.Err() != nil {
+			return
+		}
+		if vol.Service == "" {
+			continue // kept from an earlier compose file, nothing writes to it
+		}
+		if s.scheduledBackupOf(ctx, app, owner, vol.Name) {
+			done = true
+		}
+	}
+	if done {
+		s.pruneLocked(ctx, app)
+	}
+}
+
+// scheduledBackupOf makes the automatic backup of one volume and reports
+// whether it was made.
+func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.User, volume string) bool {
+	b, err := s.insertBackup(ctx, app.ID, BackupScheduled, volume)
+	if err != nil {
+		return false
 	}
 	fail := func(msg string) {
 		_ = s.Q.FinishBackup(context.WithoutCancel(ctx), db.FinishBackupParams{
@@ -255,26 +278,26 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.U
 	}
 	if err := s.checkBackupDisk(); err != nil {
 		fail("The server is almost out of disk space.")
-		return
+		return false
 	}
 	room, err := s.backupRoom(ctx, owner)
 	if err != nil {
 		fail("Something went wrong on the server.")
-		return
+		return false
 	}
 	if room == 0 {
 		fail("Skipped: there is no storage left for a backup. Delete an old backup or lower the /data limit of an app.")
-		return
+		return false
 	}
 	if err := s.finishBackup(ctx, app, owner, b.ID, room, false); err != nil {
 		if errors.Is(err, dockerx.ErrNoVolume) || errors.Is(err, errDeployBusy) {
 			_ = s.Q.DeleteBackup(context.WithoutCancel(ctx), b.ID) // not started: nothing to report, tried again at the next check
-			return
+			return false
 		}
-		s.Log.Warn("automatic backup failed", "app", app.Slug, "err", err)
-		return
+		s.Log.Warn("automatic backup failed", "app", app.Slug, "volume", volume, "err", err)
+		return false
 	}
-	s.pruneLocked(ctx, app)
+	return true
 }
 
 // runBackups is the background loop of automatic backups. It also repairs what

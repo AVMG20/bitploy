@@ -2,6 +2,9 @@ package dockerx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"sort"
 	"time"
 
@@ -16,6 +19,10 @@ type BuiltImage struct {
 	SizeBytes   int64
 	Healthcheck *container.HealthConfig // nil when the image defines none (or NONE)
 	ExposedTCP  []int                   // TCP ports the image config declares (EXPOSE), sorted
+	// Fingerprint sums up the image's layers and its config without labels.
+	// Two builds of the same source get different IDs (bitploy labels each
+	// image with its deployment) but the same fingerprint.
+	Fingerprint string
 }
 
 // InspectImage returns size and HEALTHCHECK config, or an error satisfying IsNotFound.
@@ -25,6 +32,20 @@ func (c *Client) InspectImage(ctx context.Context, ref string) (BuiltImage, erro
 		return BuiltImage{}, err
 	}
 	info := BuiltImage{ID: res.ID, SizeBytes: res.Size}
+	{
+		var cfg any
+		if res.Config != nil {
+			c := *res.Config
+			c.Labels = nil
+			cfg = c
+		}
+		b, _ := json.Marshal(struct {
+			Layers []string
+			Config any
+		}{res.RootFS.Layers, cfg})
+		sum := sha256.Sum256(b)
+		info.Fingerprint = hex.EncodeToString(sum[:])
+	}
 	if res.Config != nil {
 		for raw := range res.Config.ExposedPorts { // "8080/tcp"
 			if p, err := network.ParsePort(raw); err == nil && p.Proto() == network.TCP {

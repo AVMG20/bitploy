@@ -36,7 +36,7 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 	}
 	out := make([]EnvVar, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, EnvVar{Name: r.Name, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)})
+		out = append(out, EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)})
 	}
 	return out, nil
 }
@@ -46,11 +46,29 @@ func reservedEnvName(n string) bool {
 	return u == "PORT" || strings.HasPrefix(u, "BITPLOY_")
 }
 
-// SetEnv sets and unsets env vars; they apply on the next deploy or restart.
+// SetEnv sets and unsets the app's shared env vars; they apply on the next
+// deploy or restart.
 func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[string]string, unset []string) ([]EnvVar, error) {
+	return s.SetServiceEnv(ctx, a, ref, "", set, unset)
+}
+
+// SetServiceEnv sets and unsets env vars of one service of an app with
+// several services ("" for the variables every service gets). A service's
+// own variable wins over a shared one of the same name. A single-service app
+// accepts its own service name (app) and stores shared variables.
+func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service string, set map[string]string, unset []string) ([]EnvVar, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, err
+	}
+	service = strings.TrimSpace(service)
+	if service != "" {
+		if _, _, err := s.pickService(ctx, row, service); err != nil {
+			return nil, err
+		}
+		if !isMulti(row) {
+			service = ""
+		}
 	}
 	for n, v := range set {
 		if !envNameRe.MatchString(n) {
@@ -76,13 +94,13 @@ func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[strin
 	}
 	names := map[string]bool{}
 	for _, e := range existing {
-		names[e.Name] = true
+		names[e.Service+"/"+e.Name] = true
 	}
 	for n := range set {
-		names[n] = true
+		names[service+"/"+n] = true
 	}
 	for _, n := range unset {
-		delete(names, n)
+		delete(names, service+"/"+n)
 	}
 	if len(names) > maxEnvVars {
 		return nil, apperr.BadRequest("env_too_many", "An app can have at most 100 environment variables.", "Remove variables you do not need with unset.")
@@ -92,13 +110,13 @@ func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[strin
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
 		for n, v := range set {
 			if err := q.UpsertEnvVar(ctx, db.UpsertEnvVarParams{
-				AppID: row.ID, Name: n, ValueEnc: s.Crypto.Seal([]byte(v), envAAD(row.ID, n)), UpdatedAt: now,
+				AppID: row.ID, Service: service, Name: n, ValueEnc: s.Crypto.Seal([]byte(v), envAADFor(row.ID, service, n)), UpdatedAt: now,
 			}); err != nil {
 				return err
 			}
 		}
 		for _, n := range unset {
-			if err := q.DeleteEnvVar(ctx, db.DeleteEnvVarParams{AppID: row.ID, Name: n}); err != nil {
+			if err := q.DeleteEnvVar(ctx, db.DeleteEnvVarParams{AppID: row.ID, Service: service, Name: n}); err != nil {
 				return err
 			}
 		}
@@ -112,6 +130,10 @@ func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[strin
 		setNames = append(setNames, n)
 	}
 	sort.Strings(setNames)
-	s.Audit(ctx, a, "env.set", "app", row.ID, map[string]any{"set": setNames, "unset": unset})
+	meta := map[string]any{"set": setNames, "unset": unset}
+	if service != "" {
+		meta["service"] = service
+	}
+	s.Audit(ctx, a, "env.set", "app", row.ID, meta)
 	return s.listEnv(ctx, row.ID)
 }

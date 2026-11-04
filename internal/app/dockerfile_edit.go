@@ -175,7 +175,7 @@ func (s *Service) deployWithDockerfile(ctx context.Context, a Actor, row db.App,
 		return Deployment{}, apperr.As(err)
 	}
 	// The copy is a files source: laid out without the top folder.
-	res, err := s.checkZipSource(row, tmp, false)
+	res, err := s.checkZipSource(ctx, row, tmp, false)
 	if err != nil {
 		return Deployment{}, err
 	}

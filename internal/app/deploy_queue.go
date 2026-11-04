@@ -71,15 +71,10 @@ func (s *Service) deployFiles(ctx context.Context, a Actor, ref string, files []
 		byPath[f.Path] = f.Data
 		paths[i] = f.Path
 	}
-	// The build mode decides between the app's Dockerfile and a static site.
-	effApp, plan, allPaths, read, perr := planBuild(row, paths, func(p string) []byte { return byPath[p] })
-	if perr != nil {
-		return Deployment{}, perr
-	}
-	res, ctxFiles := s.runChecks(effApp, allPaths, read)
-	res = templateFindings(plan, res)
-	if cerr := checkError(res, ctxFiles); cerr != nil {
-		return Deployment{}, cerr
+	// The compose file, or the build mode (the app's Dockerfile or a static site).
+	res, ae := s.checkSource(ctx, row, paths, func(p string) []byte { return byPath[path.Clean(p)] })
+	if ae != nil {
+		return Deployment{}, ae
 	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind:           "files",
@@ -488,6 +483,11 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 			if err != nil {
 				return Deployment{}, apperr.Internal(err)
 			}
+			if target.ServicesSpec == "" && !coversServices(ctx, s, row, svcs) {
+				return Deployment{}, apperr.Conflict("rollback_unavailable",
+					"Deployment "+quote(deploymentID)+" ran before the app had its current services, so bitploy cannot go back to it.",
+					"An app with several services cannot go back to one service. Pick a deployment of the compose file from list_deployments, or create a new app for the single-service version.").WithNext("list_deployments")
+			}
 			for _, sv := range svcs {
 				if !sv.Image.Valid {
 					continue
@@ -503,8 +503,27 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
 		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: target.Warnings, buildKind: target.BuildKind,
-		catalogVersion: target.CatalogVersion,
+		catalogVersion: target.CatalogVersion, servicesSpec: target.ServicesSpec,
 	})
+}
+
+// coversServices reports whether a deployment without a services spec has
+// an image for every service the app has now.
+func coversServices(ctx context.Context, s *Service, app db.App, rows []db.DeploymentService) bool {
+	specs, _, err := s.appSpecs(ctx, app)
+	if err != nil {
+		return false
+	}
+	have := map[string]bool{}
+	for _, r := range rows {
+		have[r.Service] = r.Image.Valid && r.Image.String != ""
+	}
+	for _, sp := range specs {
+		if !have[sp.Name] {
+			return false
+		}
+	}
+	return true
 }
 
 // ---- queueing ----
@@ -528,6 +547,9 @@ type queueSpec struct {
 	// commitSHA and commitMessage are known when a push started the deployment;
 	// the clone overwrites them with the commit it really built.
 	commitSHA, commitMessage string
+	// servicesSpec: a rollback to a compose deployment restores its services
+	// and volumes (deployments.services_spec).
+	servicesSpec string
 }
 
 func portOf(p int) sql.NullInt64 {
@@ -549,9 +571,6 @@ func (s *Service) checkDiskRoom() error {
 }
 
 func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs queueSpec) (Deployment, error) {
-	if isMulti(app) && qs.kind != "rollback" {
-		return Deployment{}, servicesNotBuildable(app)
-	}
 	if err := s.checkDiskRoom(); err != nil {
 		return Deployment{}, err
 	}
@@ -627,6 +646,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 			}
 		} else if err := q.SyncSingleDeploymentService(ctx, depID); err != nil {
 			return err
+		}
+		if qs.servicesSpec != "" {
+			if err := q.SetDeploymentServicesSpec(ctx, db.SetDeploymentServicesSpecParams{ServicesSpec: qs.servicesSpec, ID: depID}); err != nil {
+				return err
+			}
 		}
 		if qs.catalogVersion != "" {
 			if err := q.SetDeploymentCatalogVersion(ctx, db.SetDeploymentCatalogVersionParams{CatalogVersion: qs.catalogVersion, ID: depID}); err != nil {
@@ -926,7 +950,7 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 	}
 	// The same early checks as deploy_files (build mode, Dockerfile), so a
 	// source that cannot build is refused here and not by a failed deployment.
-	if err := s.checkUploadedSource(row, s.uploadPath(up.ID)); err != nil {
+	if err := s.checkUploadedSource(ctx, row, s.uploadPath(up.ID)); err != nil {
 		drop()
 		return Deployment{}, err
 	}
@@ -940,30 +964,52 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 // checkUploadedSource runs planBuild and the Dockerfile checks on a stored zip
 // without extracting it: the file list as the pipeline will see it, and the
 // content of the few small files the checks read.
-func (s *Service) checkUploadedSource(row db.App, zipPath string) error {
-	_, err := s.checkZipSource(row, zipPath, true)
+func (s *Service) checkUploadedSource(ctx context.Context, row db.App, zipPath string) error {
+	_, err := s.checkZipSource(ctx, row, zipPath, true)
 	return err
 }
 
 // checkZipSource is checkUploadedSource for any stored zip (strip: remove a
 // single top folder, as for uploads). It returns the check result as well.
-func (s *Service) checkZipSource(row db.App, zipPath string, strip bool) (deploy.CheckResult, error) {
+func (s *Service) checkZipSource(ctx context.Context, row db.App, zipPath string, strip bool) (deploy.CheckResult, error) {
 	ctxDir := path.Clean(row.ContextDir)
 	wanted := map[string]bool{path.Clean(row.DockerfilePath): true, "package.json": true, ".dockerignore": true, path.Join(ctxDir, ".dockerignore"): true}
 	for _, n := range deploy.NextConfigNames {
 		wanted[n] = true
 	}
-	files, contents, err := deploy.ZipSource(zipPath, strip, func(rel string) bool { return wanted[rel] }, 1<<20)
+	if row.ComposePath != "" {
+		wanted[path.Clean(row.ComposePath)] = true
+	}
+	files, contents, err := deploy.ZipSource(zipPath, strip, func(rel string) bool { return wanted[rel] || deploy.IsComposeFileName(rel) }, 1<<20)
 	if err != nil {
 		return deploy.CheckResult{}, err
 	}
-	effApp, plan, all, read, perr := planBuild(row, files, func(rel string) []byte { return contents[path.Clean(rel)] })
-	if perr != nil {
-		return deploy.CheckResult{}, perr
+	// A compose file reads more files (each service's Dockerfile, env_file):
+	// those are fetched from the zip when asked for.
+	has := make(map[string]bool, len(files))
+	for _, f := range files {
+		has[f] = true
 	}
-	res, ctxFiles := s.runChecks(effApp, all, read)
-	res = templateFindings(plan, res)
-	return res, checkError(res, ctxFiles)
+	read := func(rel string) []byte {
+		rel = path.Clean(rel)
+		if b, ok := contents[rel]; ok {
+			return b
+		}
+		if !has[rel] {
+			return nil
+		}
+		_, more, err := deploy.ZipSource(zipPath, strip, func(r string) bool { return r == rel }, 1<<20)
+		if err != nil {
+			return nil
+		}
+		contents[rel] = more[rel]
+		return more[rel]
+	}
+	res, ae := s.checkSource(ctx, row, files, read)
+	if ae != nil {
+		return res, ae
+	}
+	return res, nil
 }
 
 // ---- cancel ----

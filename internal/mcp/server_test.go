@@ -176,7 +176,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	for _, tl := range tools.Tools {
 		got[tl.Name] = tl
 	}
-	wantTools := strings.Fields(`whoami get_deploy_rules get_template validate_dockerfile list_apps get_app create_app update_app
+	wantTools := strings.Fields(`whoami get_deploy_rules get_template validate_dockerfile validate_compose list_apps get_app create_app update_app
 		deploy_files list_catalog deploy_catalog_app create_upload set_git_source deploy get_deployment list_deployments get_logs set_env
 		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics create_backup list_backups set_password_protection query_db cancel_deployment`)
 	for _, n := range wantTools {
@@ -187,7 +187,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	if len(got) != len(wantTools) {
 		t.Errorf("got %d tools, want %d", len(got), len(wantTools))
 	}
-	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups")
+	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile validate_compose list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups")
 	for _, n := range readOnly {
 		if a := got[n].Annotations; a == nil || !a.ReadOnlyHint {
 			t.Errorf("%s should be readOnly", n)

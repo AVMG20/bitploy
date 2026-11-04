@@ -39,6 +39,8 @@ type rollbackRequest struct {
 type envRequest struct {
 	Set   map[string]string `json:"set,omitempty" doc:"Variables to set. Values are encrypted and never returned."`
 	Unset []string          `json:"unset,omitempty" doc:"Variable names to remove"`
+	// Service limits the change to one service of an app with several services.
+	Service string `json:"service,omitempty" doc:"For an app with several services: set or unset the variables of this service only (they win over shared ones of the same name). Leave it out for variables every service gets."`
 }
 
 type domainRequest struct {
@@ -69,6 +71,19 @@ func (a *API) appRoutes() {
 		Summary: "Validate a Dockerfile", Description: "Static checks, no build. Read scope is enough.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body validateRequest }) (*Out[app.ValidateResult], error) {
 		return okOrNil(a.svc.ValidateDockerfile(ctx, act, in.Body.Dockerfile, in.Body.FileList, in.Body.Port))
+	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "validateCompose", Method: http.MethodPost, Path: "/compose/validate", Tags: []string{"Templates"},
+		Summary: "Check a compose file",
+		Description: "Reads a compose file the way a deploy would, without building or starting anything, and returns what would run: " +
+			"each service (built from the project or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, " +
+			"the totals and how they fit the quota (`quota.message`, like: This needs 1.2 GB of memory of the 1.5 GB you have left). " +
+			"A file with problems still answers 200: `ok` is false and `errors` lists them, each with a stable `code`, the `service` and compose `key` at fault, " +
+			"and a `hint`. Only a body that is not JSON, or a compose text over 256 KB, is a 4xx. " +
+			"Pass `app` to fill in ${VAR} from that app's variables and to leave its own use out of the quota. " +
+			"The Dockerfiles of build services are checked at deploy time, when the project's files are there. Read scope is enough.",
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.ValidateComposeInput }) (*Out[app.ComposePreview], error) {
+		return okOrNil(a.svc.ValidateCompose(ctx, act, in.Body))
 	})
 
 	// ---- apps ----
@@ -309,7 +324,7 @@ func (a *API) appRoutes() {
 		AppRef
 		Body envRequest
 	}) (*Out[app.Page[app.EnvVar]], error) {
-		items, err := a.svc.SetEnv(ctx, act, in.App, in.Body.Set, in.Body.Unset)
+		items, err := a.svc.SetServiceEnv(ctx, act, in.App, in.Body.Service, in.Body.Set, in.Body.Unset)
 		return pageOut(items, err, PageParams{Limit: 100})
 	})
 

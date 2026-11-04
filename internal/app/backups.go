@@ -276,6 +276,18 @@ func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupL
 		out.TotalBytes += r.SizeBytes
 	}
 	out.UploadMaxBytes, _ = s.uploadLimit(ctx, row, owner)
+	out.Volumes = []BackupVolume{}
+	if _, vols, err := s.appSpecs(ctx, row); err == nil {
+		for i, v := range vols {
+			r := row
+			r.VolumeMb = v.SizeMB
+			limit, _ := s.uploadLimit(ctx, r, owner)
+			if i == 0 {
+				out.UploadMaxBytes = limit
+			}
+			out.Volumes = append(out.Volumes, BackupVolume{Name: v.Name, Service: v.Service, MountPath: v.MountPath, SizeMB: v.SizeMB, UploadMaxBytes: limit})
+		}
+	}
 	s.backup.mu.Lock()
 	if r := s.backup.restore[row.ID]; r != nil {
 		c := *r

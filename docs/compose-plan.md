@@ -146,16 +146,122 @@ What was built differs from the plan above in these points:
   tables are the source of truth and the apps row holds the sums
   (`SetMultiAppTotals`: memory, CPU, volume size), so quotas and usage need no
   change. Phase 2 writes `multi` rows from a compose file.
-- **Only rollbacks deploy a `multi` app** in phase 1 (they copy the target's
-  `deployment_services`); any other deploy answers `services_not_buildable`.
-  Building several services from one source is phase 2 (`planRuns` is the seam).
+- **Only rollbacks deployed a `multi` app** in phase 1 (they copy the target's
+  `deployment_services`). Phase 2 builds them from the compose file;
+  `services_not_buildable` is gone.
 - **App-wide settings** (type, port, health_path, build settings, volume,
   volume_mb, memory_mb, cpu_millis) are refused for a `multi` app with
   `set_per_service`.
 - **Defaults when `service`/`volume` is left out:** logs follow the public
   service (else the first), metrics are the sum, restart restarts every service,
-  files and backups use the first volume. Scheduled backups cover the first
-  volume only; the SQLite viewer reads the first volume.
+  files and backups use the first volume. (Phase 2: scheduled backups cover
+  every volume and the SQLite viewer takes a volume.)
 - Env var precedence: compose `environment` < shared vars (service `''`) <
   vars of the service < `PORT`/`BITPLOY_*`. Service vars are sealed with the
   service in the associated data.
+
+## Phase 2 (built): compose files
+
+What shipped, and where it differs from the plan above:
+
+- **Parsing** (`internal/deploy/compose.go`): compose-go v2 in two passes.
+  `${VAR}` is filled from the app's shared variables; a variable whose value is
+  only known at start (a secret) is carried as a marker and expanded when the
+  container starts, so secrets never land in the stored spec. At most 6
+  services. Every issue is `{code, service, key, message, hint}`.
+- **When a deployment runs the compose file** (`chooseCompose`):
+  - build mode `compose`, or an app that is already `multi`: always; a source
+    without the file fails with `compose_file_missing`.
+  - build mode `auto` and nothing ever went live: a file with two or more
+    services, or one service that cannot be held by the app's own settings
+    (an image, build args or target, command, entrypoint, user, working_dir,
+    healthcheck, or a volume elsewhere than /data). One plain build service is
+    built like a Dockerfile app: its context, Dockerfile, port, health path,
+    environment (stored as app variables if not set yet) and /data volume are
+    copied into the app's settings, build mode stays `auto`. Problems in a
+    one-service file leave the file out; with several services they are errors
+    whose hint names `update_app(build_mode="dockerfile")`.
+  - anything else (build mode `dockerfile`, which `create_app` makes by
+    default, or an app that already went live): never. The Dockerfile checks
+    warn `compose_ignored` and the hint names `update_app(build_mode="compose")`.
+- **Single to multi** is explicit (`update_app build_mode=compose`) and one
+  way (`set_per_service` refuses going back). The app's /data volume keeps its
+  Docker volume and files: it becomes the file's volume mounted at /data (the
+  public service's first), else it is mounted at /data of the public service
+  (`data_volume_kept`, info), else it is kept unmounted (`data_volume_unmounted`,
+  warning). The old single container stops before the service that inherits
+  the volume starts. Build mode `auto` is stored as `compose` at the swap.
+- **Builds**: build services one at a time on the isolated builder, each with
+  its own build timeout and the 2 GB image limit, errors prefixed
+  `Service <name>: ` with `detail.service`. Image services are pulled through a
+  one-line `FROM <ref>` build on the same builder (so the pull is isolated and
+  `base_image_forbidden` rules apply); a failed pull is `image_pull_failed`. An
+  image service whose reference did not change reuses the live image. The
+  deployment log has one section per service: `[i/n] Service web: building
+  web/Dockerfile`, `[i/n] Service db: pulling postgres:16-alpine`,
+  `... is already on the server`.
+- **Start**: `depends_on` order; `condition: service_healthy` waits for the
+  dependency's healthcheck. A service whose config hash (image fingerprint:
+  layers and config without labels, plus every runtime setting) is unchanged
+  keeps its container. The public service gets the health check
+  (`x-bitploy.health_path`, its `healthcheck:`, or GET /). On failure the
+  previous containers are restored; on success the route swaps to the new
+  public container. Rollbacks rebuild the run plan from
+  `deployments.services_spec` (the stored spec), so the compose file is not
+  re-read.
+- **Quota** is checked before anything is built: the summed memory, CPU and
+  volume sizes against the account's allowance, the app's own use left out.
+- **Variables**: `set_env` / `PUT /apps/{app}/env` take an optional `service`;
+  shared variables (service empty) go to every service and fill `${VAR}`.
+- **Backups**: the schedule backs up every attached volume (retention is per
+  volume); `GET /apps/{app}/backups` lists `volumes: [{name, service,
+  mount_path, size_mb, upload_max_bytes}]`.
+- **SQLite viewer**: every database endpoint and `query_db` take `volume`
+  (default: the first volume); paths are relative to that volume.
+
+### API
+
+`POST /api/v1/compose/validate` (read scope). Body
+`{compose: string, app?: string}`; `app` fills `${VAR}` from that app's
+variables and leaves its own use out of the quota. A file with problems answers
+**200** with `ok: false`; only a body that is not JSON, a compose text over
+256 KB, or an unknown app is an error.
+
+```json
+{
+  "ok": true,
+  "services": [{"name": "web", "kind": "build", "image": "", "build": {"context": "web", "dockerfile": "web/Dockerfile", "target": ""},
+                "public": true, "port": 3000, "health_path": "/", "memory_mb": 512, "cpu_millis": 250,
+                "depends_on": ["db"], "volumes": []}],
+  "volumes": [{"name": "pgdata", "service": "db", "mount_path": "/var/lib/postgresql/data", "size_mb": 5120}],
+  "memory_mb_total": 768, "cpu_millis_total": 500, "volume_mb_total": 5120,
+  "quota": {"memory_mb_left": 1536, "cpu_millis_left": 1500, "storage_mb_left": 20480, "fits": true,
+            "message": "This needs 768 MB of memory of the 1.5 GB you have left."},
+  "warnings": [{"code": "compose_key_ignored", "service": "web", "key": "restart", "message": "...", "hint": ""}],
+  "errors": []
+}
+```
+
+`POST /apps` and `PATCH /apps/{app}` take `build_mode: "compose"` and
+`compose_path`. `PUT /apps/{app}/env` takes `service`; `GET /apps/{app}/env`
+returns `service` per variable. Database endpoints take `volume` (query or body).
+
+### MCP
+
+- `validate_compose {compose, app?}` (read-only): the preview above; the
+  summary names the first error as `<code> in service <s> at <key>: <message>`.
+- `create_app` and `update_app`: `build_mode` (`dockerfile` | `compose`) and
+  `compose_path`.
+- `set_env`: optional `service`. `query_db`: optional `volume`.
+- The server instructions (rule 8) and the runtime contract ("Compose apps",
+  "Compose checks") keep one Dockerfile with SQLite in /data the default and
+  tell the AI never to write a compose file just to deploy.
+
+### Known gaps
+
+- Volumes kept detached (no longer in the file, rows with no service) are not
+  counted in the compose quota check, only in storage measurement.
+- Pulling through a `FROM` build exports and loads the image; reusing an
+  unchanged image service avoids it on later deploys.
+- A failed compose deployment of a single app can leave `deployment_services`
+  rows for that deployment (harmless: the deployment is failed).

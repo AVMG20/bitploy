@@ -38,13 +38,24 @@ const RuntimeContract = `## Runtime contract
 
 ## Databases
 
-- No database server runs next to the app. Use SQLite with the file in /data (for example /data/app.db) and the volume on.
-- The project expects Postgres or MySQL (docker-compose.yml, DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL, use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
+- The default and simplest: SQLite with the file in /data (for example /data/app.db) and the volume on, inside the app's one container.
+- The project expects Postgres or MySQL (DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL: when the project already has a compose file with that database, deploy it as a compose app (see Compose apps); otherwise use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
 - Never install a database server (postgres, mysql, mariadb, redis) in the image or run several processes in one container.
 - To look at the data or fix a row, call query_db(app, path, sql): path is the SQLite file relative to /data (like app.db). It is read-only unless write=true (deploy token); take create_backup before a risky change and only write when the user asked. Start with SELECT name, sql FROM sqlite_schema. The user can also browse, edit and query the database in the dashboard (Storage tab, Open next to the file).
 - Run migrations when the app starts, in CMD: for example sh -c "npx prisma migrate deploy && node server.js", php artisan migrate --force, python manage.py migrate.
 - SQLite is safe here: with a volume a deploy stops the old container before the new one starts (never two writers), and create_backup freezes the app while it copies, so backups are consistent.
 - Need Redis for cache or queues? Laravel: CACHE_STORE=file and QUEUE_CONNECTION=sync (the laravel template sets both: there is no separate queue worker). Elsewhere an in-process cache or a SQLite-backed queue.
+
+## Compose apps (several services)
+
+- Only for a project that already has a compose file (compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml) whose services it needs, such as a web app next to Postgres or Redis. Never write a compose file just to deploy, and never add one to a project that works as one Dockerfile.
+- First call validate_compose with the file's text: it lists the services, volumes, totals and the quota, and every error with code, service, key and hint. Fix every error and read every warning.
+- Then create_app build_mode=compose (compose_path when the file has another name or folder), set_env for each ${VAR} the file reads (bitploy does not read .env files; pass service= for a variable of one service only), and send the project with the compose file and every Dockerfile it builds (git, deploy_files or create_upload). A file with only image: services can be sent alone with deploy_files.
+- An app made with create_app (build_mode dockerfile) never runs a compose file by itself: a deploy builds the Dockerfile and warns compose_ignored when the project's compose file has several services. Only build_mode auto (chosen in the dashboard) picks such a file on the app's first deploy, and never switches later. Ask the user before update_app build_mode=compose. That switch keeps the app's /data (it moves to the volume mounted at /data, preferably in the public service) and cannot be undone.
+- One service is public: the one with x-bitploy.public: true, else the one with ports (a built service wins over images), else the one with expose; none: every service is a worker. It gets the address and the health check (x-bitploy.health_path, else /, or its healthcheck:). The others are reached by service name on the app's own network (DATABASE_URL=postgres://db:5432/...); their ports are never published.
+- Build services are built one at a time; image: services are pulled (pin a tag, like postgres:16-alpine). Services start in depends_on order (condition: service_healthy waits for the healthcheck). A service whose image and settings did not change keeps running. A failed deploy restores the old containers.
+- Limits: at most 6 services. Memory per service from deploy.resources.limits.memory (default 256 MB, 512 MB for a public build service), CPU from deploy.resources.limits.cpus (default 0.25); the sum must fit the quota. Named volumes become storage (x-bitploy.size_mb, default 5 GB each); bind mounts of host folders, privileged, cap_add, devices, network_mode, pid and the Docker socket are refused (compose_forbidden). Each volume is backed up on the backup schedule; query_db takes volume= for a SQLite file outside the first volume.
+- Settings of a compose app (port, memory, CPU, volumes, health path) come from the file: change it and deploy again; update_app refuses them (set_per_service).
 
 ## Limits
 
@@ -105,6 +116,11 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 ## Dockerfile checks (validate_dockerfile)
 
 Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_ambiguous (also port_unknown for an EXPOSE that cannot be read), port_reserved, base_image_forbidden, cache_mount_forbidden (RUN --mount=type=cache is not supported: the build server is shared by all apps), image_too_large.
-Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (docker-compose.yml is not run: only the Dockerfile is built), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck, port_from_image (no EXPOSE: the port comes from the image).
+Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (the project has a compose file with several services, but only the Dockerfile is built; use SQLite in /data, or only if the user needs those services update_app build_mode=compose), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck, port_from_image (no EXPOSE: the port comes from the image).
 Fix every error and read every warning before deploying.
+
+## Compose checks (validate_compose)
+
+Errors stop the deploy and name the service and the compose key: compose_invalid (not valid YAML or compose), compose_no_services, compose_too_many_services (more than 6), compose_forbidden (privileged, host bind mounts, network_mode, the Docker socket...), compose_unsupported, compose_public_ambiguous (set x-bitploy.public: true on one service), compose_volume_shared (a volume mounted by two services), compose_service_name_invalid, compose_env_file_missing, compose_file_missing, compose_source_missing (a build service whose folder or Dockerfile is not in the sent files), base_image_forbidden, port_reserved, image_pull_failed, quota_exceeded.
+Warnings: compose_key_ignored, compose_variable_unset (a ${VAR} without a value: set_env), compose_service_skipped, compose_ports_not_published, data_volume_unmounted. Info: data_volume_kept.
 `

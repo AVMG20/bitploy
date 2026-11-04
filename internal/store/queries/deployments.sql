@@ -42,6 +42,9 @@ UPDATE deployments SET commit_sha = ?, commit_message = ? WHERE id = ?;
 -- name: SetDeploymentValidated :exec
 UPDATE deployments SET port = ?, has_healthcheck = ?, warnings = ?, build_kind = ? WHERE id = ?;
 
+-- name: SetDeploymentServicesSpec :exec
+UPDATE deployments SET services_spec = ? WHERE id = ?;
+
 -- name: SetDeploymentPort :exec
 UPDATE deployments SET port = ? WHERE id = ?;
 

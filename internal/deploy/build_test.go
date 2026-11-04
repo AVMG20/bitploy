@@ -1,6 +1,18 @@
 package deploy
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestBuildArgsComposeArgsAndTarget(t *testing.T) {
+	b := BuildSpec{ContextDir: "/src", Dockerfile: "/src/Dockerfile", Tag: "bitploy/x_web:3",
+		Args: map[string]string{"B": "2", "A": "1"}, Target: "runner"}
+	got := strings.Join(b.BuildArgs(), " ")
+	if !strings.HasSuffix(got, "--build-arg A=1 --build-arg B=2 --target runner /src") {
+		t.Fatalf("%s", got)
+	}
+}
 
 func TestBuildOutOfMemory(t *testing.T) {
 	oom := []string{

@@ -346,9 +346,57 @@ func appNext(ap app.App) []string {
 	}
 }
 
+// validateComposeResult sums up validate_compose for an AI.
+func validateComposeResult(p app.ComposePreview, slug string) *result {
+	names := make([]string, len(p.Services))
+	for i, sv := range p.Services {
+		names[i] = sv.Name
+		if sv.Public {
+			names[i] += " (public)"
+		}
+	}
+	d := toMap(p)
+	if !p.OK {
+		first := p.Errors[0]
+		where := ""
+		if first.Service != "" {
+			where = " in service " + first.Service
+		}
+		if first.Key != "" {
+			where += " at " + first.Key
+		}
+		next := []string{"Fix every error (each has a hint), then call validate_compose again."}
+		for _, e := range p.Errors {
+			if e.Code == "quota_exceeded" {
+				next = append(next, "To fit the quota give the services less in the compose file (deploy.resources.limits.memory, a database or Redis often runs in 128M) or ask the user to stop an app; whoami shows the quota.")
+				break
+			}
+		}
+		return &result{
+			Summary: fmt.Sprintf("The compose file has %d error(s); first: %s%s: %s", len(p.Errors), first.Code, where, first.Message),
+			Data:    d,
+			Next:    next,
+		}
+	}
+	summary := fmt.Sprintf("The compose file is valid: %d service(s): %s. %s", len(p.Services), strings.Join(names, ", "), p.Quota.Message)
+	if len(p.Warnings) > 0 {
+		summary += fmt.Sprintf(" %d warning(s).", len(p.Warnings))
+	}
+	next := []string{"Read the warnings: they say what bitploy ignores."}
+	if slug == "" {
+		next = append(next, "Create the app with create_app build_mode=compose (or, for an app that has one service now, update_app build_mode=compose), then send the project with the compose file and every Dockerfile it builds.")
+	} else {
+		next = append(next, "Deploy it: push to the linked repository, deploy_files with ALL files (compose file included), or create_upload; then get_deployment with wait_seconds=30.")
+	}
+	return &result{Summary: summary, Data: d, Next: next}
+}
+
 func updateAppNext(in updateAppIn, ap app.App) []string {
 	var out []string
 	deployed := ap.Current != nil
+	if in.BuildMode != nil && *in.BuildMode == "compose" {
+		out = append(out, "From the next deploy on, "+ap.Slug+" runs every service of its compose file. Check the file with validate_compose app="+ap.Slug+", then deploy (deploy with only app= rebuilds the last source, or send new files).")
+	}
 	if in.Slug != nil && ap.URL != "" {
 		out = append(out, "The app now lives at "+ap.URL+"; the old address no longer works. Tell the user, and update the url in the project's .bitploy file.")
 	}
@@ -362,7 +410,7 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 			out = append(out, "These settings apply at the first deploy.")
 		}
 	}
-	if in.Port != nil || in.HealthPath != nil || in.DockerfilePath != nil || in.ContextDir != nil || in.Type != nil {
+	if in.Port != nil || in.HealthPath != nil || in.DockerfilePath != nil || in.ContextDir != nil || in.Type != nil || (in.BuildMode != nil && *in.BuildMode != "compose") || in.ComposePath != nil {
 		if deployed || ap.Status == "failed" {
 			out = append(out, "Call deploy with only app="+ap.Slug+" to rebuild with these settings (no files needed), then get_deployment with wait_seconds=30.")
 		} else {

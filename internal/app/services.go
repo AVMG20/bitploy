@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/metrics"
 	"github.com/AVMG20/bitploy/internal/store/db"
@@ -40,24 +41,29 @@ const (
 	maxServices  = 6
 )
 
-// serviceSpec is one service of an app as the deploy code runs it.
+// serviceSpec is one service of an app as the deploy code runs it. The JSON
+// form is deployments.services_spec (the services of a compose deployment).
 type serviceSpec struct {
-	Name           string
-	Kind           string // build | image
-	Image          string // image services: the reference to pull
-	ContextDir     string
-	DockerfilePath string
-	Public         bool
-	Port           int64 // 0: not known before the image exists
-	HealthPath     string
-	MemoryMB       int64
-	CPUMillis      int64
-	Command        []string
-	Entrypoint     []string
-	Healthcheck    *healthcheckSpec
-	DependsOn      []dependency
-	Environment    map[string]string
-	Mounts         []volumeSpec
+	Name           string            `json:"name"`
+	Kind           string            `json:"kind"`            // build | image
+	Image          string            `json:"image,omitempty"` // image services: the reference to pull
+	ContextDir     string            `json:"context_dir,omitempty"`
+	DockerfilePath string            `json:"dockerfile_path,omitempty"`
+	BuildArgs      map[string]string `json:"build_args,omitempty"` // compose build.args (deployment only)
+	Target         string            `json:"target,omitempty"`     // compose build.target (deployment only)
+	Public         bool              `json:"public,omitempty"`
+	Port           int64             `json:"port,omitempty"` // 0: not known before the image exists
+	HealthPath     string            `json:"health_path,omitempty"`
+	MemoryMB       int64             `json:"memory_mb"`
+	CPUMillis      int64             `json:"cpu_millis"`
+	Command        []string          `json:"command,omitempty"`
+	Entrypoint     []string          `json:"entrypoint,omitempty"`
+	Healthcheck    *healthcheckSpec  `json:"healthcheck,omitempty"`
+	DependsOn      []dependency      `json:"depends_on,omitempty"`
+	Environment    map[string]string `json:"environment,omitempty"`
+	User           string            `json:"user,omitempty"`
+	WorkingDir     string            `json:"working_dir,omitempty"`
+	Mounts         []volumeSpec      `json:"mounts,omitempty"`
 }
 
 // healthcheckSpec is app_services.healthcheck (a compose healthcheck).
@@ -67,6 +73,11 @@ type healthcheckSpec struct {
 	TimeoutS     int      `json:"timeout_s,omitempty"`
 	Retries      int      `json:"retries,omitempty"`
 	StartPeriodS int      `json:"start_period_s,omitempty"`
+}
+
+// off reports a healthcheck that turns off the image's (compose disable: true).
+func (h *healthcheckSpec) off() bool {
+	return h != nil && len(h.Test) > 0 && strings.EqualFold(h.Test[0], "NONE")
 }
 
 func (h *healthcheckSpec) config() *container.HealthConfig {
@@ -91,13 +102,13 @@ const (
 
 // volumeSpec is one volume of an app.
 type volumeSpec struct {
-	Name       string // like data or pgdata
-	VolumeName string // the Docker volume
-	SizeMB     int64
-	Service    string
-	MountPath  string
-	UsedBytes  int64
-	Measured   bool // UsedBytes comes from a measurement
+	Name       string `json:"name"`        // like data or pgdata
+	VolumeName string `json:"volume_name"` // the Docker volume
+	SizeMB     int64  `json:"size_mb"`
+	Service    string `json:"service"`
+	MountPath  string `json:"mount_path"`
+	UsedBytes  int64  `json:"-"`
+	Measured   bool   `json:"-"` // UsedBytes comes from a measurement
 }
 
 func isMulti(a db.App) bool { return a.ServiceLayout == layoutMulti }
@@ -160,6 +171,7 @@ func specFromRow(r db.AppService) (serviceSpec, error) {
 	sp := serviceSpec{
 		Name: r.Name, Kind: r.Kind, Image: r.Image, ContextDir: r.ContextDir, DockerfilePath: r.DockerfilePath,
 		Public: r.Public != 0, HealthPath: r.HealthPath, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
+		User: r.RunUser, WorkingDir: r.WorkingDir,
 	}
 	if r.Port.Valid {
 		sp.Port = r.Port.Int64
@@ -452,7 +464,8 @@ func perServiceSettings(a db.App, in UpdateAppInput) error {
 	add(in.HealthPath != nil, "health_path")
 	add(in.DockerfilePath != nil, "dockerfile_path")
 	add(in.ContextDir != nil, "context_dir")
-	add(in.BuildMode != nil, "build_mode")
+	// build_mode compose is what an app with several services already is.
+	add(in.BuildMode != nil && strings.ToLower(strings.TrimSpace(*in.BuildMode)) != deploy.BuildModeCompose, "build_mode")
 	add(in.Volume != nil, "volume")
 	add(in.VolumeMB != nil, "volume_mb")
 	add(in.MemoryMB != nil, "memory_mb")
@@ -462,7 +475,7 @@ func perServiceSettings(a db.App, in UpdateAppInput) error {
 	}
 	return apperr.Unprocessable("set_per_service",
 		fmt.Sprintf("The app %s has several services, so %s cannot be set for the whole app. Nothing was changed.", a.Slug, strings.Join(fields, ", ")),
-		"Each service has its own settings; get_app lists them. Leave these fields out to change the name, address or domain of the app.").
+		"Each service has its own settings, and they come from the compose file: change them there (ports, deploy.resources.limits, volumes, x-bitploy) and deploy again; get_app lists them. Leave these fields out to change the name, address or domain of the app. An app with several services cannot go back to one service: create a new app for that.").
 		WithDetail("fields", fields).WithNext("get_app")
 }
 
@@ -485,7 +498,10 @@ func firstOpt(opt []string) string {
 // serviceConfigHash sums up everything a container is created from. Two
 // deployments of a multi-service app with the same hash for a service run the
 // same container, so the newer one keeps the running container.
-func serviceConfigHash(imageID string, spec dockerx.RunSpec) string {
+//
+// image is the image's fingerprint (dockerx.BuiltImage.Fingerprint, else its
+// ID): two builds of unchanged code differ in their labels only.
+func serviceConfigHash(image string, spec dockerx.RunSpec) string {
 	env := append([]string(nil), spec.Env...)
 	sort.Strings(env)
 	mounts := append([]dockerx.VolumeMount(nil), spec.Mounts...)
@@ -502,7 +518,9 @@ func serviceConfigHash(imageID string, spec dockerx.RunSpec) string {
 		Cmd        []string
 		Entrypoint []string
 		Health     *container.HealthConfig
-	}{imageID, env, spec.Network, spec.Aliases, spec.MemoryMB, spec.CPUMillis, spec.Volume, mounts, spec.Cmd, spec.Entrypoint, spec.Healthcheck})
+		User       string `json:",omitempty"`
+		WorkingDir string `json:",omitempty"`
+	}{image, env, spec.Network, spec.Aliases, spec.MemoryMB, spec.CPUMillis, spec.Volume, mounts, spec.Cmd, spec.Entrypoint, spec.Healthcheck, spec.User, spec.WorkingDir})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

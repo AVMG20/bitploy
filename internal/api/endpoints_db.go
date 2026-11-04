@@ -28,9 +28,10 @@ func (a *API) dbRoutes() {
 			"A file that is not SQLite answers 422 not_sqlite. The database is opened read-only, in a throwaway helper container, while the app keeps running.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Path string `query:"path" required:"true" doc:"The database file, relative to /data"`
+		Path   string `query:"path" required:"true" doc:"The database file, relative to /data"`
+		Volume string `query:"volume" doc:"For an app with several volumes (a compose app): the volume the database is in (default: the first)"`
 	}) (*Out[app.DBInfo], error) {
-		return okOrNil(a.svc.DBInfo(ctx, act, in.App, in.Path))
+		return okOrNil(a.svc.DBInfo(ctx, act, in.App, in.Path, in.Volume))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "listDatabaseRows", Method: http.MethodPost, Path: "/apps/{app}/db/rows", Tags: []string{"Database"},
