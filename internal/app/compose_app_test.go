@@ -27,7 +27,9 @@ func TestSingleMappable(t *testing.T) {
 		"user":              {func(s *deploy.ComposeService) { s.User = "node" }, false},
 		"working dir":       {func(s *deploy.ComposeService) { s.WorkingDir = "/app" }, false},
 		"healthcheck":       {func(s *deploy.ComposeService) { s.Healthcheck = &deploy.ComposeHealthcheck{Test: []string{"NONE"}} }, false},
-		"other mount":       {func(s *deploy.ComposeService) { s.Mounts = []deploy.ComposeMount{{Volume: "up", Target: "/app/uploads"}} }, false},
+		"other mount": {func(s *deploy.ComposeService) {
+			s.Mounts = []deploy.ComposeMount{{Volume: "up", Target: "/app/uploads"}}
+		}, false},
 		"two mounts": {func(s *deploy.ComposeService) {
 			s.Mounts = []deploy.ComposeMount{{Volume: "a", Target: "/data"}, {Volume: "b", Target: "/data2"}}
 		}, false},
