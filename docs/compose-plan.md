@@ -297,3 +297,51 @@ services you can add to with one click.
 - MCP: `add_service`, `update_service`, `remove_service`,
   `list_service_templates`. Instructions keep saying: SQLite in /data first;
   add a database only when the user asks or the app needs it.
+
+## Phase 4b: projects are spaces that hold apps (supersedes parts of Phase 4)
+
+User, 2026-11-04: "A project should be some kind of space the user can add one
+main app to, but also deploy more apps into, like Redis and a separate
+database", "take any GitHub repo and deploy it", "build with a Dockerfile or
+docker compose". So:
+
+- **Project** (new table `projects`, id `prj_…`, name, owner) is a space. Every
+  app belongs to exactly one project; migration backfills one project per
+  existing app, named after it. The phase-3 dashboard that called an app a
+  "project" is re-pivoted: the project page shows all its apps.
+- **App** stays the deploy unit: one source (GitHub repo, upload, pasted
+  Dockerfile, pasted or detected compose file, ready-made image), its own
+  deployments, logs, domains, variables, volumes. A compose app still has
+  several services inside it (phases 1-2 unchanged).
+- **Databases and other ready services are apps** created from a service
+  template (image source, private, no address), not services bolted onto
+  another app. Same for "any Docker image".
+- **Private network per project.** Each project gets a Docker network
+  `bp-p-<id>` from the app pool; every container of every app in the project
+  joins it besides its own `bp-<slug>` network, with a DNS alias = the app's
+  short name in the project (e.g. `postgres`, `web`; compose services also get
+  `<app>-<service>`). Traefik never joins project networks. The firewall's
+  same-/24 rule must allow this and nothing across projects — verify in
+  deploy/firewall.sh and probe-test.sh.
+- **Variable references** `${{<name>.VAR}}` resolve against apps in the same
+  project. "Connect to" when adding a database writes the reference into the
+  chosen apps and redeploys them.
+- Quotas: `quota_apps` keeps counting apps (a database counts as one); raise
+  the default only if needed and document it.
+
+API contract (backend and UI agents build against it in parallel):
+- `GET /api/v1/projects` → `[{id, name, created_at, apps: [App]}]` (App as today,
+  plus `project: {id, name}`, `alias` (short name in the project),
+  `template` (service template id or null), `internal_host` e.g. `postgres:5432`).
+- `GET /api/v1/projects/{id}`, `POST /api/v1/projects {name}`,
+  `PATCH /api/v1/projects/{id} {name}`, `DELETE /api/v1/projects/{id}?confirm=<name>`
+  (refused while it still has apps, unless `with_apps=true`).
+- `POST /api/v1/apps` gains `project` (id); without it a new project named
+  after the app is created. `PATCH /apps/{app}` can move an app to another
+  project (`project`), and set `alias`.
+- `GET /api/v1/service-templates` → `[{id, name, category, description, image, version, port, memory_mb, volume_mb, connection_vars: [names], main_var}]`.
+- `POST /api/v1/projects/{id}/services {template, name?, connect_to?: [app slugs]}`
+  → creates the app from the template and deploys it; returns the App.
+- MCP: `list_projects`, `create_project`, `list_service_templates`,
+  `add_service(project, template, name?, connect_to?)`; `create_app` takes
+  `project`; `get_app` shows project and alias; references work in `set_env`.
