@@ -37,13 +37,20 @@ type validateIn struct {
 }
 
 type createAppIn struct {
-	Name     string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
-	Type     string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
-	Slug     string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
-	Domain   string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami, like example.com, so the app lives at <slug>.example.com. Leave out for the default domain."`
-	Port     *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
-	Volume   bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys, for the SQLite database (like /data/app.db) and uploads. Any app that stores data needs it, and must write its files to /data."`
-	VolumeMB *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
+	Name        string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
+	Type        string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
+	Slug        string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
+	Domain      string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami, like example.com, so the app lives at <slug>.example.com. Leave out for the default domain."`
+	Port        *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
+	Volume      bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys, for the SQLite database (like /data/app.db) and uploads. Any app that stores data needs it, and must write its files to /data."`
+	VolumeMB    *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
+	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out for the usual app: one Dockerfile (keep data as SQLite in /data). compose: only when the project ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file just to deploy a simple app."`
+	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the project, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
+}
+
+type validateComposeIn struct {
+	Compose string `json:"compose" jsonschema:"The full text of the compose file (compose.yaml or docker-compose.yml), not a path."`
+	App     string `json:"app,omitempty" jsonschema:"Optional app slug: its variables (set_env) fill in ${VAR} in the file, and its own memory, CPU and storage are not counted against the quota (the deploy replaces them)."`
 }
 
 type updateAppIn struct {
@@ -61,6 +68,8 @@ type updateAppIn struct {
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
+	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build the one Dockerfile (the usual app). compose: run every service of the project's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the project has one); check the file with validate_compose first."`
+	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the project, like deploy/compose.yaml. Empty string: the usual names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
 }
 
 type fileIn struct {
@@ -294,6 +303,17 @@ func (s *srv) registerTools() {
 			return &result{Summary: summary, Data: d, Next: res.NextSteps}, nil
 		})
 
+	addTool(s, "validate_compose", "Check a compose file",
+		"Checks a compose file (compose.yaml, docker-compose.yml) without building or starting anything, and shows what bitploy would run: each service (built from the project or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, the totals and whether they fit the quota (quota.message). ok=false lists errors, each with code, service, key (the compose key at fault, like ports or volumes[0]) and a hint: fix them all, then check again. Use it only when the project already has a compose file the user needs, before create_app build_mode=compose or a deploy of such an app. Most apps need no compose file: one Dockerfile with SQLite in /data is simpler, so never write one just to deploy.",
+		readOnly(), false, nil,
+		func(ctx context.Context, a app.Actor, in validateComposeIn) (*result, error) {
+			p, err := svc.ValidateCompose(ctx, a, app.ValidateComposeInput{Compose: in.Compose, App: in.App})
+			if err != nil {
+				return nil, err
+			}
+			return validateComposeResult(p, in.App), nil
+		})
+
 	addTool(s, "list_apps", "List apps",
 		"Lists all the user's apps, one compact entry each: slug, name, url, status, healthy, problem, latest deployment. Use it to answer \"what do I have and is it healthy\", and to find an app the user says is already online (confirm by name AND url; ask the user if several could match). Do not use it to hunt for a similar name: other projects may own it. status: running (serving), deploying, new (nothing deployed yet), stopped (stopped on purpose), failed (deploy failed, nothing live), crashed (stopped on its own). A non-empty problem means look closer.",
 		readOnly(), false, nil,
@@ -331,15 +351,27 @@ func (s *srv) registerTools() {
 	addTool(s, "create_app", "Create an app",
 		"Reserves a name and URL for a NEW app; it serves nothing until the first deploy. BEFORE calling this: if the project has a .bitploy file, that app is the one to update (skip create_app, use deploy_files). If the user says the project is already online, find it with list_apps and confirm by name and url. Otherwise create a NEW app: never reuse an app just because the name is similar. After creating, save {\"app\":\"<slug>\",\"url\":\"<url>\"} as .bitploy in the project (do not deploy that file). Use type=worker for bots with no web port.",
 		write(), true,
-		enums(map[string][]string{"type": {"web", "worker"}}),
+		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
-			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB})
+			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB,
+				BuildMode: in.BuildMode, ComposePath: in.ComposePath})
 			if err != nil {
 				return nil, err
 			}
 			url := ap.URL
 			if url == "" {
 				url = "(a worker has no web address)"
+			}
+			if ap.BuildMode == "compose" {
+				return &result{
+					Summary: fmt.Sprintf("Created app %s (%s) at %s for the services of the project's compose file; nothing is deployed yet.", ap.Slug, ap.Name, url),
+					Data:    data("app", ap),
+					Next: []string{
+						bitployFileStep(ap),
+						"Secrets the compose file reads as ${VAR}: set them with set_env first (bitploy does not read .env files).",
+						"Send the project with the compose file and every Dockerfile it builds: set_git_source then deploy, deploy_files with ALL files, or create_upload. A compose file with only image: services can be sent alone: deploy_files with [{path: \"compose.yaml\", content: ...}].",
+					},
+				}, nil
 			}
 			return &result{
 				Summary: fmt.Sprintf("Created app %s (%s) at %s; nothing is deployed yet.", ap.Slug, ap.Name, url),
@@ -353,13 +385,13 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data.",
-		idempotent(), true, nil,
+		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type, build_mode apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data. An app with several services (a compose app) takes its port, memory, CPU and volumes from the compose file: change the file and deploy again.",
+		idempotent(), true, enums(map[string][]string{"build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
 				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
-				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis,
+				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis, BuildMode: in.BuildMode, ComposePath: in.ComposePath,
 			})
 			if err != nil {
 				return nil, err
@@ -372,7 +404,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_files", "Deploy files",
-		"Publishes the project from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file of the project every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the project's .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. An app that is linked to a git repository refuses this with git_source_linked: push to the repository instead.",
+		"Publishes the project from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file of the project every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the project's .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. A compose app (build_mode=compose) needs the compose file and every Dockerfile it builds; with only image: services the compose file alone is enough. An app that is linked to a git repository refuses this with git_source_linked: push to the repository instead.",
 		write(), true,
 		nil,
 		func(ctx context.Context, a app.Actor, in deployFilesIn) (*result, error) {
@@ -616,7 +648,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile.",
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
 			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)
