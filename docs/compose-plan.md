@@ -7,7 +7,21 @@ the lasting parts into SPEC.md and docs/decisions.md, then delete this file.
 
 Head toward Railway (projects with several services), but stay simple enough
 for beginners who barely know what a deploy is and let an AI assistant do it
-over MCP. So:
+over MCP.
+
+**Single container + SQLite stays the default and the recommended path.** Most
+small apps are best built that way. Compose is the extra door that makes full
+stack apps possible (an existing compose project, or something that really
+needs Postgres/Redis next to it), not the new normal. So:
+
+- New project leads with the single-container sources (upload, GitHub,
+  Dockerfile, ready-made); compose is detected when the source has a compose
+  file, and pasting one is a secondary option.
+- MCP tool descriptions, server instructions, the starter prompt and hints keep
+  telling the AI: one Dockerfile, data in SQLite under /data. Use compose only
+  when the project already has a compose file or truly needs separate services.
+  An AI must never add a compose file just to deploy a simple app.
+- Catalog stays mostly single-container; multi-service entries are the exception.
 
 - A one-service project must look and feel as simple as an app does today; the
   service grid, per-service settings and volumes only show up when there is
