@@ -72,6 +72,19 @@ func (a *API) appRoutes() {
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body validateRequest }) (*Out[app.ValidateResult], error) {
 		return okOrNil(a.svc.ValidateDockerfile(ctx, act, in.Body.Dockerfile, in.Body.FileList, in.Body.Port))
 	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "validateCompose", Method: http.MethodPost, Path: "/compose/validate", Tags: []string{"Templates"},
+		Summary: "Check a compose file",
+		Description: "Reads a compose file the way a deploy would, without building or starting anything, and returns what would run: " +
+			"each service (built from the project or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, " +
+			"the totals and how they fit the quota (`quota.message`, like: This needs 1.2 GB of memory of the 1.5 GB you have left). " +
+			"A file with problems still answers 200: `ok` is false and `errors` lists them, each with a stable `code`, the `service` and compose `key` at fault, " +
+			"and a `hint`. Only a body that is not JSON, or a compose text over 256 KB, is a 4xx. " +
+			"Pass `app` to fill in ${VAR} from that app's variables and to leave its own use out of the quota. " +
+			"The Dockerfiles of build services are checked at deploy time, when the project's files are there. Read scope is enough.",
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.ValidateComposeInput }) (*Out[app.ComposePreview], error) {
+		return okOrNil(a.svc.ValidateCompose(ctx, act, in.Body))
+	})
 
 	// ---- apps ----
 	reg(a, anyAuth, huma.Operation{

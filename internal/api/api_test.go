@@ -602,7 +602,7 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/auth/login": {"post"}, "/auth/logout": {"post"}, "/session": {"get"}, "/invites/{code}/accept": {"post"},
 		"/me": {"get", "patch"}, "/usage": {"get"}, "/tokens": {"get", "post"}, "/tokens/{id}": {"delete"},
 		"/me/password": {"put"},
-		"/templates":   {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"},
+		"/templates":   {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"}, "/compose/validate": {"post"},
 		"/apps": {"get", "post"}, "/apps/{app}": {"get", "patch", "delete"},
 		"/catalog": {"get"}, "/catalog/{id}": {"get"}, "/catalog/{id}/deploy": {"post"}, "/apps/{app}/catalog-update": {"post"},
 		"/apps/{app}/dockerfile": {"get", "put"},
