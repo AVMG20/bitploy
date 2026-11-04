@@ -270,7 +270,9 @@ func ExpandEnvRefs(s string, lookup func(name string) (string, bool)) string {
 
 // ---- parsing ----
 
-var serviceNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+// Service names are DNS labels: they become network aliases and part of
+// container names (bp-<slug>_<service>-<n>), where _ separates the service.
+var serviceNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 var volumeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
 type composeParser struct {
@@ -692,7 +694,7 @@ func (p *composeParser) scanVolume(name string, v any) {
 func (p *composeParser) scanService(name string, m map[string]any) {
 	if !serviceNameRe.MatchString(name) {
 		p.errf(CodeComposeServiceNameInvalid, name, "services."+name,
-			"Rename the service to lowercase letters, digits, - and _ (at most 40 characters, starting with a letter or digit), and use the new name where other services connect to it.",
+			"Rename the service to lowercase letters, digits and - (at most 32 characters, starting with a letter or digit; celery_worker becomes celery-worker), and use the new name where other services connect to it.",
 			"The service name %q is not allowed.", name)
 	}
 	for _, k := range sortedKeys(m) {

@@ -562,6 +562,11 @@ services:
 			errCode: CodeComposeServiceNameInvalid, errService: "Web",
 		},
 		{
+			name:    "service name with an underscore",
+			file:    "services:\n  celery_worker:\n    image: nginx\n",
+			errCode: CodeComposeServiceNameInvalid, errService: "celery_worker", errText: "celery_worker",
+		},
+		{
 			name:    "no image and no build",
 			file:    "services:\n  web:\n    command: echo hi\n",
 			errCode: CodeComposeInvalid, errService: "web",
