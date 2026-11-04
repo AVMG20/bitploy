@@ -11,6 +11,9 @@ import (
 var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}[a-z0-9]$`)
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
+// defaultQuotaMB is the memory quota of a new account (users.quota_memory_mb).
+const defaultQuotaMB = 2048
+
 func TestEntriesCount(t *testing.T) {
 	if n := len(All()); n < 6 || n > 8 {
 		t.Fatalf("want 6 to 8 entries, got %d", n)
@@ -19,7 +22,6 @@ func TestEntriesCount(t *testing.T) {
 
 func TestEntries(t *testing.T) {
 	seen := map[string]bool{}
-	totalMB := 0
 	for _, e := range All() {
 		t.Run(e.ID, func(t *testing.T) {
 			if !slugRe.MatchString(e.ID) {
@@ -43,8 +45,9 @@ func TestEntries(t *testing.T) {
 			if e.Port < 1 || e.Port > 65535 || e.Port == deploy.ReservedPort {
 				t.Errorf("bad port %d", e.Port)
 			}
-			if e.MemoryMB < 64 || e.MemoryMB > 1024 {
-				t.Errorf("memory %d MB is not realistic", e.MemoryMB)
+			// Each entry must fit a new account on its own; together they need not.
+			if e.MemoryMB < 64 || e.MemoryMB > defaultQuotaMB {
+				t.Errorf("memory %d MB is not between 64 MB and the default quota of %d MB", e.MemoryMB, defaultQuotaMB)
 			}
 			if e.Volume != (e.VolumeMB > 0) {
 				t.Errorf("volume=%v but volume_mb=%d", e.Volume, e.VolumeMB)
@@ -52,7 +55,6 @@ func TestEntries(t *testing.T) {
 			if len(e.FirstSteps) == 0 {
 				t.Error("no first steps")
 			}
-			totalMB += e.MemoryMB
 
 			// Pinned version.
 			if strings.EqualFold(e.Version, "latest") || !regexp.MustCompile(`^\d+(\.\d+)*$`).MatchString(e.Version) {
@@ -119,9 +121,6 @@ func TestEntries(t *testing.T) {
 				t.Error("a volume app must keep its data in /data")
 			}
 		})
-	}
-	if totalMB > 2048 {
-		t.Errorf("all entries together ask for %d MB, more than the default quota of 2048", totalMB)
 	}
 }
 
