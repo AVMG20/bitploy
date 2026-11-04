@@ -59,6 +59,7 @@ type DBFilter struct {
 
 // DBRowsQuery asks for a page of rows.
 type DBRowsQuery struct {
+	Volume  string     `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
 	Path    string     `json:"path" doc:"The database file, relative to /data, like app.db or db/main.sqlite"`
 	Table   string     `json:"table" doc:"A table or view of the database"`
 	Limit   int        `json:"limit,omitempty" doc:"Rows per page, 1 to 1000 (default 100)"`
@@ -71,6 +72,7 @@ type DBRowsQuery struct {
 
 // DBCellBody asks for one value of one row, whole.
 type DBCellBody struct {
+	Volume string                     `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
 	Path   string                     `json:"path" doc:"The database file, relative to /data"`
 	Table  string                     `json:"table"`
 	Key    map[string]json.RawMessage `json:"key" doc:"The key of the row as listed: {\"rowid\": 5}, or the primary key columns of a WITHOUT ROWID table"`
@@ -79,6 +81,7 @@ type DBCellBody struct {
 
 // DBInsertBody adds a row.
 type DBInsertBody struct {
+	Volume string                     `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
 	Path   string                     `json:"path" doc:"The database file, relative to /data"`
 	Table  string                     `json:"table"`
 	Values map[string]json.RawMessage `json:"values,omitempty" doc:"Column name to value (value shapes as in rows). Columns left out get their default."`
@@ -86,6 +89,7 @@ type DBInsertBody struct {
 
 // DBUpdateBody changes a row.
 type DBUpdateBody struct {
+	Volume string                     `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
 	Path   string                     `json:"path" doc:"The database file, relative to /data"`
 	Table  string                     `json:"table"`
 	Key    map[string]json.RawMessage `json:"key" doc:"The key of the row as listed: {\"rowid\": 5}, or the primary key columns of a WITHOUT ROWID table"`
@@ -95,6 +99,7 @@ type DBUpdateBody struct {
 
 // DBUpdateManyBody sets the same values on many rows.
 type DBUpdateManyBody struct {
+	Volume string                       `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
 	Path   string                       `json:"path" doc:"The database file, relative to /data"`
 	Table  string                       `json:"table"`
 	Keys   []map[string]json.RawMessage `json:"keys" doc:"The keys of the rows to change (1 to 1000), as listed"`
@@ -104,17 +109,19 @@ type DBUpdateManyBody struct {
 
 // DBDeleteBody removes rows.
 type DBDeleteBody struct {
-	Path  string                       `json:"path" doc:"The database file, relative to /data"`
-	Table string                       `json:"table"`
-	Keys  []map[string]json.RawMessage `json:"keys" doc:"The keys of the rows to remove (1 to 1000), as listed"`
-	Match []map[string]json.RawMessage `json:"match,omitempty" doc:"Optional: one set of values per key, in the same order, that the row must still have (see update). If one row changed, nothing is deleted and the answer is 409 row_changed. A key that is gone is skipped."`
+	Volume string                       `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
+	Path   string                       `json:"path" doc:"The database file, relative to /data"`
+	Table  string                       `json:"table"`
+	Keys   []map[string]json.RawMessage `json:"keys" doc:"The keys of the rows to remove (1 to 1000), as listed"`
+	Match  []map[string]json.RawMessage `json:"match,omitempty" doc:"Optional: one set of values per key, in the same order, that the row must still have (see update). If one row changed, nothing is deleted and the answer is 409 row_changed. A key that is gone is skipped."`
 }
 
 // DBSQLBody runs SQL.
 type DBSQLBody struct {
-	Path  string `json:"path" doc:"The database file, relative to /data"`
-	SQL   string `json:"sql" doc:"One or more statements separated by semicolons (at most 64 KB)"`
-	Write bool   `json:"write,omitempty" doc:"false (default): the database is opened read-only. true: the statements may change data (needs the deploy scope)."`
+	Volume string `json:"volume,omitempty" doc:"For an app with several volumes (a compose app): the volume the database is in, like pgdata (default: the first). get_app lists the volumes."`
+	Path   string `json:"path" doc:"The database file, relative to /data"`
+	SQL    string `json:"sql" doc:"One or more statements separated by semicolons (at most 64 KB)"`
+	Write  bool   `json:"write,omitempty" doc:"false (default): the database is opened read-only. true: the statements may change data (needs the deploy scope)."`
 }
 
 // ---- errors ----
@@ -304,7 +311,7 @@ type dbWrite struct {
 // counted, so that a restore can wait for it. At most dbMaxPerApp helpers run
 // for an app and dbMaxTotal for the server; the rest waits a moment, then gets
 // db_busy. Every write that reached the helper is audited, whatever came of it.
-func (s *Service) dbCall(ctx context.Context, a Actor, ref, path string, w *dbWrite, req dbview.Request, out any) error {
+func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string, w *dbWrite, req dbview.Request, out any) error {
 	rel, err := cleanFilePath(path)
 	if err != nil {
 		return err
@@ -313,7 +320,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, path string, w *dbWr
 		return filePathErr("There is no path to a database.")
 	}
 	req.Path = rel
-	row, _, _, vol, err := s.filesTarget(ctx, a, ref, w != nil, "") // the first volume
+	row, _, _, vol, err := s.filesTarget(ctx, a, ref, w != nil, volume) // "" is the first volume
 	if err != nil {
 		return err
 	}
@@ -422,10 +429,12 @@ func (s *Service) dbAudit(ctx context.Context, a Actor, row db.App, path string,
 
 // ---- reading ----
 
-// DBInfo lists the tables and views of a database in /data with their columns and indexes.
-func (s *Service) DBInfo(ctx context.Context, a Actor, ref, path string) (DBInfo, error) {
+// DBInfo lists the tables and views of a database in /data with their
+// columns and indexes. An optional volume picks the volume of an app with
+// several (default: the first).
+func (s *Service) DBInfo(ctx context.Context, a Actor, ref, path string, volume ...string) (DBInfo, error) {
 	var out DBInfo
-	if err := s.dbCall(ctx, a, ref, path, nil, dbview.Request{Op: dbview.OpInfo}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, firstOpt(volume), path, nil, dbview.Request{Op: dbview.OpInfo}, &out); err != nil {
 		return DBInfo{}, err
 	}
 	return out, nil
@@ -438,7 +447,7 @@ func (s *Service) DBRows(ctx context.Context, a Actor, ref string, q DBRowsQuery
 		req.Filters = append(req.Filters, dbview.Filter{Column: f.Column, Op: f.Op, Value: f.Value})
 	}
 	var out DBRows
-	if err := s.dbCall(ctx, a, ref, q.Path, nil, req, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, q.Volume, q.Path, nil, req, &out); err != nil {
 		return DBRows{}, err
 	}
 	return out, nil
@@ -447,7 +456,7 @@ func (s *Service) DBRows(ctx context.Context, a Actor, ref string, q DBRowsQuery
 // DBCell reads one value of a row whole (rows cuts a text at 64 KiB).
 func (s *Service) DBCell(ctx context.Context, a Actor, ref string, b DBCellBody) (DBCellResult, error) {
 	var out DBCellResult
-	if err := s.dbCall(ctx, a, ref, b.Path, nil, dbview.Request{Op: dbview.OpCell, Table: b.Table, Key: b.Key, Column: b.Column}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, nil, dbview.Request{Op: dbview.OpCell, Table: b.Table, Key: b.Key, Column: b.Column}, &out); err != nil {
 		return DBCellResult{}, err
 	}
 	return out, nil
@@ -459,7 +468,7 @@ func (s *Service) DBCell(ctx context.Context, a Actor, ref string, b DBCellBody)
 func (s *Service) DBInsert(ctx context.Context, a Actor, ref string, b DBInsertBody) (DBInsertResult, error) {
 	var out DBInsertResult
 	w := &dbWrite{Table: b.Table, Kinds: []string{"insert"}, Affected: func() int64 { return 1 }}
-	if err := s.dbCall(ctx, a, ref, b.Path, w, dbview.Request{Op: dbview.OpInsert, Table: b.Table, Values: b.Values}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, w, dbview.Request{Op: dbview.OpInsert, Table: b.Table, Values: b.Values}, &out); err != nil {
 		return DBInsertResult{}, err
 	}
 	return out, nil
@@ -469,7 +478,7 @@ func (s *Service) DBInsert(ctx context.Context, a Actor, ref string, b DBInsertB
 func (s *Service) DBUpdate(ctx context.Context, a Actor, ref string, b DBUpdateBody) (DBUpdateResult, error) {
 	var out DBUpdateResult
 	w := &dbWrite{Table: b.Table, Kinds: []string{"update"}, Affected: func() int64 { return 1 }}
-	if err := s.dbCall(ctx, a, ref, b.Path, w, dbview.Request{Op: dbview.OpUpdate, Table: b.Table, Key: b.Key, Values: b.Values, Match: b.Match}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, w, dbview.Request{Op: dbview.OpUpdate, Table: b.Table, Key: b.Key, Values: b.Values, Match: b.Match}, &out); err != nil {
 		return DBUpdateResult{}, err
 	}
 	return out, nil
@@ -479,7 +488,7 @@ func (s *Service) DBUpdate(ctx context.Context, a Actor, ref string, b DBUpdateB
 func (s *Service) DBUpdateMany(ctx context.Context, a Actor, ref string, b DBUpdateManyBody) (DBUpdateManyResult, error) {
 	var out DBUpdateManyResult
 	w := &dbWrite{Table: b.Table, Kinds: []string{"update"}, Affected: func() int64 { return out.Updated }}
-	if err := s.dbCall(ctx, a, ref, b.Path, w, dbview.Request{Op: dbview.OpUpdateMany, Table: b.Table, Keys: b.Keys, Matches: b.Match, Values: b.Values}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, w, dbview.Request{Op: dbview.OpUpdateMany, Table: b.Table, Keys: b.Keys, Matches: b.Match, Values: b.Values}, &out); err != nil {
 		return DBUpdateManyResult{}, err
 	}
 	return out, nil
@@ -489,7 +498,7 @@ func (s *Service) DBUpdateMany(ctx context.Context, a Actor, ref string, b DBUpd
 func (s *Service) DBDelete(ctx context.Context, a Actor, ref string, b DBDeleteBody) (DBDeleteResult, error) {
 	var out DBDeleteResult
 	w := &dbWrite{Table: b.Table, Kinds: []string{"delete"}, Affected: func() int64 { return out.Deleted }}
-	if err := s.dbCall(ctx, a, ref, b.Path, w, dbview.Request{Op: dbview.OpDelete, Table: b.Table, Keys: b.Keys, Matches: b.Match}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, w, dbview.Request{Op: dbview.OpDelete, Table: b.Table, Keys: b.Keys, Matches: b.Match}, &out); err != nil {
 		return DBDeleteResult{}, err
 	}
 	return out, nil
@@ -506,7 +515,7 @@ func (s *Service) DBSQL(ctx context.Context, a Actor, ref string, b DBSQLBody) (
 	if b.Write {
 		w = &dbWrite{Kinds: dbview.Kinds(b.SQL), Partial: true, Affected: func() int64 { return affectedOf(out.Results) }}
 	}
-	if err := s.dbCall(ctx, a, ref, b.Path, w, dbview.Request{Op: dbview.OpSQL, SQL: b.SQL, Write: b.Write}, &out); err != nil {
+	if err := s.dbCall(ctx, a, ref, b.Volume, b.Path, w, dbview.Request{Op: dbview.OpSQL, SQL: b.SQL, Write: b.Write}, &out); err != nil {
 		return DBSQLResult{}, err
 	}
 	return out, nil

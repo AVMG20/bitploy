@@ -89,11 +89,11 @@ type pipeline struct {
 	// compose: the deployment runs the services of a compose file (or rolls
 	// back to such a deployment). specs and vols are its services and volumes
 	// (deployments.services_spec); the app gets them when it goes live.
-	compose    bool
-	specs      []serviceSpec
-	vols       []volumeSpec
-	wasSingle  bool     // the app had one service before this deployment
-	images     []string // images this deployment built, removed when it fails
+	compose   bool
+	specs     []serviceSpec
+	vols      []volumeSpec
+	wasSingle bool     // the app had one service before this deployment
+	images    []string // images this deployment built, removed when it fails
 	// singleFrom: the compose file's one service, built like a Dockerfile app
 	// (auto mode, first deploy). Its environment (extraEnv) becomes the app's
 	// variables and its volume the /data volume when the deployment goes live.
@@ -504,8 +504,7 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
 	p.builtHere = true
 	p.logf("Building %s with docker buildx.", p.image)
-	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld,
-	}, p.writeLog)
+	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}, p.writeLog)
 	if err != nil {
 		return p.buildFailed(ctx, err, bld)
 	}

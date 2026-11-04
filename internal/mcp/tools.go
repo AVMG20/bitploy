@@ -126,9 +126,10 @@ type restartIn struct {
 }
 
 type setEnvIn struct {
-	App   string            `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	Set   map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
-	Unset []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
+	App     string            `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
+	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
+	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the usual case). get_app lists the services."`
 }
 
 type setPasswordIn struct {
@@ -160,10 +161,11 @@ type metricsIn struct {
 }
 
 type queryDBIn struct {
-	App   string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps. The app needs the /data volume (volume=true)."`
-	Path  string `json:"path" jsonschema:"The SQLite file inside /data, relative to /data, like app.db or db/main.sqlite. Look in the app's code for where it opens its database."`
-	SQL   string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20. To see the tables use SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view')."`
-	Write bool   `json:"write,omitempty" jsonschema:"false (default): the database is opened read-only and any change fails with db_read_only. true: INSERT, UPDATE, DELETE, CREATE and so on are allowed and committed at once; this needs a deploy token. Use true only when the user asked for the change."`
+	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps. The app needs the /data volume (volume=true)."`
+	Path   string `json:"path" jsonschema:"The SQLite file inside /data, relative to /data, like app.db or db/main.sqlite. Look in the app's code for where it opens its database."`
+	SQL    string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20. To see the tables use SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view')."`
+	Write  bool   `json:"write,omitempty" jsonschema:"false (default): the database is opened read-only and any change fails with db_read_only. true: INSERT, UPDATE, DELETE, CREATE and so on are allowed and committed at once; this needs a deploy token. Use true only when the user asked for the change."`
+	Volume string `json:"volume,omitempty" jsonschema:"Only for an app with several volumes (a compose app): the volume the SQLite file is in, from volumes in get_app. Default: the first. path is then relative to that volume's folder."`
 }
 
 // enums limits string arguments to the values the tool understands, so the
@@ -617,7 +619,7 @@ func (s *srv) registerTools() {
 		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
-			vars, err := svc.SetEnv(ctx, a, in.App, in.Set, in.Unset)
+			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)
 			if err != nil {
 				return nil, err
 			}
@@ -873,7 +875,7 @@ func (s *srv) registerTools() {
 		"Runs SQL on a SQLite file in the app's /data volume (apps keep their database there: create_app volume=true). Read-only unless write=true, so it is safe to look around: SELECT name, sql FROM sqlite_schema lists the tables with their definitions, then SELECT with LIMIT. Results come back as compact text tables (at most 200 rows and about 50 KB per call, so use WHERE, LIMIT and few columns; values over 200 characters and blobs are cut). With write=true (deploy token) each statement is committed at once: take a create_backup first for anything risky such as DELETE, DROP or UPDATE without a tight WHERE, and only change data when the user asked. The app keeps running, SQLite's locking keeps it safe; a busy app can give db_busy, try again. Statements that reach outside the database (ATTACH, load_extension, VACUUM INTO) are refused. For a file or folder other than a database the user uses the Storage tab of the app in the dashboard, which also has a database viewer.",
 		destructive(), false, nil,
 		func(ctx context.Context, a app.Actor, in queryDBIn) (*result, error) {
-			r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: in.Write})
+			r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: in.Write, Volume: in.Volume})
 			if err != nil {
 				return nil, queryDBError(err)
 			}

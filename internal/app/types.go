@@ -268,7 +268,10 @@ func (d Deployment) Terminal() bool {
 }
 
 type EnvVar struct {
-	Name      string    `json:"name"`
+	Name string `json:"name"`
+	// Service is the service the variable belongs to; "" for a variable every
+	// service of the app gets (always "" for an app with one service).
+	Service   string    `json:"service" doc:"The service it belongs to; empty when every service gets it"`
 	Masked    string    `json:"masked"` // e.g. "••••••••" — values are never returned
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -559,8 +562,20 @@ type BackupList struct {
 	// Busy is true while a backup, upload or restore of this app is in progress.
 	Busy       bool  `json:"busy"`
 	TotalBytes int64 `json:"total_bytes"` // what all backups of this app take
-	// UploadMaxBytes is the biggest backup file that can be uploaded right now.
+	// UploadMaxBytes is the biggest backup file that can be uploaded right now
+	// (for the first volume).
 	UploadMaxBytes int64 `json:"upload_max_bytes"`
+	// Volumes are the app's volumes with the biggest backup file each can take.
+	Volumes []BackupVolume `json:"volumes"`
+}
+
+// BackupVolume is a volume backups can be made of and uploaded to.
+type BackupVolume struct {
+	Name           string `json:"name" doc:"Pass it as volume to create, upload or the database viewer"`
+	Service        string `json:"service" doc:"The service that mounts it; empty when none does"`
+	MountPath      string `json:"mount_path"`
+	SizeMB         int64  `json:"size_mb"`
+	UploadMaxBytes int64  `json:"upload_max_bytes"`
 }
 
 // BackupSettingsInput: nil fields are left unchanged.

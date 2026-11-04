@@ -39,6 +39,8 @@ type rollbackRequest struct {
 type envRequest struct {
 	Set   map[string]string `json:"set,omitempty" doc:"Variables to set. Values are encrypted and never returned."`
 	Unset []string          `json:"unset,omitempty" doc:"Variable names to remove"`
+	// Service limits the change to one service of an app with several services.
+	Service string `json:"service,omitempty" doc:"For an app with several services: set or unset the variables of this service only (they win over shared ones of the same name). Leave it out for variables every service gets."`
 }
 
 type domainRequest struct {
@@ -309,7 +311,7 @@ func (a *API) appRoutes() {
 		AppRef
 		Body envRequest
 	}) (*Out[app.Page[app.EnvVar]], error) {
-		items, err := a.svc.SetEnv(ctx, act, in.App, in.Body.Set, in.Body.Unset)
+		items, err := a.svc.SetServiceEnv(ctx, act, in.App, in.Body.Service, in.Body.Set, in.Body.Unset)
 		return pageOut(items, err, PageParams{Limit: 100})
 	})
 
