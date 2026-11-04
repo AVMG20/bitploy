@@ -160,6 +160,10 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 **Build modes (opt-in per app)**: the rule above is the default (`build_mode: dockerfile`) and is what MCP and REST get. An app can opt in to `auto`, which builds a Dockerfile when there is one, otherwise serves an `index.html` at the top of the project through the static template (nginx), otherwise detects a Node project from its `package.json` (and the Next.js config): SvelteKit with `@sveltejs/adapter-static`, Astro without a server adapter, Next.js with `output: 'export'`, Create React App and a Vite site (build script, `vite`, `index.html` at the top, no start script) are built and their output folder is served with nginx (`node-spa`: unknown paths load `index.html`; `node-static`: real pages, 404 otherwise); SvelteKit with another adapter, Next.js, Remix, React Router, Nuxt, NestJS, Express, Fastify, Hono, Koa, hapi, Astro with `@astrojs/node` and anything else with a start script run as a Node app (`node` template, after the build script if there is one; `nextjs` template with `output: 'standalone'`). A Vite project with a start script is a guess: it runs as a Node app and says so. It fails with `nothing_to_build` when it finds none of these. The other modes force one answer: `node` (a Node.js app), `static_build` (build, then serve the output folder; a static site) and `static` (plain website files). `output_dir` is the folder a static build serves (empty: the default of the framework: `dist`, `build` or `out`). In `auto` and `static`, a project without `index.html` but with one other page at the top (`Planning tool.html`) serves that page at `/`; with several pages the app's `home_page` setting says which. If a project marker (`package.json`, `requirements.txt`, `go.mod`, ...) sits next to the `index.html`, `auto` does not treat it as a website, because that is a front-end project that needs a build. The dashboard creates apps in `auto` and has a Type select for the others. The choice is made in one function (`deploy.PlanBuild`) and the injected files are not part of the stored source, so a rollback repeats it.
 
+**Compose apps (the extra door)**: the recommended shape stays one Dockerfile with SQLite in `/data`. A project that already has a compose file it needs (a web app next to Postgres or Redis) can be deployed as a compose app: `build_mode: compose` (optional `compose_path`, else the first of `compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`). bitploy never runs `docker compose`: it parses the file (compose-go v2), builds `build:` services one at a time on the isolated builder, pulls `image:` services through the same builder, and runs each service as its own locked-down container `bp-<slug>_<service>-<n>` on the app's network, reachable by its service name. At most 6 services; one is public (`x-bitploy: {public: true}`, else the one with `ports`, a built service before images) and gets the route and the health check; named volumes become `bp-<slug>_<volume>`, each with its own storage limit (`x-bitploy: {size_mb}`, default 5 GB). Memory and CPU per service come from `deploy.resources.limits` (default 256 MB, 512 MB for the public build service, 0.25 CPU) and their sum is checked against the quota before anything is built. Services start in `depends_on` order (`condition: service_healthy` waits for the healthcheck); a service whose image and settings did not change keeps running; a failure restores the previous containers. `${VAR}` is filled from the app's variables (never from `.env` files or the server). Variables set without `service` go to every service, `service` scopes one. Settings of the whole app (port, memory, CPU, volume, health path) are refused for a compose app (`set_per_service`): they come from the file.
+
+Detection is conservative. `create_app` (MCP and REST) makes build mode `dockerfile`, which never runs a compose file: the deploy warns `compose_ignored` and names `update_app(build_mode="compose")`. Only an app in `auto` (the dashboard's default) picks a compose file by itself, and only on its first deploy: several services, or one the app's settings cannot hold, make it a compose app; one plain build service is built like a Dockerfile app with that service's context, Dockerfile, port and `/data`. After that the shape never changes by itself. Turning an app with one container into a compose app is explicit, one way, and keeps `/data`: its volume becomes the file's volume at `/data` (or stays mounted at `/data` of the public service). Before a deploy, `POST /api/v1/compose/validate` (`validate_compose`) previews what would run and every problem with a stable code, the service, the compose key and a hint.
+
 **Pre-built images**: a Dockerfile that is only `FROM <image>:<tag>` (plus `USER`, `ENV` and the like) runs a published image. `EXPOSE` is optional there: after the build the pipeline reads the port from the image config and stores it on the deployment, so a rollback reuses it. The image's data must go under `/data`.
 
 **Pipeline**, one row per deployment state:
@@ -249,19 +253,20 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_deploy_rules` | The rules above plus the runtime contract | read | read-only |
 | `get_template(stack, file_list?)` | Dockerfile + .dockerignore for a stack, adapted to the lock files in `file_list` | read | read-only |
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
+| `validate_compose(compose, app?)` | Previews a compose file: services, volumes, totals, quota, warnings and errors (`{code, service, key, message, hint}`); a bad file is `ok: false`, never a tool error. Only for a project that already has a compose file | read | read-only |
 | `list_catalog` | The one-click apps (id, name, tagline, pinned version, memory, volume, category) | read | read-only |
 | `deploy_catalog_app(id, name?, slug?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if the deployment cannot be queued | deploy | — |
 | `list_apps` / `get_app(app)` | Apps with URL, state, current deployment | read | read-only |
-| `create_app(name, type?, slug?, port?, volume?)` | Reserves a subdomain, returns the URL | deploy | — |
-| `update_app(app, …)` | Port, health path, volume, resources | deploy | idempotent |
-| `deploy_files(app, files[])` | Inline source, validates, queues a deployment | deploy | — |
+| `create_app(name, type?, slug?, port?, volume?, build_mode?, compose_path?)` | Reserves a subdomain, returns the URL; `build_mode: compose` only for a project that already has a compose file | deploy | — |
+| `update_app(app, …)` | Port, health path, volume, resources, `build_mode` (`compose` turns a one-container app into a compose app, keeping `/data`; no way back) | deploy | idempotent |
+| `deploy_files(app, files[])` | Inline source, validates, queues a deployment; a compose app sends the compose file and every Dockerfile it builds | deploy | — |
 | `create_upload(app)` | One-time URL (15 min) and the exact `curl` command | deploy | — |
 | `set_git_source(app, repo_url?, branch?, subdir?, auto_deploy?, remove?)` | Saves the source and checks access with `ls-remote`; `auto_deploy` (default on for GitHub) deploys on every push; `remove: true` unlinks | deploy | idempotent |
 | `deploy(app, upload_id?)` | Queues a deployment from the upload or git source | deploy | — |
 | `get_deployment(id?, app?, wait_seconds?)` | State, timings, error, last 50 log lines; with only `app` it returns the latest deployment | read | read-only |
 | `list_deployments(app)` | History, newest first | read | read-only |
 | `get_logs(app, kind, tail?, since?, service?)` | `build` or `runtime` logs, max 1,000 lines; `service` picks one service of an app with several | read | read-only |
-| `set_env(app, set, unset)` | Encrypted env vars; values are never returned | deploy | idempotent |
+| `set_env(app, set, unset, service?)` | Encrypted env vars; values are never returned. `service` scopes them to one service of a compose app | deploy | idempotent |
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
@@ -270,7 +275,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
 | `create_backup(app)` / `list_backups(app)` | Back up /data in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
-| `query_db(app, path, sql, write=false)` | Run SQL on a SQLite file in /data (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
+| `query_db(app, path, sql, write=false, volume?)` | Run SQL on a SQLite file in /data (`volume` picks another volume of a compose app) (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
 
 Also expose the rules as resource `bitploy://rules` and each template as `bitploy://templates/{stack}`, and add a prompt `deploy_project` that walks through the eight steps. Keep the tools anyway: many clients ignore resources and prompts.
 
@@ -290,7 +295,7 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `no_dockerignore` | warning | `node_modules`, `.git` or `venv` present without a `.dockerignore` |
 | `unpinned_base` | warning | Base image has no tag or uses `latest` |
 | `runs_as_root` | warning | Final stage has no `USER` |
-| `compose_ignored` | warning | A `docker-compose.yml` / `compose.yaml` at the top: only the Dockerfile is built |
+| `compose_ignored` | warning | A compose file with several services at the top: only the Dockerfile is built; the hint suggests SQLite in `/data`, and `update_app(build_mode="compose")` only if the app needs those services |
 | `database_server_in_image` | warning | A `RUN` installs a database server (postgresql, mysql-server, mariadb-server, redis); use SQLite in `/data` |
 | `lockfile_mismatch` | warning | `npm ci` but the only lock file is pnpm's, yarn's or bun's |
 | `no_healthcheck` | info | Bitploy will use its HTTP check on `health_path` |
@@ -355,6 +360,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/github/webhook` | GitHub's push and installation events (signature, no session) |
 | `GET /api/v1/templates[/{stack}]` | `get_template` |
 | `POST /api/v1/dockerfile/validate` | `validate_dockerfile` |
+| `POST /api/v1/compose/validate` | `validate_compose` (`{compose, app?}`; any scope; 200 with `ok: false` and `errors` for a bad file) |
 | `GET /api/v1/catalog[/{id}]` | `list_catalog`; the one-app form adds the Dockerfile, env fields and first steps (any scope) |
 | `POST /api/v1/catalog/{id}/deploy` | `deploy_catalog_app` (deploy scope; 202; accepts `Idempotency-Key`) |
 | `POST /api/v1/apps/{app}/catalog-update` | Replace the Dockerfile with the catalog's current one and deploy (accepts `Idempotency-Key`); 409 `catalog_up_to_date`, `not_catalog_app`, `git_source_linked` |
@@ -370,7 +376,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/deployments/{id}/cancel` | `cancel_deployment` (deploy scope, owner only): returns the Deployment; 409 `too_late_to_cancel` while swapping, 409 `deployment_finished` |
 | `GET /api/v1/deployments/{id}/log[?follow=1]` | Build log as text or SSE |
 | `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1][&service=]` | `get_logs` |
-| `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read) |
+| `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read; optional `service`) |
 | `PUT /api/v1/apps/{app}/password-protection` | `set_password_protection` (`{enabled, username?, password?}`; apps report `protected` and `protected_username`, never the password) |
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
@@ -583,10 +589,12 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 | Static sites | A static site is an app whose live deployment was built from bitploy's own nginx templates (a plain website, or a Vite site built by auto mode), never from the user's own Dockerfile, even if that starts from nginx. It has a fixed 64 MB and 0.5 CPU (`cpu_millis` 500), cannot be changed, has no `/data` volume, and does not count towards the memory and CPU quota. It still counts as an app and for storage. The App JSON carries `"static": true`. A static site that is later deployed from the user's own Dockerfile becomes a normal app (default size, checked against the quota at deploy time) |
 | Processes | `pids-limit` 256; `nofile` 4096 |
 | Privileges | `no-new-privileges`, Docker's default seccomp and AppArmor profiles, drop `NET_RAW`; never `--privileged`, never added capabilities |
-| Mounts | Only the optional named volume at `/data`. Never `docker.sock`, never a host path |
+| Mounts | Only the optional named volume at `/data` (a compose app: its named volumes, one service each). Never `docker.sock`, never a host path |
 | Network | Own bridge network `bp-<slug>` that only Traefik joins; no published ports |
 | Logs | `json-file`, `max-size` 10 MB, `max-file` 3 |
 | Restarts | `unless-stopped`; 5 restarts within 5 minutes → stop it and mark it `crashed` with the log tail |
+
+**Compose security**: a compose file is input, never a runtime: every service gets the same container defaults as an app (limits, no-new-privileges, dropped capabilities, no published ports, logs). Refused with `compose_forbidden`, naming the service and key: `privileged`, `cap_add`, `devices`, `security_opt`, `sysctls`, `ulimits`, `network_mode`, `pid`, `ipc`, `userns_mode`, `volumes_from`, `extra_hosts`, `secrets`, `configs`, `extends`, custom networks, host bind mounts and the Docker socket, `external` or driver volumes, `include`, build contexts or Dockerfiles outside the project, `build.network`, `build.ssh`, `build.secrets`, `build.additional_contexts`. `ports` are never published (only the public service gets the route). `image:` services are pulled by the isolated builder, not the daemon, so the base-image rules apply. Env files must be inside the project. `${VAR}` only reads the app's own variables.
 
 **Network isolation**
 

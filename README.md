@@ -43,6 +43,21 @@ bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime 
 
 Any other published image works too: deploy a Dockerfile that is only `FROM <image>:<tag>` with a pinned tag. `EXPOSE` is optional; when it is missing and the app has no port setting, bitploy reads the port from the built image (and asks you to set the port if the image declares none, several, or a reserved one). Keep the image's data under `/data`. The Dockerfile of an app deployed from files or a zip can be read and replaced with `GET` and `PUT /api/v1/apps/{app}/dockerfile`.
 
+## Deploying a compose project
+
+Most apps should **not** use compose. One Dockerfile with the data in SQLite under `/data` is simpler, starts faster, uses less memory, and backs up, restores and rolls back as one piece. That is what bitploy and its AI instructions recommend. Do not write a compose file just to deploy an app, do not split a small app into services, and do not add Postgres or Redis when SQLite and an in-process cache do the job.
+
+Use compose when the project **already has** a `compose.yaml` (or `docker-compose.yml`) and really needs what is in it: a web app next to Postgres, Redis or a worker, as the project's authors run it.
+
+1. Check the file: `POST /api/v1/compose/validate` with `{"compose": "<the file's text>"}` (or the MCP tool `validate_compose`). It answers 200 with what would run (services, volumes, memory and CPU totals, whether it fits your quota) and every warning and error, each with a `code`, the `service` and compose `key` at fault, and a `hint`.
+2. Create the app with `build_mode: "compose"` (`POST /api/v1/apps`, or `create_app` over MCP); `compose_path` when the file has another name or folder.
+3. Set the variables the file reads as `${VAR}` with `PUT /api/v1/apps/{app}/env` (bitploy never reads `.env` files). Add `"service": "<name>"` for a variable only one service gets.
+4. Send the project as usual (git, zip or files) with the compose file and every Dockerfile it builds. A file with only `image:` services can be sent alone.
+
+What bitploy does with the file: `build:` services are built one at a time on the isolated builder, `image:` services are pulled (pin a tag), and each service runs as its own locked-down container, reachable by its service name on the app's private network (`postgres://db:5432/...`). One service is public: the one with `x-bitploy: {public: true}`, else the one with `ports`. It gets the address and the health check (`x-bitploy: {health_path: /health}`, its `healthcheck:`, or `GET /`). `ports` are never published. Named volumes are kept between deploys and backed up on the app's schedule; their size is `x-bitploy: {size_mb: 2048}` on the volume (default 5 GB). Memory and CPU come from `deploy.resources.limits` (default 256 MB per service, 512 MB for a public service built from the project, 0.25 CPU). Services that did not change keep running on a redeploy, so a database is not restarted on every push. At most 6 services. Refused: `privileged`, `cap_add`, `devices`, `network_mode`, host bind mounts, the Docker socket, custom networks and the like (`compose_forbidden`).
+
+An app that already runs from one Dockerfile keeps doing so even when a compose file appears in the project: the deploy warns `compose_ignored`. To switch, `PATCH /api/v1/apps/{app}` with `{"build_mode": "compose"}` and deploy again. The `/data` volume and its files are kept (they move to the compose volume mounted at `/data`). There is no way back to one container; create a new app for that. Only apps in **auto** mode (the dashboard's default) pick up a compose file by themselves, and only on their first deploy.
+
 ## Production on Hetzner
 
 One Hetzner Cloud server runs everything: Docker, Traefik and bitploy. About 4 vCPU, 8 GB RAM and 160 GB disk is a good start for a group of colleagues. bitploy refuses new apps when the sum of all memory limits would pass the server's RAM minus 1.5 GB.
