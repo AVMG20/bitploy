@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/dockerx"
@@ -20,6 +21,7 @@ type Point struct {
 // tracked is one running container with an open stats stream.
 type tracked struct {
 	id, name, appID string
+	service         string // the app service it runs, see ServiceOf
 	cancel          context.CancelFunc
 
 	cur, base         dockerx.Stats
@@ -38,6 +40,21 @@ const (
 	// falls back to the stored sample.
 	liveMaxAge = 10 * time.Second
 )
+
+// SingleService is the name of the one service of an app with the single
+// layout (every app from before services). Its containers may lack the
+// nl.bitploy.service label.
+const SingleService = "app"
+
+// ServiceOf is the service a container runs, from its nl.bitploy.service label.
+func ServiceOf(label string) string {
+	if label == "" {
+		return SingleService
+	}
+	return label
+}
+
+func svcKey(appID, service string) string { return appID + "\x00" + service }
 
 // Latest returns what a running app uses right now: CPU and memory over the
 // last few seconds of the stats stream, network from the newest stored
@@ -69,14 +86,27 @@ func (m *Manager) LatestAll() map[string]Point {
 	return out
 }
 
-func (m *Manager) latestLocked(appID string) (Point, bool) {
+// LatestService is Latest for one service of an app.
+func (m *Manager) LatestService(appID, service string) (Point, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.latestOf(appID, service)
+}
+
+func (m *Manager) latestLocked(appID string) (Point, bool) { return m.latestOf(appID, "") }
+
+// latestOf is the live view of an app (service "") or of one of its services.
+func (m *Manager) latestOf(appID, service string) (Point, bool) {
 	p, ok := m.latest[appID]
+	if service != "" {
+		p, ok = m.latestSvc[svcKey(appID, service)]
+	}
 	var cpu float64
 	var mem int64
 	var newest time.Time
 	live := false
 	for _, t := range m.tracked {
-		if t.appID != appID || len(t.recent) < 2 {
+		if t.appID != appID || len(t.recent) < 2 || (service != "" && t.service != service) {
 			continue
 		}
 		first, last := t.recent[0], t.recent[len(t.recent)-1]
@@ -163,7 +193,7 @@ func (m *Manager) Track(ctx context.Context, c dockerx.Managed) {
 		return
 	}
 	sctx, cancel := context.WithCancel(ctx)
-	t := &tracked{id: c.ID, name: c.Name, appID: c.AppID, cancel: cancel}
+	t := &tracked{id: c.ID, name: c.Name, appID: c.AppID, service: ServiceOf(c.Service), cancel: cancel}
 	m.tracked[c.ID] = t
 	m.mu.Unlock()
 
@@ -209,30 +239,49 @@ type appAgg struct {
 	containerCount int
 }
 
+func (a *appAgg) add(o appAgg) {
+	a.cpu += o.cpu
+	a.mem += o.mem
+	a.rx += o.rx
+	a.tx += o.tx
+	a.containerCount += o.containerCount
+}
+
 // Tick turns the newest reading of every tracked container into one sample
-// per app, stores them in a single transaction and counts running time.
+// per app service, stores them in a single transaction and counts running
+// time per app.
 // elapsed is the time since the previous tick (capped at twice the interval,
 // so a laptop that slept does not book hours of uptime).
 func (m *Manager) Tick(ctx context.Context, now time.Time, elapsed time.Duration) error {
 	if max := 2 * m.SampleInterval; elapsed > max {
 		elapsed = max
 	}
-	agg := map[string]*appAgg{}
+	type key struct{ app, service string }
+	perSvc := map[key]*appAgg{}
+	agg := map[string]*appAgg{} // per app: the sum of its services
 	m.mu.Lock()
 	for _, t := range m.tracked {
 		if !t.haveCur {
 			continue
 		}
-		a := agg[t.appID]
+		k := key{t.appID, ServiceOf(t.service)}
+		a := perSvc[k]
 		if a == nil {
 			a = &appAgg{}
-			agg[t.appID] = a
+			perSvc[k] = a
 		}
-		a.containerCount++
-		a.cpu += CPUPercent(t.base, t.cur)
-		a.mem += int64(t.cur.MemWorkingSet())
-		a.rx += int64(CounterDelta(t.base.RxBytes, t.cur.RxBytes))
-		a.tx += int64(CounterDelta(t.base.TxBytes, t.cur.TxBytes))
+		one := appAgg{
+			containerCount: 1,
+			cpu:            CPUPercent(t.base, t.cur),
+			mem:            int64(t.cur.MemWorkingSet()),
+			rx:             int64(CounterDelta(t.base.RxBytes, t.cur.RxBytes)),
+			tx:             int64(CounterDelta(t.base.TxBytes, t.cur.TxBytes)),
+		}
+		a.add(one)
+		if agg[t.appID] == nil {
+			agg[t.appID] = &appAgg{}
+		}
+		agg[t.appID].add(one)
 		t.base = t.cur
 	}
 	m.mu.Unlock()
@@ -242,6 +291,12 @@ func (m *Manager) Tick(ctx context.Context, now time.Time, elapsed time.Duration
 	for id := range m.latest {
 		if _, ok := agg[id]; !ok {
 			delete(m.latest, id)
+		}
+	}
+	for k := range m.latestSvc {
+		app, svc, _ := strings.Cut(k, "\x00")
+		if _, ok := perSvc[key{app, svc}]; !ok {
+			delete(m.latestSvc, k)
 		}
 	}
 	m.mu.Unlock()
@@ -257,12 +312,14 @@ func (m *Manager) Tick(ctx context.Context, now time.Time, elapsed time.Duration
 		users[id] = m.userOf(ctx, id)
 	}
 	err := m.Store.Tx(ctx, func(q *db.Queries) error {
-		for id, a := range agg {
+		for k, a := range perSvc {
 			if err := q.OpsInsertSample(ctx, db.OpsInsertSampleParams{
-				AppID: id, Ts: ts, Cpu: a.cpu, MemBytes: a.mem, RxBytes: a.rx, TxBytes: a.tx,
+				AppID: k.app, Service: k.service, Ts: ts, Cpu: a.cpu, MemBytes: a.mem, RxBytes: a.rx, TxBytes: a.tx,
 			}); err != nil {
 				return err
 			}
+		}
+		for id := range agg {
 			if secs > 0 && users[id] != "" {
 				if err := q.OpsAddRunningSeconds(ctx, db.OpsAddRunningSecondsParams{
 					AppID: id, UserID: users[id], Day: day, RunningSeconds: secs,
@@ -279,6 +336,9 @@ func (m *Manager) Tick(ctx context.Context, now time.Time, elapsed time.Duration
 	m.mu.Lock()
 	for id, a := range agg {
 		m.latest[id] = Point{TS: now, CPU: a.cpu, MemBytes: a.mem, RxBytes: a.rx, TxBytes: a.tx}
+	}
+	for k, a := range perSvc {
+		m.latestSvc[svcKey(k.app, k.service)] = Point{TS: now, CPU: a.cpu, MemBytes: a.mem, RxBytes: a.rx, TxBytes: a.tx}
 	}
 	m.mu.Unlock()
 	return nil

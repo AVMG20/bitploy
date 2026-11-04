@@ -37,7 +37,8 @@ SELECT CAST(COALESCE(SUM(volume_mb), 0) AS INTEGER) FROM apps
 WHERE user_id = ? AND id != ? AND volume_enabled = 1;
 
 -- name: VolumeNameExists :one
-SELECT COUNT(*) FROM apps WHERE volume_name = ?;
+SELECT (SELECT COUNT(*) FROM apps WHERE apps.volume_name = sqlc.arg(name))
+     + (SELECT COUNT(*) FROM app_volumes WHERE app_volumes.volume_name = sqlc.arg(name));
 
 -- name: GetAppDisk :one
 SELECT * FROM app_disk WHERE app_id = ?;
@@ -68,20 +69,26 @@ UPDATE apps SET current_deployment_id = ?, desired_state = 'running', status = '
 UPDATE apps SET deploy_seq = deploy_seq + 1, updated_at = ? WHERE id = ? RETURNING deploy_seq;
 
 -- name: RewriteDeploymentNames :exec
+-- After a rename, see RewriteDeploymentServiceNames.
 UPDATE deployments
-SET image = CASE WHEN image IS NULL THEN NULL ELSE 'bitploy/' || sqlc.arg(slug) || substr(image, instr(image, ':')) END,
-    container_name = CASE WHEN container_name IS NULL THEN NULL ELSE 'bp-' || sqlc.arg(slug) || '-' || seq END
+SET image = CASE WHEN substr(image, 1, length('bitploy/' || sqlc.arg(old_slug))) = 'bitploy/' || sqlc.arg(old_slug)
+                 THEN 'bitploy/' || sqlc.arg(new_slug) || substr(image, length('bitploy/' || sqlc.arg(old_slug)) + 1)
+                 ELSE image END,
+    container_name = CASE WHEN substr(container_name, 1, length('bp-' || sqlc.arg(old_slug))) = 'bp-' || sqlc.arg(old_slug)
+                 THEN 'bp-' || sqlc.arg(new_slug) || substr(container_name, length('bp-' || sqlc.arg(old_slug)) + 1)
+                 ELSE container_name END
 WHERE app_id = sqlc.arg(app_id);
 
 -- name: ListEnvVars :many
-SELECT * FROM env_vars WHERE app_id = ? ORDER BY name;
+SELECT * FROM env_vars WHERE app_id = ? ORDER BY service, name;
 
 -- name: UpsertEnvVar :exec
-INSERT INTO env_vars (app_id, name, value_enc, updated_at) VALUES (?, ?, ?, ?)
-ON CONFLICT(app_id, name) DO UPDATE SET value_enc = excluded.value_enc, updated_at = excluded.updated_at;
+-- service '' is shared by all of the app's services.
+INSERT INTO env_vars (app_id, service, name, value_enc, updated_at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(app_id, service, name) DO UPDATE SET value_enc = excluded.value_enc, updated_at = excluded.updated_at;
 
 -- name: DeleteEnvVar :exec
-DELETE FROM env_vars WHERE app_id = ? AND name = ?;
+DELETE FROM env_vars WHERE app_id = ? AND service = ? AND name = ?;
 
 -- name: InsertUpload :exec
 INSERT INTO uploads (id, app_id, user_id, status, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?);

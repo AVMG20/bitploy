@@ -13,18 +13,19 @@ import (
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
-// RestartApp recreates the current container from its image, so new env vars
-// and resource limits apply.
-func (s *Service) RestartApp(ctx context.Context, a Actor, ref string) (App, error) {
-	return s.bringUp(ctx, a, ref, "app.restart", true)
+// RestartApp recreates the current containers from their images, so new env
+// vars and resource limits apply. An optional service name restarts only that
+// service of a running app; without it every service restarts.
+func (s *Service) RestartApp(ctx context.Context, a Actor, ref string, service ...string) (App, error) {
+	return s.bringUp(ctx, a, ref, "app.restart", true, firstOpt(service))
 }
 
 // StartApp starts a stopped app (a no-op when it already runs).
 func (s *Service) StartApp(ctx context.Context, a Actor, ref string) (App, error) {
-	return s.bringUp(ctx, a, ref, "app.start", false)
+	return s.bringUp(ctx, a, ref, "app.start", false, "")
 }
 
-func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, force bool) (App, error) {
+func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, force bool, service string) (App, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return App{}, err
@@ -46,13 +47,21 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 		return App{}, apperr.Conflict("app_not_deployed", "This app has not been deployed yet, so there is nothing to "+map[bool]string{true: "restart", false: "start"}[force]+".",
 			"Deploy it first with deploy_files, or upload a zip and call deploy. If a deploy was started before and failed, call deploy with only app= to retry without resending files.").WithNext("deploy_files")
 	}
+	sp, _, err := s.pickService(ctx, row, service)
+	if err != nil {
+		return App{}, err
+	}
 	if !force && row.DesiredState == "running" && s.currentRunning(ctx, row) {
 		return s.appView(ctx, a, row), nil
 	}
 	if err := s.checkStartQuota(ctx, row); err != nil { // start_app of a stopped app
 		return App{}, err
 	}
-	if ae := s.startCurrentLocked(ctx, row); ae != nil {
+	var only []string
+	if sp != nil && isMulti(row) && row.DesiredState == "running" {
+		only = []string{sp.Name} // a stopped app starts as a whole
+	}
+	if ae := s.startCurrentLocked(ctx, row, only...); ae != nil {
 		return App{}, ae
 	}
 	if err := s.Q.SetAppDesiredState(ctx, db.SetAppDesiredStateParams{
@@ -68,22 +77,40 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 	s.deployRT.mu.Lock()
 	delete(s.deployRT.restore, row.ID)
 	s.deployRT.mu.Unlock()
-	s.Audit(ctx, a, action, "app", row.ID, map[string]any{"slug": row.Slug})
+	meta := map[string]any{"slug": row.Slug}
+	if len(only) > 0 {
+		meta["service"] = only[0]
+	}
+	s.Audit(ctx, a, action, "app", row.ID, meta)
 	fresh, _ := s.Q.GetApp(ctx, row.ID)
 	return s.appView(ctx, a, fresh), nil
 }
 
-// currentRunning reports whether the current deployment's container runs.
+// currentRunning reports whether every container of the current deployment
+// runs.
 func (s *Service) currentRunning(ctx context.Context, row db.App) bool {
 	if s.Docker == nil || !row.CurrentDeploymentID.Valid {
 		return false
 	}
-	d, err := s.Q.GetDeployment(ctx, row.CurrentDeploymentID.String)
-	if err != nil || !d.ContainerName.Valid {
+	if !isMulti(row) {
+		d, err := s.Q.GetDeployment(ctx, row.CurrentDeploymentID.String)
+		if err != nil || !d.ContainerName.Valid {
+			return false
+		}
+		c, err := s.Docker.InspectContainer(ctx, d.ContainerName.String)
+		return err == nil && c.State != nil && c.State.Running
+	}
+	cur := s.currentContainers(ctx, row)
+	if len(cur) == 0 {
 		return false
 	}
-	c, err := s.Docker.InspectContainer(ctx, d.ContainerName.String)
-	return err == nil && c.State != nil && c.State.Running
+	for _, name := range cur {
+		c, err := s.Docker.InspectContainer(ctx, name)
+		if err != nil || c.State == nil || !c.State.Running {
+			return false
+		}
+	}
+	return true
 }
 
 // StopApp: owners and admins may stop an app.

@@ -21,6 +21,7 @@ type Event struct {
 	AppID    string
 	Instance string // nl.bitploy.instance of the container
 	Slug     string
+	Service  string // nl.bitploy.service; "" on containers from before services
 	ExitCode string // for die
 	Time     time.Time
 }
@@ -38,7 +39,7 @@ func ParseEvent(m events.Message) (Event, bool) {
 	action := string(m.Action)
 	ev := Event{
 		ID: m.Actor.ID, Name: strings.TrimPrefix(attrs["name"], "/"),
-		AppID: attrs[LabelAppID], Instance: attrs[LabelInstance], Slug: attrs[LabelSlug], ExitCode: attrs["exitCode"],
+		AppID: attrs[LabelAppID], Instance: attrs[LabelInstance], Slug: attrs[LabelSlug], Service: attrs[LabelService], ExitCode: attrs["exitCode"],
 		Time: time.Unix(0, m.TimeNano),
 	}
 	if m.TimeNano == 0 {

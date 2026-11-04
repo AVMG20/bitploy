@@ -267,12 +267,13 @@ func (a *API) appRoutes() {
 		Summary: "Build or runtime logs", Description: "Max 1000 lines. With follow=1 it becomes a Server-Sent Events stream of runtime logs (comment heartbeat every 15 s).",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Kind   string `query:"kind" default:"runtime" enum:"build,runtime" doc:"build (latest deployment) or runtime"`
-		Tail   int    `query:"tail" minimum:"0" doc:"Last N lines (default 200, max 1000)"`
-		Since  string `query:"since" doc:"RFC 3339 time; runtime logs only"`
-		Follow bool   `query:"follow" doc:"1 = stream as Server-Sent Events"`
+		Kind    string `query:"kind" default:"runtime" enum:"build,runtime" doc:"build (latest deployment) or runtime"`
+		Tail    int    `query:"tail" minimum:"0" doc:"Last N lines (default 200, max 1000)"`
+		Since   string `query:"since" doc:"RFC 3339 time; runtime logs only"`
+		Follow  bool   `query:"follow" doc:"1 = stream as Server-Sent Events"`
+		Service string `query:"service" doc:"Runtime logs of one service of an app with several (see services in get app). Default: the public service, else the first."`
 	}) (*Out[app.Page[app.LogLine]], error) {
-		opts := app.LogOptions{Kind: in.Kind, Tail: tailOrDefault(in.Tail, 200)}
+		opts := app.LogOptions{Kind: in.Kind, Tail: tailOrDefault(in.Tail, 200), Service: in.Service}
 		if in.Since != "" {
 			t, err := time.Parse(time.RFC3339, in.Since)
 			if err != nil {
@@ -326,11 +327,19 @@ func (a *API) appRoutes() {
 	})
 
 	// ---- lifecycle ----
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "restartApp", Method: http.MethodPost, Path: "/apps/{app}/restart", Tags: []string{"Lifecycle"},
+		Summary: "Restart the app", Description: "With service, only that service of a running app with several services restarts.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		AppRef
+		Service string `query:"service" doc:"Name of one service of an app with several (see services in get app). Leave it out for a single-service app."`
+	}) (*Out[app.App], error) {
+		return okOrNil(a.svc.RestartApp(ctx, act, in.App, in.Service))
+	})
 	for _, lc := range []struct {
 		name, path, summary string
 		fn                  func(context.Context, app.Actor, string) (app.App, error)
 	}{
-		{"restartApp", "restart", "Restart the app", a.svc.RestartApp},
 		{"startApp", "start", "Start a stopped app", a.svc.StartApp},
 		{"stopApp", "stop", "Stop the app", a.svc.StopApp},
 	} {
@@ -392,9 +401,10 @@ func (a *API) appRoutes() {
 		Summary: "CPU, memory and network",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Window string `query:"window" default:"24h" enum:"1h,24h,7d"`
+		Window  string `query:"window" default:"24h" enum:"1h,24h,7d"`
+		Service string `query:"service" doc:"Metrics of one service of an app with several (see services in get app). Default: the sum over all services."`
 	}) (*Out[app.Metrics], error) {
-		return okOrNil(a.svc.GetMetrics(ctx, act, in.App, in.Window))
+		return okOrNil(a.svc.GetMetrics(ctx, act, in.App, in.Window, in.Service))
 	})
 
 	// ---- traffic ----

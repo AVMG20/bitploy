@@ -64,6 +64,7 @@ type App struct {
 	CatalogID           string
 	CatalogVersion      string
 	BaseDomain          string
+	ServiceLayout       string
 }
 
 type AppBackup struct {
@@ -76,6 +77,7 @@ type AppBackup struct {
 	Interrupted int64
 	CreatedAt   int64
 	FinishedAt  sql.NullInt64
+	Volume      string
 }
 
 type AppDisk struct {
@@ -93,6 +95,40 @@ type AppDomain struct {
 	KeyEnc       []byte
 	CertNotAfter sql.NullInt64
 	CreatedAt    int64
+}
+
+type AppService struct {
+	AppID          string
+	Name           string
+	Kind           string
+	Image          string
+	ContextDir     string
+	DockerfilePath string
+	Public         int64
+	Port           sql.NullInt64
+	HealthPath     string
+	MemoryMb       int64
+	CpuMillis      int64
+	Command        string
+	Entrypoint     string
+	Healthcheck    string
+	DependsOn      string
+	Environment    string
+	Position       int64
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type AppVolume struct {
+	AppID      string
+	Name       string
+	VolumeName string
+	SizeMb     int64
+	Service    string
+	MountPath  string
+	UsedBytes  int64
+	Position   int64
+	CreatedAt  int64
 }
 
 type AuditLog struct {
@@ -140,6 +176,16 @@ type Deployment struct {
 	CatalogVersion  string
 }
 
+type DeploymentService struct {
+	DeploymentID   string
+	Service        string
+	Image          sql.NullString
+	ContainerName  sql.NullString
+	Port           sql.NullInt64
+	HasHealthcheck int64
+	ConfigHash     string
+}
+
 type Domain struct {
 	ID            string
 	AppID         string
@@ -155,6 +201,7 @@ type Domain struct {
 
 type EnvVar struct {
 	AppID     string
+	Service   string
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
@@ -235,6 +282,7 @@ type Invite struct {
 
 type MetricRollup struct {
 	AppID    string
+	Service  string
 	Ts       int64
 	Cpu      float64
 	MemBytes int64
@@ -251,6 +299,7 @@ type MetricSample struct {
 	MemBytes int64
 	RxBytes  int64
 	TxBytes  int64
+	Service  string
 }
 
 type Session struct {

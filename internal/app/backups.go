@@ -268,7 +268,11 @@ func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupL
 	}
 	out := BackupList{Items: make([]Backup, 0, len(rows)), Settings: s.backupSettings(ctx, row), Busy: s.backupBusy(row.ID)}
 	for _, r := range rows {
-		out.Items = append(out.Items, backupView(r))
+		v := backupView(r)
+		if isMulti(row) {
+			v.Volume = r.Volume
+		}
+		out.Items = append(out.Items, v)
 		out.TotalBytes += r.SizeBytes
 	}
 	out.UploadMaxBytes, _ = s.uploadLimit(ctx, row, owner)
@@ -343,20 +347,25 @@ func (s *Service) UpdateBackupSettings(ctx context.Context, a Actor, ref string,
 // ---- back up now ----
 
 // CreateBackup starts a manual backup and returns at once; the backup shows up
-// as "running" in the list until it is done.
-func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string) (Backup, error) {
+// as "running" in the list until it is done. An optional volume name picks
+// the volume of an app with several; the default is the app's first volume.
+func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string, volume ...string) (Backup, error) {
 	row, owner, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return Backup{}, err
 	}
-	if row.VolumeEnabled == 0 {
+	vol, ok, err := s.pickVolume(ctx, row, firstOpt(volume))
+	if err != nil {
+		return Backup{}, err
+	}
+	if !ok {
 		return Backup{}, volumeOffErr()
 	}
 	vs, err := s.volumes()
 	if err != nil {
 		return Backup{}, err
 	}
-	if has, err := vs.HasVolume(ctx, appVolumeName(row)); err != nil {
+	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
 		return Backup{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
 	} else if !has {
 		return Backup{}, volumeNotReadyErr()
@@ -378,7 +387,7 @@ func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string) (Backup
 	if !lock.TryLock() {
 		return Backup{}, backupBusyErr()
 	}
-	b, err := s.insertBackup(ctx, row.ID, BackupManual)
+	b, err := s.insertBackup(ctx, row.ID, BackupManual, vol.Name)
 	if err != nil {
 		lock.Unlock()
 		return Backup{}, err
@@ -392,13 +401,20 @@ func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string) (Backup
 			s.Log.Warn("backup failed", "app", row.Slug, "err", err)
 		}
 	})
-	return backupView(b), nil
+	out := backupView(b)
+	if isMulti(row) {
+		out.Volume = b.Volume
+	}
+	return out, nil
 }
 
-func (s *Service) insertBackup(ctx context.Context, appID, kind string) (db.AppBackup, error) {
-	b := db.AppBackup{ID: ids.New(ids.Backup), AppID: appID, Kind: kind, Status: backupRunning, CreatedAt: s.now()}
+func (s *Service) insertBackup(ctx context.Context, appID, kind, volume string) (db.AppBackup, error) {
+	if volume == "" {
+		volume = singleVolume
+	}
+	b := db.AppBackup{ID: ids.New(ids.Backup), AppID: appID, Kind: kind, Status: backupRunning, CreatedAt: s.now(), Volume: volume}
 	if err := s.Q.InsertBackup(ctx, db.InsertBackupParams{
-		ID: b.ID, AppID: b.AppID, Kind: b.Kind, Status: b.Status, CreatedAt: b.CreatedAt,
+		ID: b.ID, AppID: b.AppID, Kind: b.Kind, Status: b.Status, CreatedAt: b.CreatedAt, Volume: b.Volume,
 	}); err != nil {
 		return db.AppBackup{}, apperr.Internal(err)
 	}
@@ -491,15 +507,21 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 
 // UploadBackup stores a .tar.gz sent by the user as an "uploaded" backup. It
 // checks every entry of the archive and writes a clean copy. contentLength is
-// the size announced by the client, or -1.
-func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io.Reader, contentLength int64) (Backup, error) {
+// the size announced by the client, or -1. An optional volume name says which
+// volume of an app with several the backup is for (default: the first).
+func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io.Reader, contentLength int64, volume ...string) (Backup, error) {
 	row, owner, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return Backup{}, err
 	}
-	if row.VolumeEnabled == 0 {
+	vol, ok, err := s.pickVolume(ctx, row, firstOpt(volume))
+	if err != nil {
+		return Backup{}, err
+	}
+	if !ok {
 		return Backup{}, volumeOffErr()
 	}
+	row.VolumeMb = vol.SizeMB // the limit of the volume the backup is for
 	if err := s.checkBackupDisk(); err != nil {
 		return Backup{}, err
 	}
@@ -577,7 +599,7 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 		werr = s.commitBackup(ctx, owner, tmp, final, size, func() error {
 			return s.Q.InsertBackup(ctx, db.InsertBackupParams{
 				ID: id, AppID: row.ID, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: now,
-				FinishedAt: sql.NullInt64{Int64: now, Valid: true},
+				FinishedAt: sql.NullInt64{Int64: now, Valid: true}, Volume: vol.Name,
 			})
 		})
 	}
@@ -587,7 +609,11 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 	}
 	s.Audit(ctx, a, "backup.upload", "app", row.ID, map[string]any{"backup": id, "bytes": size})
 	s.publishBackup(ctx, row.ID)
-	return Backup{ID: id, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}, nil
+	out := Backup{ID: id, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}
+	if isMulti(row) {
+		out.Volume = vol.Name
+	}
+	return out, nil
 }
 
 // uploadProblems are the answers for an upload that is too big: the unpacked

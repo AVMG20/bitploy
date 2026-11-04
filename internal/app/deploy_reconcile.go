@@ -82,13 +82,7 @@ func (s *Service) reconcileDeployments(ctx context.Context) {
 		app, aerr := s.Q.GetApp(ctx, d.AppID)
 		isCurrent := aerr == nil && app.CurrentDeploymentID.Valid && app.CurrentDeploymentID.String == d.ID
 		if s.Docker != nil && aerr == nil && !isCurrent {
-			name := dockerx.ContainerName(app.Slug, d.Seq)
-			if !s.isDraining(name) {
-				_ = s.Docker.RemoveContainer(ctx, name)
-			}
-			if d.SourceKind != "rollback" {
-				_ = s.Docker.RemoveImage(ctx, dockerx.ImageName(app.Slug, d.Seq))
-			}
+			s.removeInterrupted(ctx, app, d)
 		}
 		_ = os.RemoveAll(s.Cfg.BuildDir(d.ID))
 		if aerr == nil {
@@ -112,14 +106,10 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 		return
 	}
 	byID := make(map[string]db.App, len(apps))
-	currentName := map[string]string{}
+	current := map[string]map[string]string{} // app id -> service -> container
 	for _, a := range apps {
 		byID[a.ID] = a
-		if a.CurrentDeploymentID.Valid {
-			if d, err := s.Q.GetDeployment(ctx, a.CurrentDeploymentID.String); err == nil {
-				currentName[a.ID] = dockerx.ContainerName(a.Slug, d.Seq)
-			}
-		}
+		current[a.ID] = s.currentContainers(ctx, a)
 	}
 	s.reconcileTraefikNetworks(ctx, apps)
 	s.logForeignOnce(ctx)
@@ -200,30 +190,54 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 		if s.appBusy(app.ID) || !app.CurrentDeploymentID.Valid {
 			continue
 		}
-		name := currentName[app.ID]
-		if name == "" {
-			continue
+		if app.DesiredState == "running" && app.Status == "crashed" {
+			continue // crash-loop detection stopped it on purpose
 		}
-		info, ierr := dk.InspectContainer(ctx, name)
-		missing := dockerx.IsNotFound(ierr)
-		switch app.DesiredState {
-		case "stopped":
-			if ierr == nil && info.State != nil && (info.State.Running || info.State.Restarting) {
-				_ = dk.StopContainerGrace(ctx, name, 10)
+		var broken []string
+		anyDead := false
+		for svc, name := range current[app.ID] {
+			info, ierr := dk.InspectContainer(ctx, name)
+			missing := dockerx.IsNotFound(ierr)
+			switch app.DesiredState {
+			case "stopped":
+				if ierr == nil && info.State != nil && (info.State.Running || info.State.Restarting) {
+					_ = dk.StopContainerGrace(ctx, name, 10)
+				}
+			case "running":
+				dead := ierr == nil && info.State != nil && info.State.Dead
+				// Exited or never started: bitploy itself stops a current container only
+				// when the app is meant to stop, so this one was left behind (for example
+				// a recreate-mode deploy interrupted by a restart). Docker's restart policy
+				// does not revive a container that was stopped on purpose.
+				idle := ierr == nil && info.State != nil && !info.State.Running && !info.State.Restarting && !info.State.Paused
+				if missing || dead || idle {
+					broken = append(broken, svc)
+					anyDead = anyDead || dead
+				}
 			}
-		case "running":
-			if app.Status == "crashed" {
-				continue // crash-loop detection stopped it on purpose
-			}
-			dead := ierr == nil && info.State != nil && info.State.Dead
-			// Exited or never started: bitploy itself stops a current container only
-			// when the app is meant to stop, so this one was left behind (for example
-			// a recreate-mode deploy interrupted by a restart). Docker's restart policy
-			// does not revive a container that was stopped on purpose.
-			idle := ierr == nil && info.State != nil && !info.State.Running && !info.State.Restarting && !info.State.Paused
-			if missing || dead || idle {
-				s.restoreApp(ctx, app, dead)
-			}
+		}
+		if len(broken) > 0 {
+			s.restoreApp(ctx, app, anyDead, broken)
+		}
+	}
+}
+
+// removeInterrupted removes the containers and images an interrupted
+// deployment created. Containers it kept from an older deployment, and
+// images it reused, are left alone.
+func (s *Service) removeInterrupted(ctx context.Context, app db.App, d db.Deployment) {
+	rows, err := s.depServices(ctx, app, d)
+	if err != nil {
+		return
+	}
+	for _, r := range rows {
+		name := containerNameOf(app, r.Service, d.Seq)
+		if !s.isDraining(name) {
+			_ = s.Docker.RemoveContainer(ctx, name)
+		}
+		img := imageNameOf(app, r.Service, d.Seq)
+		if d.SourceKind != "rollback" && (!isMulti(app) || r.Image.String == img) {
+			_ = s.Docker.RemoveImage(ctx, img)
 		}
 	}
 }
@@ -291,8 +305,10 @@ func (s *Service) reconcileTraefikNetworks(ctx context.Context, apps []db.App) {
 	}
 }
 
-// restoreApp recreates a missing container of an app that should run.
-func (s *Service) restoreApp(ctx context.Context, app db.App, dead bool) {
+// restoreApp recreates the missing containers of an app that should run.
+// broken names the services whose container is missing, dead or stopped;
+// the other services of an app with several services keep running.
+func (s *Service) restoreApp(ctx context.Context, app db.App, dead bool, broken []string) {
 	r := &s.deployRT
 	r.mu.Lock()
 	r.init()
@@ -310,8 +326,8 @@ func (s *Service) restoreApp(ctx context.Context, app db.App, dead bool) {
 	if err != nil || fresh.DesiredState != "running" || s.appBusy(app.ID) {
 		return
 	}
-	s.Log.Warn("restoring missing container", "app", app.Slug)
-	if ae := s.startCurrentLocked(ctx, fresh); ae != nil {
+	s.Log.Warn("restoring missing container", "app", app.Slug, "services", broken)
+	if ae := s.restoreServices(ctx, fresh, broken); ae != nil {
 		r.mu.Lock()
 		r.restore[app.ID]++
 		n := r.restore[app.ID]
@@ -414,8 +430,8 @@ func (s *Service) removeIfStale(ctx context.Context, name, appID, depID string) 
 	if s.activeDeployment(depID) || s.isDraining(name) {
 		return
 	}
-	if app.CurrentDeploymentID.Valid {
-		if d, err := s.Q.GetDeployment(ctx, app.CurrentDeploymentID.String); err == nil && dockerx.ContainerName(app.Slug, d.Seq) == name {
+	for _, cur := range s.currentContainers(ctx, app) {
+		if cur == name {
 			return
 		}
 	}
@@ -451,10 +467,46 @@ func (s *Service) removeOrphanImages(ctx context.Context, appID string) {
 			known[d.Image.String] = true
 		}
 	}
+	if svcImgs, err := s.Q.ListAppDeploymentImages(ctx, appID); err == nil {
+		for _, r := range svcImgs {
+			known[r.Image.String] = true
+		}
+	} else {
+		return
+	}
 	for _, t := range tags {
 		if !known[t] {
 			s.Log.Warn("removing image that no deployment knows", "image", t)
 			_ = s.Docker.RemoveImage(ctx, t)
 		}
 	}
+}
+
+// restoreServices starts the broken services of the current deployment, in
+// start order. A single-layout app has one service, so it starts as before.
+func (s *Service) restoreServices(ctx context.Context, app db.App, broken []string) *apperr.Error {
+	if !isMulti(app) {
+		return s.startCurrentLocked(ctx, app)
+	}
+	specs, _, err := s.appSpecs(ctx, app)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	order, err := startOrder(specs)
+	if err != nil || len(broken) >= len(specs) {
+		return s.startCurrentLocked(ctx, app)
+	}
+	want := map[string]bool{}
+	for _, b := range broken {
+		want[b] = true
+	}
+	for _, sp := range order {
+		if !want[sp.Name] {
+			continue
+		}
+		if ae := s.startCurrentLocked(ctx, app, sp.Name); ae != nil {
+			return ae
+		}
+	}
+	return nil
 }

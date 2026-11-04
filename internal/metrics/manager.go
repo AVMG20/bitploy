@@ -48,11 +48,14 @@ type Manager struct {
 	// BuildCacheKeepBytes caps the BuildKit cache after the nightly prune.
 	BuildCacheKeepBytes int64
 
-	mu      sync.RWMutex
-	latest  map[string]Point // newest sample per running app
-	tracked map[string]*tracked
-	appUser map[string]string
-	dfCache dfCache
+	mu     sync.RWMutex
+	latest map[string]Point // newest sample per running app
+	// latestSvc is the newest sample per service of a running app, keyed by
+	// svcKey(app, service).
+	latestSvc map[string]Point
+	tracked   map[string]*tracked
+	appUser   map[string]string
+	dfCache   dfCache
 
 	crashes *crashTracker
 	oomAt   map[string]time.Time
@@ -69,6 +72,7 @@ func New(st *store.Store, dk Docker, log *slog.Logger) *Manager {
 		SampleInterval:      15 * time.Second,
 		BuildCacheKeepBytes: 10 << 30,
 		latest:              map[string]Point{},
+		latestSvc:           map[string]Point{},
 		tracked:             map[string]*tracked{},
 		appUser:             map[string]string{},
 		crashes:             newCrashTracker(5, 5*time.Minute),

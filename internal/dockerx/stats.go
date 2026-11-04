@@ -100,6 +100,7 @@ type Managed struct {
 	Name    string // without leading slash
 	AppID   string
 	Slug    string
+	Service string // nl.bitploy.service; "" on containers from before services
 	State   string // running | exited | restarting | …
 	Created time.Time
 }
@@ -126,7 +127,7 @@ func (c *Client) ManagedContainers(ctx context.Context, all bool) ([]Managed, er
 			name = strings.TrimPrefix(it.Names[0], "/")
 		}
 		out = append(out, Managed{
-			ID: it.ID, Name: name, AppID: appID, Slug: it.Labels[LabelSlug],
+			ID: it.ID, Name: name, AppID: appID, Slug: it.Labels[LabelSlug], Service: it.Labels[LabelService],
 			State: string(it.State), Created: time.Unix(it.Created, 0).UTC(),
 		})
 	}

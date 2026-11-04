@@ -63,16 +63,17 @@ func (q *Queries) DeleteAppRow(ctx context.Context, id string) error {
 }
 
 const deleteEnvVar = `-- name: DeleteEnvVar :exec
-DELETE FROM env_vars WHERE app_id = ? AND name = ?
+DELETE FROM env_vars WHERE app_id = ? AND service = ? AND name = ?
 `
 
 type DeleteEnvVarParams struct {
-	AppID string
-	Name  string
+	AppID   string
+	Service string
+	Name    string
 }
 
 func (q *Queries) DeleteEnvVar(ctx context.Context, arg DeleteEnvVarParams) error {
-	_, err := q.db.ExecContext(ctx, deleteEnvVar, arg.AppID, arg.Name)
+	_, err := q.db.ExecContext(ctx, deleteEnvVar, arg.AppID, arg.Service, arg.Name)
 	return err
 }
 
@@ -227,7 +228,7 @@ func (q *Queries) InsertUpload(ctx context.Context, arg InsertUploadParams) erro
 }
 
 const listEnvVars = `-- name: ListEnvVars :many
-SELECT app_id, name, value_enc, updated_at FROM env_vars WHERE app_id = ? ORDER BY name
+SELECT app_id, service, name, value_enc, updated_at FROM env_vars WHERE app_id = ? ORDER BY service, name
 `
 
 func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, error) {
@@ -241,6 +242,7 @@ func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, erro
 		var i EnvVar
 		if err := rows.Scan(
 			&i.AppID,
+			&i.Service,
 			&i.Name,
 			&i.ValueEnc,
 			&i.UpdatedAt,
@@ -356,18 +358,24 @@ func (q *Queries) NextDeploySeq(ctx context.Context, arg NextDeploySeqParams) (i
 
 const rewriteDeploymentNames = `-- name: RewriteDeploymentNames :exec
 UPDATE deployments
-SET image = CASE WHEN image IS NULL THEN NULL ELSE 'bitploy/' || ?1 || substr(image, instr(image, ':')) END,
-    container_name = CASE WHEN container_name IS NULL THEN NULL ELSE 'bp-' || ?1 || '-' || seq END
-WHERE app_id = ?2
+SET image = CASE WHEN substr(image, 1, length('bitploy/' || ?1)) = 'bitploy/' || ?1
+                 THEN 'bitploy/' || ?2 || substr(image, length('bitploy/' || ?1) + 1)
+                 ELSE image END,
+    container_name = CASE WHEN substr(container_name, 1, length('bp-' || ?1)) = 'bp-' || ?1
+                 THEN 'bp-' || ?2 || substr(container_name, length('bp-' || ?1) + 1)
+                 ELSE container_name END
+WHERE app_id = ?3
 `
 
 type RewriteDeploymentNamesParams struct {
-	Slug  sql.NullString
-	AppID string
+	OldSlug sql.NullString
+	NewSlug sql.NullString
+	AppID   string
 }
 
+// After a rename, see RewriteDeploymentServiceNames.
 func (q *Queries) RewriteDeploymentNames(ctx context.Context, arg RewriteDeploymentNamesParams) error {
-	_, err := q.db.ExecContext(ctx, rewriteDeploymentNames, arg.Slug, arg.AppID)
+	_, err := q.db.ExecContext(ctx, rewriteDeploymentNames, arg.OldSlug, arg.NewSlug, arg.AppID)
 	return err
 }
 
@@ -619,20 +627,23 @@ func (q *Queries) UpdateAppSettings(ctx context.Context, arg UpdateAppSettingsPa
 }
 
 const upsertEnvVar = `-- name: UpsertEnvVar :exec
-INSERT INTO env_vars (app_id, name, value_enc, updated_at) VALUES (?, ?, ?, ?)
-ON CONFLICT(app_id, name) DO UPDATE SET value_enc = excluded.value_enc, updated_at = excluded.updated_at
+INSERT INTO env_vars (app_id, service, name, value_enc, updated_at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(app_id, service, name) DO UPDATE SET value_enc = excluded.value_enc, updated_at = excluded.updated_at
 `
 
 type UpsertEnvVarParams struct {
 	AppID     string
+	Service   string
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
 }
 
+// service ” is shared by all of the app's services.
 func (q *Queries) UpsertEnvVar(ctx context.Context, arg UpsertEnvVarParams) error {
 	_, err := q.db.ExecContext(ctx, upsertEnvVar,
 		arg.AppID,
+		arg.Service,
 		arg.Name,
 		arg.ValueEnc,
 		arg.UpdatedAt,
@@ -657,12 +668,13 @@ func (q *Queries) UpsertSlugReservation(ctx context.Context, arg UpsertSlugReser
 }
 
 const volumeNameExists = `-- name: VolumeNameExists :one
-SELECT COUNT(*) FROM apps WHERE volume_name = ?
+SELECT (SELECT COUNT(*) FROM apps WHERE apps.volume_name = ?1)
+     + (SELECT COUNT(*) FROM app_volumes WHERE app_volumes.volume_name = ?1)
 `
 
-func (q *Queries) VolumeNameExists(ctx context.Context, volumeName string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, volumeNameExists, volumeName)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+func (q *Queries) VolumeNameExists(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, volumeNameExists, name)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }

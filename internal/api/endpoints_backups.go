@@ -38,8 +38,11 @@ func (a *API) backupRoutes() {
 		Summary:       "Back up /data now",
 		Description:   "Returns at once with a backup in status running; poll the list until it is ready or failed.",
 		DefaultStatus: http.StatusAccepted,
-	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.Backup], error) {
-		return okOrNil(a.svc.CreateBackup(ctx, act, in.App))
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		AppRef
+		Volume string `query:"volume" doc:"Name of one volume of an app with several (see volumes in get app). Default: the app's first volume."`
+	}) (*Out[app.Backup], error) {
+		return okOrNil(a.svc.CreateBackup(ctx, act, in.App, in.Volume))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteBackup", Method: http.MethodDelete, Path: "/apps/{app}/backups/{id}", Tags: []string{"Backups"},
@@ -124,7 +127,7 @@ func (a *API) backupUpload(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, err)
 		return
 	}
-	b, err := a.svc.UploadBackup(r.Context(), act, r.PathValue("app"), r.Body, r.ContentLength)
+	b, err := a.svc.UploadBackup(r.Context(), act, r.PathValue("app"), r.Body, r.ContentLength, r.URL.Query().Get("volume"))
 	if err != nil {
 		// An answer sent while the browser is still sending is often never
 		// seen (the connection is reset): let the rest of a reasonable upload

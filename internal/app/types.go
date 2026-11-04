@@ -186,9 +186,42 @@ type App struct {
 	StartedAt      *time.Time      `json:"started_at,omitempty"` // current container start, for uptime
 	RestartCount   int64           `json:"restart_count"`
 	// Live is the latest 15-second sample (CPU % of one core, memory MB); nil when not running.
-	Live      *MetricPoint `json:"live"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	Live *MetricPoint `json:"live"`
+	// Services are the containers the app runs: one service named "app" for
+	// an app built from one Dockerfile. memory_mb and cpu_millis above are
+	// their sums.
+	Services []AppService `json:"services" doc:"The services of the app; one named app unless it has several"`
+	// Volumes are the app's storage volumes; the /data volume is named "data".
+	Volumes   []AppVolume `json:"volumes" doc:"The storage volumes of the app; /data is named data"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
+// AppService is one service of an app (App.services).
+type AppService struct {
+	Name string `json:"name" doc:"The service name; also its hostname for the app's other services"`
+	Kind string `json:"kind" doc:"build (from a Dockerfile) or image (a ready-made image)"`
+	// Image is the image reference of an image service.
+	Image      string   `json:"image,omitempty" doc:"The image of an image service"`
+	Public     bool     `json:"public" doc:"The app's address and domains point at this service"`
+	Port       *int64   `json:"port" doc:"The port the service listens on, or null when not known yet"`
+	HealthPath string   `json:"health_path"`
+	MemoryMB   int64    `json:"memory_mb"`
+	CPUMillis  int64    `json:"cpu_millis"`
+	Volumes    []string `json:"volumes" doc:"Names of the volumes the service mounts"`
+	DependsOn  []string `json:"depends_on" doc:"Services that start before this one"`
+	// Container is the Docker container of the current deployment.
+	Container string `json:"container,omitempty"`
+}
+
+// AppVolume is one storage volume of an app (App.volumes).
+type AppVolume struct {
+	Name      string `json:"name" doc:"The volume name; pass it as volume= to the files and backups endpoints"`
+	Service   string `json:"service" doc:"The service that mounts it"`
+	MountPath string `json:"mount_path" doc:"Where the service sees it, like /data"`
+	SizeMB    int64  `json:"size_mb" doc:"Its storage limit"`
+	// UsedMB is what the volume holds, measured hourly; nil until measured.
+	UsedMB *float64 `json:"used_mb"`
 }
 
 type DeployError struct {
@@ -273,6 +306,9 @@ type LogLine struct {
 	Time   *time.Time `json:"time,omitempty"`
 	Stream string     `json:"stream,omitempty"` // stdout | stderr | build
 	Text   string     `json:"text"`
+	// Service is the service a runtime line came from, set only for an app
+	// with several services.
+	Service string `json:"service,omitempty"`
 }
 
 type MetricPoint struct {
@@ -286,7 +322,9 @@ type MetricPoint struct {
 }
 
 type Metrics struct {
-	App           string        `json:"app"`
+	App string `json:"app"`
+	// Service is set when the metrics are of one service, not the whole app.
+	Service       string        `json:"service,omitempty"`
 	Window        string        `json:"window"` // 1h | 24h | 7d
 	MemoryLimitMB int64         `json:"memory_limit_mb"`
 	Points        []MetricPoint `json:"points"`
@@ -466,6 +504,9 @@ type LogOptions struct {
 	Kind  string     // build | runtime
 	Tail  int        // default 200, max 1000
 	Since *time.Time // runtime only
+	// Service picks one service's runtime logs; "" is the app's public (or
+	// only) service.
+	Service string
 }
 
 // Backup is one archive of an app's /data folder.
@@ -476,6 +517,9 @@ type Backup struct {
 	SizeBytes int64     `json:"size_bytes"`
 	Error     string    `json:"error,omitempty"` // why a failed backup failed, in plain words
 	CreatedAt time.Time `json:"created_at"`
+	// Volume is the volume the backup holds, set only for an app with
+	// several services (a single-service app has one volume, data).
+	Volume string `json:"volume,omitempty"`
 }
 
 // BackupSettings are the automatic backups of one app.

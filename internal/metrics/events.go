@@ -116,8 +116,8 @@ func (m *Manager) HandleEvent(ctx context.Context, ev dockerx.Event) {
 	if err != nil {
 		return // app deleted
 	}
-	cur, err := q.OpsGetCurrentContainer(ctx, ev.AppID)
-	if err != nil || !cur.Valid || cur.String != ev.Name {
+	cur, err := q.OpsListCurrentContainers(ctx, ev.AppID)
+	if err != nil || !isCurrent(cur, ev.Name) {
 		return
 	}
 	if app.DesiredState != "running" {
@@ -128,7 +128,7 @@ func (m *Manager) HandleEvent(ctx context.Context, ev dockerx.Event) {
 	case "oom":
 		m.markOOM(ev.Name)
 		if app.Status == "running" || app.Status == "failed" {
-			m.setStatus(ctx, app, "failed", MsgOOM)
+			m.setStatus(ctx, app, "failed", MsgOOM+serviceNote(app, ev, ""))
 			m.audit(ctx, "app.oom", "app", app.ID, map[string]any{"container": ev.Name})
 		}
 	case "die":
@@ -138,6 +138,36 @@ func (m *Manager) HandleEvent(ctx context.Context, ev dockerx.Event) {
 	case "health_status":
 		m.onHealth(ctx, app, ev)
 	}
+}
+
+// isCurrent reports whether a container belongs to the app's current deployment.
+func isCurrent(cur []db.OpsListCurrentContainersRow, name string) bool {
+	for _, c := range cur {
+		if c.ContainerName.Valid && c.ContainerName.String == name {
+			return true
+		}
+	}
+	return false
+}
+
+// multi reports whether the app has several services, so messages name the
+// service. A single-service app keeps the messages it always had.
+func multi(app db.App) bool { return app.ServiceLayout == "multi" }
+
+// serviceNote is " (service web)" or " (service web, extra)" for a
+// multi-service app, and " (extra)" or "" for a single-service one.
+func serviceNote(app db.App, ev dockerx.Event, extra string) string {
+	parts := []string{}
+	if multi(app) {
+		parts = append(parts, "service "+ServiceOf(ev.Service))
+	}
+	if extra != "" {
+		parts = append(parts, extra)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 func (m *Manager) markOOM(name string) {
@@ -163,12 +193,13 @@ func (m *Manager) onDie(ctx context.Context, app db.App, ev dockerx.Event) {
 			oom = true
 		}
 	}
-	msg := msgExited
+	code := ""
 	if ev.ExitCode != "" && ev.ExitCode != "0" {
-		msg += " (exit code " + ev.ExitCode + ")"
+		code = "exit code " + ev.ExitCode
 	}
+	msg := msgExited + serviceNote(app, ev, code)
 	if oom {
-		msg = MsgOOM
+		msg = MsgOOM + serviceNote(app, ev, "")
 	}
 
 	count, loop := m.crashes.Add(ev.Name, ev.Time)
@@ -178,16 +209,32 @@ func (m *Manager) onDie(ctx context.Context, app db.App, ev dockerx.Event) {
 	}
 	m.setStatus(ctx, app, "failed", msg)
 	m.audit(ctx, "app.container_died", "app", app.ID, map[string]any{
-		"container": ev.Name, "exit_code": ev.ExitCode, "oom": oom, "deaths_in_window": count,
+		"container": ev.Name, "service": ServiceOf(ev.Service), "exit_code": ev.ExitCode, "oom": oom, "deaths_in_window": count,
 	})
 }
 
 // crashLoop stops a container that died too often and marks the app crashed.
+// The other services of a multi-service app are stopped too: the app is
+// stopped as a whole.
 func (m *Manager) crashLoop(ctx context.Context, app db.App, ev dockerx.Event, count int) {
 	_ = m.Docker.StopContainerGrace(ctx, ev.Name, 10) // also cancels the restart policy
+	if multi(app) {
+		if cur, err := m.Store.Q.OpsListCurrentContainers(ctx, app.ID); err == nil {
+			for _, c := range cur {
+				if c.ContainerName.Valid && c.ContainerName.String != ev.Name {
+					_ = m.Docker.StopContainerGrace(ctx, c.ContainerName.String, 10)
+				}
+			}
+		}
+	}
 	tail := m.logTail(ctx, ev.Name)
 	msg := fmt.Sprintf("%s: the app stopped %d times in %d minutes, so bitploy stopped it. "+
 		"Fix the error in the log below and redeploy, or start the app again.", msgCrashed, count, int(crashWindow.Minutes()))
+	if multi(app) {
+		svc := ServiceOf(ev.Service)
+		msg = fmt.Sprintf("%s: the %s service stopped %d times in %d minutes, so bitploy stopped the app. "+
+			"Fix the error in the log below (get_logs with service=%s) and redeploy, or start the app again.", msgCrashed, svc, count, int(crashWindow.Minutes()), svc)
+	}
 	if tail != "" {
 		msg += "\n\nLast log lines:\n" + tail
 	}
@@ -202,7 +249,7 @@ func (m *Manager) crashLoop(ctx context.Context, app db.App, ev dockerx.Event, c
 	}
 	m.crashes.Forget(ev.Name)
 	m.audit(ctx, "app.crashed", "app", app.ID, map[string]any{
-		"container": ev.Name, "deaths_in_window": count, "log_tail": tail,
+		"container": ev.Name, "service": ServiceOf(ev.Service), "deaths_in_window": count, "log_tail": tail,
 	})
 	if m.SyncRoute != nil {
 		if err := m.SyncRoute(ctx, app.ID); err != nil {
@@ -249,7 +296,11 @@ func (m *Manager) onHealth(ctx context.Context, app db.App, ev dockerx.Event) {
 		if app.Status != "running" {
 			return
 		}
-		m.setStatus(ctx, app, "failed", msgUnhealthy+": the container's HEALTHCHECK reports unhealthy")
+		detail := ": the container's HEALTHCHECK reports unhealthy"
+		if multi(app) {
+			detail = ": the HEALTHCHECK of the " + ServiceOf(ev.Service) + " service reports unhealthy"
+		}
+		m.setStatus(ctx, app, "failed", msgUnhealthy+detail)
 		m.audit(ctx, "app.unhealthy", "app", app.ID, map[string]any{"container": ev.Name})
 	case "healthy":
 		if app.Status == "failed" && strings.HasPrefix(app.StatusMessage, msgUnhealthy) {

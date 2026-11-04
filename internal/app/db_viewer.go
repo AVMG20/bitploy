@@ -313,7 +313,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, path string, w *dbWr
 		return filePathErr("There is no path to a database.")
 	}
 	req.Path = rel
-	row, _, _, err := s.filesTarget(ctx, a, ref, w != nil)
+	row, _, _, vol, err := s.filesTarget(ctx, a, ref, w != nil, "") // the first volume
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, path string, w *dbWr
 		defer end()
 	}
 
-	raw, err := runner.RunDB(ctx, appVolumeName(row), body)
+	raw, err := runner.RunDB(ctx, vol.VolumeName, body)
 	if err != nil {
 		// The helper may have been killed after it committed: nobody knows.
 		s.dbAudit(ctx, a, row, rel, w, "unknown", "", nil)

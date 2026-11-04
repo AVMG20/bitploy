@@ -93,6 +93,18 @@ func ContainerName(slug string, seq int64) string { return fmt.Sprintf("bp-%s-%d
 func ImageName(slug string, seq int64) string     { return fmt.Sprintf("bitploy/%s:%d", slug, seq) }
 func VolumeName(slug string) string               { return "bp-" + slug + "-data" }
 
+// Names for the services of a multi-service app. The "_" between slug and
+// service cannot occur in either, so bp-<slug>_<service>-<n> never equals
+// another app's bp-<slug>-<n> (app "shop" with service "web" against an app
+// named "shop-web"). Docker DNS and Go's URL parser accept the "_".
+func ServiceContainerName(slug, service string, seq int64) string {
+	return fmt.Sprintf("bp-%s_%s-%d", slug, service, seq)
+}
+func ServiceImageName(slug, service string, seq int64) string {
+	return fmt.Sprintf("bitploy/%s_%s:%d", slug, service, seq)
+}
+func ServiceVolumeName(slug, volume string) string { return "bp-" + slug + "_" + volume }
+
 // Labels set on every container, network, image and volume bitploy owns.
 const (
 	LabelManaged    = "nl.bitploy.managed"  // "1"
@@ -101,4 +113,5 @@ const (
 	LabelSlug       = "nl.bitploy.slug"
 	LabelDeployment = "nl.bitploy.deployment_id"
 	LabelSeq        = "nl.bitploy.seq"
+	LabelService    = "nl.bitploy.service" // the app service a container runs; missing on containers from before services
 )

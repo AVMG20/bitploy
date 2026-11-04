@@ -38,11 +38,6 @@ DELETE FROM domains WHERE id = ? AND status IN ('pending_dns', 'failed');
 -- name: OpsSetAppDesiredState :exec
 UPDATE apps SET desired_state = ?, updated_at = ? WHERE id = ?;
 
--- name: OpsGetCurrentContainer :one
-SELECT d.container_name AS container_name
-FROM apps a JOIN deployments d ON d.id = a.current_deployment_id
-WHERE a.id = ?;
-
 -- name: OpsSumMemoryLimitsMB :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps
 WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL;
@@ -50,32 +45,41 @@ WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL;
 -- ---- metric samples and rollups ----
 
 -- name: OpsInsertSample :exec
-INSERT INTO metric_samples (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO metric_samples (app_id, service, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: OpsListSamples :many
-SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes
-FROM metric_samples WHERE app_id = ? AND ts >= ? ORDER BY ts;
+-- Service '' is the whole app: the sum over its services.
+SELECT CAST(ts AS INTEGER) AS ts, CAST(SUM(cpu) AS REAL) AS cpu, CAST(SUM(mem_bytes) AS INTEGER) AS mem_bytes,
+       CAST(SUM(rx_bytes) AS INTEGER) AS rx_bytes, CAST(SUM(tx_bytes) AS INTEGER) AS tx_bytes
+FROM metric_samples
+WHERE app_id = sqlc.arg(app_id) AND ts >= sqlc.arg(ts) AND (CAST(sqlc.arg(service) AS TEXT) = '' OR service = sqlc.arg(service))
+GROUP BY ts ORDER BY ts;
 
 -- name: OpsListSamplesBefore :many
 SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes
-FROM metric_samples WHERE app_id = ? AND ts >= ? AND ts < ? ORDER BY ts;
+FROM metric_samples WHERE app_id = ? AND service = ? AND ts >= ? AND ts < ? ORDER BY ts;
 
 -- name: OpsListSampleApps :many
-SELECT DISTINCT app_id FROM metric_samples;
+SELECT DISTINCT app_id, service FROM metric_samples;
 
 -- name: OpsUpsertRollup :exec
-INSERT INTO metric_rollups (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (app_id, ts) DO UPDATE SET
+INSERT INTO metric_rollups (app_id, service, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (app_id, service, ts) DO UPDATE SET
     cpu = excluded.cpu, mem_bytes = excluded.mem_bytes, rx_bytes = excluded.rx_bytes,
     tx_bytes = excluded.tx_bytes, cpu_max = excluded.cpu_max, mem_max = excluded.mem_max;
 
 -- name: OpsListRollups :many
-SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max
-FROM metric_rollups WHERE app_id = ? AND ts >= ? ORDER BY ts;
+-- Service '' is the whole app; its maxima are the sums of the services' maxima.
+SELECT CAST(ts AS INTEGER) AS ts, CAST(SUM(cpu) AS REAL) AS cpu, CAST(SUM(mem_bytes) AS INTEGER) AS mem_bytes,
+       CAST(SUM(rx_bytes) AS INTEGER) AS rx_bytes, CAST(SUM(tx_bytes) AS INTEGER) AS tx_bytes,
+       CAST(SUM(cpu_max) AS REAL) AS cpu_max, CAST(SUM(mem_max) AS INTEGER) AS mem_max
+FROM metric_rollups
+WHERE app_id = sqlc.arg(app_id) AND ts >= sqlc.arg(ts) AND (CAST(sqlc.arg(service) AS TEXT) = '' OR service = sqlc.arg(service))
+GROUP BY ts ORDER BY ts;
 
 -- name: OpsLastRollupTS :one
-SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM metric_rollups WHERE app_id = ?;
+SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM metric_rollups WHERE app_id = ? AND service = ?;
 
 -- name: OpsDeleteSamplesBefore :execrows
 DELETE FROM metric_samples WHERE ts < ?;
@@ -153,10 +157,20 @@ SELECT id, slug, volume_name, volume_enabled FROM apps;
 SELECT id, app_id FROM deployments;
 
 -- name: OpsListVolumeUsage :many
+-- Single-layout apps: the /data volume, measured into app_disk.
 SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, a.volume_mb, d.volume_bytes
 FROM apps a
 JOIN app_disk d ON d.app_id = a.id
-WHERE a.volume_enabled = 1;
+WHERE a.volume_enabled = 1 AND a.service_layout = 'single';
+
+-- name: OpsListServiceVolumeUsage :many
+-- Multi-layout apps: every volume against its own limit.
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state,
+       v.name, v.service, v.mount_path, v.size_mb, v.used_bytes
+FROM apps a
+JOIN app_volumes v ON v.app_id = a.id
+WHERE a.service_layout = 'multi'
+ORDER BY a.id, v.position, v.name;
 
 -- ---- admin server stats ----
 

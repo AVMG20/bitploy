@@ -541,11 +541,15 @@ export interface LogTarget {
   kind: LogKind
   /** Deployment whose build log to show (build logs only). */
   deploymentId?: string
+  /** One service of an app with several (runtime logs only). */
+  service?: string
 }
 
 export function logPath(t: LogTarget): { path: string; query: Record<string, string | number> } {
   if (t.kind === 'build' && t.deploymentId) return { path: paths.deploymentLog(t.deploymentId), query: {} }
-  return { path: paths.appLogs(t.slug), query: { kind: t.kind, tail: 500 } }
+  const query: Record<string, string | number> = { kind: t.kind, tail: 500 }
+  if (t.kind === 'runtime' && t.service) query.service = t.service
+  return { path: paths.appLogs(t.slug), query }
 }
 
 /** One log line; runtime lines also say when they were written. */

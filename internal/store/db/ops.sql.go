@@ -216,19 +216,6 @@ func (q *Queries) OpsDeleteUpload(ctx context.Context, id string) error {
 	return err
 }
 
-const opsGetCurrentContainer = `-- name: OpsGetCurrentContainer :one
-SELECT d.container_name AS container_name
-FROM apps a JOIN deployments d ON d.id = a.current_deployment_id
-WHERE a.id = ?
-`
-
-func (q *Queries) OpsGetCurrentContainer(ctx context.Context, id string) (sql.NullString, error) {
-	row := q.db.QueryRowContext(ctx, opsGetCurrentContainer, id)
-	var container_name sql.NullString
-	err := row.Scan(&container_name)
-	return container_name, err
-}
-
 const opsGetDomainByHostname = `-- name: OpsGetDomainByHostname :one
 SELECT id, app_id, hostname, status, txt_token, last_error, last_checked_at, check_until, activated_at, created_at FROM domains WHERE hostname = ?
 `
@@ -283,11 +270,12 @@ func (q *Queries) OpsInsertDomain(ctx context.Context, arg OpsInsertDomainParams
 
 const opsInsertSample = `-- name: OpsInsertSample :exec
 
-INSERT INTO metric_samples (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO metric_samples (app_id, service, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type OpsInsertSampleParams struct {
 	AppID    string
+	Service  string
 	Ts       int64
 	Cpu      float64
 	MemBytes int64
@@ -299,6 +287,7 @@ type OpsInsertSampleParams struct {
 func (q *Queries) OpsInsertSample(ctx context.Context, arg OpsInsertSampleParams) error {
 	_, err := q.db.ExecContext(ctx, opsInsertSample,
 		arg.AppID,
+		arg.Service,
 		arg.Ts,
 		arg.Cpu,
 		arg.MemBytes,
@@ -309,11 +298,16 @@ func (q *Queries) OpsInsertSample(ctx context.Context, arg OpsInsertSampleParams
 }
 
 const opsLastRollupTS = `-- name: OpsLastRollupTS :one
-SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM metric_rollups WHERE app_id = ?
+SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM metric_rollups WHERE app_id = ? AND service = ?
 `
 
-func (q *Queries) OpsLastRollupTS(ctx context.Context, appID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, opsLastRollupTS, appID)
+type OpsLastRollupTSParams struct {
+	AppID   string
+	Service string
+}
+
+func (q *Queries) OpsLastRollupTS(ctx context.Context, arg OpsLastRollupTSParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, opsLastRollupTS, arg.AppID, arg.Service)
 	var ts int64
 	err := row.Scan(&ts)
 	return ts, err
@@ -520,26 +514,41 @@ func (q *Queries) OpsListHostnamesByStatuses(ctx context.Context, arg OpsListHos
 }
 
 const opsListRollups = `-- name: OpsListRollups :many
-SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max
-FROM metric_rollups WHERE app_id = ? AND ts >= ? ORDER BY ts
+SELECT CAST(ts AS INTEGER) AS ts, CAST(SUM(cpu) AS REAL) AS cpu, CAST(SUM(mem_bytes) AS INTEGER) AS mem_bytes,
+       CAST(SUM(rx_bytes) AS INTEGER) AS rx_bytes, CAST(SUM(tx_bytes) AS INTEGER) AS tx_bytes,
+       CAST(SUM(cpu_max) AS REAL) AS cpu_max, CAST(SUM(mem_max) AS INTEGER) AS mem_max
+FROM metric_rollups
+WHERE app_id = ?1 AND ts >= ?2 AND (CAST(?3 AS TEXT) = '' OR service = ?3)
+GROUP BY ts ORDER BY ts
 `
 
 type OpsListRollupsParams struct {
-	AppID string
-	Ts    int64
+	AppID   string
+	Ts      int64
+	Service string
 }
 
-func (q *Queries) OpsListRollups(ctx context.Context, arg OpsListRollupsParams) ([]MetricRollup, error) {
-	rows, err := q.db.QueryContext(ctx, opsListRollups, arg.AppID, arg.Ts)
+type OpsListRollupsRow struct {
+	Ts       int64
+	Cpu      float64
+	MemBytes int64
+	RxBytes  int64
+	TxBytes  int64
+	CpuMax   float64
+	MemMax   int64
+}
+
+// Service ” is the whole app; its maxima are the sums of the services' maxima.
+func (q *Queries) OpsListRollups(ctx context.Context, arg OpsListRollupsParams) ([]OpsListRollupsRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListRollups, arg.AppID, arg.Ts, arg.Service)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []MetricRollup{}
+	items := []OpsListRollupsRow{}
 	for rows.Next() {
-		var i MetricRollup
+		var i OpsListRollupsRow
 		if err := rows.Scan(
-			&i.AppID,
 			&i.Ts,
 			&i.Cpu,
 			&i.MemBytes,
@@ -562,22 +571,27 @@ func (q *Queries) OpsListRollups(ctx context.Context, arg OpsListRollupsParams) 
 }
 
 const opsListSampleApps = `-- name: OpsListSampleApps :many
-SELECT DISTINCT app_id FROM metric_samples
+SELECT DISTINCT app_id, service FROM metric_samples
 `
 
-func (q *Queries) OpsListSampleApps(ctx context.Context) ([]string, error) {
+type OpsListSampleAppsRow struct {
+	AppID   string
+	Service string
+}
+
+func (q *Queries) OpsListSampleApps(ctx context.Context) ([]OpsListSampleAppsRow, error) {
 	rows, err := q.db.QueryContext(ctx, opsListSampleApps)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []OpsListSampleAppsRow{}
 	for rows.Next() {
-		var app_id string
-		if err := rows.Scan(&app_id); err != nil {
+		var i OpsListSampleAppsRow
+		if err := rows.Scan(&i.AppID, &i.Service); err != nil {
 			return nil, err
 		}
-		items = append(items, app_id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -589,26 +603,38 @@ func (q *Queries) OpsListSampleApps(ctx context.Context) ([]string, error) {
 }
 
 const opsListSamples = `-- name: OpsListSamples :many
-SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes
-FROM metric_samples WHERE app_id = ? AND ts >= ? ORDER BY ts
+SELECT CAST(ts AS INTEGER) AS ts, CAST(SUM(cpu) AS REAL) AS cpu, CAST(SUM(mem_bytes) AS INTEGER) AS mem_bytes,
+       CAST(SUM(rx_bytes) AS INTEGER) AS rx_bytes, CAST(SUM(tx_bytes) AS INTEGER) AS tx_bytes
+FROM metric_samples
+WHERE app_id = ?1 AND ts >= ?2 AND (CAST(?3 AS TEXT) = '' OR service = ?3)
+GROUP BY ts ORDER BY ts
 `
 
 type OpsListSamplesParams struct {
-	AppID string
-	Ts    int64
+	AppID   string
+	Ts      int64
+	Service string
 }
 
-func (q *Queries) OpsListSamples(ctx context.Context, arg OpsListSamplesParams) ([]MetricSample, error) {
-	rows, err := q.db.QueryContext(ctx, opsListSamples, arg.AppID, arg.Ts)
+type OpsListSamplesRow struct {
+	Ts       int64
+	Cpu      float64
+	MemBytes int64
+	RxBytes  int64
+	TxBytes  int64
+}
+
+// Service ” is the whole app: the sum over its services.
+func (q *Queries) OpsListSamples(ctx context.Context, arg OpsListSamplesParams) ([]OpsListSamplesRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListSamples, arg.AppID, arg.Ts, arg.Service)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []MetricSample{}
+	items := []OpsListSamplesRow{}
 	for rows.Next() {
-		var i MetricSample
+		var i OpsListSamplesRow
 		if err := rows.Scan(
-			&i.AppID,
 			&i.Ts,
 			&i.Cpu,
 			&i.MemBytes,
@@ -630,24 +656,39 @@ func (q *Queries) OpsListSamples(ctx context.Context, arg OpsListSamplesParams) 
 
 const opsListSamplesBefore = `-- name: OpsListSamplesBefore :many
 SELECT app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes
-FROM metric_samples WHERE app_id = ? AND ts >= ? AND ts < ? ORDER BY ts
+FROM metric_samples WHERE app_id = ? AND service = ? AND ts >= ? AND ts < ? ORDER BY ts
 `
 
 type OpsListSamplesBeforeParams struct {
-	AppID string
-	Ts    int64
-	Ts_2  int64
+	AppID   string
+	Service string
+	Ts      int64
+	Ts_2    int64
 }
 
-func (q *Queries) OpsListSamplesBefore(ctx context.Context, arg OpsListSamplesBeforeParams) ([]MetricSample, error) {
-	rows, err := q.db.QueryContext(ctx, opsListSamplesBefore, arg.AppID, arg.Ts, arg.Ts_2)
+type OpsListSamplesBeforeRow struct {
+	AppID    string
+	Ts       int64
+	Cpu      float64
+	MemBytes int64
+	RxBytes  int64
+	TxBytes  int64
+}
+
+func (q *Queries) OpsListSamplesBefore(ctx context.Context, arg OpsListSamplesBeforeParams) ([]OpsListSamplesBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListSamplesBefore,
+		arg.AppID,
+		arg.Service,
+		arg.Ts,
+		arg.Ts_2,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []MetricSample{}
+	items := []OpsListSamplesBeforeRow{}
 	for rows.Next() {
-		var i MetricSample
+		var i OpsListSamplesBeforeRow
 		if err := rows.Scan(
 			&i.AppID,
 			&i.Ts,
@@ -655,6 +696,63 @@ func (q *Queries) OpsListSamplesBefore(ctx context.Context, arg OpsListSamplesBe
 			&i.MemBytes,
 			&i.RxBytes,
 			&i.TxBytes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const opsListServiceVolumeUsage = `-- name: OpsListServiceVolumeUsage :many
+SELECT a.id, a.slug, a.status, a.status_message, a.desired_state,
+       v.name, v.service, v.mount_path, v.size_mb, v.used_bytes
+FROM apps a
+JOIN app_volumes v ON v.app_id = a.id
+WHERE a.service_layout = 'multi'
+ORDER BY a.id, v.position, v.name
+`
+
+type OpsListServiceVolumeUsageRow struct {
+	ID            string
+	Slug          string
+	Status        string
+	StatusMessage string
+	DesiredState  string
+	Name          string
+	Service       string
+	MountPath     string
+	SizeMb        int64
+	UsedBytes     int64
+}
+
+// Multi-layout apps: every volume against its own limit.
+func (q *Queries) OpsListServiceVolumeUsage(ctx context.Context) ([]OpsListServiceVolumeUsageRow, error) {
+	rows, err := q.db.QueryContext(ctx, opsListServiceVolumeUsage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsListServiceVolumeUsageRow{}
+	for rows.Next() {
+		var i OpsListServiceVolumeUsageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Status,
+			&i.StatusMessage,
+			&i.DesiredState,
+			&i.Name,
+			&i.Service,
+			&i.MountPath,
+			&i.SizeMb,
+			&i.UsedBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -702,7 +800,7 @@ const opsListVolumeUsage = `-- name: OpsListVolumeUsage :many
 SELECT a.id, a.slug, a.status, a.status_message, a.desired_state, a.volume_mb, d.volume_bytes
 FROM apps a
 JOIN app_disk d ON d.app_id = a.id
-WHERE a.volume_enabled = 1
+WHERE a.volume_enabled = 1 AND a.service_layout = 'single'
 `
 
 type OpsListVolumeUsageRow struct {
@@ -715,6 +813,7 @@ type OpsListVolumeUsageRow struct {
 	VolumeBytes   int64
 }
 
+// Single-layout apps: the /data volume, measured into app_disk.
 func (q *Queries) OpsListVolumeUsage(ctx context.Context) ([]OpsListVolumeUsageRow, error) {
 	rows, err := q.db.QueryContext(ctx, opsListVolumeUsage)
 	if err != nil {
@@ -846,15 +945,16 @@ func (q *Queries) OpsUpsertAppDisk(ctx context.Context, arg OpsUpsertAppDiskPara
 }
 
 const opsUpsertRollup = `-- name: OpsUpsertRollup :exec
-INSERT INTO metric_rollups (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (app_id, ts) DO UPDATE SET
+INSERT INTO metric_rollups (app_id, service, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (app_id, service, ts) DO UPDATE SET
     cpu = excluded.cpu, mem_bytes = excluded.mem_bytes, rx_bytes = excluded.rx_bytes,
     tx_bytes = excluded.tx_bytes, cpu_max = excluded.cpu_max, mem_max = excluded.mem_max
 `
 
 type OpsUpsertRollupParams struct {
 	AppID    string
+	Service  string
 	Ts       int64
 	Cpu      float64
 	MemBytes int64
@@ -867,6 +967,7 @@ type OpsUpsertRollupParams struct {
 func (q *Queries) OpsUpsertRollup(ctx context.Context, arg OpsUpsertRollupParams) error {
 	_, err := q.db.ExecContext(ctx, opsUpsertRollup,
 		arg.AppID,
+		arg.Service,
 		arg.Ts,
 		arg.Cpu,
 		arg.MemBytes,

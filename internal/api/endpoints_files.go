@@ -31,9 +31,10 @@ func (a *API) filesRoutes() {
 			"POST /apps/{app}/files/upload?path=<folder>&name=<file>[&overwrite=true] (up to 100 MB).",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Path string `query:"path" doc:"Folder, relative to /data (default: /data itself)"`
+		Path   string `query:"path" doc:"Folder, relative to /data (default: /data itself)"`
+		Volume string `query:"volume" doc:"Name of one volume of an app with several (see volumes in get app). Default: the app's first volume."`
 	}) (*Out[app.FileList], error) {
-		return okOrNil(a.svc.ListFiles(ctx, act, in.App, in.Path))
+		return okOrNil(a.svc.ListFiles(ctx, act, in.App, in.Path, in.Volume))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "createFolder", Method: http.MethodPost, Path: "/apps/{app}/files/folder", Tags: []string{"Files"},
@@ -42,12 +43,13 @@ func (a *API) filesRoutes() {
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Body struct {
+		Volume string `query:"volume" doc:"Name of one volume of an app with several (see volumes in get app). Default: the app's first volume."`
+		Body   struct {
 			Path string `json:"path,omitempty" doc:"Folder to make it in, relative to /data (default: /data itself)"`
 			Name string `json:"name" doc:"Name of the new folder"`
 		}
 	}) (*Out[app.FileEntry], error) {
-		return okOrNil(a.svc.MakeFolder(ctx, act, in.App, in.Body.Path, in.Body.Name))
+		return okOrNil(a.svc.MakeFolder(ctx, act, in.App, in.Body.Path, in.Body.Name, in.Volume))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteFile", Method: http.MethodDelete, Path: "/apps/{app}/files", Tags: []string{"Files"},
@@ -56,9 +58,10 @@ func (a *API) filesRoutes() {
 		DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Path string `query:"path" required:"true" doc:"File or folder, relative to /data"`
+		Path   string `query:"path" required:"true" doc:"File or folder, relative to /data"`
+		Volume string `query:"volume" doc:"Name of one volume of an app with several (see volumes in get app). Default: the app's first volume."`
 	}) (*Empty, error) {
-		if err := a.svc.DeleteFile(ctx, act, in.App, in.Path); err != nil {
+		if err := a.svc.DeleteFile(ctx, act, in.App, in.Path, in.Volume); err != nil {
 			return nil, err
 		}
 		return &Empty{}, nil
@@ -82,7 +85,7 @@ func (a *API) fileDownload(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, err)
 		return
 	}
-	d, err := a.svc.OpenFile(r.Context(), act, r.PathValue("app"), r.URL.Query().Get("path"))
+	d, err := a.svc.OpenFile(r.Context(), act, r.PathValue("app"), r.URL.Query().Get("path"), r.URL.Query().Get("volume"))
 	if err != nil {
 		auth.WriteError(w, err)
 		return
@@ -116,7 +119,7 @@ func (a *API) fileUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	e, err := a.svc.UploadFile(r.Context(), act, r.PathValue("app"), q.Get("path"), q.Get("name"), overwrite, r.Body, r.ContentLength)
+	e, err := a.svc.UploadFile(r.Context(), act, r.PathValue("app"), q.Get("path"), q.Get("name"), overwrite, r.Body, r.ContentLength, q.Get("volume"))
 	if err != nil {
 		// See backupUpload: let the rest of a reasonable upload arrive first.
 		drainBody(w, r)
