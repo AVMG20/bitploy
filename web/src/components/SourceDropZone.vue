@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { detectSource, guessHomePage, NEXT_CONFIG_NAMES } from '@/lib/detect'
 import { formatBytes } from '@/lib/format'
+import { COMPOSE_FILE_NAMES } from '@/lib/types'
 import type { BuildMode } from '@/lib/types'
 import {
   buildZip,
@@ -42,10 +43,18 @@ export interface UploadChoice {
   packageJson: string | null
   /** The text of the Next.js config at the top of the project; null when there is none or it could not be read here. */
   nextConfig: string | null
+  /** The compose file at the top of the project (compose.yaml, docker-compose.yml, ...); null when there is none or it could not be read here. */
+  compose: { path: string; text: string } | null
   skipped: string[]
 }
 
-const props = defineProps<{ disabled?: boolean; /** The output folder chosen for a static build; empty: the detected one. */ outputDir?: string }>()
+const props = defineProps<{
+  disabled?: boolean
+  /** The output folder chosen for a static build; empty: the detected one. */
+  outputDir?: string
+  /** The project runs from its compose file: what one container would build does not matter. */
+  composeChosen?: boolean
+}>()
 const choice = defineModel<UploadChoice | null>({ default: null })
 /** How the source is read: auto, or the type the person chose. */
 const mode = defineModel<BuildMode>('mode', { default: 'auto' })
@@ -74,6 +83,30 @@ async function zipNextConfig(file: File, names: string[] | null, kept: string[] 
   }
   return null
 }
+/** The first compose file at the top of a folder. */
+async function folderCompose(files: Collected['files']): Promise<UploadChoice['compose']> {
+  for (const name of COMPOSE_FILE_NAMES) {
+    const f = files.find((x) => x.path === name)
+    if (f && f.file.size <= MAX_PACKAGE_JSON) {
+      const text = await f.file.text().catch(() => null)
+      if (text !== null) return { path: name, text }
+    }
+  }
+  return null
+}
+
+/** The same for a zip. */
+async function zipCompose(file: File, names: string[] | null, kept: string[] | null): Promise<UploadChoice['compose']> {
+  if (!names || !kept) return null
+  for (const name of COMPOSE_FILE_NAMES) {
+    if (!kept.includes(name)) continue
+    const entry = zipNameAtTop(names, name)
+    const text = entry ? await readZipText(file, entry, MAX_PACKAGE_JSON) : null
+    if (text !== null) return { path: name, text }
+  }
+  return null
+}
+
 const folderInput = ref<HTMLInputElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const over = ref(false)
@@ -127,6 +160,7 @@ async function takeFolder(c: Collected) {
     const pkg = c.files.find((f) => f.path === 'package.json')
     const packageJson = pkg && pkg.file.size <= MAX_PACKAGE_JSON ? await pkg.file.text().catch(() => null) : null
     const nextConfig = await folderNextConfig(c.files)
+    const compose = await folderCompose(c.files)
     const page = !c.root && c.files.length === 1 && isPage(c.files[0]!.path)
     choice.value = {
       zip,
@@ -137,6 +171,7 @@ async function takeFolder(c: Collected) {
       paths: serverLayout(c.files.map((f) => f.path)),
       packageJson,
       nextConfig,
+      compose,
       skipped: c.skipped,
     }
   } catch (e) {
@@ -161,6 +196,7 @@ async function takeZip(file: File) {
   const pkgName = names && kept?.includes('package.json') ? zipNameAtTop(names, 'package.json') : null
   const packageJson = pkgName ? await readZipText(file, pkgName, MAX_PACKAGE_JSON) : null
   const nextConfig = await zipNextConfig(file, names, kept)
+  const compose = await zipCompose(file, names, kept)
   choice.value = {
     zip: file,
     name: file.name,
@@ -169,6 +205,7 @@ async function takeZip(file: File) {
     paths: kept,
     packageJson,
     nextConfig,
+    compose,
     skipped: [],
   }
 }
@@ -292,7 +329,7 @@ onBeforeUnmount(() => abort?.abort())
         Left out: {{ choice.skipped.join(', ') }}.<template v-if="choice.skipped.some((s) => s.toLowerCase().startsWith('.env'))"> Put the values from .env in the app's Variables tab: it can read a pasted .env file.</template>
       </p>
 
-      <div v-if="detected" class="grid min-w-0 gap-2 rounded-lg border p-3 text-sm">
+      <div v-if="detected && !composeChosen" class="grid min-w-0 gap-2 rounded-lg border p-3 text-sm">
         <p class="flex items-start gap-2">
           <TriangleAlert v-if="detected.kind === 'none'" class="mt-0.5 size-4 shrink-0 text-destructive" />
           <TriangleAlert v-else-if="detected.kind === 'template' && detected.unsure" class="mt-0.5 size-4 shrink-0 text-warning" />
@@ -342,7 +379,7 @@ onBeforeUnmount(() => abort?.abort())
           </p>
         </template>
       </div>
-      <p v-else class="text-xs text-muted-foreground">Bitploy checks what is inside this zip when you deploy.</p>
+      <p v-else-if="!composeChosen" class="text-xs text-muted-foreground">Bitploy checks what is inside this zip when you deploy.</p>
     </template>
   </div>
 </template>

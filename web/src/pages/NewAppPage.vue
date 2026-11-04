@@ -5,13 +5,15 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, FileCode, Github, LayoutGrid, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowLeft, Boxes, FileCode, Github, LayoutGrid, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
 import DomainSelect from '@/components/DomainSelect.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
+import ComposePreview from '@/components/ComposePreview.vue'
+import { Textarea } from '@/components/ui/textarea'
 import type { UploadChoice } from '@/components/SourceDropZone.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -27,7 +29,7 @@ import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
-import type { BuildMode, DockerfileFinding, GitSourceInput } from '@/lib/types'
+import type { BuildMode, ComposeCheck, DockerfileFinding, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
 const router = useRouter()
@@ -39,7 +41,7 @@ const me = useMe()
 const form = useForm({
   validationSchema: toTypedSchema(
     z.object({
-      name: z.string().trim().min(1, 'Give the app a name.').max(80, 'Use at most 80 characters.'),
+      name: z.string().trim().min(1, 'Give the project a name.').max(80, 'Use at most 80 characters.'),
       slug: slugSchema,
     }),
   ),
@@ -65,8 +67,10 @@ const addressParts = computed(() => toAddressParts(me.data.value, domain.value))
 // ---------------------------------------------------------------- source
 const github = useQuery({ queryKey: keys.github, queryFn: api.github })
 const canPick = computed(() => (github.data.value?.installations ?? []).some((i) => i.status === 'active'))
-type Source = 'github' | 'upload' | 'dockerfile' | 'ready-made'
-const SOURCES: Source[] = ['github', 'upload', 'dockerfile', 'ready-made']
+// The four single-container sources come first; a pasted compose file (several
+// services) is the extra door below them.
+type Source = 'github' | 'upload' | 'dockerfile' | 'ready-made' | 'compose'
+const SOURCES: Source[] = ['github', 'upload', 'dockerfile', 'ready-made', 'compose']
 // ?source= opens a tab directly, e.g. coming back from a ready-made app.
 const chosenSource = ref<Source | null>(SOURCES.includes(route.query.source as Source) ? (route.query.source as Source) : null)
 // GitHub first, and the default once it is connected.
@@ -83,6 +87,26 @@ const outputDir = ref('')
 watch(upload, () => (outputDir.value = ''))
 const homePage = ref('')
 const volume = ref(false)
+
+// ---------------------------------------------------------------- several services (a compose file)
+const composeText = ref('')
+const composeCheck = ref<ComposeCheck | null | undefined>(undefined)
+// An upload with a compose file at the top runs all its services, unless the person picks one container.
+const uploadCompose = computed(() => (source.value === 'upload' ? (upload.value?.compose ?? null) : null))
+const useUploadCompose = ref(true)
+watch(upload, () => (useUploadCompose.value = true))
+// Only GitHub offers the compose type; other sources pick their own.
+watch(source, (v) => v !== 'github' && mode.value === 'compose' && (mode.value = 'auto'))
+/** Deploys as several services: a pasted compose file, an upload with one, or GitHub with the compose type. */
+const composeMode = computed(
+  () => source.value === 'compose' || (!!uploadCompose.value && useUploadCompose.value) || (source.value === 'github' && mode.value === 'compose'),
+)
+// The text the preview reads: pasted or found in the upload. GitHub repositories are read when they build.
+const previewText = computed(() => (source.value === 'compose' ? composeText.value : uploadCompose.value && useUploadCompose.value ? uploadCompose.value.text : ''))
+const previewFrom = computed(() => (source.value === 'compose' ? '' : uploadCompose.value ? uploadCompose.value.path : ''))
+// Known problems keep Deploy off; a server without a preview leaves it to the deploy.
+const composeBlocked = computed(() => !!previewText.value && (composeCheck.value === undefined || !!composeCheck.value?.errors?.length))
+const previewAddress = computed(() => `${addressParts.value.before}${form.values.slug || 'your-app'}${addressParts.value.after}`.replace(/^https?:\/\//, ''))
 
 // The Dockerfile tab: the text is the whole source.
 const dockerfile = ref('')
@@ -120,15 +144,17 @@ const detected = computed(() =>
     : null,
 )
 // The type is chosen once there is something to build; the files are read later for GitHub and for a zip this page cannot open.
-const showType = computed(() => source.value === 'github' || (source.value === 'upload' && !!upload.value))
+const showType = computed(() => source.value === 'github' || (source.value === 'upload' && !!upload.value && !(uploadCompose.value && useUploadCompose.value)))
 const typeLater = computed(() => source.value === 'github' || !upload.value?.paths)
 
 const sourceReady = computed(() => {
   if (source.value === 'ready-made') return false
+  if (source.value === 'compose') return !!composeText.value.trim() && !composeBlocked.value
   if (source.value === 'dockerfile') return !!dockerfile.value.trim() && !portError.value
   if (outputDirError(outputDir.value)) return false
   if (source.value === 'github') return !!repo.value
   if (!upload.value) return false
+  if (uploadCompose.value && useUploadCompose.value) return !composeBlocked.value
   // Nothing to build: the person has to change something first. A zip this
   // page could not read is checked by the server.
   return detected.value === null || detected.value.kind !== 'none'
@@ -139,6 +165,8 @@ const waitingFor = computed(() => {
   if (source.value === 'github') return canPick.value ? 'Pick a repository to continue.' : ''
   if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Write a Dockerfile to continue.'
   if (source.value === 'ready-made') return ''
+  if (source.value === 'compose') return composeText.value.trim() ? (composeCheck.value === undefined ? 'Checking the compose file...' : composeBlocked.value ? 'Fix the problems above to continue.' : '') : 'Paste a compose file to continue.'
+  if (uploadCompose.value && useUploadCompose.value && composeBlocked.value) return composeCheck.value === undefined ? 'Checking the compose file...' : 'Fix the compose file, or run one container instead.'
   return upload.value ? '' : 'Add your files to continue.'
 })
 
@@ -154,7 +182,7 @@ onBeforeUnmount(() => (gone = true))
 const buttonLabel = computed(() => {
   switch (stage.value) {
     case 'creating':
-      return 'Creating the app...'
+      return 'Creating the project...'
     case 'sending':
       return `Sending your files... ${Math.round(sent.value * 100)}%`
     case 'checking':
@@ -179,10 +207,11 @@ async function run(v: { name: string; slug: string }) {
       name: v.name,
       slug: v.slug,
       domain: domain.value || undefined,
-      volume: volume.value,
-      build_mode: source.value === 'dockerfile' ? 'dockerfile' : mode.value,
+      // A compose file brings its own volumes.
+      volume: composeMode.value ? false : volume.value,
+      build_mode: composeMode.value ? 'compose' : source.value === 'dockerfile' ? 'dockerfile' : mode.value,
       port: source.value === 'dockerfile' && port.value.trim() ? Number(port.value) : undefined,
-      output_dir: source.value !== 'dockerfile' ? outputDir.value.trim() || undefined : undefined,
+      output_dir: source.value !== 'dockerfile' && !composeMode.value ? outputDir.value.trim() || undefined : undefined,
       // Only kept when there are several pages to choose from.
       home_page: detected.value?.kind === 'static' && detected.value.choices ? detected.value.home : undefined,
     })
@@ -199,6 +228,10 @@ async function run(v: { name: string; slug: string }) {
     } else if (source.value === 'dockerfile') {
       stage.value = 'starting'
       await api.deployFiles(slug, [{ path: 'Dockerfile', content: dockerfile.value }])
+    } else if (source.value === 'compose') {
+      // Sent like a pasted Dockerfile: the file is the whole source.
+      stage.value = 'starting'
+      await api.deployFiles(slug, [{ path: 'compose.yaml', content: composeText.value }])
     } else if (repo.value) {
       stage.value = 'starting'
       await api.setGitSource(slug, repo.value)
@@ -284,6 +317,36 @@ const submit = form.handleSubmit(run)
                 <TabsTrigger value="ready-made" :disabled="busy"><LayoutGrid class="size-4" /> Ready-made</TabsTrigger>
               </TabsList>
             </Tabs>
+            <p v-if="source !== 'compose'" class="mt-1 text-xs text-muted-foreground">
+              Most projects are one container: a website, an API or a bot.
+              <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" :disabled="busy" @click="source = 'compose'">
+                Several services, like an app with its database? Paste a compose file
+              </button>
+            </p>
+          </div>
+
+          <div v-if="source === 'compose'" class="grid gap-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="grid gap-1">
+                <Label for="new-compose" class="inline-flex items-center gap-2"><Boxes class="size-4 text-muted-foreground" /> Compose file</Label>
+                <p class="text-[0.8rem] text-muted-foreground">
+                  The <span class="font-mono">compose.yaml</span> or <span class="font-mono">docker-compose.yml</span> of your project, for services that use ready-made images like
+                  <span class="font-mono">postgres</span> or <span class="font-mono">redis</span>. To build your own code too, upload the folder or use GitHub instead.
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" :disabled="busy" @click="source = canPick ? 'github' : 'upload'"><X /> One container</Button>
+            </div>
+            <Textarea
+              id="new-compose"
+              v-model="composeText"
+              rows="12"
+              spellcheck="false"
+              autocomplete="off"
+              :disabled="busy"
+              class="max-h-[28rem] font-mono text-xs leading-relaxed"
+              placeholder="services:&#10;  web:&#10;    image: ghcr.io/you/app:1.0&#10;    ports: [&quot;3000&quot;]&#10;    depends_on: [postgres]&#10;  postgres:&#10;    image: postgres:16&#10;    volumes: [pgdata:/var/lib/postgresql/data]&#10;volumes:&#10;  pgdata:"
+            />
+            <ComposePreview v-if="composeText.trim()" v-model:check="composeCheck" :text="composeText" :address="previewAddress" />
           </div>
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
@@ -293,7 +356,35 @@ const submit = form.handleSubmit(run)
 
           <CatalogPicker v-if="source === 'ready-made'" :name="form.values.name" :slug="addressEdited ? form.values.slug : undefined" :domain="domain" />
 
-          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />
+          <SourceDropZone v-if="source === 'upload'" v-model="upload" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :compose-chosen="!!uploadCompose && useUploadCompose" :disabled="busy" />
+
+          <!-- The upload has a compose file: run all its services, or just one container. -->
+          <div v-if="uploadCompose" class="grid gap-3">
+            <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="What to run">
+              <button
+                v-for="o in [
+                  { value: true, title: 'All services in the compose file', text: `Runs every service of ${uploadCompose.path}, each in its own container.` },
+                  { value: false, title: 'One container', text: 'Ignores the compose file and builds the project as one app, as usual.' },
+                ]"
+                :key="String(o.value)"
+                type="button"
+                role="radio"
+                :aria-checked="useUploadCompose === o.value"
+                :disabled="busy"
+                class="grid gap-0.5 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 aria-checked:border-primary/50 aria-checked:bg-primary/5"
+                @click="useUploadCompose = o.value"
+              >
+                <span class="flex items-center gap-2 text-sm font-medium">
+                  <span class="flex size-3.5 items-center justify-center rounded-full border" :class="useUploadCompose === o.value && 'border-primary'" aria-hidden="true">
+                    <span v-if="useUploadCompose === o.value" class="size-1.5 rounded-full bg-primary" />
+                  </span>
+                  {{ o.title }}
+                </span>
+                <span class="pl-5.5 text-xs text-muted-foreground">{{ o.text }}</span>
+              </button>
+            </div>
+            <ComposePreview v-if="useUploadCompose" v-model:check="composeCheck" :text="uploadCompose.text" :from="previewFrom" :address="previewAddress" />
+          </div>
 
           <div v-if="source === 'dockerfile'" class="grid gap-4">
             <div class="grid gap-1.5">
@@ -331,11 +422,11 @@ const submit = form.handleSubmit(run)
             </div>
           </div>
 
-          <BuildTypeFields v-if="showType" v-model:mode="mode" v-model:output-dir="outputDir" :detected="detected" :later="typeLater" :disabled="busy" id-prefix="new" />
+          <BuildTypeFields v-if="showType" v-model:mode="mode" v-model:output-dir="outputDir" :detected="detected" :later="typeLater" :disabled="busy" :compose="source === 'github'" id-prefix="new" />
         </CardContent>
       </Card>
 
-      <Card v-if="source !== 'ready-made'">
+      <Card v-if="source !== 'ready-made' && !composeMode">
         <CardContent>
           <div class="flex items-center justify-between gap-4">
             <div class="grid gap-1">
