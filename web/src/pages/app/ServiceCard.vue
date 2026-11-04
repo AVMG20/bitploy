@@ -98,7 +98,7 @@ const to = computed(() => ({ query: { ...route.query, service: props.service.nam
         <HardDrive class="size-3 shrink-0" /> <span class="font-mono text-foreground/80">{{ v.name }}</span>
         {{ v.used_mb !== null ? `${formatMB(v.used_mb)} of ${formatMB(v.size_mb)}` : formatMB(v.size_mb) }}
       </span>
-      <span v-if="!service.depends_on?.length && !volumes.length">Starts on its own, keeps no data</span>
+      <span v-if="!service.depends_on?.length && !volumes.length">Needs no other service and keeps no data</span>
     </div>
   </article>
 </template>

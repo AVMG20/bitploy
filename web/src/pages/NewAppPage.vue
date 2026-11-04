@@ -364,7 +364,7 @@ const submit = form.handleSubmit(run)
               <button
                 v-for="o in [
                   { value: true, title: 'All services in the compose file', text: `Runs every service of ${uploadCompose.path}, each in its own container.` },
-                  { value: false, title: 'One container', text: 'Ignores the compose file and builds the project as one app, as usual.' },
+                  { value: false, title: 'One container', text: 'Ignores the compose file and builds one container from the Dockerfile.' },
                 ]"
                 :key="String(o.value)"
                 type="button"

@@ -56,7 +56,7 @@ const COMPOSE_TITLES: Record<string, string> = {
   compose_service_name_invalid: 'A service name cannot be used.',
   compose_file_missing: 'There is no compose file.',
   compose_source_missing: 'A folder the compose file builds from is missing.',
-  compose_key_ignored: 'Part of the compose file is left out.',
+  compose_key_ignored: 'bitploy ignores a setting in the compose file.',
   compose_variable_unset: 'A variable the compose file uses has no value.',
   compose_service_skipped: 'A service is left out.',
   compose_ports_not_published: 'Ports are not opened to the internet.',
