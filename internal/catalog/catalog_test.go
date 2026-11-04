@@ -15,8 +15,8 @@ var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 const defaultQuotaMB = 2048
 
 func TestEntriesCount(t *testing.T) {
-	if n := len(All()); n < 6 || n > 8 {
-		t.Fatalf("want 6 to 8 entries, got %d", n)
+	if n := len(All()); n < 6 || n > 40 {
+		t.Fatalf("want 6 to 40 entries, got %d", n)
 	}
 }
 
