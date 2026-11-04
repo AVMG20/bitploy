@@ -28,6 +28,8 @@ import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import type { Backup, BackupKind } from '@/lib/types'
+import { useQueryParam } from '@/composables/useQueryParam'
+import { isMulti, serviceRole } from '@/lib/services'
 
 const props = defineProps<{ slug: string }>()
 const qc = useQueryClient()
@@ -36,7 +38,27 @@ const me = useMe()
 const backups = useBackups(() => props.slug)
 const quota = computed(() => me.data.value?.quota)
 const data = computed(() => app.data.value)
-const list = computed(() => backups.data.value)
+
+// A project with several services can have several volumes, each mounted by
+// one service. Their sizes come from the compose file, so there is no switch
+// and no limit here; files and backups are per volume (?volume=).
+const multi = computed(() => isMulti(data.value))
+const picked = useQueryParam('volume', '')
+const volumes = computed(() => data.value?.volumes ?? [])
+const vol = computed(() => (multi.value ? (volumes.value.find((v) => v.name === picked.value) ?? volumes.value[0]) : undefined))
+const volName = computed(() => vol.value?.name)
+const volService = computed(() => data.value?.services.find((s) => s.name === vol.value?.service))
+// The database viewer reads the first volume only.
+const isFirstVolume = computed(() => !!vol.value && vol.value.name === volumes.value[0]?.name)
+const hasData = computed(() => (multi.value ? !!vol.value : !!data.value?.volume))
+const allBackups = computed(() => backups.data.value)
+// Backups of the shown volume; one without a volume is of the first.
+const list = computed(() => {
+  const l = allBackups.value
+  if (!l || !multi.value) return l
+  const first = volumes.value[0]?.name
+  return { ...l, items: l.items.filter((b) => (b.volume || first) === volName.value) }
+})
 
 // ---------------------------------------------------------------- /data on or off, and its limit
 // The switch applies at once (no Save). The limit has its own Save button.
@@ -214,7 +236,7 @@ function refreshBackups() {
 }
 
 const createBackup = useMutation({
-  mutationFn: () => api.createBackup(props.slug),
+  mutationFn: () => api.createBackup(props.slug, volName.value),
   onSuccess: refreshBackups,
   onError: (e) => toastError(e),
 })
@@ -244,6 +266,7 @@ async function onFile(e: Event) {
       file,
       (f) => (progress.value = f),
       () => (processing.value = true),
+      volName.value,
     )
     toastOk('Backup uploaded', 'You can restore it from the list.')
     refreshBackups()
@@ -328,7 +351,44 @@ const kindLabel: Record<BackupKind, string> = {
 
 <template>
   <div v-if="data" class="grid gap-4">
-    <Card>
+    <Card v-if="multi">
+      <CardHeader class="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div class="grid min-w-0 gap-1.5">
+          <CardTitle>Stored data</CardTitle>
+          <CardDescription>
+            Each deploy starts the services from a fresh copy. What they write to a volume, like a database or uploads, is kept.
+            Volumes and their sizes come from your compose file.
+          </CardDescription>
+        </div>
+        <Select v-if="volumes.length > 1" :model-value="vol?.name" @update:model-value="(v) => (picked = String(v) === volumes[0]?.name ? '' : String(v))">
+          <SelectTrigger class="w-56" aria-label="Volume"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="v in volumes" :key="v.name" :value="v.name">
+              <span class="font-mono">{{ v.name }}</span> <span class="text-xs text-muted-foreground">of {{ v.service }}</span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </CardHeader>
+      <CardContent>
+        <EmptyState v-if="!vol" :icon="HardDrive" title="This project keeps no data." description="No service has a volume, so what they write is gone after a deploy or restart. Add a volume in your compose file to keep files." />
+        <div v-else class="grid gap-2">
+          <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+            <span class="text-muted-foreground">
+              <span class="font-mono text-foreground">{{ vol.name }}</span>, used by
+              {{ volService ? `the ${serviceRole(volService).label.toLowerCase()} ` : '' }}<span class="font-mono text-foreground">{{ vol.service }}</span>
+              at <span class="font-mono text-foreground">{{ vol.mount_path }}</span>
+            </span>
+            <span class="shrink-0 font-semibold tabular-nums">
+              <template v-if="vol.used_mb !== null">{{ formatMB(vol.used_mb) }} <span class="font-normal text-muted-foreground">of {{ formatMB(vol.size_mb) }}</span></template>
+              <template v-else><span class="font-normal text-muted-foreground">Not measured yet, limit {{ formatMB(vol.size_mb) }}</span></template>
+            </span>
+          </div>
+          <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(vol.used_mb ?? 0, vol.size_mb)" />
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card v-else>
       <CardHeader>
         <CardTitle>Saved files</CardTitle>
         <CardDescription>Each deploy starts from a fresh copy of your app. Files it saves in the folder <span class="font-mono">/data</span>, like uploads or a database, are kept.</CardDescription>
@@ -379,16 +439,17 @@ const kindLabel: Record<BackupKind, string> = {
       </CardContent>
     </Card>
 
-    <DataFiles v-if="data.volume" :slug="slug" :running="data.status === 'running'" />
+    <DataFiles v-if="multi && vol" :key="vol.name" :slug="slug" :running="data.status === 'running'" :volume="vol.name" :mount-path="vol.mount_path" :can-open-database="isFirstVolume" />
+    <DataFiles v-else-if="!multi && data.volume" :slug="slug" :running="data.status === 'running'" />
 
     <Card>
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>
-          <CardDescription v-if="data.volume && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
-          <CardDescription v-else>Copies of the saved files that you can download or restore.</CardDescription>
+          <CardDescription v-if="hasData && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
+          <CardDescription v-else>Copies of {{ multi && vol ? `the volume ${vol.name}` : 'the saved files' }} that you can download or restore.</CardDescription>
         </div>
-        <div v-if="data.volume" class="flex flex-wrap gap-2">
+        <div v-if="hasData" class="flex flex-wrap gap-2">
           <input ref="fileInput" type="file" accept=".gz,.tgz,application/gzip,application/x-gzip" class="hidden" @change="onFile" />
           <Button variant="outline" :disabled="working" title="A .tar.gz file with the files for /data" @click="fileInput?.click()">
             <Loader2 v-if="uploading" class="animate-spin" /><Upload v-else />
@@ -414,7 +475,7 @@ const kindLabel: Record<BackupKind, string> = {
           </AlertDescription>
         </Alert>
 
-        <FormScope v-if="data.volume && list" :form="backupForm">
+        <FormScope v-if="hasData && list && (!multi || isFirstVolume)" :form="backupForm">
           <form class="grid gap-4 sm:grid-cols-2 sm:items-start" novalidate @submit.prevent="submitSettings">
             <FormField v-slot="{ componentField }" name="schedule">
               <FormItem>
@@ -469,7 +530,7 @@ const kindLabel: Record<BackupKind, string> = {
         <QueryError v-if="backups.isError.value && !list" :error="backups.error.value" @retry="backups.refetch()" />
         <Skeleton v-else-if="!list" class="h-24 w-full" />
         <EmptyState
-          v-else-if="!list.items.length && !data.volume"
+          v-else-if="!list.items.length && !hasData && !multi"
           :icon="HardDrive"
           title="Saved files are off."
           :description="isStatic ? `Static sites do not need storage.` : `Turn them on to keep your app's files between deploys and back them up.`"
@@ -477,16 +538,18 @@ const kindLabel: Record<BackupKind, string> = {
           <Button v-if="!isStatic" :disabled="switching" @click="turnOn.mutate()">{{ turnOn.isPending.value ? 'Turning on...' : 'Turn on saved files' }}</Button>
         </EmptyState>
         <EmptyState
-          v-else-if="!list.items.length"
+          v-else-if="!list.items.length && hasData"
           :icon="Archive"
           title="No backups yet."
-          description="Back up now, or turn on automatic backups above."
+          :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover the first volume only.' : 'Back up now, or turn on automatic backups above.'"
         />
+        <p v-else-if="!list.items.length" class="text-sm text-muted-foreground">Nothing to back up: this project keeps no data.</p>
         <ul v-else class="divide-y rounded-lg border">
           <li v-for="b in list.items" :key="b.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
             <div class="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-x-3 gap-y-1">
               <span class="text-sm font-medium"><RelativeTime :date="b.created_at" /></span>
               <span class="hidden text-sm text-muted-foreground sm:inline">{{ formatDateTime(b.created_at) }}</span>
+              <span v-if="multi && b.volume" class="font-mono text-xs text-muted-foreground">{{ b.volume }}</span>
               <Badge variant="secondary">{{ kindLabel[b.kind] }}</Badge>
               <span v-if="b.status === 'running'" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Loader2 class="size-3.5 animate-spin" /> Working...
@@ -502,8 +565,8 @@ const kindLabel: Record<BackupKind, string> = {
                 <Button
                   size="sm"
                   variant="ghost"
-                  :disabled="working || !data.volume"
-                  :title="data.volume ? undefined : 'Turn on saved files to restore'"
+                  :disabled="working || !hasData"
+                  :title="hasData ? undefined : 'Turn on saved files to restore'"
                   :aria-label="`Restore the backup from ${formatDateTime(b.created_at)}`"
                   @click="toRestore = b"
                 >

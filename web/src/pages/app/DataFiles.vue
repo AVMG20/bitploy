@@ -22,7 +22,18 @@ import type { DataFile } from '@/lib/types'
 
 // A small file browser for /data: look around, download a file (a database, a
 // JSON file), upload a file into a folder, make a folder, delete.
-const props = defineProps<{ slug: string; running: boolean }>()
+const props = defineProps<{
+  slug: string
+  running: boolean
+  /** One volume of a project with several; empty for the first (the only one of a normal project). */
+  volume?: string
+  /** The database viewer reads the first volume only. */
+  canOpenDatabase?: boolean
+  /** Where the service sees the volume. */
+  mountPath?: string
+}>()
+const root = computed(() => props.mountPath || '/data')
+const vol = computed(() => props.volume || undefined)
 const qc = useQueryClient()
 
 const path = ref('') // the open folder, relative to /data
@@ -33,8 +44,8 @@ const crumbs = computed(() => {
 const child = (name: string) => (path.value ? `${path.value}/${name}` : name)
 
 const files = useQuery({
-  queryKey: computed(() => ['files', props.slug, path.value] as const),
-  queryFn: () => api.files(props.slug, path.value),
+  queryKey: computed(() => ['files', props.slug, path.value, ...(props.volume ? [props.volume] : [])] as const),
+  queryFn: () => api.files(props.slug, path.value, vol.value),
   placeholderData: keepPreviousData,
   retry: false,
 })
@@ -59,7 +70,7 @@ const hasDatabase = computed(() => !!list.value?.items.some(isDatabase))
 
 // A SQLite file opens in the database viewer.
 function isDatabase(f: DataFile) {
-  return f.type === 'file' && isDbFileName(f.name)
+  return f.type === 'file' && isDbFileName(f.name) && props.canOpenDatabase !== false
 }
 const viewerTo = (f: DataFile) => ({ name: 'app-database', params: { slug: props.slug }, query: { path: child(f.name) } })
 
@@ -121,11 +132,11 @@ async function uploadAll(chosen: File[]) {
       progress.value = 0
       try {
         try {
-          await api.uploadDataFile(props.slug, folder, file, overwrite, (f) => (progress.value = f))
+          await api.uploadDataFile(props.slug, folder, file, overwrite, (f) => (progress.value = f), undefined, vol.value)
         } catch (e) {
           // The folder has more items than the list shows: the server knows.
           if (!(e instanceof ApiError && e.code === 'file_exists' && !overwrite && (await askOverwrite(file.name)))) throw e
-          await api.uploadDataFile(props.slug, folder, file, true, (f) => (progress.value = f))
+          await api.uploadDataFile(props.slug, folder, file, true, (f) => (progress.value = f), undefined, vol.value)
         }
         done++
       } catch (e) {
@@ -178,7 +189,7 @@ function onDrop(e: DragEvent) {
 const folderOpen = ref(false)
 const folderName = ref('')
 const makeFolder = useMutation({
-  mutationFn: (name: string) => api.makeFolder(props.slug, path.value, name),
+  mutationFn: (name: string) => api.makeFolder(props.slug, path.value, name, vol.value),
   onSuccess: () => {
     folderOpen.value = false
     refresh()
@@ -203,7 +214,7 @@ const deleteOpen = computed({
   },
 })
 const remove = useMutation({
-  mutationFn: (f: DataFile) => api.deleteDataFile(props.slug, child(f.name)),
+  mutationFn: (f: DataFile) => api.deleteDataFile(props.slug, child(f.name), vol.value),
   onSuccess: (_, f) => {
     toastOk(f.type === 'dir' ? 'Folder deleted' : 'File deleted')
     toDelete.value = null
@@ -262,7 +273,7 @@ const remove = useMutation({
             :disabled="!crumbs.length"
             @click="path = ''"
           >
-            /data
+            {{ root }}
           </button>
           <template v-for="(c, i) in crumbs" :key="c.path">
             <ChevronRight class="size-3.5 text-muted-foreground" />
@@ -324,7 +335,7 @@ const remove = useMutation({
                       <RouterLink :to="viewerTo(f)"><Database /> Open</RouterLink>
                     </Button>
                     <Button v-if="f.type === 'file'" as-child size="icon-sm" variant="ghost" title="Download">
-                      <a :href="api.dataFileDownloadUrl(slug, child(f.name))" download aria-label="Download this file"><Download /></a>
+                      <a :href="api.dataFileDownloadUrl(slug, child(f.name), vol)" download aria-label="Download this file"><Download /></a>
                     </Button>
                     <Button
                       size="icon-sm"
@@ -353,7 +364,7 @@ const remove = useMutation({
     </CardContent>
 
     <div v-if="dragging" class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-background/80 text-sm font-medium">
-      Drop to upload to /data{{ path ? '/' + path : '' }}
+      Drop to upload to {{ root }}{{ path ? '/' + path : '' }}
     </div>
   </Card>
 
@@ -362,7 +373,7 @@ const remove = useMutation({
       <form class="grid gap-4" @submit.prevent="submitFolder">
         <DialogHeader>
           <DialogTitle>New folder</DialogTitle>
-          <DialogDescription>In <span class="font-mono">/data{{ path ? '/' + path : '' }}</span>.</DialogDescription>
+          <DialogDescription>In <span class="font-mono">{{ root }}{{ path ? '/' + path : '' }}</span>.</DialogDescription>
         </DialogHeader>
         <Input v-model="folderName" aria-label="Folder name" placeholder="Folder name" autocomplete="off" autocapitalize="off" spellcheck="false" />
         <DialogFooter>

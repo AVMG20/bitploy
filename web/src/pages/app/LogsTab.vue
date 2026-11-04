@@ -7,25 +7,42 @@ import Toolbar from '@/components/Toolbar.vue'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { keys, livePoll, REFRESH_MS } from '@/composables/queries'
+import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { api, fetchLogEntries, logStreamUrl, parseLogEntry } from '@/lib/api'
 import type { LogEntry, LogKind, LogTarget } from '@/lib/api'
 import { versionLabel } from '@/lib/format'
 import { toastError } from '@/lib/notify'
 import { cn } from '@/lib/utils'
+import { isMulti, publicService, serviceRole, sortServices } from '@/lib/services'
+import type { Ref } from 'vue'
 
-const props = defineProps<{ slug: string }>()
+const props = defineProps<{
+  slug: string
+  /** Only this service's log (the service panel); no picker then. */
+  service?: string
+  /** Inside the service panel: a shorter log, and the view is not kept in the address. */
+  embedded?: boolean
+}>()
 
 const MAX_LINES = 5000
 
 // What you look at lives in the address: ?kind=build opens the build log (the
 // first-deploy card on the Overview links here), ?deployment=<id> that of one
 // deployment (the Deployments tab), ?q= the filter.
-const kind = useQueryParam<LogKind>('kind', 'runtime', ['runtime', 'build'])
+const kind: Ref<LogKind> = props.embedded ? ref<LogKind>('runtime') : useQueryParam<LogKind>('kind', 'runtime', ['runtime', 'build'])
 const live = ref(true)
-const filter = useQueryParam('q', '')
-const chosen = useQueryParam('deployment', '')
+const filter: Ref<string> = props.embedded ? ref('') : useQueryParam('q', '')
+const chosen: Ref<string> = props.embedded ? ref('') : useQueryParam('deployment', '')
+
+// A project with several services: whose log. The server shows the website's
+// when none is asked for. ?svc= (?service= opens the service panel).
+const app = useApp(() => props.slug)
+const multi = computed(() => isMulti(app.data.value))
+const services = computed(() => sortServices(app.data.value?.services ?? []))
+const picked = useQueryParam('svc', '')
+const defaultService = computed(() => (app.data.value ? (publicService(app.data.value) ?? services.value[0])?.name ?? '' : ''))
+const logService = computed(() => props.service ?? (multi.value ? picked.value || defaultService.value : ''))
 const chosenDeployment = computed(() => chosen.value || undefined)
 const lines = shallowRef<LogEntry[]>([])
 
@@ -74,7 +91,7 @@ const inProgress = computed(() => {
   return s !== undefined && !['running', 'failed', 'superseded', 'cancelled'].includes(s)
 })
 
-const target = computed<LogTarget>(() => ({ slug: props.slug, kind: kind.value, deploymentId: deploymentId.value }))
+const target = computed<LogTarget>(() => ({ slug: props.slug, kind: kind.value, deploymentId: deploymentId.value, service: logService.value || undefined }))
 const noBuildYet = computed(() => kind.value === 'build' && !deploymentId.value && !deployments.isPending.value)
 // Finished build logs are static, so there is nothing to follow.
 const canFollow = computed(() => kind.value === 'runtime' || inProgress.value)
@@ -203,7 +220,7 @@ async function start() {
 
 watch(
   // Only build logs depend on the chosen deployment; the runtime stream must not restart when the list loads.
-  () => [props.slug, kind.value, kind.value === 'build' ? deploymentId.value : '', live.value, canFollow.value] as const,
+  () => [props.slug, kind.value, kind.value === 'build' ? deploymentId.value : '', kind.value === 'runtime' ? logService.value : '', live.value, canFollow.value] as const,
   () => void start(),
   { immediate: true },
 )
@@ -234,7 +251,7 @@ function download() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${props.slug}-${kind.value}.log`
+  a.download = `${props.slug}${logService.value && kind.value === 'runtime' ? `-${logService.value}` : ''}-${kind.value}.log`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -247,10 +264,19 @@ function download() {
     <Toolbar>
       <Tabs v-model="kind">
         <TabsList>
-          <TabsTrigger value="runtime">App log</TabsTrigger>
+          <TabsTrigger value="runtime">{{ multi ? 'Service log' : 'App log' }}</TabsTrigger>
           <TabsTrigger value="build">Build log</TabsTrigger>
         </TabsList>
       </Tabs>
+
+      <Select v-if="multi && !service && kind === 'runtime' && services.length" :model-value="logService" @update:model-value="(v) => (picked = String(v) === defaultService ? '' : String(v))">
+        <SelectTrigger class="w-48" aria-label="Service"><SelectValue placeholder="Pick a service" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem v-for="s in services" :key="s.name" :value="s.name">
+            {{ serviceRole(s).label }} <span class="font-mono text-xs text-muted-foreground">{{ s.name }}</span>
+          </SelectItem>
+        </SelectContent>
+      </Select>
 
       <Select v-if="kind === 'build' && deployments.data.value?.length" :model-value="deploymentId" @update:model-value="(v) => (chosen = String(v))">
         <SelectTrigger class="w-44" aria-label="Version"><SelectValue placeholder="Pick a version" /></SelectTrigger>
@@ -285,15 +311,16 @@ function download() {
     <div class="relative">
     <div
       ref="scroller"
-      class="h-[60vh] min-h-64 overflow-auto rounded-xl border bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-100"
+      :class="cn('min-h-64 overflow-auto', embedded ? 'h-[calc(100vh-22rem)]' : 'h-[60vh]')"
+      class="rounded-xl border bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-100"
       role="log"
       tabindex="0"
-      :aria-label="kind === 'build' ? 'Build log' : 'App log'"
+      :aria-label="kind === 'build' ? 'Build log' : logService ? `Log of ${logService}` : 'App log'"
       @scroll.passive="onScroll"
     >
       <p v-if="noBuildYet" class="text-neutral-400">There is no build log yet. It appears after the first deploy.</p>
       <p v-else-if="!visible.length" class="text-neutral-400">
-        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : 'Nothing logged yet. Anything your app prints shows up here.' }}
+        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : logService ? `Nothing logged yet. Anything ${logService} prints shows up here.` : 'Nothing logged yet. Anything your app prints shows up here.' }}
       </p>
       <div v-for="(l, i) in visible" :key="i" :class="cn('break-words whitespace-pre-wrap', showTime && l.time && 'flex gap-3')">
         <span v-if="showTime && l.time" class="shrink-0 text-neutral-500 select-none" :title="l.time">{{ stamp(l.time) }}</span>

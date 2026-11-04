@@ -1,11 +1,14 @@
 import { api, fetchLogLines } from './api'
 import { describeSource, shortSha } from './format'
-import type { App, Deployment } from './types'
+import { isMulti, serviceRole, sortServices } from './services'
+import type { App, AppStatus, Deployment } from './types'
 
 // "Copy for AI": a short text about a failure to paste into an AI assistant.
 // It names the app and deployment the way bitploy's tools do (slug, dep_ id),
 // says what failed, and ends with the log tail. It never fetches environment
-// variables, so no values from there end up in it.
+// variables, so no values from there end up in it. For a project with several
+// services it names the failing service and lists the others, so the assistant
+// knows where to look (get_logs takes the service).
 
 /** How many of the last log lines go into the text. */
 const LOG_LINES = 70
@@ -66,16 +69,42 @@ async function deploymentLog(d: Deployment): Promise<Log> {
   return { title, lines: d.log_tail?.length ? tidy(d.log_tail) : null }
 }
 
-async function runtimeLog(app: App): Promise<Log> {
+async function runtimeLog(app: App, service?: string): Promise<Log> {
+  const title = service ? `Log of the ${service} service` : 'App log'
   try {
-    return { title: 'App log', lines: tidy(await fetchLogLines({ slug: app.slug, kind: 'runtime' })) }
+    return { title, lines: tidy(await fetchLogLines({ slug: app.slug, kind: 'runtime', service })) }
   } catch {
-    return { title: 'App log', lines: null } // the text still helps without the log
+    return { title, lines: null } // the text still helps without the log
   }
 }
 
 function appLine(app: App): string {
   return `App: ${app.slug} ("${app.name}")${app.type === 'web' && app.url ? `, ${app.url}` : ', background worker'}`
+}
+
+/** "Services: web (website, public), api (API), postgres (database, postgres:16)". */
+function servicesLine(app: App): string {
+  const parts = sortServices(app.services ?? []).map((s) => {
+    const words = [serviceRole(s).label.toLowerCase()]
+    if (s.public) words.push('public')
+    if (s.kind === 'image' && s.image) words.push(s.image)
+    return `${s.name} (${words.join(', ')})`
+  })
+  return `Services: ${parts.join(', ')}`
+}
+
+/** The service a failed deployment of a project with several stopped at. */
+function failedService(app: App, d: Deployment): string | undefined {
+  if (!isMulti(app)) return undefined
+  return d.error?.service ?? d.services?.find((s) => s.error || s.state === 'failed')?.service
+}
+
+const DOWN: AppStatus[] = ['crashed', 'failed', 'stopped']
+
+/** The services of a running project that are down. */
+function downServices(app: App): string[] {
+  if (!isMulti(app)) return []
+  return (app.services ?? []).filter((s) => s.status && DOWN.includes(s.status)).map((s) => s.name)
 }
 
 function logBlock(log: Log): string[] {
@@ -85,22 +114,32 @@ function logBlock(log: Log): string[] {
 }
 
 function failedDeploymentText(app: App, d: Deployment, log: Log): string {
+  const service = failedService(app, d)
   const lines = [
     'My app on bitploy failed to deploy. Please find the cause, fix it, and deploy again.',
     '',
     appLine(app),
-    `Deployment: ${d.id} (#${d.seq}), ${deploymentFailure(d)}`,
-    `Source: ${sourceLine(d, app)}`,
   ]
+  if (isMulti(app)) lines.push(servicesLine(app))
+  lines.push(`Deployment: ${d.id} (#${d.seq}), ${deploymentFailure(d)}${service ? ` in the ${service} service` : ''}`, `Source: ${sourceLine(d, app)}`)
   if (d.error?.message) lines.push(`Error: ${d.error.message}`)
   if (d.error?.hint) lines.push(`Hint from bitploy: ${d.error.hint}`)
+  // Other services that failed too, with their own words.
+  for (const s of d.services ?? []) {
+    if (s.service !== service && s.error?.message) lines.push(`Also failed, the ${s.service} service: ${s.error.message}`)
+  }
   lines.push('', ...logBlock(log))
   return lines.join('\n')
 }
 
 function crashText(app: App, dep: Deployment | null, log: Log): string {
   const what = app.status === 'crashed' ? 'keeps crashing' : 'stopped working'
+  const down = downServices(app)
   const lines = [`My app on bitploy ${what}. Please find the cause, fix it, and deploy again.`, '', appLine(app)]
+  if (isMulti(app)) {
+    lines.push(servicesLine(app))
+    if (down.length) lines.push(`Not running: ${down.join(', ')}`)
+  }
   if (app.status_message) lines.push(`Status: ${app.status_message}`)
   if (app.restart_count > 0) lines.push(`Restarts: ${app.restart_count}`)
   if (dep) lines.push(`Current deployment: ${dep.id} (#${dep.seq})`, `Source: ${sourceLine(dep, app)}`)
@@ -127,5 +166,6 @@ export async function buildFailureText(app: App, deployment?: Deployment | null)
     }
   }
   if (d) return failedDeploymentText(app, d, await deploymentLog(d))
-  return crashText(app, app.current_deployment, await runtimeLog(app))
+  // In a project with several services, the log of the first one that is down; the public one otherwise.
+  return crashText(app, app.current_deployment, await runtimeLog(app, downServices(app)[0]))
 }

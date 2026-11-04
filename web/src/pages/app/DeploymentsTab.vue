@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { History, ScrollText, Undo2 } from 'lucide-vue-next'
+import { ChevronRight, History, ScrollText, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import { plainHint } from '@/lib/errors'
@@ -16,7 +16,9 @@ import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { commitUrl, deployedVia, deploymentStateInfo, describeSource, formatDuration, shortSha, versionLabel } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
-import type { Deployment } from '@/lib/types'
+import type { Deployment, DeploymentService } from '@/lib/types'
+import ServiceIcon from '@/components/ServiceIcon.vue'
+import { aboutService, isMulti, serviceRole } from '@/lib/services'
 import CancelBuildButton from './CancelBuildButton.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 
@@ -62,7 +64,32 @@ const emptyText = computed(() => {
 })
 
 function canRollback(d: Deployment): boolean {
-  return d.state === 'superseded' && !!d.image && d.id !== app.data.value?.current_deployment?.id
+  const built = !!d.image || !!d.services?.some((s) => !!s.image)
+  return d.state === 'superseded' && built && d.id !== app.data.value?.current_deployment?.id
+}
+
+// ---------------------------------------------------------------- the services of one deployment (projects with several)
+const multi = computed(() => isMulti(app.data.value))
+function roleOf(name: string) {
+  const s = app.data.value?.services.find((x) => x.name === name)
+  return serviceRole(s ?? { name, kind: 'build', public: false, port: null })
+}
+/** The failing service first, then the project's order. */
+function rowsOf(d: Deployment): DeploymentService[] {
+  return [...(d.services ?? [])].sort((a, b) => Number(!!b.error) - Number(!!a.error))
+}
+function summary(d: Deployment): string {
+  const list = d.services ?? []
+  const failed = list.filter((s) => s.error || s.state === 'failed').length
+  const reused = list.filter((s) => s.reused).length
+  const parts = [`${list.length} services`]
+  if (failed) parts.push(`${failed} failed`)
+  if (reused) parts.push(`${reused} unchanged`)
+  return parts.join(', ')
+}
+function serviceState(d: Deployment, s: DeploymentService) {
+  if (s.reused) return { label: 'Unchanged', tone: 'muted' as const }
+  return deploymentStateInfo(s.state ?? (s.error ? 'failed' : d.state))
 }
 </script>
 
@@ -104,11 +131,11 @@ function canRollback(d: Deployment): boolean {
           <span v-if="d.commit_sha">
             <a v-if="commitUrl(app.data.value, d.commit_sha)" :href="commitUrl(app.data.value, d.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-foreground hover:underline">{{ shortSha(d.commit_sha) }}</a>
             <span v-else class="font-mono">{{ shortSha(d.commit_sha) }}</span>
-            <template v-if="d.commit_message"> {{ d.commit_message }}</template>
+            <span v-if="d.commit_message" class="ml-1.5">{{ d.commit_message }}</span>
           </span>
         </div>
         <div v-if="d.error && d.state !== 'cancelled'" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-          <p class="font-medium">{{ d.error.message }}</p>
+          <p class="font-medium">{{ multi ? aboutService(d.error.message, d.error.service) : d.error.message }}</p>
           <p v-if="plainHint(d.error.code, d.error.hint)" class="mt-1">{{ plainHint(d.error.code, d.error.hint) }}</p>
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
@@ -116,6 +143,27 @@ function canRollback(d: Deployment): boolean {
           </details>
           <CopyForAiButton v-if="d.state === 'failed' && app.data.value" class="mt-3" :app="app.data.value" :deployment="d" />
         </div>
+        <details v-if="multi && d.services?.length" class="group rounded-lg border" :open="d.services.some((s) => !!s.error) || undefined">
+          <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronRight class="size-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {{ summary(d) }}
+          </summary>
+          <ul class="divide-y border-t">
+            <li v-for="s in rowsOf(d)" :key="s.service" class="grid gap-1 px-3 py-2">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <ServiceIcon :role="roleOf(s.service).key" size="sm" />
+                <span class="text-sm font-medium">{{ roleOf(s.service).label }}</span>
+                <span class="font-mono text-xs text-muted-foreground">{{ s.service }}</span>
+                <StatusBadge v-bind="serviceState(d, s)" />
+                <span v-if="s.image" class="ml-auto max-w-[50%] truncate font-mono text-xs text-muted-foreground" :title="s.image">{{ s.image }}</span>
+              </div>
+              <p v-if="s.reused" class="pl-10 text-xs text-muted-foreground">Nothing changed, so the running copy was kept.</p>
+              <p v-if="s.error" class="pl-10 text-sm text-destructive">
+                {{ s.error.message }} <span v-if="plainHint(s.error.code, s.error.hint)">{{ plainHint(s.error.code, s.error.hint) }}</span>
+              </p>
+            </li>
+          </ul>
+        </details>
         <ul v-if="d.warnings?.length" class="grid gap-1 text-sm">
           <li
             v-for="(w, i) in d.warnings"
@@ -131,7 +179,7 @@ function canRollback(d: Deployment): boolean {
     <ConfirmDialog
       v-model:open="confirmOpen"
       title="Go back to this version?"
-      :description="`Your app will run ${versionLabel(target?.seq).toLowerCase()} again. The version running now stays available to switch back to.`"
+      :description="`Your ${multi ? 'project' : 'app'} will run ${versionLabel(target?.seq).toLowerCase()} again. The version running now stays available to switch back to.`"
       confirm-label="Go back"
       :loading="rollback.isPending.value"
       @confirm="target && rollback.mutate(target)"

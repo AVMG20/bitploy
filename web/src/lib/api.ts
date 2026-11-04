@@ -8,6 +8,7 @@ import type {
   CreateAppInput,
   CreateTokenInput,
   Backup,
+  ComposeCheck,
   BackupList,
   BackupRestore,
   BackupSettings,
@@ -110,6 +111,7 @@ export const paths = {
   catalogApp: (id: string) => `${V1}/catalog/${enc(id)}`,
   catalogDeploy: (id: string) => `${V1}/catalog/${enc(id)}/deploy`,
   dockerfileValidate: `${V1}/dockerfile/validate`,
+  composeValidate: `${V1}/compose/validate`,
   appFiles: (slug: string) => `${V1}/apps/${enc(slug)}/files`,
   appFileFolder: (slug: string) => `${V1}/apps/${enc(slug)}/files/folder`,
   appFileDownload: (slug: string) => `${V1}/apps/${enc(slug)}/files/download`,
@@ -414,6 +416,30 @@ export const api = {
   saveDockerfile: (slug: string, content: string) => request<Deployment>('PUT', paths.appDockerfile(slug), { body: { content } }),
   validateDockerfile: (dockerfile: string, port?: number) =>
     request<DockerfileCheck>('POST', paths.dockerfileValidate, { body: { dockerfile, port } }),
+  /**
+   * What bitploy would make of a compose file: its services, storage and memory.
+   * null when this server cannot check compose files (no such endpoint yet). A
+   * refusal (4xx with an error code) comes back as a check with that one error.
+   */
+  async validateCompose(compose: string): Promise<ComposeCheck | null> {
+    try {
+      return await request<ComposeCheck>('POST', paths.composeValidate, { body: { compose } })
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501)) return null
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 429) {
+        const d = e.details as { service?: string; key?: string } | undefined
+        return {
+          services: [],
+          volumes: [],
+          memory_mb_total: 0,
+          cpu_millis_total: 0,
+          warnings: [],
+          errors: [{ code: e.code, message: e.message, hint: e.hint, service: d?.service, key: d?.key }],
+        }
+      }
+      throw e
+    }
+  },
   async catalog(): Promise<CatalogApp[]> {
     return listAll<CatalogApp>(paths.catalog)
   },
@@ -421,7 +447,8 @@ export const api = {
   deployCatalog: (id: string, input: CatalogDeployInput) => request<CatalogDeployResult>('POST', paths.catalogDeploy(id), { body: input }),
   catalogUpdate: (slug: string) => request<Deployment>('POST', paths.appCatalogUpdate(slug)),
   redeploy: (slug: string) => request<Deployment>('POST', paths.appRedeploy(slug)),
-  restart: (slug: string) => request<App>('POST', paths.appRestart(slug)),
+  /** With a service, only that service of a project with several restarts. */
+  restart: (slug: string, service?: string) => request<App>('POST', paths.appRestart(slug), { query: { service } }),
   start: (slug: string) => request<App>('POST', paths.appStart(slug)),
   stop: (slug: string) => request<App>('POST', paths.appStop(slug)),
   rollback: (slug: string, deploymentId: string) =>
@@ -433,10 +460,17 @@ export const api = {
   async env(slug: string): Promise<EnvVar[]> {
     return listAll<EnvVar>(paths.appEnv(slug), {}, 'env')
   },
-  setEnv: (slug: string, set: Record<string, string>, unset: string[]) =>
-    request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset } }),
-  metrics: (slug: string, window: MetricWindow) =>
-    request<Metrics>('GET', paths.appMetrics(slug), { query: { window } }),
+  /**
+   * With a service, the variables are only for that service of a project with
+   * several; without one they are shared by every service. `service` in the body
+   * is an assumption about the compose phase 2 API: it is only sent when set, so
+   * a server without it answers with an error instead of saving a shared value.
+   */
+  setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string) =>
+    request<unknown>('PUT', paths.appEnv(slug), { body: service ? { set, unset, service } : { set, unset } }),
+  /** Without a service: the sum over all services. */
+  metrics: (slug: string, window: MetricWindow, service?: string) =>
+    request<Metrics>('GET', paths.appMetrics(slug), { query: { window, service } }),
   traffic: (slug: string, window: TrafficWindow | 'today') =>
     request<Traffic>('GET', paths.appTraffic(slug), { query: { window } }),
   /** One list in full (up to 500 rows); the rest of the answer is empty. */
@@ -454,25 +488,26 @@ export const api = {
 
   // backups of /data
   backups: (slug: string) => request<BackupList>('GET', paths.appBackups(slug)),
-  createBackup: (slug: string) => request<Backup>('POST', paths.appBackups(slug)),
+  /** volume: one volume of a project with several; default the first. */
+  createBackup: (slug: string, volume?: string) => request<Backup>('POST', paths.appBackups(slug), { query: { volume } }),
   deleteBackup: (slug: string, id: string) => request<void>('DELETE', paths.appBackup(slug, id)),
   restoreBackup: (slug: string, id: string) => request<BackupRestore>('POST', paths.appBackupRestore(slug, id)),
   updateBackupSettings: (slug: string, input: Partial<Pick<BackupSettings, 'schedule' | 'keep_mode' | 'keep'>>) =>
     request<BackupSettings>('PUT', paths.appBackupSettings(slug), { body: input }),
   dismissBackupRestore: (slug: string) => request<void>('DELETE', paths.appBackupRestoreState(slug)),
-  uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void) =>
-    uploadFile<Backup>(paths.appBackupUpload(slug), file, onProgress, onSent),
+  uploadBackup: (slug: string, file: File, onProgress?: (fraction: number) => void, onSent?: () => void, volume?: string) =>
+    uploadFile<Backup>(buildUrl(paths.appBackupUpload(slug), { volume }), file, onProgress, onSent),
 
-  // files in /data
-  files: (slug: string, path: string) => request<DataFileList>('GET', paths.appFiles(slug), { query: { path } }),
-  makeFolder: (slug: string, path: string, name: string) =>
-    request<DataFile>('POST', paths.appFileFolder(slug), { body: { path, name } }),
-  deleteDataFile: (slug: string, path: string) => request<void>('DELETE', paths.appFiles(slug), { query: { path } }),
+  // files in /data (or in one volume of a project with several; default the first)
+  files: (slug: string, path: string, volume?: string) => request<DataFileList>('GET', paths.appFiles(slug), { query: { path, volume } }),
+  makeFolder: (slug: string, path: string, name: string, volume?: string) =>
+    request<DataFile>('POST', paths.appFileFolder(slug), { body: { path, name }, query: { volume } }),
+  deleteDataFile: (slug: string, path: string, volume?: string) => request<void>('DELETE', paths.appFiles(slug), { query: { path, volume } }),
   /** A plain link: the browser downloads it with the session cookie. */
-  dataFileDownloadUrl: (slug: string, path: string) => buildUrl(paths.appFileDownload(slug), { path }),
-  uploadDataFile: (slug: string, folder: string, file: File, overwrite: boolean, onProgress?: (fraction: number) => void, onSent?: () => void) =>
+  dataFileDownloadUrl: (slug: string, path: string, volume?: string) => buildUrl(paths.appFileDownload(slug), { path, volume }),
+  uploadDataFile: (slug: string, folder: string, file: File, overwrite: boolean, onProgress?: (fraction: number) => void, onSent?: () => void, volume?: string) =>
     uploadFile<DataFile>(
-      buildUrl(paths.appFileUpload(slug), { path: folder, name: file.name, overwrite: overwrite ? 'true' : undefined }),
+      buildUrl(paths.appFileUpload(slug), { path: folder, name: file.name, overwrite: overwrite ? 'true' : undefined, volume }),
       file,
       onProgress,
       onSent,

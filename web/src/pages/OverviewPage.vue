@@ -73,8 +73,8 @@ function openOnly() {
 
 <template>
   <div class="grid gap-6">
-    <PageHeader title="Your apps" description="Everything you have put online, and how it is doing.">
-      <Button v-if="apps.data.value?.length" as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New app</RouterLink></Button>
+    <PageHeader title="Your projects" description="Everything you have put online, and how it is doing.">
+      <Button v-if="apps.data.value?.length" as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New project</RouterLink></Button>
     </PageHeader>
 
     <!-- Each card: one number, what it is out of, and a bar for that same share. -->
@@ -85,8 +85,8 @@ function openOnly() {
         :value="usage ? formatMB(usage.memory_reserved_mb) : ''"
         :suffix="quota ? `of ${formatMB(quota.memory_mb)} reserved` : ''"
         :progress="usage && quota ? pct(usage.memory_reserved_mb, quota.memory_mb) : undefined"
-        :sub="usage ? `Your apps use ${formatMB(usage.memory_used_mb)} right now.` : ''"
-        hint="Each running app reserves its own memory limit."
+        :sub="usage ? `Your projects use ${formatMB(usage.memory_used_mb)} right now.` : ''"
+        hint="Each running project reserves its own memory limit: the sum of its services."
       />
       <StatCard
         title="CPU"
@@ -94,8 +94,8 @@ function openOnly() {
         :value="usage ? formatCPUMillis(usage.cpu_reserved_millis).replace(' CPU', '') : ''"
         :suffix="quota ? `of ${formatCPUMillis(quota.cpu_millis)} reserved` : ''"
         :progress="usage && quota ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
-        :sub="usage ? `Your apps use ${formatCPU(cpuFromPercent(usage.cpu_now_percent))} right now.` : ''"
-        :hint="`Each running app reserves its own CPU limit. ${CPU_HINT}`"
+        :sub="usage ? `Your projects use ${formatCPU(cpuFromPercent(usage.cpu_now_percent))} right now.` : ''"
+        :hint="`Each running project reserves its own CPU limit. ${CPU_HINT}`"
       />
       <StatCard
         title="Storage"
@@ -124,20 +124,20 @@ function openOnly() {
     <EmptyState
       v-else-if="!all.length"
       :icon="Rocket"
-      title="No apps yet."
+      title="No projects yet."
       description="Upload a folder, pick a GitHub repository or a ready-made app. Or open Connect AI and tell your assistant: deploy this folder."
     >
-      <Button as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New app</RouterLink></Button>
+      <Button as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New project</RouterLink></Button>
       <Button as-child variant="outline"><RouterLink to="/connect">Open Connect AI</RouterLink></Button>
     </EmptyState>
 
-    <section v-else class="grid gap-3" aria-label="Apps">
+    <section v-else class="grid gap-3" aria-label="Projects">
       <Toolbar class="flex-nowrap">
-        <ListSearch ref="searchEl" v-model="search" class="flex-1 sm:max-w-sm" placeholder="Search by name, address or status" label="Search apps" @enter="openOnly" />
+        <ListSearch ref="searchEl" v-model="search" class="flex-1 sm:max-w-sm" placeholder="Search by name, address or status" label="Search projects" @enter="openOnly" />
         <!-- On a phone the columns that sort are hidden, so the order is picked here. -->
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
-            <Button variant="outline" size="icon" class="shrink-0 md:hidden" aria-label="Sort apps"><ArrowDownUp /></Button>
+            <Button variant="outline" size="icon" class="shrink-0 md:hidden" aria-label="Sort projects"><ArrowDownUp /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="w-52">
             <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">Sort by</DropdownMenuLabel>
@@ -151,12 +151,12 @@ function openOnly() {
           </DropdownMenuContent>
         </DropdownMenu>
         <p class="ml-auto hidden shrink-0 text-xs text-muted-foreground sm:block" aria-live="polite">
-          <template v-if="search.trim()">{{ shown.length }} of {{ all.length }} apps</template>
-          <template v-else>{{ all.length }} {{ all.length === 1 ? 'app' : 'apps' }}<template v-if="quota"> of {{ quota.apps }} allowed</template></template>
+          <template v-if="search.trim()">{{ shown.length }} of {{ all.length }} projects</template>
+          <template v-else>{{ all.length }} {{ all.length === 1 ? 'project' : 'projects' }}<template v-if="quota"> of {{ quota.apps }} allowed</template></template>
         </p>
       </Toolbar>
 
-      <EmptyState v-if="!shown.length" :icon="SearchX" :title="`No apps match “${search.trim()}”.`" description="Search looks at names, addresses, the type and the status.">
+      <EmptyState v-if="!shown.length" :icon="SearchX" :title="`No projects match “${search.trim()}”.`" description="Search looks at names, addresses, the type and the status.">
         <Button variant="outline" @click="search = ''; searchEl?.focus()">Clear search</Button>
       </EmptyState>
 

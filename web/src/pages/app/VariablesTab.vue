@@ -22,35 +22,67 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { keys, useApp } from '@/composables/queries'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { parseDotenv } from '@/lib/dotenv'
 import { toastError, toastOk } from '@/lib/notify'
+import { isMulti, serviceRole, sortServices } from '@/lib/services'
+import { useQueryParam } from '@/composables/useQueryParam'
+import type { Ref } from 'vue'
 
 // Environment variables: settings and secrets the app reads when it starts.
 // Values are write-only; the list shows a masked hint. A change applies after a
 // restart, which the app page offers as soon as one is saved.
-const props = defineProps<{ slug: string }>()
+const props = defineProps<{
+  slug: string
+  /** Only this service's own variables (the service panel); no scope picker then. */
+  service?: string
+}>()
 const qc = useQueryClient()
 const app = useApp(() => props.slug)
 const env = useQuery({
   queryKey: computed(() => keys.env(props.slug)),
   queryFn: () => api.env(props.slug),
 })
-const list = computed(() => env.data.value ?? [])
+
+// A project with several services has shared variables (every service gets
+// them) and each service's own, which win over a shared one of the same name.
+const multi = computed(() => isMulti(app.data.value))
+const services = computed(() => sortServices(app.data.value?.services ?? []))
+const pickedScope: Ref<string> = props.service !== undefined ? ref('') : useQueryParam('scope', '')
+const scope = computed(() => props.service ?? (multi.value && services.value.some((s) => s.name === pickedScope.value) ? pickedScope.value : ''))
+const all = computed(() => env.data.value ?? [])
+const list = computed(() => all.value.filter((v) => (v.service ?? '') === scope.value))
 const names = computed(() => new Set(list.value.map((v) => v.name)))
+// In a service's scope: the shared ones it also gets.
+const inherited = computed(() => (scope.value ? all.value.filter((v) => !v.service) : []))
+const forWhom = computed(() => (scope.value ? ` for ${scope.value}` : multi.value ? ' for every service' : ''))
+// A server without per-service variables refuses the field; say so in plain words.
+function saveError(e: unknown) {
+  if (scope.value && e instanceof ApiError && e.status === 422 && /service/.test(e.message)) {
+    toastError(new Error(`This server cannot keep variables for one service yet. Add it under Shared instead; every service gets those.`))
+  } else toastError(e)
+}
+const scopes = computed(() => [
+  { value: '', label: 'Shared', sub: 'every service', count: all.value.filter((v) => !v.service).length },
+  ...services.value.map((s) => ({ value: s.name, label: s.name, sub: serviceRole(s).label, count: all.value.filter((v) => v.service === s.name).length })),
+])
 
 function changed() {
   markRestartNeeded(app.data.value, 'variables')
   void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
 }
 const willRestart = computed(() => app.data.value?.status === 'running')
-const appliesWhen = computed(() => (willRestart.value ? 'Restart the app to use it.' : 'The app uses it the next time it starts.'))
+const appliesWhen = computed(() => (willRestart.value ? `Restart the ${multi.value ? 'project' : 'app'} to use it.` : `The ${multi.value ? 'project' : 'app'} uses it the next time it starts.`))
 
 // ---------------------------------------------------------------- search (only worth it for a longer list)
 const search = ref('')
 const shown = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? list.value.filter((v) => v.name.toLowerCase().includes(q)) : list.value
+})
+const shownInherited = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return q ? inherited.value.filter((v) => v.name.toLowerCase().includes(q)) : inherited.value
 })
 
 // ---------------------------------------------------------------- add
@@ -67,12 +99,12 @@ const addForm = useForm({
 const addingExisting = computed(() => names.value.has((addForm.values.name ?? '').trim()))
 
 const save = useMutation({
-  mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, []),
+  mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, [], scope.value || undefined),
   onSuccess: (_r, v) => {
-    toastOk(`Saved ${v.name}`, appliesWhen.value)
+    toastOk(`Saved ${v.name}${forWhom.value}`, appliesWhen.value)
     changed()
   },
-  onError: (e) => toastError(e),
+  onError: saveError,
 })
 const submitAdd = addForm.handleSubmit((v) =>
   save.mutate(
@@ -131,13 +163,13 @@ const removeOpen = computed({
   },
 })
 const remove = useMutation({
-  mutationFn: (name: string) => api.setEnv(props.slug, {}, [name]),
+  mutationFn: (name: string) => api.setEnv(props.slug, {}, [name], scope.value || undefined),
   onSuccess: (_r, name) => {
     toastOk(`Removed ${name}`)
     toRemove.value = null
     changed()
   },
-  onError: (e) => toastError(e),
+  onError: saveError,
 })
 
 // ---------------------------------------------------------------- paste a .env file
@@ -150,14 +182,14 @@ function openPaste() {
   pasteOpen.value = true
 }
 const importAll = useMutation({
-  mutationFn: () => api.setEnv(props.slug, Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])), []),
+  mutationFn: () => api.setEnv(props.slug, Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])), [], scope.value || undefined),
   onSuccess: () => {
     const n = parsed.value.vars.length
-    toastOk(`Saved ${n} ${n === 1 ? 'variable' : 'variables'}`, appliesWhen.value)
+    toastOk(`Saved ${n} ${n === 1 ? 'variable' : 'variables'}${forWhom.value}`, appliesWhen.value)
     pasteOpen.value = false
     changed()
   },
-  onError: (e) => toastError(e),
+  onError: saveError,
 })
 </script>
 
@@ -166,14 +198,36 @@ const importAll = useMutation({
     <Card>
       <CardHeader class="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1.5">
-          <CardTitle>Environment variables</CardTitle>
-          <CardDescription>
+          <CardTitle>{{ service ? 'Variables' : 'Environment variables' }}</CardTitle>
+          <CardDescription v-if="scope">
+            Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. Values are hidden once saved; a change applies after a restart.
+          </CardDescription>
+          <CardDescription v-else-if="multi">
+            Shared variables: every service of this project gets them. Passwords, API keys and other settings, hidden once saved. A change applies after a restart.
+          </CardDescription>
+          <CardDescription v-else>
             Passwords, API keys and other settings your app reads when it starts. Values are hidden once saved. A change applies after a restart.
           </CardDescription>
         </div>
         <Button variant="outline" @click="openPaste"><ClipboardPaste /> Paste .env</Button>
       </CardHeader>
       <CardContent class="grid gap-4">
+        <!-- Whose variables: shared, or one service's own. -->
+        <div v-if="multi && service === undefined" class="flex flex-wrap gap-1.5" role="group" aria-label="Whose variables">
+          <button
+            v-for="o in scopes"
+            :key="o.value"
+            type="button"
+            :aria-pressed="scope === o.value"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent aria-pressed:border-primary/40 aria-pressed:bg-primary/10 aria-pressed:text-foreground"
+            @click="pickedScope = o.value"
+          >
+            <span :class="o.value && 'font-mono'" class="font-medium text-foreground">{{ o.label }}</span>
+            <span>{{ o.sub }}</span>
+            <span v-if="o.count" class="rounded bg-muted px-1 tabular-nums">{{ o.count }}</span>
+          </button>
+        </div>
+
         <FormScope :form="addForm">
           <form id="env-add" class="grid gap-3 rounded-lg border bg-muted/30 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] sm:items-start" novalidate @submit.prevent="submitAdd">
             <FormField v-slot="{ componentField }" name="name">
@@ -211,10 +265,16 @@ const importAll = useMutation({
 
         <QueryError v-if="env.isError.value" :error="env.error.value" @retry="env.refetch()" />
         <Skeleton v-else-if="env.isPending.value" class="h-24 w-full" />
-        <EmptyState v-else-if="!list.length" :icon="KeyRound" title="No variables yet." description="Add one above, like DATABASE_URL, or paste the contents of a .env file." />
+        <EmptyState
+          v-else-if="!list.length && !inherited.length"
+          :icon="KeyRound"
+          :title="scope ? `${scope} has no variables of its own.` : multi ? 'No shared variables yet.' : 'No variables yet.'"
+          :description="scope ? 'Add one above that only this service needs, or paste a .env file.' : 'Add one above, like DATABASE_URL, or paste the contents of a .env file.'"
+        />
         <template v-else>
-          <ListSearch v-if="list.length > 6" v-model="search" class="sm:max-w-xs" placeholder="Find a variable" label="Find a variable" />
-          <p v-if="!shown.length" class="flex items-center gap-2 py-6 text-sm text-muted-foreground"><SearchX class="size-4" /> No variable is called “{{ search.trim() }}”.</p>
+          <ListSearch v-if="list.length + inherited.length > 6" v-model="search" class="sm:max-w-xs" placeholder="Find a variable" label="Find a variable" />
+          <p v-if="!shown.length && list.length" class="flex items-center gap-2 py-6 text-sm text-muted-foreground"><SearchX class="size-4" /> No variable is called “{{ search.trim() }}”.</p>
+          <p v-else-if="!list.length" class="text-sm text-muted-foreground">No variables of its own yet.</p>
           <ul v-else class="divide-y rounded-lg border">
             <li v-for="v in shown" :key="v.name" class="px-3 py-2">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -246,6 +306,16 @@ const importAll = useMutation({
               </form>
             </li>
           </ul>
+          <div v-if="shownInherited.length" class="grid gap-2">
+            <p class="text-xs text-muted-foreground">Also gets {{ shownInherited.length === 1 ? 'this shared variable' : `these ${shownInherited.length} shared variables` }}. Change them under Shared.</p>
+            <ul class="divide-y rounded-lg border border-dashed">
+              <li v-for="v in shownInherited" :key="v.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" :class="names.has(v.name) && 'opacity-60'">
+                <span class="font-mono text-sm break-all" :class="names.has(v.name) && 'line-through'">{{ v.name }}</span>
+                <span class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
+                <Badge variant="outline" class="ml-auto font-normal">{{ names.has(v.name) ? 'replaced by its own' : 'shared' }}</Badge>
+              </li>
+            </ul>
+          </div>
         </template>
       </CardContent>
     </Card>
@@ -254,7 +324,7 @@ const importAll = useMutation({
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Paste a .env file</DialogTitle>
-          <DialogDescription>One NAME=value per line. Comments and empty lines are left out.</DialogDescription>
+          <DialogDescription>One NAME=value per line. Comments and empty lines are left out.<template v-if="multi"> They are saved {{ scope ? `for ${scope} only` : 'for every service' }}.</template></DialogDescription>
         </DialogHeader>
         <Label for="env-paste" class="sr-only">Contents of the .env file</Label>
         <Textarea id="env-paste" v-model="pasteText" rows="8" placeholder="DATABASE_URL=...&#10;API_KEY=..." spellcheck="false" autocomplete="off" class="max-h-72 font-mono text-xs" />
@@ -283,7 +353,7 @@ const importAll = useMutation({
     <ConfirmDialog
       v-model:open="removeOpen"
       :title="`Remove ${toRemove ?? 'this variable'}?`"
-      :description="`${toRemove ?? 'The variable'} will be gone the next time the app starts. Your app may stop working if it needs it.`"
+      :description="`${toRemove ?? 'The variable'} will be gone${forWhom} the next time the ${multi ? 'project' : 'app'} starts. It may stop working if it needs it.`"
       confirm-label="Remove"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove)"

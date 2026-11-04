@@ -23,6 +23,8 @@ import DeployProgress from './DeployProgress.vue'
 import FirstSteps from './FirstSteps.vue'
 import { plainHint } from '@/lib/errors'
 import UploadVersionButton from './UploadVersionButton.vue'
+import ProjectServices from './ProjectServices.vue'
+import { aboutService, isMulti } from '@/lib/services'
 
 const props = defineProps<{ slug: string }>()
 const app = useApp(() => props.slug)
@@ -33,10 +35,11 @@ const windows: { value: MetricWindow; label: string }[] = [
   { value: '24h', label: '24 hours' },
   { value: '7d', label: '7 days' },
 ]
-const metrics = useAppMetrics(() => props.slug, windowSel)
+const metrics = useAppMetrics(() => props.slug, windowSel, () => !isMulti(app.data.value))
 const points = computed(() => metrics.data.value?.points ?? [])
 
 const data = computed(() => app.data.value)
+const multi = computed(() => isMulti(data.value))
 const isWeb = computed(() => data.value?.type === 'web')
 const traffic = useAppVisitorsToday(() => props.slug)
 const dep = computed(() => data.value?.current_deployment ?? null)
@@ -52,10 +55,10 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
   <div v-if="data" class="grid gap-4">
     <!-- Without a running version the deploy card below shows the failure. -->
     <Alert v-if="(data.status === 'failed' && dep) || data.status === 'crashed'" variant="destructive">
-      <AlertTitle>{{ data.status === 'crashed' ? 'This app keeps crashing.' : 'This app stopped working.' }}</AlertTitle>
+      <AlertTitle>{{ data.status === 'crashed' ? `This ${multi ? 'project' : 'app'} keeps crashing.` : `This ${multi ? 'project' : 'app'} stopped working.` }}</AlertTitle>
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
-        <p v-if="dep?.error">{{ dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>
+        <p v-if="dep?.error">{{ multi ? aboutService(dep.error.message, dep.error.service) : dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>
         <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
           <CopyForAiButton :app="data" />
           <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Open the logs</RouterLink>
@@ -78,6 +81,8 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
         <Button as-child variant="outline"><RouterLink to="/connect">Connect your AI assistant</RouterLink></Button>
       </EmptyState>
     </DeployProgress>
+
+    <ProjectServices v-else-if="multi" :app="data" />
 
     <template v-else>
       <!-- Live numbers: what the app uses right now, against its limits. -->

@@ -11,7 +11,15 @@ import type { BuildMode } from '@/lib/types'
 // form, the upload dialog and the app's Settings. `detected` is what bitploy
 // makes of the files (null when it cannot know yet: a GitHub repository, or a
 // zip this page could not read).
-const props = withDefaults(defineProps<{ detected?: Detected | null; /** The files are not known here: the type is found when it builds. */ later?: boolean; disabled?: boolean; idPrefix?: string }>(), {
+const props = withDefaults(defineProps<{
+  detected?: Detected | null
+  /** The files are not known here: the type is found when it builds. */
+  later?: boolean
+  disabled?: boolean
+  idPrefix?: string
+  /** Offer a compose file with several services (a new project from GitHub). */
+  compose?: boolean
+}>(), {
   detected: null,
   later: false,
   idPrefix: 'type',
@@ -20,12 +28,13 @@ const mode = defineModel<BuildMode>('mode', { default: 'auto' })
 /** The output folder of a static build; empty means the default of the framework. */
 const outputDir = defineModel<string>('outputDir', { default: '' })
 
-const options: { value: BuildMode; label: string }[] = [
+const options = computed<{ value: BuildMode; label: string }[]>(() => [
   { value: 'node', label: 'Node.js app' },
   { value: 'static_build', label: 'Static build (Vite, React, Vue, Astro)' },
   { value: 'static', label: 'Plain website (HTML files)' },
   { value: 'dockerfile', label: 'Own Dockerfile' },
-]
+  ...(props.compose ? [{ value: 'compose' as const, label: 'Several services (compose file)' }] : []),
+])
 
 const autoLabel = computed(() => {
   const t = detectedType(props.detected)
@@ -69,6 +78,10 @@ const outputError = computed(() => outputDirError(outputDir.value))
         </SelectContent>
       </Select>
       <p v-if="mode === 'auto' && later && !detected" class="text-xs text-muted-foreground">Detected when it builds.</p>
+      <p v-else-if="mode === 'compose'" class="text-xs text-muted-foreground">
+        bitploy reads <span class="font-mono">compose.yaml</span> (or <span class="font-mono">docker-compose.yml</span>) at the top and runs each service in it, like a website with its database.
+        The service with <span class="font-mono">ports:</span> gets the address.
+      </p>
     </div>
     <div v-if="staticBuild" class="grid gap-1.5">
       <Label :for="`${idPrefix}-output`">Output folder</Label>

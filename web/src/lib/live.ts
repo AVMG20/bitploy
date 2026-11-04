@@ -11,7 +11,8 @@ export const keys = {
   catalogApp: (id: string) => ['catalog', id] as const,
   dockerfile: (slug: string) => ['dockerfile', slug] as const,
   app: (slug: string) => ['app', slug] as const,
-  metrics: (slug: string, window: MetricWindow) => ['metrics', slug, window] as const,
+  /** service: one service of a project with several; '' is the whole project. */
+  metrics: (slug: string, window: MetricWindow, service = '') => ['metrics', slug, window, service] as const,
   traffic: (slug: string, window: TrafficWindow | 'today') => ['traffic', slug, window] as const,
   deployments: (slug: string) => ['deployments', slug] as const,
   env: (slug: string) => ['env', slug] as const,

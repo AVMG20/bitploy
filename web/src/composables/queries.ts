@@ -83,13 +83,21 @@ export function useAppVisitorsToday(slug: MaybeRefOrGetter<string>) {
   })
 }
 
-export function useAppMetrics(slug: MaybeRefOrGetter<string>, window: MaybeRefOrGetter<MetricWindow>, enabled?: MaybeRefOrGetter<boolean>) {
+export function useAppMetrics(
+  slug: MaybeRefOrGetter<string>,
+  window: MaybeRefOrGetter<MetricWindow>,
+  enabled?: MaybeRefOrGetter<boolean>,
+  /** One service of a project with several; empty for the whole project. */
+  service: MaybeRefOrGetter<string> = '',
+  /** Sparklines on the service cards do not need a reading every few seconds. */
+  slow = false,
+) {
   return useQuery({
-    queryKey: computed(() => keys.metrics(toValue(slug), toValue(window))),
-    queryFn: () => api.metrics(toValue(slug), toValue(window)),
+    queryKey: computed(() => keys.metrics(toValue(slug), toValue(window), toValue(service))),
+    queryFn: () => api.metrics(toValue(slug), toValue(window), toValue(service) || undefined),
     // The hour chart and the "now" numbers end at a live reading: ask often.
     // The longer windows are 5-minute buckets. Hidden tabs do not poll at all.
-    refetchInterval: () => (toValue(window) === '1h' ? LIVE_METRICS_MS : 15_000),
+    refetchInterval: () => (slow ? 15_000 : toValue(window) === '1h' ? LIVE_METRICS_MS : 15_000),
     enabled: computed(() => (enabled === undefined ? true : toValue(enabled))),
   })
 }
@@ -101,6 +109,11 @@ export function useBackups(slug: MaybeRefOrGetter<string>) {
     queryFn: () => api.backups(toValue(slug)),
     refetchInterval: (q) => liveMs(q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),
   })
+}
+
+/** The files of one folder of a volume; '' is the default (first) volume. Shared by the Storage tab and the Database tab. */
+export function filesKey(slug: string, volume: string, path: string) {
+  return volume ? (['files', slug, path, volume] as const) : (['files', slug, path] as const)
 }
 
 /** A busy database (locked, or too many queries at once) often is free a second later: ask once more. Other client errors are not repeated. */
@@ -141,7 +154,7 @@ export function useDbRows(source: MaybeRefOrGetter<DbSource>, query: MaybeRefOrG
  */
 export function useDataRoot(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean>) {
   return useQuery({
-    queryKey: computed(() => ['files', toValue(slug), ''] as const),
+    queryKey: computed(() => filesKey(toValue(slug), '', '')),
     queryFn: () => api.files(toValue(slug), ''),
     enabled: computed(() => toValue(enabled)),
     staleTime: 5 * 60_000,

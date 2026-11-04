@@ -213,6 +213,8 @@ export interface DeployError {
   message: string
   hint?: string
   next_tool?: string
+  /** The service that failed, in a project with several. Assumed field (compose phase 2); may be missing. */
+  service?: string
 }
 
 export interface Finding {
@@ -257,12 +259,32 @@ export interface Deployment {
   duration_seconds: number | null
   url: string
   next_steps?: string[]
+  /**
+   * What happened to each service in this deployment, for a project with
+   * several. Assumed field (compose phase 2): the dashboard shows the per-service
+   * rows only when it is there.
+   */
+  services?: DeploymentService[]
+}
+
+/** One service of a deployment (Deployment.services). */
+export interface DeploymentService {
+  service: string
+  image?: string | null
+  /** Where this service got to; the deployment's state when missing. */
+  state?: DeploymentState
+  /** The container of an earlier version kept running because nothing changed. */
+  reused?: boolean
+  error?: DeployError | null
+  duration_seconds?: number | null
 }
 
 export interface EnvVar {
   name: string
   masked: string
   updated_at: string
+  /** The service it is for; "" or missing: shared by every service of the project. */
+  service?: string
 }
 
 export interface DNSRecord {
@@ -348,6 +370,10 @@ export interface App {
   services: AppService[]
   /** The storage volumes of the app; /data of a normal app is named "data". */
   volumes: AppVolume[]
+  /** single: one service whose settings are the fields above. multi: several services (from a compose file). May be missing. */
+  service_layout?: 'single' | 'multi'
+  /** Where the compose file is in the source, for build_mode compose. Assumed field; may be missing. */
+  compose_path?: string
   created_at: string
   updated_at: string
 }
@@ -371,6 +397,10 @@ export interface AppService {
   depends_on: string[]
   /** The Docker container of the current deployment. */
   container?: string
+  /** The status of this one service; the app's status when missing. Assumed field. */
+  status?: AppStatus
+  /** Latest 15-second sample of this service; may be missing. Assumed field. */
+  live?: MetricPoint | null
 }
 
 /** One storage volume of an app (App.volumes). */
@@ -385,7 +415,8 @@ export interface AppVolume {
   used_mb: number | null
 }
 
-export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfile'
+/** compose: several services from a compose file (compose.yaml, docker-compose.yml, ...). */
+export type BuildMode = 'auto' | 'node' | 'static_build' | 'static' | 'dockerfile' | 'compose'
 
 export interface CreateAppInput {
   name: string
@@ -801,4 +832,59 @@ export interface DockerfileCheck {
   ok: boolean
   findings: DockerfileFinding[]
   port?: number
+}
+
+// ---------------------------------------------------------------------------
+// Compose files: POST /api/v1/compose/validate (compose phase 2, built in parallel)
+// ---------------------------------------------------------------------------
+
+/** The file names bitploy looks for, in this order (docs/compose-plan.md "Deploy"). */
+export const COMPOSE_FILE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'] as const
+
+/** A volume a service mounts. The exact shape is not settled: a name, or an object with the name and where it is mounted. */
+export type ComposeServiceVolume = string | { name?: string; volume?: string; source?: string; target?: string; mount_path?: string }
+
+export interface ComposeService {
+  name: string
+  kind: 'build' | 'image'
+  image?: string
+  /** The build context (a folder in the source). */
+  build?: string | { context?: string; dockerfile?: string }
+  public: boolean
+  port: number | null
+  memory_mb: number
+  cpu_millis: number
+  /** Names, or {service, condition} as in the compose file's long form. */
+  depends_on: (string | { service: string; condition?: string })[] | null
+  volumes: ComposeServiceVolume[] | null
+}
+
+export interface ComposeVolume {
+  name: string
+  size_mb: number
+  /** The service that mounts it, and where; may be missing. */
+  service?: string
+  mount_path?: string
+}
+
+/** A problem with a compose file, with the service and the compose key at fault. */
+export interface ComposeIssue {
+  code: string
+  service?: string
+  key?: string
+  message: string
+  hint?: string
+}
+
+export interface ComposeCheck {
+  services: ComposeService[] | null
+  volumes: ComposeVolume[] | null
+  memory_mb_total: number
+  cpu_millis_total: number
+  warnings: (string | ComposeIssue)[] | null
+  errors: ComposeIssue[] | null
+  /** May be sent along; the dashboard computes it from /me otherwise. */
+  memory_mb_left?: number
+  cpu_millis_left?: number
+  volume_mb_left?: number
 }
