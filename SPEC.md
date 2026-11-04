@@ -256,7 +256,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `deploy(app, upload_id?)` | Queues a deployment from the upload or git source | deploy | — |
 | `get_deployment(id?, app?, wait_seconds?)` | State, timings, error, last 50 log lines; with only `app` it returns the latest deployment | read | read-only |
 | `list_deployments(app)` | History, newest first | read | read-only |
-| `get_logs(app, kind, tail?, since?)` | `build` or `runtime` logs, max 1,000 lines | read | read-only |
+| `get_logs(app, kind, tail?, since?, service?)` | `build` or `runtime` logs, max 1,000 lines; `service` picks one service of an app with several | read | read-only |
 | `set_env(app, set, unset)` | Encrypted env vars; values are never returned | deploy | idempotent |
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
@@ -264,7 +264,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `cancel_deployment(id or app)` | Cancels a queued or in-progress deployment (`app`: the app's open one; `no_deployment_to_cancel` 409 when there is none); the live version keeps running | deploy | write |
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
-| `get_metrics(app, window)` | CPU, memory, network for `1h`, `24h` or `7d` | read | read-only |
+| `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
 | `create_backup(app)` / `list_backups(app)` | Back up /data in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
 | `query_db(app, path, sql, write=false)` | Run SQL on a SQLite file in /data (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
 
@@ -365,12 +365,12 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET /api/v1/deployments/{id}?wait=30` | `get_deployment` with long-poll |
 | `POST /api/v1/deployments/{id}/cancel` | `cancel_deployment` (deploy scope, owner only): returns the Deployment; 409 `too_late_to_cancel` while swapping, 409 `deployment_finished` |
 | `GET /api/v1/deployments/{id}/log[?follow=1]` | Build log as text or SSE |
-| `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1]` | `get_logs` |
+| `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1][&service=]` | `get_logs` |
 | `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read) |
 | `PUT /api/v1/apps/{app}/password-protection` | `set_password_protection` (`{enabled, username?, password?}`; apps report `protected` and `protected_username`, never the password) |
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
-| `GET /api/v1/apps/{app}/metrics?window=24h` | `get_metrics` |
+| `GET /api/v1/apps/{app}/metrics?window=24h[&service=]` | `get_metrics` |
 | `POST /api/v1/apps/{app}/upload` | Raw zip body, upload and deploy in one call (session with CSRF, or a deploy token); the dashboard's "Upload new version" |
 | `GET` `POST /api/v1/apps/{app}/backups` | `list_backups`, `create_backup` (restore, download, upload and settings are dashboard and REST only) |
 | `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` |

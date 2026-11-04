@@ -32,7 +32,7 @@ the lasting parts into SPEC.md and docs/decisions.md, then delete this file.
   Dockerfile (build services), public flag, port, health path, memory, CPU,
   command/entrypoint, healthcheck, depends_on, non-secret environment from the
   compose file, volume mounts, position. Unique (app_id, name).
-- `app_volumes`: one row per named volume (Docker name `bp-<slug>-<vol>` for
+- `app_volumes`: one row per named volume (Docker name `bp-<slug>_<vol>` for
   new ones; an existing app's volume keeps its `volume_name`), its size limit and
   which service mounts it where. The existing `/data` volume becomes one row.
 - Per deployment, one row per service: image, container name, port,
@@ -42,7 +42,9 @@ the lasting parts into SPEC.md and docs/decisions.md, then delete this file.
 - `metric_samples` / rollups gain a `service` column; app totals are sums.
 - Existing apps migrate to one service. **Their container, network, volume and
   route names do not change** (`bp-<slug>-<n>`). Compose services use
-  `bp-<slug>-<service>-<n>`. All services join the app network `bp-<slug>` with
+  `bp-<slug>_<service>-<n>` and images `bitploy/<slug>_<service>:<n>` (built in
+  phase 1: `_` instead of `-`, because `-` would let slug `shop-web` collide with
+  service `web` of slug `shop`; `_` is in neither). All services join the app network `bp-<slug>` with
   the service name as a DNS alias, so `web` reaches `postgres:5432`. The
   firewall already allows traffic inside one app /24; app-to-app stays blocked.
 
@@ -95,3 +97,29 @@ In v1 exactly one service is public and the app's routes/domains point to it.
 - MCP: `deploy`/`create_app` accept compose; `get_app` returns services;
   `get_logs`, `get_metrics`, `restart_app` take `service`. Copy for AI names the
   failing service.
+
+## Phase 1 (built): the data model and the deploy code
+
+What was built differs from the plan above in these points:
+
+- **Layout column.** `apps.service_layout` is `single` (every existing and new
+  app) or `multi`. For `single`, the apps and deployments rows stay the source
+  of truth and are mirrored into `app_services` (service `app`), `app_volumes`
+  (volume `data` at `/data`) and `deployment_services` in the same transaction
+  (`syncSingleLayout`, `SyncSingleDeploymentService`). For `multi`, the new
+  tables are the source of truth and the apps row holds the sums
+  (`SetMultiAppTotals`: memory, CPU, volume size), so quotas and usage need no
+  change. Phase 2 writes `multi` rows from a compose file.
+- **Only rollbacks deploy a `multi` app** in phase 1 (they copy the target's
+  `deployment_services`); any other deploy answers `services_not_buildable`.
+  Building several services from one source is phase 2 (`planRuns` is the seam).
+- **App-wide settings** (type, port, health_path, build settings, volume,
+  volume_mb, memory_mb, cpu_millis) are refused for a `multi` app with
+  `set_per_service`.
+- **Defaults when `service`/`volume` is left out:** logs follow the public
+  service (else the first), metrics are the sum, restart restarts every service,
+  files and backups use the first volume. Scheduled backups cover the first
+  volume only; the SQLite viewer reads the first volume.
+- Env var precedence: compose `environment` < shared vars (service `''`) <
+  vars of the service < `PORT`/`BITPLOY_*`. Service vars are sealed with the
+  service in the associated data.
