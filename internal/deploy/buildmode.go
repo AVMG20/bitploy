@@ -32,6 +32,10 @@ const (
 	// BuildModeStaticBuild always builds the source with its build script and
 	// serves the output folder with nginx (node-spa or node-static template).
 	BuildModeStaticBuild = "static_build"
+	// BuildModeCompose runs the services of the source's compose file
+	// (compose.yaml, docker-compose.yml, ...): each one built from its
+	// Dockerfile or pulled as an image (docs/compose-plan.md).
+	BuildModeCompose = "compose"
 )
 
 // Kinds of build a plan can ask for.
@@ -46,6 +50,8 @@ const (
 	BuildKindNodeSPA    = "node-spa"
 	BuildKindNodeStatic = "node-static"
 	BuildKindNode       = "node"
+	// BuildKindCompose is a deployment of the services of a compose file.
+	BuildKindCompose = "compose"
 )
 
 // IsStaticKind reports whether a build kind runs only bitploy's own nginx
@@ -83,7 +89,7 @@ const CodeNothingToBuild = "nothing_to_build"
 // ValidBuildMode reports whether m is one of the build modes.
 func ValidBuildMode(m string) bool {
 	switch m {
-	case BuildModeDockerfile, BuildModeAuto, BuildModeStatic, BuildModeNode, BuildModeStaticBuild:
+	case BuildModeDockerfile, BuildModeAuto, BuildModeStatic, BuildModeNode, BuildModeStaticBuild, BuildModeCompose:
 		return true
 	}
 	return false

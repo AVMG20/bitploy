@@ -990,8 +990,8 @@ func composeFinding(files []string) (Finding, bool) {
 			return Finding{
 				Code:     CodeComposeIgnored,
 				Severity: sevWarning,
-				Message:  fmt.Sprintf("The project has %s, but bitploy only builds the Dockerfile. Other services in it (a database, Redis) do not run.", f),
-				Hint:     "Use SQLite in /data (turn on /data for the app) instead of a database server, and an in-process or file cache instead of Redis.",
+				Message:  fmt.Sprintf("The project has %s, but this app builds only the Dockerfile. Other services in it (a database, Redis) do not run.", f),
+				Hint:     "For a simple app, use SQLite in /data (turn on /data for the app) instead of a database server, and an in-process or file cache instead of Redis. If the app really needs those services, deploy the compose file instead: update_app with build_mode=\"compose\", then deploy again.",
 			}, true
 		}
 	}

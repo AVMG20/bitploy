@@ -23,8 +23,12 @@ type BuildSpec struct {
 	Dockerfile string // absolute path
 	Tag        string // bitploy/<slug>:<n>
 	Labels     map[string]string
-	Timeout    time.Duration // default BuildTimeout
-	Docker     string        // docker binary, default "docker"
+	// Args are --build-arg values and Target the stage to build (compose
+	// build.args and build.target).
+	Args    map[string]string
+	Target  string
+	Timeout time.Duration // default BuildTimeout
+	Docker  string        // docker binary, default "docker"
 	// Builder, when set, runs the build in the isolated builder (see builder.go)
 	// instead of the daemon's default one. The caller must have called Ensure.
 	Builder *Builder
@@ -47,6 +51,17 @@ func (b BuildSpec) BuildArgs() []string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		args = append(args, "--label", k+"="+b.Labels[k])
+	}
+	keys = keys[:0]
+	for k := range b.Args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "--build-arg", k+"="+b.Args[k])
+	}
+	if b.Target != "" {
+		args = append(args, "--target", b.Target)
 	}
 	return append(args, b.ContextDir)
 }
