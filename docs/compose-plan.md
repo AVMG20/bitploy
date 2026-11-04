@@ -3,6 +3,21 @@
 Working plan for multi-service apps. Agreed 2026-11-04. When this is built, fold
 the lasting parts into SPEC.md and docs/decisions.md, then delete this file.
 
+## Direction
+
+Head toward Railway (projects with several services), but stay simple enough
+for beginners who barely know what a deploy is and let an AI assistant do it
+over MCP. So:
+
+- A one-service project must look and feel as simple as an app does today; the
+  service grid, per-service settings and volumes only show up when there is
+  more than one service or the user asks for them.
+- Plain words in the dashboard ("Database", "Website", "Stored files"), not
+  Docker jargon, with Docker terms only as secondary detail.
+- Every MCP response and error must let an AI fix the problem without the user
+  understanding Docker: a stable error code, the service and compose key at
+  fault, a hint, and the next tool call to make.
+
 ## Decisions
 
 - **Compose is an input format, not a runtime.** bitploy never runs
