@@ -1,11 +1,11 @@
 import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
-import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/vue-query'
 import { ApiError, api } from '@/lib/api'
 import { keys } from '@/lib/live'
 import type { DbSource } from '@/lib/dbSource'
 import { projectsFromApps } from '@/lib/projects'
-import type { DbRowsQuery, MetricWindow, Project, TrafficWindow } from '@/lib/types'
+import type { App, DbRowsQuery, EnvVar, MetricWindow, Project, TrafficWindow } from '@/lib/types'
 import { eventsConnected } from './useEvents'
 
 export const REFRESH_MS = 5_000
@@ -62,6 +62,24 @@ export function useProject(id: MaybeRefOrGetter<string>) {
   const list = useProjects()
   const project = computed(() => list.data.value?.projects.find((p) => p.id === toValue(id)) ?? null)
   return { list, project }
+}
+
+/**
+ * The variables of every app of a project, by slug: the canvas draws who talks
+ * to whom from their ${{alias.VAR}} references. Shares the cache of the
+ * Variables tab.
+ */
+export function useProjectEnv(apps: MaybeRefOrGetter<readonly App[]>) {
+  const results = useQueries({
+    queries: computed(() =>
+      toValue(apps).map((a) => ({ queryKey: keys.env(a.slug), queryFn: () => api.env(a.slug), staleTime: 30_000, retry: false })),
+    ),
+  })
+  return computed(() => {
+    const out: Record<string, EnvVar[] | undefined> = {}
+    toValue(apps).forEach((a, i) => (out[a.slug] = results.value[i]?.data))
+    return out
+  })
 }
 
 /** Databases and other ready services; [] on a server without them. */

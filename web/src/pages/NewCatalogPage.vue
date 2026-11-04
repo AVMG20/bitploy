@@ -23,6 +23,7 @@ import { api, ApiError } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB } from '@/lib/format'
+import { appRoute } from '@/lib/appLinks'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
@@ -82,14 +83,17 @@ const SLUG_CODES = new Set(['slug_invalid', 'slug_reserved', 'slug_taken'])
 const error = ref<FriendlyError | null>(null)
 const showFile = ref(false)
 
+// ?project=<id>: add it to that project instead of starting a new one.
+const intoProject = computed(() => (typeof route.query.project === 'string' ? route.query.project : ''))
+
 const deploy = useMutation({
-  mutationFn: (v: { name: string; slug: string }) => api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined }),
+  mutationFn: (v: { name: string; slug: string }) => api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined, project: intoProject.value || undefined }),
   onSuccess: async (r) => {
     qc.setQueryData(keys.app(r.app.slug), r.app)
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.me })
     void qc.invalidateQueries({ queryKey: keys.deployments(r.app.slug) })
-    await router.push({ name: 'app', params: { slug: r.app.slug } })
+    await router.push(appRoute(r.app))
   },
   onError: (e) => {
     const f = friendlyError(e)

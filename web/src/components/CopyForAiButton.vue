@@ -7,8 +7,9 @@ import { copyText, copyTextLater } from '@/lib/notify'
 import type { App, Deployment } from '@/lib/types'
 
 // Copies a short description of what failed, with the end of the log, to paste
-// into an AI assistant. Without a deployment it describes the running app.
-const props = defineProps<{ app: App; deployment?: Deployment | null; variant?: 'outline' | 'ghost' | 'secondary' }>()
+// into an AI assistant. Without a deployment it describes the running app; with
+// `text` (a whole project) it copies that.
+const props = defineProps<{ app?: App; deployment?: Deployment | null; text?: string; variant?: 'outline' | 'ghost' | 'secondary' }>()
 
 const busy = ref(false)
 const done = ref(false)
@@ -16,7 +17,7 @@ const done = ref(false)
 // http), a second click copies it at once, inside the click.
 let cached: { text: string; at: number } | null = null
 watch(
-  () => [props.app.id, props.app.status, props.deployment?.id],
+  () => [props.app?.id, props.app?.status, props.deployment?.id, props.text],
   () => (cached = null),
 )
 
@@ -27,7 +28,9 @@ async function copy() {
   busy.value = true
   try {
     let ok: boolean
-    if (cached && Date.now() - cached.at < 60_000) {
+    if (props.text !== undefined || !props.app) {
+      ok = await copyText(props.text ?? '', what)
+    } else if (cached && Date.now() - cached.at < 60_000) {
       ok = await copyText(cached.text, what)
     } else {
       const text = buildFailureText(props.app, props.deployment).then((t) => {

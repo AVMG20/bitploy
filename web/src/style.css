@@ -212,3 +212,23 @@
   );
   animation: badge-shimmer 1.8s ease-in-out infinite;
 }
+
+/* The project canvas: a faint dot grid behind the app cards, like a board. */
+.canvas-dots {
+  background-color: color-mix(in oklch, var(--muted) 35%, var(--background));
+  background-image: radial-gradient(color-mix(in oklch, var(--foreground) 13%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-position: -9px -9px;
+}
+
+/* A line between two apps on the canvas, moving toward the app it reads from. */
+@keyframes link-flow {
+  to { stroke-dashoffset: -16; }
+}
+.link-flow {
+  stroke-dasharray: 4 4;
+  animation: link-flow 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-flow { animation: none; }
+}

@@ -115,6 +115,11 @@ export function appRole(app: App, templates: readonly ServiceTemplate[] = []): A
   return { key, ...labelOf(key), product: '', lane: laneOf(key, publicApp) }
 }
 
+/** What a service template makes: Database, Cache, Search... */
+export function templateRole(t: Pick<ServiceTemplate, 'id' | 'category' | 'image'>): RoleKey {
+  return CATEGORY_ROLE[t.category] || serviceRole({ name: t.id, kind: 'image', image: t.image, public: false, port: null }).key
+}
+
 const APP_LABELS: Record<RoleKey, { label: string; blurb: string }> = {
   website: { label: 'Website', blurb: 'What visitors open at its address.' },
   api: { label: 'API', blurb: 'Answers requests from your website or other apps.' },

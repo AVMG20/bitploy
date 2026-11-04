@@ -32,7 +32,7 @@ import UploadVersionButton from './UploadVersionButton.vue'
 import ServiceSheet from './ServiceSheet.vue'
 import { isMulti } from '@/lib/services'
 
-const props = defineProps<{ slug: string }>()
+const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
 const router = useRouter()
 const app = useApp(() => props.slug)
