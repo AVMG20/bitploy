@@ -446,7 +446,7 @@ func TestGetMetricsAndLatestSample(t *testing.T) {
 	ctx := context.Background()
 	e.addApp(t, "app_1", "quiet-otter-3f9a", "usr_owner", "web")
 	for i := 0; i < 4; i++ {
-		e.exec(t, `INSERT INTO metric_samples VALUES ('app_1', ?, ?, ?, 10, 20)`, e.now.Unix()-int64(i)*15, 25.0, 128<<20)
+		e.exec(t, `INSERT INTO metric_samples (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES ('app_1', ?, ?, ?, 10, 20)`, e.now.Unix()-int64(i)*15, 25.0, 128<<20)
 	}
 	m, err := e.svc.GetMetrics(ctx, e.owner, "quiet-otter-3f9a", "1h")
 	if err != nil {

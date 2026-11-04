@@ -33,6 +33,12 @@ var Windows = map[string]time.Duration{
 //     rolled up yet, grouped into 5-minute buckets the same way, so the
 //     series has one resolution.
 func (m *Manager) Series(ctx context.Context, appID, window string) ([]SeriesPoint, error) {
+	return m.SeriesOf(ctx, appID, "", window)
+}
+
+// SeriesOf is Series for one service of the app; service "" is the whole
+// app, the sum over its services.
+func (m *Manager) SeriesOf(ctx context.Context, appID, service, window string) ([]SeriesPoint, error) {
 	dur, ok := Windows[window]
 	if !ok {
 		return nil, fmt.Errorf("unknown window %q", window)
@@ -42,7 +48,7 @@ func (m *Manager) Series(ctx context.Context, appID, window string) ([]SeriesPoi
 	out := []SeriesPoint{}
 
 	if window == "1h" {
-		rows, err := q.OpsListSamples(ctx, db.OpsListSamplesParams{AppID: appID, Ts: since})
+		rows, err := q.OpsListSamples(ctx, db.OpsListSamplesParams{AppID: appID, Ts: since, Service: service})
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +60,7 @@ func (m *Manager) Series(ctx context.Context, appID, window string) ([]SeriesPoi
 		return out, nil
 	}
 
-	rolls, err := q.OpsListRollups(ctx, db.OpsListRollupsParams{AppID: appID, Ts: BucketStart(since)})
+	rolls, err := q.OpsListRollups(ctx, db.OpsListRollupsParams{AppID: appID, Ts: BucketStart(since), Service: service})
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +74,7 @@ func (m *Manager) Series(ctx context.Context, appID, window string) ([]SeriesPoi
 			tailFrom = next
 		}
 	}
-	raw, err := q.OpsListSamples(ctx, db.OpsListSamplesParams{AppID: appID, Ts: tailFrom})
+	raw, err := q.OpsListSamples(ctx, db.OpsListSamplesParams{AppID: appID, Ts: tailFrom, Service: service})
 	if err != nil {
 		return nil, err
 	}

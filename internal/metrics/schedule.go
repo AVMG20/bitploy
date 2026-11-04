@@ -87,7 +87,7 @@ func (m *Manager) Nightly(ctx context.Context) {
 	m.Log.Info("nightly job finished")
 }
 
-// Rollup condenses raw samples into 5-minute buckets for every app. Only
+// Rollup condenses raw samples into 5-minute buckets for every app service. Only
 // complete buckets are written, and a bucket is never touched again, so the
 // job is safe to run as often as you like.
 func (m *Manager) Rollup(ctx context.Context) error {
@@ -97,8 +97,9 @@ func (m *Manager) Rollup(ctx context.Context) error {
 		return err
 	}
 	end := BucketStart(m.now().Unix())
-	for _, appID := range apps {
-		last, err := q.OpsLastRollupTS(ctx, appID)
+	for _, as := range apps {
+		appID, service := as.AppID, as.Service
+		last, err := q.OpsLastRollupTS(ctx, db.OpsLastRollupTSParams{AppID: appID, Service: service})
 		if err != nil {
 			return err
 		}
@@ -109,7 +110,7 @@ func (m *Manager) Rollup(ctx context.Context) error {
 		if from >= end {
 			continue
 		}
-		rows, err := q.OpsListSamplesBefore(ctx, db.OpsListSamplesBeforeParams{AppID: appID, Ts: from, Ts_2: end})
+		rows, err := q.OpsListSamplesBefore(ctx, db.OpsListSamplesBeforeParams{AppID: appID, Service: service, Ts: from, Ts_2: end})
 		if err != nil {
 			return err
 		}
@@ -124,7 +125,7 @@ func (m *Manager) Rollup(ctx context.Context) error {
 		err = m.Store.Tx(ctx, func(q *db.Queries) error {
 			for _, r := range rolled {
 				if err := q.OpsUpsertRollup(ctx, db.OpsUpsertRollupParams{
-					AppID: appID, Ts: r.TS, Cpu: r.CPU, MemBytes: r.Mem, RxBytes: r.Rx, TxBytes: r.Tx,
+					AppID: appID, Service: service, Ts: r.TS, Cpu: r.CPU, MemBytes: r.Mem, RxBytes: r.Rx, TxBytes: r.Tx,
 					CpuMax: r.CPUMax, MemMax: r.MemMax,
 				}); err != nil {
 					return err
@@ -184,8 +185,22 @@ func (m *Manager) MeasureDisk(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	appVols, err := m.Store.Q.ListAllAppVolumes(ctx)
+	if err != nil {
+		return err
+	}
+	sizeByName := map[string]int64{}
+	for _, v := range du.Volumes {
+		sizeByName[v.Name] = v.Size
+	}
 	now := m.now().Unix()
 	return m.Store.Tx(ctx, func(q *db.Queries) error {
+		// Every volume of an app on its own, for the per-volume limits.
+		for _, v := range appVols {
+			if err := q.SetAppVolumeUsed(ctx, db.SetAppVolumeUsedParams{UsedBytes: sizeByName[v.VolumeName], VolumeName: v.VolumeName}); err != nil {
+				return err
+			}
+		}
 		for _, a := range apps {
 			vol := volumes[a.ID]
 			if vol == 0 {

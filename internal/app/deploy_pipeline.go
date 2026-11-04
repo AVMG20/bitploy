@@ -761,6 +761,9 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 			if err := q.SetAppResources(ctx, db.SetAppResourcesParams{MemoryMb: p.sizeMem, CpuMillis: p.sizeCPU, UpdatedAt: now, ID: p.app.ID}); err != nil {
 				return err
 			}
+			if err := syncSingleLayout(ctx, q, p.app.ID); err != nil {
+				return err
+			}
 		}
 		return q.SetAppCurrentDeployment(ctx, db.SetAppCurrentDeploymentParams{
 			CurrentDeploymentID: nullStr(p.dep.ID), UpdatedAt: now, ID: p.app.ID,

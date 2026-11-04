@@ -245,6 +245,9 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}); err != nil {
 			return err
 		}
+		if err := syncSingleLayout(ctx, q, id); err != nil {
+			return err
+		}
 		// The slug is now really in use; the owner's old reservation is spent.
 		return q.DeleteSlugReservation(ctx, slug)
 	})
@@ -511,12 +514,20 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			if err := checkDomainStillThere(ctx, q, p.BaseDomain); err != nil {
 				return err
 			}
-			return q.UpdateAppSettings(ctx, p)
+			if err := q.UpdateAppSettings(ctx, p); err != nil {
+				return err
+			}
+			return syncSingleLayout(ctx, q, row.ID)
 		})
 		if err != nil {
 			return App{}, apperr.As(err)
 		}
-	} else if err := s.Q.UpdateAppSettings(ctx, p); err != nil {
+	} else if err := s.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.UpdateAppSettings(ctx, p); err != nil {
+			return err
+		}
+		return syncSingleLayout(ctx, q, row.ID)
+	}); err != nil {
 		return App{}, apperr.Internal(err)
 	}
 	if buildMode != row.BuildMode || homePage != row.HomePage || outputDir != row.OutputDir {
@@ -571,8 +582,9 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 			return apperr.Internal(err)
 		}
 		for _, t := range tags {
-			if v, ok := strings.CutPrefix(t, "bitploy/"+oldSlug+":"); ok {
-				if err := s.Docker.TagImage(ctx, t, "bitploy/"+newSlug+":"+v); err != nil {
+			// bitploy/<slug>:<n>, or bitploy/<slug>_<service>:<n> for an app with several services.
+			if rest, ok := strings.CutPrefix(t, "bitploy/"+oldSlug); ok && (strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "_")) {
+				if err := s.Docker.TagImage(ctx, t, "bitploy/"+newSlug+rest); err != nil {
 					return apperr.Internal(err)
 				}
 				oldTags = append(oldTags, t)
@@ -591,7 +603,14 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 		if err := q.UpdateAppSettings(ctx, p); err != nil {
 			return err
 		}
-		if err := q.RewriteDeploymentNames(ctx, db.RewriteDeploymentNamesParams{Slug: nullStr(newSlug), AppID: row.ID}); err != nil {
+		names := db.RewriteDeploymentNamesParams{OldSlug: nullStr(oldSlug), NewSlug: nullStr(newSlug), AppID: row.ID}
+		if err := q.RewriteDeploymentNames(ctx, names); err != nil {
+			return err
+		}
+		if err := q.RewriteDeploymentServiceNames(ctx, db.RewriteDeploymentServiceNamesParams(names)); err != nil {
+			return err
+		}
+		if err := syncSingleLayout(ctx, q, row.ID); err != nil {
 			return err
 		}
 		if err := q.UpsertSlugReservation(ctx, db.UpsertSlugReservationParams{
@@ -1062,5 +1081,6 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	if r.DesiredState == "running" {
 		v.Live = s.LatestSample(r.ID)
 	}
+	v.Services, v.Volumes = s.serviceViews(ctx, r)
 	return v
 }

@@ -68,7 +68,7 @@ func (q *Queries) FinishBackup(ctx context.Context, arg FinishBackupParams) erro
 }
 
 const getBackup = `-- name: GetBackup :one
-SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at FROM app_backups WHERE id = ? AND app_id = ?
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume FROM app_backups WHERE id = ? AND app_id = ?
 `
 
 type GetBackupParams struct {
@@ -89,6 +89,7 @@ func (q *Queries) GetBackup(ctx context.Context, arg GetBackupParams) (AppBackup
 		&i.Interrupted,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		&i.Volume,
 	)
 	return i, err
 }
@@ -139,7 +140,7 @@ func (q *Queries) LatestScheduledBackupAt(ctx context.Context, appID string) (in
 }
 
 const listBackupsByApp = `-- name: ListBackupsByApp :many
-SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBackup, error) {
@@ -161,6 +162,7 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 			&i.Interrupted,
 			&i.CreatedAt,
 			&i.FinishedAt,
+			&i.Volume,
 		); err != nil {
 			return nil, err
 		}
@@ -176,7 +178,7 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 }
 
 const listRestoringApps = `-- name: ListRestoringApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain FROM apps WHERE restore_backup_id != ''
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout FROM apps WHERE restore_backup_id != ''
 `
 
 func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
@@ -230,6 +232,7 @@ func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
 			&i.CatalogID,
 			&i.CatalogVersion,
 			&i.BaseDomain,
+			&i.ServiceLayout,
 		); err != nil {
 			return nil, err
 		}

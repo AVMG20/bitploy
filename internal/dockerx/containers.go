@@ -43,12 +43,27 @@ type RunSpec struct {
 	MemoryMB  int64
 	CPUMillis int64
 	Volume    string // named volume mounted at /data; empty = no volume
+	// Mounts are further named volumes (services with volumes elsewhere than /data).
+	Mounts []VolumeMount
+	// Aliases are extra DNS names on Network, like the service name.
+	Aliases []string
+	// Cmd and Entrypoint override the image's when set.
+	Cmd        []string
+	Entrypoint []string
+	// Healthcheck overrides the image's HEALTHCHECK when set.
+	Healthcheck *container.HealthConfig
+}
+
+// VolumeMount is a named Docker volume mounted at Target.
+type VolumeMount struct {
+	Source string
+	Target string
 }
 
 // CreateContainer creates (does not start) a locked-down app container:
 // memory = memory+swap, CPU quota, pids/nofile limits, no-new-privileges,
 // all capabilities dropped except AppCapabilities, json-file logs 10m x 3, restart unless-stopped, no
-// published ports, no host mounts.
+// published ports, no host mounts (named volumes only).
 func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error) {
 	mem := s.MemoryMB * 1024 * 1024
 	pids := int64(PidsLimit)
@@ -70,6 +85,20 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 	if s.Volume != "" {
 		hc.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: s.Volume, Target: DataMount}}
 	}
+	for _, m := range s.Mounts {
+		hc.Mounts = append(hc.Mounts, mount.Mount{Type: mount.TypeVolume, Source: m.Source, Target: m.Target})
+	}
+	cfg := &container.Config{Image: s.Image, Env: s.Env, Labels: s.Labels, Healthcheck: s.Healthcheck}
+	if len(s.Cmd) > 0 {
+		cfg.Cmd = s.Cmd
+	}
+	if len(s.Entrypoint) > 0 {
+		cfg.Entrypoint = s.Entrypoint
+	}
+	endpoint := &network.EndpointSettings{}
+	if len(s.Aliases) > 0 {
+		endpoint.Aliases = append([]string(nil), s.Aliases...)
+	}
 	// Everything bitploy manages carries this installation's id, so the
 	// reconciler of another installation on the same daemon leaves it alone.
 	if s.Labels[LabelManaged] == "1" && c.Instance != "" && s.Labels[LabelInstance] == "" {
@@ -82,10 +111,10 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 	}
 	res, err := c.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name:       s.Name,
-		Config:     &container.Config{Image: s.Image, Env: s.Env, Labels: s.Labels},
+		Config:     cfg,
 		HostConfig: hc,
 		NetworkingConfig: &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{s.Network: {}},
+			EndpointsConfig: map[string]*network.EndpointSettings{s.Network: endpoint},
 		},
 	})
 	if err != nil {

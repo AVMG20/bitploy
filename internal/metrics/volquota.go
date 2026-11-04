@@ -22,6 +22,8 @@ const (
 	msgVolumeWarn = "Warning: the /data volume is almost full"
 	// msgVolumeOver starts the failed message.
 	msgVolumeOver = "The /data volume is over its"
+	// msgServiceVolumeWarn starts the warning of an app with several services.
+	msgServiceVolumeWarn = "Warning: a volume is almost full"
 
 	volumeQuotaEvery = time.Hour
 	// After MeasureSoon: wait a little for the deploy cleanup, and measure at
@@ -56,6 +58,22 @@ func VolumeWarnMessage(limitMB, usedBytes int64) string {
 	return fmt.Sprintf("%s: it holds %s of its %s limit. At 100%% bitploy stops the app. "+
 		"Delete files you no longer need from /data, or give the app a bigger storage limit (Settings in the dashboard, or update_app volume_mb).",
 		msgVolumeWarn, sizeText(usedBytes), quotaText(limitMB))
+}
+
+// ServiceVolumeOverMessage is VolumeOverMessage for one volume of an app
+// with several services.
+func ServiceVolumeOverMessage(volume, service, mount string, limitMB, usedBytes int64) string {
+	return fmt.Sprintf("The %s volume (mounted at %s in the %s service) is over its %s limit (it holds %s), so bitploy stopped the app. "+
+		"Delete files you no longer need from %s (from inside the %s service), or give the volume a bigger storage limit, then start the app again.",
+		volume, mount, service, quotaText(limitMB), sizeText(usedBytes), mount, service)
+}
+
+// ServiceVolumeWarnMessage is VolumeWarnMessage for one volume of an app
+// with several services.
+func ServiceVolumeWarnMessage(volume, service, mount string, limitMB, usedBytes int64) string {
+	return fmt.Sprintf("%s: the %s volume (mounted at %s in the %s service) holds %s of its %s limit. At 100%% bitploy stops the app. "+
+		"Delete files you no longer need from %s, or give the volume a bigger storage limit.",
+		msgServiceVolumeWarn, volume, mount, service, sizeText(usedBytes), quotaText(limitMB), mount)
 }
 
 // MeasureSoon asks for a disk measurement shortly, so storage numbers are
@@ -114,56 +132,125 @@ func (m *Manager) EnforceVolumeQuota(ctx context.Context) error {
 		switch {
 		case r.VolumeBytes > limit:
 			if r.DesiredState == "running" {
-				m.stopForVolume(ctx, r)
+				m.stopForVolume(ctx, volumeOver{
+					appID: r.ID, slug: r.Slug, volume: "data", limitMB: r.VolumeMb, usedBytes: r.VolumeBytes,
+					msg: VolumeOverMessage(r.VolumeMb, r.VolumeBytes),
+				})
 			}
 		case float64(r.VolumeBytes) >= volumeWarnFraction*float64(limit):
 			if r.Status == "running" && (r.StatusMessage == "" || strings.HasPrefix(r.StatusMessage, msgVolumeWarn)) {
-				m.setVolumeStatus(ctx, r, "running", VolumeWarnMessage(r.VolumeMb, r.VolumeBytes))
+				m.setVolumeStatus(ctx, r.ID, "running", VolumeWarnMessage(r.VolumeMb, r.VolumeBytes))
 			}
 		default:
 			if strings.HasPrefix(r.StatusMessage, msgVolumeWarn) {
-				m.setVolumeStatus(ctx, r, r.Status, "")
+				m.setVolumeStatus(ctx, r.ID, r.Status, "")
+			}
+		}
+	}
+	return m.enforceServiceVolumes(ctx)
+}
+
+// enforceServiceVolumes applies the volume quota to apps with several
+// services: each volume against its own limit, worst volume first.
+func (m *Manager) enforceServiceVolumes(ctx context.Context) error {
+	rows, err := m.Store.Q.OpsListServiceVolumeUsage(ctx)
+	if err != nil {
+		return err
+	}
+	byApp := map[string][]db.OpsListServiceVolumeUsageRow{}
+	var order []string
+	for _, r := range rows {
+		if _, ok := byApp[r.ID]; !ok {
+			order = append(order, r.ID)
+		}
+		byApp[r.ID] = append(byApp[r.ID], r)
+	}
+	for _, id := range order {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		vols := byApp[id]
+		a := vols[0]
+		var over, warn *db.OpsListServiceVolumeUsageRow
+		for i := range vols {
+			v := &vols[i]
+			if v.SizeMb <= 0 {
+				continue
+			}
+			limit := v.SizeMb << 20
+			switch {
+			case v.UsedBytes > limit && over == nil:
+				over = v
+			case float64(v.UsedBytes) >= volumeWarnFraction*float64(limit) && warn == nil:
+				warn = v
+			}
+		}
+		switch {
+		case over != nil:
+			if a.DesiredState == "running" {
+				m.stopForVolume(ctx, volumeOver{
+					appID: id, slug: a.Slug, volume: over.Name, service: over.Service, limitMB: over.SizeMb, usedBytes: over.UsedBytes,
+					msg: ServiceVolumeOverMessage(over.Name, over.Service, over.MountPath, over.SizeMb, over.UsedBytes),
+				})
+			}
+		case warn != nil:
+			if a.Status == "running" && (a.StatusMessage == "" || strings.HasPrefix(a.StatusMessage, msgServiceVolumeWarn)) {
+				m.setVolumeStatus(ctx, id, "running", ServiceVolumeWarnMessage(warn.Name, warn.Service, warn.MountPath, warn.SizeMb, warn.UsedBytes))
+			}
+		default:
+			if strings.HasPrefix(a.StatusMessage, msgServiceVolumeWarn) {
+				m.setVolumeStatus(ctx, id, a.Status, "")
 			}
 		}
 	}
 	return nil
 }
 
-func (m *Manager) setVolumeStatus(ctx context.Context, r db.OpsListVolumeUsageRow, status, msg string) {
+func (m *Manager) setVolumeStatus(ctx context.Context, appID, status, msg string) {
 	if err := m.Store.Q.SetAppStatus(ctx, db.SetAppStatusParams{
-		Status: status, StatusMessage: msg, UpdatedAt: m.now().Unix(), ID: r.ID,
+		Status: status, StatusMessage: msg, UpdatedAt: m.now().Unix(), ID: appID,
 	}); err != nil {
-		m.Log.Error("setting volume status failed", "app", r.ID, "err", err)
+		m.Log.Error("setting volume status failed", "app", appID, "err", err)
 		return
 	}
 	if m.Notify != nil {
-		m.Notify(ctx, r.ID)
+		m.Notify(ctx, appID)
 	}
+}
+
+// volumeOver is a volume over its limit.
+type volumeOver struct {
+	appID, slug        string
+	volume, service    string // service is "" for the /data volume of a single-service app
+	limitMB, usedBytes int64
+	msg                string
 }
 
 // stopForVolume stops an app whose volume is over its limit. desired_state
 // changes first, so the container's die event is not read as a crash.
-func (m *Manager) stopForVolume(ctx context.Context, r db.OpsListVolumeUsageRow) {
+func (m *Manager) stopForVolume(ctx context.Context, r volumeOver) {
 	if err := m.Store.Q.OpsSetAppDesiredState(ctx, db.OpsSetAppDesiredStateParams{
-		DesiredState: "stopped", UpdatedAt: m.now().Unix(), ID: r.ID,
+		DesiredState: "stopped", UpdatedAt: m.now().Unix(), ID: r.appID,
 	}); err != nil {
-		m.Log.Error("stopping app over volume quota failed", "app", r.ID, "err", err)
+		m.Log.Error("stopping app over volume quota failed", "app", r.appID, "err", err)
 		return
 	}
-	m.setVolumeStatus(ctx, r, "failed", VolumeOverMessage(r.VolumeMb, r.VolumeBytes))
+	m.setVolumeStatus(ctx, r.appID, "failed", r.msg)
 	if cs, err := m.Docker.ManagedContainers(ctx, false); err == nil {
 		for _, c := range cs {
-			if c.AppID == r.ID {
+			if c.AppID == r.appID {
 				_ = m.Docker.StopContainerGrace(ctx, c.Name, 10)
 			}
 		}
 	}
-	m.audit(ctx, "app.volume_quota_exceeded", "app", r.ID, map[string]any{
-		"slug": r.Slug, "volume_bytes": r.VolumeBytes, "limit_mb": r.VolumeMb,
-	})
+	details := map[string]any{"slug": r.slug, "volume_bytes": r.usedBytes, "limit_mb": r.limitMB}
+	if r.service != "" {
+		details["volume"], details["service"] = r.volume, r.service
+	}
+	m.audit(ctx, "app.volume_quota_exceeded", "app", r.appID, details)
 	if m.SyncRoute != nil {
-		if err := m.SyncRoute(ctx, r.ID); err != nil {
-			m.Log.Warn("route sync after volume quota stop failed", "app", r.ID, "err", err)
+		if err := m.SyncRoute(ctx, r.appID); err != nil {
+			m.Log.Warn("route sync after volume quota stop failed", "app", r.appID, "err", err)
 		}
 	}
 }

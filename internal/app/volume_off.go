@@ -123,7 +123,12 @@ func (s *Service) dropVolume(ctx context.Context, row db.App) error {
 	bg := context.WithoutCancel(ctx)
 
 	revert := func(ae *apperr.Error) error {
-		if err := s.Q.SetAppVolumeEnabled(bg, db.SetAppVolumeEnabledParams{VolumeEnabled: 1, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+		if err := s.Store.Tx(bg, func(q *db.Queries) error {
+			if err := q.SetAppVolumeEnabled(bg, db.SetAppVolumeEnabledParams{VolumeEnabled: 1, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+				return err
+			}
+			return syncSingleLayout(bg, q, row.ID)
+		}); err != nil {
 			s.Log.Error("put the volume setting back", "app", row.Slug, "err", err)
 		}
 		if fresh, err := s.Q.GetApp(bg, row.ID); err == nil && fresh.DesiredState == "running" && fresh.CurrentDeploymentID.Valid && s.Docker != nil {

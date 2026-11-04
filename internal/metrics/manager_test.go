@@ -300,9 +300,9 @@ func TestPruneMetrics(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	e.addApp(t, "app_1", "bp-a-1", "running")
-	e.exec(t, `INSERT INTO metric_samples VALUES ('app_1', ?, 1, 1, 1, 1), ('app_1', ?, 1, 1, 1, 1), ('app_gone', ?, 1, 1, 1, 1)`,
+	e.exec(t, `INSERT INTO metric_samples (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES ('app_1', ?, 1, 1, 1, 1), ('app_1', ?, 1, 1, 1, 1), ('app_gone', ?, 1, 1, 1, 1)`,
 		t0.Add(-25*time.Hour).Unix(), t0.Add(-23*time.Hour).Unix(), t0.Unix())
-	e.exec(t, `INSERT INTO metric_rollups VALUES ('app_1', ?, 1, 1, 1, 1, 1, 1), ('app_1', ?, 1, 1, 1, 1, 1, 1)`,
+	e.exec(t, `INSERT INTO metric_rollups (app_id, ts, cpu, mem_bytes, rx_bytes, tx_bytes, cpu_max, mem_max) VALUES ('app_1', ?, 1, 1, 1, 1, 1, 1), ('app_1', ?, 1, 1, 1, 1, 1, 1)`,
 		t0.Add(-31*24*time.Hour).Unix(), t0.Add(-29*24*time.Hour).Unix())
 	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES ('app_gone', 1, 1, 1)`)
 	if err := e.m.PruneMetrics(ctx); err != nil {
