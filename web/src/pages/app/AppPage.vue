@@ -29,6 +29,8 @@ import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { copyText } from '@/lib/notify'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
+import ServiceSheet from './ServiceSheet.vue'
+import { isMulti } from '@/lib/services'
 
 const props = defineProps<{ slug: string }>()
 const route = useRoute()
@@ -36,12 +38,19 @@ const router = useRouter()
 const app = useApp(() => props.slug)
 const data = computed(() => app.data.value)
 const isWeb = computed(() => data.value?.type === 'web')
+// Several services: the overview is the service grid, actions act on all of them.
+const multi = computed(() => isMulti(data.value))
+const thing = computed(() => (multi.value ? 'project' : 'app'))
 
 // The Database tab shows when the saved files hold a SQLite file at the top. A failed or empty look shows no tab and no error.
 const root = useDataRoot(() => props.slug, () => !!data.value?.volume)
 const hasDatabase = computed(() => !!pickDatabase(root.data.value?.items ?? [], props.slug))
 // Background workers have no visitors and no web address.
-const shownTabs = computed(() => APP_TABS.filter((t) => (!t.webOnly || data.value?.type !== 'worker') && (!t.database || hasDatabase.value)))
+const shownTabs = computed(() =>
+  APP_TABS.filter((t) => (!t.webOnly || data.value?.type !== 'worker') && (!t.database || hasDatabase.value)).map((t) =>
+    multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t,
+  ),
+)
 // A page below a tab (the database viewer) names the tab that stays highlighted.
 const current = computed(() => String(route.meta.tab ?? route.name))
 const notFound = computed(() => app.error.value instanceof ApiError && app.error.value.status === 404)
@@ -154,14 +163,14 @@ const pending = useRestartNeeded(data, () => env.data.value)
         <div class="flex flex-wrap items-center gap-2">
           <template v-if="isWeb && primary !== 'open'">
             <Button v-if="dep" as-child variant="outline">
-              <a :href="data.url" target="_blank" rel="noopener noreferrer">Open app <ExternalLink /></a>
+              <a :href="data.url" target="_blank" rel="noopener noreferrer">{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></a>
             </Button>
             <span v-else title="Available once the first deploy is live">
-              <Button variant="outline" disabled>Open app <ExternalLink /></Button>
+              <Button variant="outline" disabled>{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></Button>
             </span>
           </template>
-          <Button variant="outline" :disabled="busy || !dep" @click="restart">
-            <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
+          <Button variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this project' : undefined" @click="restart">
+            <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
             <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>
           <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
@@ -185,7 +194,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
               <DropdownMenuItem v-if="primary !== 'git'" :disabled="busy || !canRebuild" @click="rebuild">
                 <Hammer /> Rebuild the current files
               </DropdownMenuItem>
-              <DropdownMenuItem v-if="canStop" :disabled="busy" @click="confirmStop = true"><Square /> Stop app</DropdownMenuItem>
+              <DropdownMenuItem v-if="canStop" :disabled="busy" @click="confirmStop = true"><Square /> Stop {{ thing }}</DropdownMenuItem>
               <DropdownMenuItem v-if="isWeb" @click="copyText(data.url, 'Link copied')"><Link /> Copy link</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem @click="router.push({ name: 'app-settings', params: { slug } })"><Settings /> Settings</DropdownMenuItem>
@@ -207,7 +216,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
         <RotateCw class="size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" aria-hidden="true" />
         <p class="min-w-0 flex-1">
           <span class="font-medium">Restart to apply your changes.</span>
-          <span class="text-muted-foreground"> Your changes to {{ pending.text.value }} are saved, but the running app does not use them yet.</span>
+          <span class="text-muted-foreground"> Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.</span>
         </p>
         <Button size="sm" :disabled="busy" @click="restart">
           <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
@@ -230,11 +239,12 @@ const pending = useRestartNeeded(data, () => env.data.value)
     <ConfirmDialog
       v-model:open="confirmStop"
       :title="`Stop ${data?.name ?? 'this app'}?`"
-      description="People who open its address will see a page saying it is stopped. You can start it again at any time."
-      confirm-label="Stop app"
+      :description="multi ? 'Every service stops. People who open its address will see a page saying it is stopped. You can start it again at any time.' : 'People who open its address will see a page saying it is stopped. You can start it again at any time.'"
+      :confirm-label="`Stop ${thing}`"
       :loading="actions.stop.isPending.value"
       @confirm="stop"
     />
+    <ServiceSheet v-if="data && multi" :app="data" />
     <CatalogUpdateDialog v-if="data?.catalog_update && updateOpen" v-model:open="updateOpen" :app="data" />
   </div>
 </template>

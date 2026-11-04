@@ -41,8 +41,19 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
     },
   })
 
+  // One service of a project with several; the others keep running.
+  const restartService = useMutation({
+    mutationFn: (service: string) => api.restart(toValue(slug), service),
+    onSuccess: (_d, service) => {
+      toastOk(`${service} restarted`, 'The other services kept running.')
+      refresh()
+    },
+    onError: (e) => toastError(e),
+  })
+
   return {
     cancel,
+    restartService,
     redeploy: action(api.redeploy, 'Redeploy started', 'A live version keeps running until the new one is ready.'),
     // Restart and start answer once the app runs again.
     restart: action(api.restart, 'App restarted', 'It is running again with a fresh start.'),
