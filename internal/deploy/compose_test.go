@@ -567,6 +567,11 @@ services:
 			errCode: CodeComposeServiceNameInvalid, errService: "celery_worker", errText: "celery_worker",
 		},
 		{
+			name:    "image name with spaces",
+			file:    "services:\n  web:\n    image: \"nginx RUN rm\"\n",
+			errCode: CodeComposeInvalid, errService: "web", errKey: "image",
+		},
+		{
 			name:    "no image and no build",
 			file:    "services:\n  web:\n    command: echo hi\n",
 			errCode: CodeComposeInvalid, errService: "web",

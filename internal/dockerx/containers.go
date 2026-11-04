@@ -52,6 +52,9 @@ type RunSpec struct {
 	Entrypoint []string
 	// Healthcheck overrides the image's HEALTHCHECK when set.
 	Healthcheck *container.HealthConfig
+	// User and WorkingDir override the image's when set (compose user, working_dir).
+	User       string
+	WorkingDir string
 }
 
 // VolumeMount is a named Docker volume mounted at Target.
@@ -88,7 +91,7 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 	for _, m := range s.Mounts {
 		hc.Mounts = append(hc.Mounts, mount.Mount{Type: mount.TypeVolume, Source: m.Source, Target: m.Target})
 	}
-	cfg := &container.Config{Image: s.Image, Env: s.Env, Labels: s.Labels, Healthcheck: s.Healthcheck}
+	cfg := &container.Config{Image: s.Image, Env: s.Env, Labels: s.Labels, Healthcheck: s.Healthcheck, User: s.User, WorkingDir: s.WorkingDir}
 	if len(s.Cmd) > 0 {
 		cfg.Cmd = s.Cmd
 	}

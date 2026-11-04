@@ -273,6 +273,7 @@ func ExpandEnvRefs(s string, lookup func(name string) (string, bool)) string {
 // Service names are DNS labels: they become network aliases and part of
 // container names (bp-<slug>_<service>-<n>), where _ separates the service.
 var serviceNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+var imageRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}$`)
 var volumeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
 type composeParser struct {
@@ -468,6 +469,19 @@ func plural(n int, one, many string) string {
 }
 
 // serviceOrder lists the service names in the order of the file.
+// ComposeServiceCount is how many services a compose file lists (0 when it
+// is not YAML), whether or not they pass the checks.
+func ComposeServiceCount(content []byte) int {
+	if len(content) > MaxComposeBytes {
+		return 0
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(content, &doc) != nil {
+		return 0
+	}
+	return len(serviceOrder(&doc))
+}
+
 func serviceOrder(doc *yaml.Node) []string {
 	root := doc
 	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
@@ -940,7 +954,10 @@ func (p *composeParser) service(name string, sc, ref types.ServiceConfig, proj *
 	case strings.TrimSpace(sc.Image) != "":
 		svc.Kind = "image"
 		svc.Image = strings.TrimSpace(sc.Image)
-		if forbiddenImage(svc.Image) {
+		if !imageRefRe.MatchString(svc.Image) {
+			p.errf(CodeComposeInvalid, name, "image", "Use an image name like postgres:16-alpine or ghcr.io/owner/name:tag.",
+				"%sthe image %q is not a valid image name.", svcPrefix(name), svc.Image)
+		} else if forbiddenImage(svc.Image) {
 			p.errf(CodeBaseForbidden, name, "image", "Use a public image, or build the service from the project with build:.",
 				"%sthe image %s is not allowed: bitploy/* images belong to the apps on this server.", svcPrefix(name), svc.Image)
 		}
