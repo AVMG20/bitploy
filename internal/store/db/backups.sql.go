@@ -96,8 +96,8 @@ func (q *Queries) GetBackup(ctx context.Context, arg GetBackupParams) (AppBackup
 
 const insertBackup = `-- name: InsertBackup :exec
 
-INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at, volume)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertBackupParams struct {
@@ -109,6 +109,7 @@ type InsertBackupParams struct {
 	Error      string
 	CreatedAt  int64
 	FinishedAt sql.NullInt64
+	Volume     string
 }
 
 // Backups of an app's /data folder (internal/app/backups*.go).
@@ -122,6 +123,7 @@ func (q *Queries) InsertBackup(ctx context.Context, arg InsertBackupParams) erro
 		arg.Error,
 		arg.CreatedAt,
 		arg.FinishedAt,
+		arg.Volume,
 	)
 	return err
 }

@@ -204,6 +204,23 @@ func syncSingleLayout(ctx context.Context, q *db.Queries, appID string) error {
 	return q.DeleteSingleAppVolumeIfOff(ctx, appID)
 }
 
+// dockerVolumesOf names the Docker volumes of an app. A single-layout app
+// always has its data volume name, whether or not the volume is on.
+func (s *Service) dockerVolumesOf(ctx context.Context, a db.App) []string {
+	if !isMulti(a) {
+		return []string{appVolumeName(a)}
+	}
+	rows, err := s.Q.ListAppVolumes(ctx, a.ID)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.VolumeName)
+	}
+	return out
+}
+
 // containerNameOf is the container of a service for deployment seq.
 func containerNameOf(a db.App, service string, seq int64) string {
 	if !isMulti(a) {
@@ -295,7 +312,8 @@ func singleDepService(d db.Deployment) db.DeploymentService {
 }
 
 // currentContainers maps each service of the app's current deployment to
-// its container name ("" when it has none yet).
+// the container that runs it. A service without a recorded container gets
+// the name the deployment would give it, so a missing container is noticed.
 func (s *Service) currentContainers(ctx context.Context, a db.App) map[string]string {
 	out := map[string]string{}
 	if !a.CurrentDeploymentID.Valid {
@@ -305,12 +323,20 @@ func (s *Service) currentContainers(ctx context.Context, a db.App) map[string]st
 	if err != nil {
 		return out
 	}
-	rows, err := s.depServices(ctx, a, d)
+	if !isMulti(a) {
+		out[singleService] = dockerx.ContainerName(a.Slug, d.Seq)
+		return out
+	}
+	rows, err := s.Q.ListDeploymentServices(ctx, d.ID)
 	if err != nil {
 		return out
 	}
 	for _, r := range rows {
-		out[r.Service] = r.ContainerName.String
+		name := r.ContainerName.String
+		if name == "" {
+			name = containerNameOf(a, r.Service, d.Seq)
+		}
+		out[r.Service] = name
 	}
 	return out
 }
@@ -387,6 +413,65 @@ func (s *Service) pickVolume(ctx context.Context, a db.App, name string) (v volu
 		return volumeSpec{}, false, nil // /data is off: the caller says so
 	}
 	return volumeSpec{}, false, volumeNotFound(a, name, vols)
+}
+
+// volumeOf is the volume called name. A single-service app has one volume,
+// whatever the name (backups made before volumes had names say "data"); ok is
+// false when an app with several services has no such volume any more.
+func (s *Service) volumeOf(ctx context.Context, a db.App, name string) (volumeSpec, bool) {
+	if !isMulti(a) {
+		return volumeSpec{Name: singleVolume, VolumeName: appVolumeName(a), SizeMB: a.VolumeMb, Service: singleService, MountPath: dockerx.DataMount}, true
+	}
+	rows, err := s.Q.ListAppVolumes(ctx, a.ID)
+	if err != nil {
+		return volumeSpec{}, false
+	}
+	for _, v := range rows {
+		if v.Name == name {
+			return volumeSpec{Name: v.Name, VolumeName: v.VolumeName, SizeMB: v.SizeMb, Service: v.Service, MountPath: v.MountPath, UsedBytes: v.UsedBytes}, true
+		}
+	}
+	return volumeSpec{}, false
+}
+
+// perServiceSettings refuses app-wide settings that belong to one service
+// of an app with several services: there, each service has its own port,
+// size and volumes.
+func perServiceSettings(a db.App, in UpdateAppInput) error {
+	if !isMulti(a) {
+		return nil
+	}
+	var fields []string
+	add := func(set bool, name string) {
+		if set {
+			fields = append(fields, name)
+		}
+	}
+	add(in.Type != nil, "type")
+	add(in.Port != nil, "port")
+	add(in.HealthPath != nil, "health_path")
+	add(in.DockerfilePath != nil, "dockerfile_path")
+	add(in.ContextDir != nil, "context_dir")
+	add(in.BuildMode != nil, "build_mode")
+	add(in.Volume != nil, "volume")
+	add(in.VolumeMB != nil, "volume_mb")
+	add(in.MemoryMB != nil, "memory_mb")
+	add(in.CPUMillis != nil, "cpu_millis")
+	if len(fields) == 0 {
+		return nil
+	}
+	return apperr.Unprocessable("set_per_service",
+		fmt.Sprintf("The app %s has several services, so %s cannot be set for the whole app. Nothing was changed.", a.Slug, strings.Join(fields, ", ")),
+		"Each service has its own settings; get_app lists them. Leave these fields out to change the name, address or domain of the app.").
+		WithDetail("fields", fields).WithNext("get_app")
+}
+
+// syncMultiTotals stores the sums over the services and volumes of an app
+// with several services on its apps row: memory_mb and cpu_millis count
+// towards the memory and CPU allowance, volume_mb (with volume_enabled) towards
+// the storage allowance, exactly like a single-service app's.
+func syncMultiTotals(ctx context.Context, q *db.Queries, appID string) error {
+	return q.SetMultiAppTotals(ctx, appID)
 }
 
 // firstOpt returns the first optional string argument, or "".

@@ -313,6 +313,9 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if owner.Status != "active" {
 		return App{}, suspendedErr()
 	}
+	if err := perServiceSettings(row, in); err != nil {
+		return App{}, err
+	}
 	isStatic := s.appIsStatic(ctx, row)
 	p := db.UpdateAppSettingsParams{
 		ID: row.ID, Slug: row.Slug, Name: row.Name, Type: row.Type, Port: row.Port,
@@ -700,11 +703,13 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 				_ = s.Docker.RemoveImage(bg, t)
 			}
 		}
-		if err := s.Docker.RemoveVolume(bg, appVolumeName(row)); err != nil {
-			s.Log.Error("remove volume", "app", row.Slug, "err", err)
-			return apperr.Unavailable("volume_remove_failed",
-				"The app's containers are gone, but Docker could not remove its data volume, so the app was not deleted.",
-				"Call delete_app again in a minute. If it keeps failing, tell the bitploy admin to check the Docker volume "+quote(appVolumeName(row))+".").WithNext("delete_app")
+		for _, vol := range s.dockerVolumesOf(bg, row) {
+			if err := s.Docker.RemoveVolume(bg, vol); err != nil {
+				s.Log.Error("remove volume", "app", row.Slug, "volume", vol, "err", err)
+				return apperr.Unavailable("volume_remove_failed",
+					"The app's containers are gone, but Docker could not remove its data volume, so the app was not deleted.",
+					"Call delete_app again in a minute. If it keeps failing, tell the bitploy admin to check the Docker volume "+quote(vol)+".").WithNext("delete_app")
+			}
 		}
 	}
 	for _, d := range deps {

@@ -54,44 +54,62 @@ func (s *Service) pruneApp(ctx context.Context, appID string) {
 		}
 	}
 
-	// Images: the newest 3 that ran, the current one and anything in flight stay.
+	// Images: per service, the newest 3 that ran, the current one and anything
+	// in flight stay.
 	if s.Docker == nil {
 		return
 	}
+	imgs := s.deploymentImages(ctx, app, appErr == nil, deps)
 	keep := map[string]bool{}
-	ran := 0
-	for _, d := range deps {
-		if !d.Image.Valid || d.Image.String == "" {
-			continue
-		}
-		switch d.State {
+	ran := map[string]int{}
+	for _, e := range imgs {
+		switch e.State {
 		case "running", "superseded":
-			if !keep[d.Image.String] && ran < keepImages {
-				keep[d.Image.String] = true
-				ran++
+			if !keep[e.Image.String] && ran[e.Service] < keepImages {
+				keep[e.Image.String] = true
+				ran[e.Service]++
 			}
 		case "queued", "fetching", "validating", "building", "starting", "health_check", "swapping":
-			keep[d.Image.String] = true
+			keep[e.Image.String] = true
 		}
-	}
-	if appErr == nil && app.CurrentDeploymentID.Valid {
-		for _, d := range deps {
-			if d.ID == app.CurrentDeploymentID.String && d.Image.Valid {
-				keep[d.Image.String] = true
-			}
+		if appErr == nil && app.CurrentDeploymentID.Valid && e.DeploymentID == app.CurrentDeploymentID.String {
+			keep[e.Image.String] = true
 		}
 	}
 	tried := map[string]bool{}
-	for _, d := range deps {
-		img := d.Image.String
-		if !d.Image.Valid || img == "" || keep[img] || tried[img] || len(tried) >= 50 {
+	for _, e := range imgs {
+		img := e.Image.String
+		if keep[img] || tried[img] || len(tried) >= 50 {
 			continue
+		}
+		if appErr == nil && isMulti(app) && !strings.HasPrefix(img, "bitploy/") {
+			continue // a registry image (postgres:16) may be used by other apps
 		}
 		tried[img] = true
 		if err := s.Docker.RemoveImage(ctx, img); err != nil && !strings.Contains(err.Error(), "in use") && !strings.Contains(err.Error(), "conflict") {
 			s.Log.Debug("remove old image", "image", img, "err", err)
 		}
 	}
+}
+
+// deploymentImages lists the image of every service of every deployment,
+// newest deployment first. A single-layout app has one image per deployment
+// row; deps is newest first.
+func (s *Service) deploymentImages(ctx context.Context, app db.App, haveApp bool, deps []db.Deployment) []db.ListAppDeploymentImagesRow {
+	if haveApp && isMulti(app) {
+		rows, err := s.Q.ListAppDeploymentImages(ctx, app.ID)
+		if err == nil {
+			return rows
+		}
+		return nil
+	}
+	out := make([]db.ListAppDeploymentImagesRow, 0, len(deps))
+	for _, d := range deps {
+		if d.Image.Valid && d.Image.String != "" {
+			out = append(out, db.ListAppDeploymentImagesRow{DeploymentID: d.ID, State: d.State, Service: singleService, Image: d.Image})
+		}
+	}
+	return out
 }
 
 // cleanupMisc removes finished uploads, expired slug reservations and

@@ -167,13 +167,16 @@ func (q *Queries) ListAllAppVolumes(ctx context.Context) ([]ListAllAppVolumesRow
 }
 
 const listAppDeploymentImages = `-- name: ListAppDeploymentImages :many
-SELECT d.seq, s.image FROM deployment_services s JOIN deployments d ON d.id = s.deployment_id
-WHERE d.app_id = ? AND s.image IS NOT NULL ORDER BY d.seq DESC
+SELECT d.id AS deployment_id, d.state, s.service, s.image
+FROM deployment_services s JOIN deployments d ON d.id = s.deployment_id
+WHERE d.app_id = ? AND s.image IS NOT NULL AND s.image != '' ORDER BY d.seq DESC, s.service
 `
 
 type ListAppDeploymentImagesRow struct {
-	Seq   int64
-	Image sql.NullString
+	DeploymentID string
+	State        string
+	Service      string
+	Image        sql.NullString
 }
 
 // Every image a deployment of the app refers to, newest deployment first.
@@ -186,7 +189,12 @@ func (q *Queries) ListAppDeploymentImages(ctx context.Context, appID string) ([]
 	items := []ListAppDeploymentImagesRow{}
 	for rows.Next() {
 		var i ListAppDeploymentImagesRow
-		if err := rows.Scan(&i.Seq, &i.Image); err != nil {
+		if err := rows.Scan(
+			&i.DeploymentID,
+			&i.State,
+			&i.Service,
+			&i.Image,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -502,23 +510,21 @@ func (q *Queries) SetAppVolumeUsed(ctx context.Context, arg SetAppVolumeUsedPara
 	return err
 }
 
-const sumServiceVolumeMBByUser = `-- name: SumServiceVolumeMBByUser :one
-SELECT CAST(COALESCE(SUM(v.size_mb), 0) AS INTEGER) FROM app_volumes v JOIN apps a ON a.id = v.app_id
-WHERE a.user_id = ? AND a.id != ? AND a.service_layout = 'multi'
+const setMultiAppTotals = `-- name: SetMultiAppTotals :exec
+UPDATE apps SET
+    memory_mb = COALESCE((SELECT SUM(memory_mb) FROM app_services WHERE app_id = apps.id), 0),
+    cpu_millis = COALESCE((SELECT SUM(cpu_millis) FROM app_services WHERE app_id = apps.id), 0),
+    volume_mb = COALESCE((SELECT SUM(size_mb) FROM app_volumes WHERE app_id = apps.id), 0),
+    volume_enabled = CASE WHEN EXISTS (SELECT 1 FROM app_volumes WHERE app_id = apps.id) THEN 1 ELSE 0 END
+WHERE id = ?1 AND service_layout = 'multi'
 `
 
-type SumServiceVolumeMBByUserParams struct {
-	UserID string
-	ID     string
-}
-
-// Storage reserved by multi-layout apps (single-layout apps count through
-// apps.volume_mb, see SumVolumeMBByUser).
-func (q *Queries) SumServiceVolumeMBByUser(ctx context.Context, arg SumServiceVolumeMBByUserParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, sumServiceVolumeMBByUser, arg.UserID, arg.ID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
+// An app with several services keeps the sums of its services' memory and
+// CPU and of its volumes' sizes on the apps row, so the quotas and usage
+// queries count it like any other app.
+func (q *Queries) SetMultiAppTotals(ctx context.Context, appID string) error {
+	_, err := q.db.ExecContext(ctx, setMultiAppTotals, appID)
+	return err
 }
 
 const syncSingleAppService = `-- name: SyncSingleAppService :exec

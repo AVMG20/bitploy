@@ -57,11 +57,16 @@ UPDATE app_volumes SET used_bytes = ? WHERE volume_name = ?;
 -- name: ListAllAppVolumes :many
 SELECT v.app_id, v.name, v.volume_name FROM app_volumes v ORDER BY v.app_id, v.position, v.name;
 
--- name: SumServiceVolumeMBByUser :one
--- Storage reserved by multi-layout apps (single-layout apps count through
--- apps.volume_mb, see SumVolumeMBByUser).
-SELECT CAST(COALESCE(SUM(v.size_mb), 0) AS INTEGER) FROM app_volumes v JOIN apps a ON a.id = v.app_id
-WHERE a.user_id = ? AND a.id != ? AND a.service_layout = 'multi';
+-- name: SetMultiAppTotals :exec
+-- An app with several services keeps the sums of its services' memory and
+-- CPU and of its volumes' sizes on the apps row, so the quotas and usage
+-- queries count it like any other app.
+UPDATE apps SET
+    memory_mb = COALESCE((SELECT SUM(memory_mb) FROM app_services WHERE app_id = apps.id), 0),
+    cpu_millis = COALESCE((SELECT SUM(cpu_millis) FROM app_services WHERE app_id = apps.id), 0),
+    volume_mb = COALESCE((SELECT SUM(size_mb) FROM app_volumes WHERE app_id = apps.id), 0),
+    volume_enabled = CASE WHEN EXISTS (SELECT 1 FROM app_volumes WHERE app_id = apps.id) THEN 1 ELSE 0 END
+WHERE id = sqlc.arg(app_id) AND service_layout = 'multi';
 
 -- name: AppVolumeNameExists :one
 SELECT COUNT(*) FROM app_volumes WHERE volume_name = ?;
@@ -91,8 +96,9 @@ SELECT * FROM deployment_services WHERE deployment_id = ? ORDER BY service;
 
 -- name: ListAppDeploymentImages :many
 -- Every image a deployment of the app refers to, newest deployment first.
-SELECT d.seq, s.image FROM deployment_services s JOIN deployments d ON d.id = s.deployment_id
-WHERE d.app_id = ? AND s.image IS NOT NULL ORDER BY d.seq DESC;
+SELECT d.id AS deployment_id, d.state, s.service, s.image
+FROM deployment_services s JOIN deployments d ON d.id = s.deployment_id
+WHERE d.app_id = ? AND s.image IS NOT NULL AND s.image != '' ORDER BY d.seq DESC, s.service;
 
 -- name: ListCurrentContainers :many
 -- The containers of every app's current deployment, whatever its desired
