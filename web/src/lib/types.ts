@@ -854,13 +854,17 @@ export interface ComposeService {
   port: number | null
   memory_mb: number
   cpu_millis: number
-  depends_on: string[] | null
+  /** Names, or {service, condition} as in the compose file's long form. */
+  depends_on: (string | { service: string; condition?: string })[] | null
   volumes: ComposeServiceVolume[] | null
 }
 
 export interface ComposeVolume {
   name: string
   size_mb: number
+  /** The service that mounts it, and where; may be missing. */
+  service?: string
+  mount_path?: string
 }
 
 /** A problem with a compose file, with the service and the compose key at fault. */
