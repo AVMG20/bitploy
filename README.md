@@ -39,9 +39,27 @@ make build              # one binary in bin/bitploy with the dashboard embedded
 
 ## One-click apps and pre-built images
 
-bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime Kuma, Memos, Arnotes, PocketBase, Actual Budget and IT-Tools. Each one is a Dockerfile with a pinned version that keeps its data in `/data`. Pick one under **New app** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
+bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime Kuma, Memos, Arnotes, PocketBase, Actual Budget, IT-Tools and Umami. Each one is a Dockerfile with a pinned version that keeps its data in `/data`; Umami comes with its own PostgreSQL, which bitploy adds next to it in a project of its own. Pick one under **New app** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
 
 Any other published image works too: deploy a Dockerfile that is only `FROM <image>:<tag>` with a pinned tag. `EXPOSE` is optional; when it is missing and the app has no port setting, bitploy reads the port from the built image (and asks you to set the port if the image declares none, several, or a reserved one). Keep the image's data under `/data`. The Dockerfile of an app deployed from files or a zip can be read and replaced with `GET` and `PUT /api/v1/apps/{app}/dockerfile`.
+
+## Projects and databases
+
+Every app is in a project. An app created on its own gets a project named after it, and that project goes away with the app. Make a project yourself (`POST /api/v1/projects` or `create_project`) to keep apps that belong together in one place, like a shop and its database.
+
+Apps of one project reach each other on a private network by their short name in the project (`alias`, the subdomain unless you pick another), for example `db:5432`. Nothing outside the project reaches them there, and a database has no web address at all.
+
+When the code needs a database server and SQLite in `/data` will not do, add one from a service template:
+
+```bash
+curl -X POST https://bitploy.example.com/api/v1/projects/<project id>/services \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"template": "postgres", "name": "db", "connect_to": ["shop"]}'
+```
+
+bitploy creates the app `db` from PostgreSQL 18.6, generates its passwords (stored encrypted, never shown), deploys it with its data in its own volume, and gives `shop` the variable `DATABASE_URL=${{db.DATABASE_URL}}`. The reference is filled in each time `shop` starts, and `shop` restarts once the database runs. Templates: `postgres`, `pgvector`, `mariadb`, `mysql`, `valkey` (Redis-compatible; `redis` by name), `meilisearch` (`GET /api/v1/service-templates`, or `list_service_templates` over MCP). Any variable of another app in the project can be used the same way: `${{<alias>.<VAR>}}`.
+
+A database counts as one app against your app limit, and is backed up, restarted and removed like any app.
 
 ## Deploying a compose project
 
@@ -193,7 +211,7 @@ If the user's domain is on Cloudflare, the record must be **DNS only** (grey clo
 
 ### Network isolation
 
-`deploy/firewall.sh` puts rules in their own chains (`BITPLOY-APPS` in `DOCKER-USER`, `BITPLOY-INPUT` in `INPUT`). From app subnets (`10.200.0.0/16`) it blocks the host, the Hetzner metadata address `169.254.169.254`, every private range, the bitploy network and other apps. Traffic inside one app's own /24 (Traefik to the app) and the internet stay open. `systemd` runs it after Docker starts. `deploy/probe-test.sh` proves it with a probe container and runs in CI.
+`deploy/firewall.sh` puts rules in their own chains (`BITPLOY-APPS` in `DOCKER-USER`, `BITPLOY-INPUT` in `INPUT`). From app subnets (`10.200.0.0/16`) it blocks the host, the Hetzner metadata address `169.254.169.254`, every private range, the bitploy network and other apps. Traffic inside one app's own /24 (Traefik to the app), inside a project network (`bp-p-<id>`, the apps of one project; Traefik is not on it) and to the internet stays open. `systemd` runs it after Docker starts. `deploy/probe-test.sh` proves it with a probe container and runs in CI.
 
 ```bash
 sudo deploy/firewall.sh status

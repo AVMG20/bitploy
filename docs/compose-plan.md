@@ -345,3 +345,127 @@ API contract (backend and UI agents build against it in parallel):
 - MCP: `list_projects`, `create_project`, `list_service_templates`,
   `add_service(project, template, name?, connect_to?)`; `create_app` takes
   `project`; `get_app` shows project and alias; references work in `set_env`.
+
+## Phase 4 (built): projects, service templates and references
+
+Backend only; the dashboard is built separately against these shapes.
+Migration `00240_projects` (table `projects`; `apps.project_id`, `alias`,
+`template`, `template_version`; one project per existing app, `prj_<id
+suffix>`, alias = slug). Code: `internal/app/projects.go`,
+`project_services.go`, `references.go`, `internal/servicetpl`,
+`internal/api/endpoints_projects.go`, `internal/mcp/projects.go`.
+
+Differences from the Phase 4b contract above:
+- Lists are `Page[T]` like every other list: `{"items": [...], "next_cursor": ""}`,
+  not a bare array (the web client accepts both).
+- `Project` also has `updated_at` and `network`.
+- `POST /projects/{id}/services` takes `memory_mb` and `volume_mb` too.
+- `{id}` in `/projects/{id}` is an id or a project name.
+- A project network exists only while the project has two apps or more
+  (one app needs none; keeps Docker's network budget).
+- Phase 4's `update_service` / `remove_service` are not built: a service is an
+  app, so `update_app`, `set_env` and `delete_app` do it.
+
+### API
+
+```
+GET    /api/v1/projects                   -> 200 {items: [Project], next_cursor}
+POST   /api/v1/projects {name}            -> 201 Project            (Idempotency-Key)
+GET    /api/v1/projects/{id}              -> 200 Project
+PATCH  /api/v1/projects/{id} {name?}      -> 200 Project
+DELETE /api/v1/projects/{id}?confirm=<name>[&with_apps=true] -> 204
+GET    /api/v1/service-templates          -> 200 {items: [ServiceTemplate], next_cursor}
+POST   /api/v1/projects/{id}/services     -> 202 App                (Idempotency-Key)
+       {template, name?, connect_to?: [slug], memory_mb?, volume_mb?}
+POST   /api/v1/apps                       gains project?, alias?
+PATCH  /api/v1/apps/{app}                 gains project? (move), alias? (rename)
+```
+
+```
+Project         {id, name, created_at, updated_at, network: "bp-p-<id>", apps: [App]}
+ServiceTemplate {id, name, category: database|cache|search, description,
+                 image: "postgres:18.6", version, port, memory_mb, cpu_millis,
+                 volume_mb, connection_vars: [names, main first], main_var}
+App gains       project: {id, name}, alias, template: id|null,
+                template_version (template apps), internal_host: "<alias>:<port>"|"",
+                connection_vars?: [names], main_var? (template apps),
+                references: [aliases this app's variables refer to]
+EnvVar gains    references?: ["${{db.DATABASE_URL}}"]
+CatalogApp gains services: [{template, name, image, memory_mb, volume_mb}]
+```
+
+`internal_host` is `<alias>:<template port>`, else `<alias>:<app port>`, else
+`<alias>:<public service port>`, else empty.
+
+Errors: `project_not_found` (404), `project_name_invalid` (400),
+`project_required` (400), `project_ambiguous` (409, two projects with that
+name), `projects_limit` (403, 100 per user), `project_not_empty` (409,
+`details.apps`), `confirm_mismatch` (400), `alias_invalid` (400),
+`alias_taken` (409), `app_referenced` / `app_has_references` (409, a move with
+references across the projects), `service_template_unknown` (404, the hint
+lists the ids), `connect_to_other_project` (400), `connect_to_var_set` (409,
+the app already has the main variable), `variable_reference_unknown` (422),
+`variable_reference_self` (400 on set, 422 at start),
+`variable_reference_loop` (422).
+
+### MCP
+
+| Tool | Arguments | Scope |
+| --- | --- | --- |
+| `list_projects` | none; data `items: [{id, name, apps: [{slug, name, alias, status, internal_host, references, url?, template?, connection_vars?}]}]` | read |
+| `get_project` | `project` (id or name); data `project` (Project) | read |
+| `create_project` | `name` | deploy |
+| `list_service_templates` | none; data `items` (ServiceTemplate) | read |
+| `add_service` | `project`, `template`, `name?`, `connect_to?`, `memory_mb?`, `volume_mb?`; data `app` | deploy |
+| `create_app` | gains `project?`, `alias?` | deploy |
+| `update_app` | gains `project?`, `alias?` | deploy |
+| `get_app`, `list_apps` | the summary line says `in project <name> as <alias> (<internal_host>)` and `service template <id> <version>`; data adds `project`, `alias`, `template` | read |
+| `set_env` | values may be `${{<alias>.VAR}}`; checked on set | deploy |
+
+Rule 8 of the instructions: SQLite in `/data` first; a database server only
+when the code needs one, through `add_service` with `connect_to`; compose only
+for a project that already has a compose file.
+
+### Service templates
+
+| id | image | port | memory | volume | user | main_var |
+| --- | --- | --- | --- | --- | --- | --- |
+| postgres | postgres:18.6 | 5432 | 256 MB | 2048 MB | 999:999 | DATABASE_URL |
+| pgvector | pgvector/pgvector:0.8.7-pg18 | 5432 | 256 MB | 2048 MB | 999:999 | DATABASE_URL |
+| mariadb | mariadb:11.8.9 | 3306 | 256 MB | 2048 MB | 999:999 | DATABASE_URL |
+| mysql | mysql:8.4.13 | 3306 | 512 MB | 2048 MB | 999:999 | DATABASE_URL |
+| valkey | valkey/valkey:9.1.3 | 6379 | 128 MB | 512 MB | 999:999 | REDIS_URL |
+| redis (hidden, by name only) | redis:8.8.4 | 6379 | 128 MB | 512 MB | 999:999 | REDIS_URL |
+| meilisearch | getmeili/meilisearch:v1.56.1 | 7700 | 512 MB | 2048 MB | 10001:10001 | MEILI_URL |
+
+Each is built from a generated Dockerfile (`FROM <image>:<version>`, `USER`,
+the template's fixed env, data under `/data`, a `HEALTHCHECK`), runs as a
+worker app with the usual container defaults (dropped capabilities,
+no-new-privileges, limits), and the deploy waits for the HEALTHCHECK instead
+of an HTTP check. PostgreSQL gets `shm_size` 128 MB. Passwords are 32
+alphanumeric characters (no URL escaping needed). MinIO is left out; Garage
+later.
+
+### Catalog: multi-service entries
+
+`catalog.Entry.Services []ServiceSpec{Template, Name}`; the entry's `Env`
+reaches them through `${{<name>.<VAR>}}` (VAR a connection variable of the
+template). Deploying one creates a project named after the app, adds each
+service with `AddService`, then creates and deploys the app in that project;
+on any failure the project and everything in it is removed. Example: `umami`
+(Umami 3.4.1, port 3000, 512 MB, no volume) with `{postgres, db}` and
+`DATABASE_URL=${{db.DATABASE_URL}}`, `APP_SECRET` generated.
+
+### Known gaps
+
+- `<alias>-<service>` names of a multi app are not checked against the other
+  aliases of the project; a clash makes Docker's DNS answer either container.
+- The restart of `connect_to` apps after the service goes live is kept in
+  memory; a bitploy restart before that loses it (the apps restart at their
+  next deploy or restart_app).
+- References are not filled into compose files (`${VAR}` only reads the app's
+  own variables, which may hold references).
+- No template upgrades: an app keeps the version it was made with.
+- Deleting a referenced app is allowed; the apps that refer to it then fail to
+  start with `variable_reference_unknown`.
+- Umami's `TWO_FACTOR_ENCRYPTION_KEY` is not set (two-factor login off).
