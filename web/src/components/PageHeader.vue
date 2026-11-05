@@ -6,8 +6,9 @@ defineProps<{ title: string; description?: string }>()
 </script>
 
 <template>
-  <header class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-    <div class="flex min-w-0 items-start gap-3">
+  <!-- From lg up the actions keep their place on the right and the facts wrap instead. -->
+  <header class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4 lg:flex-nowrap">
+    <div class="flex min-w-0 items-start gap-3 lg:flex-1">
       <div v-if="$slots.icon" class="shrink-0 pt-0.5"><slot name="icon" /></div>
       <div class="min-w-0">
         <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -18,6 +19,6 @@ defineProps<{ title: string; description?: string }>()
         <p v-else-if="description" class="mt-1 text-sm text-muted-foreground">{{ description }}</p>
       </div>
     </div>
-    <div v-if="$slots.default" class="flex flex-wrap items-center gap-2"><slot /></div>
+    <div v-if="$slots.default" class="flex flex-wrap items-center gap-2 lg:shrink-0 lg:justify-end"><slot /></div>
   </header>
 </template>

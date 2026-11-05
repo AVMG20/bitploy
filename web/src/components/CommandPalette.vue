@@ -15,6 +15,7 @@ import { copyText } from '@/lib/notify'
 import { useSession } from '@/composables/useSession'
 import { paletteOpen } from '@/composables/useShortcuts'
 import { APP_TABS } from '@/lib/appTabs'
+import { isMulti } from '@/lib/services'
 import { appStatusInfo, hostOf } from '@/lib/format'
 import { setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -75,7 +76,9 @@ const items = computed<Item[]>(() => {
     const live = !!current.current_deployment
     const g = current.name
     if (current.git_source) out.push({ id: 'act-deploy', group: g, label: 'Deploy latest', hint: current.git_source.branch, icon: RefreshCw, keywords: 'deploy build redeploy commit', run: () => actions.redeploy.mutate() })
-    if (live) out.push({ id: 'act-restart', group: g, label: `Restart ${current.name}`, icon: RotateCw, keywords: 'restart reboot', run: () => actions.restart.mutate() })
+    // The names the app's page uses: a project with several services restarts all of them and lists them on its first tab.
+    const multi = isMulti(current)
+    if (live) out.push({ id: 'act-restart', group: g, label: multi ? 'Restart all' : `Restart ${current.name}`, icon: RotateCw, keywords: 'restart reboot', run: () => actions.restart.mutate() })
     if (web && live) {
       out.push({ id: 'act-open', group: g, label: `Open ${hostOf(current.url)}`, icon: ExternalLink, keywords: 'open visit website', run: () => window.open(current.url, '_blank', 'noopener') })
       out.push({ id: 'act-copy', group: g, label: 'Copy link', icon: Link, keywords: 'copy url address', run: () => void copyText(current.url, 'Link copied') })
@@ -84,7 +87,7 @@ const items = computed<Item[]>(() => {
     else if (!route.params.slug) out.push({ id: 'act-page', group: g, label: 'Open full page', icon: Maximize2, keywords: 'app page details', to: appRoute(current) })
     for (const t of APP_TABS) {
       if (t.database || (t.webOnly && !isPublicApp(current))) continue
-      out.push({ id: `cur-${t.name}`, group: current.name, label: t.label, keywords: current.slug, to: appRoute(current, t.name) })
+      out.push({ id: `cur-${t.name}`, group: current.name, label: multi && t.name === 'app' ? 'Services' : t.label, keywords: current.slug, to: appRoute(current, t.name) })
     }
   }
   // The project you are in: add to it.
