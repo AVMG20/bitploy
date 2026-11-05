@@ -51,6 +51,7 @@ func (s *Service) Reconcile(ctx context.Context) {
 		s.reconcileDocker(ctx)
 	}
 	s.reconcileRoutes(ctx)
+	s.reconcileRestarts(ctx)
 	s.cleanBuildDirs()
 	s.cleanupMisc(ctx)
 }

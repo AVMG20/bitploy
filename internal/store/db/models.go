@@ -185,6 +185,12 @@ type Deployment struct {
 	ErrorService    string
 }
 
+type DeploymentRestart struct {
+	DeploymentID string
+	AppID        string
+	CreatedAt    int64
+}
+
 type DeploymentService struct {
 	DeploymentID   string
 	Service        string

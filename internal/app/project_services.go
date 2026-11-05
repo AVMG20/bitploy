@@ -186,16 +186,13 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 		return res, err
 	}
 	queued = true
-	if len(connected) > 0 {
-		appIDs := make([]string, len(connected))
-		for i, c := range connected {
-			appIDs[i] = c.ID
+	now := s.now()
+	for _, c := range connected {
+		// Stored, so a bitploy restart before the service is live does not
+		// lose the restart (reconcileRestarts).
+		if ierr := s.Q.InsertDeploymentRestart(ctx, db.InsertDeploymentRestartParams{DeploymentID: dep.ID, AppID: c.ID, CreatedAt: now}); ierr != nil {
+			s.Log.Warn("add_service: store the restart of a connected app", "app", c.Slug, "err", ierr)
 		}
-		r := &s.deployRT
-		r.mu.Lock()
-		r.init()
-		r.afterLive[dep.ID] = appIDs
-		r.mu.Unlock()
 	}
 	slugs := make([]string, len(connected))
 	for i, c := range connected {
@@ -212,16 +209,15 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 }
 
 // runAfterLive restarts the apps that were connected to a service when its
-// deployment went live, so they start with the new variable. (Kept in
-// memory: after a bitploy restart the connected apps get the variable at
-// their next restart or deploy.)
+// deployment went live, so they start with the new variable. The list is in
+// the database (deployment_restarts); taking it deletes it, so each app is
+// restarted once even when the reconciler looks at the same time.
 func (s *Service) runAfterLive(ctx context.Context, depID string) {
-	r := &s.deployRT
-	r.mu.Lock()
-	r.init()
-	appIDs := r.afterLive[depID]
-	delete(r.afterLive, depID)
-	r.mu.Unlock()
+	appIDs, err := s.Q.TakeDeploymentRestarts(ctx, depID)
+	if err != nil {
+		s.Log.Warn("read the restarts after a deployment", "deployment", depID, "err", err)
+		return
+	}
 	for _, id := range appIDs {
 		row, err := s.Q.GetApp(ctx, id)
 		if err != nil {
@@ -232,12 +228,34 @@ func (s *Service) runAfterLive(ctx context.Context, depID string) {
 }
 
 // forgetAfterLive drops the restarts of a deployment that did not go live.
-func (s *Service) forgetAfterLive(depID string) {
-	r := &s.deployRT
-	r.mu.Lock()
-	r.init()
-	delete(r.afterLive, depID)
-	r.mu.Unlock()
+func (s *Service) forgetAfterLive(ctx context.Context, depID string) {
+	if _, err := s.Q.TakeDeploymentRestarts(ctx, depID); err != nil {
+		s.Log.Warn("drop the restarts of a failed deployment", "deployment", depID, "err", err)
+	}
+}
+
+// reconcileRestarts finishes the restarts that a bitploy restart (or a
+// deployment that finished before they were stored) left behind: done for a
+// deployment that went live, dropped for one that failed.
+func (s *Service) reconcileRestarts(ctx context.Context) {
+	rows, err := s.Q.ListSettledDeploymentRestarts(ctx)
+	if err != nil {
+		return
+	}
+	for _, r := range rows {
+		if ctx.Err() != nil || s.activeDeployment(r.DeploymentID) {
+			continue // its pipeline is finishing and does it
+		}
+		switch r.State {
+		case "running", "superseded":
+			if s.Docker == nil {
+				continue // nothing can restart now; kept for the next pass
+			}
+			s.runAfterLive(ctx, r.DeploymentID)
+		default:
+			s.forgetAfterLive(ctx, r.DeploymentID)
+		}
+	}
 }
 
 // waitForReferences waits (up to referenceWait) while a service-template app

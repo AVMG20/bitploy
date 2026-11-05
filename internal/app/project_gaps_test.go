@@ -151,3 +151,65 @@ func TestDeployCatalogIntoProject(t *testing.T) {
 		t.Errorf("project after refusals: %v, %v", got.Apps, err)
 	}
 }
+
+// The restarts of connect_to apps are stored with the service's deployment:
+// they survive a bitploy restart, are done once when it is live and are
+// dropped when it failed.
+func TestConnectRestartsAreStored(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "P"})
+	web := e.mustApp(t, CreateAppInput{Name: "web", Slug: "web", Project: p.ID})
+	pg, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "postgres", ConnectTo: []string{"web"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps, _ := e.s.ListDeployments(ctx, e.user, pg.Slug, 1, "")
+	depID := deps.Items[0].ID
+	count := func() int {
+		var n int
+		if err := e.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM deployment_restarts WHERE deployment_id = ? AND app_id = ?`, depID, web.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count() != 1 {
+		t.Fatalf("restart not stored")
+	}
+	// Still queued: the reconciler leaves it.
+	e.s.reconcileRestarts(ctx)
+	if count() != 1 {
+		t.Fatal("a queued deployment's restart was dropped")
+	}
+	// Live, but no Docker to restart with: kept for the next pass.
+	e.exec(t, `UPDATE deployments SET state = 'running' WHERE id = ?`, depID)
+	e.s.reconcileRestarts(ctx)
+	if count() != 1 {
+		t.Fatal("dropped without Docker")
+	}
+	// The pipeline (or the reconciler) takes it exactly once.
+	if ids, err := e.s.Q.TakeDeploymentRestarts(ctx, depID); err != nil || len(ids) != 1 || ids[0] != web.ID {
+		t.Fatalf("take = %v, %v", ids, err)
+	}
+	if ids, _ := e.s.Q.TakeDeploymentRestarts(ctx, depID); len(ids) != 0 {
+		t.Fatalf("taken twice: %v", ids)
+	}
+	// A failed deployment's restarts are dropped.
+	e.exec(t, `INSERT INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, 1)`, depID, web.ID)
+	e.exec(t, `UPDATE deployments SET state = 'failed' WHERE id = ?`, depID)
+	e.s.reconcileRestarts(ctx)
+	if count() != 0 {
+		t.Fatal("a failed deployment's restart was kept")
+	}
+	// Deleting the connected app removes its rows.
+	e.exec(t, `INSERT INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, 1)`, depID, web.ID)
+	if _, err := e.s.SetEnv(ctx, e.user, "web", nil, []string{"DATABASE_URL"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.DeleteApp(ctx, e.user, "web", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 0 {
+		t.Fatal("rows of a deleted app")
+	}
+}
