@@ -49,10 +49,10 @@ const groups = computed(() => groupTemplates(templates.data.value ?? []))
 const memLeft = computed(() => (me.data.value ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
 
 const SOURCES = [
-  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. bitploy finds its Dockerfile, compose file, or Node or static site.' },
+  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. Bitploy finds its Dockerfile, compose file, Node.js project or website.' },
   { key: 'upload', icon: Upload, title: 'Upload', text: 'Drop a folder or a .zip from your computer.' },
   { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose file', text: 'Paste one. A compose file brings all its services.' },
-  { key: 'image', icon: Container, title: 'Docker image', text: 'Run a published image, like ghost:5 or ghcr.io/you/app.' },
+  { key: 'image', icon: Container, title: 'Docker image', text: 'Run a published image, like nginx:1.27 or ghcr.io/you/app.' },
 ] as const
 
 function go(source: string) {

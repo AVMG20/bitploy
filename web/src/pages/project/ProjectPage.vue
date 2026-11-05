@@ -248,7 +248,7 @@ const projectForAi = computed(() => {
             <span v-else-if="apps.length">No web address yet</span>
             <template v-if="apps.length">
               <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
-              <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}, {{ formatMB(usage.memoryMB) }} memory reserved</span>
+              <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, {{ formatMB(usage.memoryMB) }} memory reserved</template></span>
             </template>
           </div>
         </div>
@@ -303,13 +303,13 @@ const projectForAi = computed(() => {
               v-for="t in quickPicks"
               :key="t.id"
               type="button"
-              class="group flex items-center gap-2.5 rounded-lg border bg-card p-2.5 text-left text-sm transition-colors hover:border-foreground/25"
+              class="group grid content-start gap-1.5 rounded-lg border bg-card p-2.5 text-left text-sm transition-colors hover:border-foreground/25"
               @click="openAdd(project.id, t.id)"
             >
               <ServiceIcon :role="templateRole(t)" size="sm" />
               <span class="min-w-0">
-                <span class="block truncate font-medium">{{ t.name }}</span>
-                <span class="block truncate text-xs text-muted-foreground">{{ templateLabel(t) }}, {{ formatMB(t.memory_mb) }}</span>
+                <span class="block font-medium break-words">{{ t.name }}</span>
+                <span class="block text-xs text-muted-foreground">{{ templateLabel(t) }}, {{ formatMB(t.memory_mb) }}</span>
               </span>
             </button>
           </div>

@@ -54,7 +54,7 @@ function openOnly() {
 }
 
 const SOURCES = [
-  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Pick a repository. bitploy finds how to build it.' },
+  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Pick a repository. Bitploy finds how to build it.' },
   { key: 'upload', icon: Upload, title: 'Upload a folder', text: 'Drop a folder or a .zip with your code.' },
   { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste one, or a Docker image name.' },
   { key: 'ready-made', icon: Boxes, title: 'Ready-made app', text: 'Open-source apps, set up for you.' },
