@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
-import { ArrowUpCircle, ExternalLink, Plus, GitBranch, Hammer, Link, Lock, MoreHorizontal, Play, RefreshCw, RotateCw, Settings, Square } from 'lucide-vue-next'
+import { ArrowUpCircle, ExternalLink, GitBranch, Hammer, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
+import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Button } from '@/components/ui/button'
@@ -19,10 +20,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { keys, useApp, useDataRoot } from '@/composables/queries'
-import { useAppActions } from '@/composables/useAppActions'
-import { clearRestartNeeded, useRestartNeeded } from '@/composables/useRestartNeeded'
-import { ApiError, api } from '@/lib/api'
+import { useApp, useDataRoot } from '@/composables/queries'
+import { useAppControls } from '@/composables/useAppControls'
+import { ApiError } from '@/lib/api'
 import { APP_TABS } from '@/lib/appTabs'
 import { pickDatabase } from '@/lib/dbvalue'
 import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
@@ -30,22 +30,16 @@ import { copyText } from '@/lib/notify'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 import ServiceSheet from './ServiceSheet.vue'
-import { isMulti } from '@/lib/services'
 import ServiceIcon from '@/components/ServiceIcon.vue'
-import StatusDot from '@/components/StatusDot.vue'
 import { useProject, useServiceTemplates } from '@/composables/queries'
-import { openAdd } from '@/composables/useAddToProject'
-import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, appRole, internalHostOf, isPublicApp, projectIdOf, roleTitle, sortProjectApps } from '@/lib/projects'
+import { projectRoute } from '@/lib/appLinks'
+import { appRole, internalHostOf, projectIdOf, roleTitle } from '@/lib/projects'
 
 const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
 const router = useRouter()
 const app = useApp(() => props.slug)
 const data = computed(() => app.data.value)
-const isWeb = computed(() => !!data.value && isPublicApp(data.value))
-// Several services (a compose file): the overview is the service grid, actions act on all of them.
-const multi = computed(() => isMulti(data.value))
 const thing = 'app'
 
 // The project around the app: its other apps, one click away.
@@ -53,8 +47,6 @@ const pid = computed(() => props.projectId || (data.value ? projectIdOf(data.val
 const { list: projectList, project } = useProject(pid)
 const templates = useServiceTemplates()
 const role = computed(() => (data.value ? appRole(data.value, templates.data.value ?? []) : null))
-const siblings = computed(() => sortProjectApps(project.value?.apps ?? [], templates.data.value ?? []))
-const canAdd = computed(() => !!project.value && !projectList.data.value?.fallback)
 // The address names the project; an old link with the wrong one is put right.
 watch(
   () => data.value,
@@ -89,36 +81,11 @@ watch(
 )
 
 // ---------------------------------------------------------------- actions (in the header, so every tab has them)
-const actions = useAppActions(() => props.slug)
-const dep = computed(() => data.value?.current_deployment ?? null)
-// A failed first deploy has no live version, but its source (or the linked repository) can be built again.
-const canRebuild = computed(() => !!data.value && (!!dep.value || !!data.value.git_source || data.value.status !== 'new'))
-const canStart = computed(() => !!data.value && ['stopped', 'crashed', 'failed'].includes(data.value.status) && !!dep.value)
-const canStop = computed(() => !!data.value && ['running', 'deploying'].includes(data.value.status))
-const busy = computed(() => actions.redeploy.isPending.value || actions.restart.isPending.value || actions.start.isPending.value || actions.stop.isPending.value)
-const shownStatus = computed(() => (actions.restart.isPending.value ? 'restarting' : actions.start.isPending.value ? 'starting' : (data.value?.status ?? '')))
-
-/**
- * The main button depends on where the code comes from: a linked repository
- * builds its newest commit, uploaded files get a new upload, a ready-made app
- * with a newer version gets that update. Anything else opens the app.
- */
-const primary = computed<'git' | 'upload' | 'update' | 'open' | 'none'>(() => {
-  const a = data.value
-  if (!a) return 'none'
-  // A database or cache from a template: bitploy keeps its image up to date.
-  if (a.template) return 'none'
-  if (a.git_source) return 'git'
-  if (a.catalog_id) return a.catalog_update ? 'update' : isWeb.value && dep.value ? 'open' : 'none'
-  return 'upload'
-})
-
+// Several services (a compose file): the overview is the service grid, actions act on all of them.
+const { actions, isWeb, multi, dep, canRebuild, canStart, canStop, busy, shownStatus, primary, pending, restart, rebuild: startRebuild } = useAppControls(() => props.slug, data)
 // Show the new deployment's progress where it is listed.
 function rebuild() {
-  actions.redeploy.mutate(undefined, { onSuccess: () => void router.push({ name: 'app-deployments', params: { slug: props.slug } }) })
-}
-function restart() {
-  actions.restart.mutate(undefined, { onSuccess: () => clearRestartNeeded(data.value?.id) })
+  startRebuild(() => void router.push({ name: 'app-deployments', params: { slug: props.slug } }))
 }
 
 const confirmStop = ref(false)
@@ -127,15 +94,7 @@ function stop() {
 }
 
 const updateOpen = ref(false)
-
-// ---------------------------------------------------------------- changes that wait for a restart
-const env = useQuery({
-  queryKey: computed(() => keys.env(props.slug)),
-  queryFn: () => api.env(props.slug),
-  enabled: computed(() => data.value?.status === 'running'),
-  staleTime: 30_000,
-})
-const pending = useRestartNeeded(data, () => env.data.value)
+const deleteOpen = ref(false)
 </script>
 
 <template>
@@ -146,51 +105,47 @@ const pending = useRestartNeeded(data, () => env.data.value)
     <QueryError v-else-if="app.isError.value && !data" :error="app.error.value" @retry="app.refetch()" />
 
     <template v-else>
-      <div v-if="data" class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-        <div class="min-w-0">
-          <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-            <ServiceIcon v-if="role" :role="role.key" />
-            <h1 class="min-w-0 truncate text-2xl font-semibold tracking-tight">{{ data.name }}</h1>
-            <span v-if="role" class="text-sm text-muted-foreground">{{ roleTitle(role) }}</span>
-            <AppStatusBadge :status="shownStatus" />
-            <button
-              v-if="data.catalog_update"
-              type="button"
-              class="inline-flex h-5.5 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
-              @click="updateOpen = true"
-            >
-              <ArrowUpCircle class="size-3.5" aria-hidden="true" /> Update to {{ data.catalog_update }}
-            </button>
-          </div>
-          <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            <template v-if="isWeb">
-              <a :href="data.url" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] text-foreground hover:underline">{{ hostOf(data.url) }}</a>
-              <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="-ml-1 size-6 text-muted-foreground" />
-              <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Password-protected. Visitors sign in as ${data.protected_username}.`">
-                <Lock class="size-3.5" aria-hidden="true" /> Private
-              </span>
-            </template>
-            <span v-else-if="data && internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
-              <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
+      <PageHeader v-if="data" :title="data.name">
+        <template v-if="role" #icon><ServiceIcon :role="role.key" /></template>
+        <template #badges>
+          <span v-if="role" class="text-sm text-muted-foreground">{{ roleTitle(role) }}</span>
+          <AppStatusBadge :status="shownStatus" />
+          <button
+            v-if="data.catalog_update"
+            type="button"
+            class="inline-flex h-5.5 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+            @click="updateOpen = true"
+          >
+            <ArrowUpCircle class="size-3.5" aria-hidden="true" /> Update to {{ data.catalog_update }}
+          </button>
+        </template>
+        <template #meta>
+          <template v-if="isWeb">
+            <a :href="data.url" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] text-foreground hover:underline">{{ hostOf(data.url) }}</a>
+            <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="-ml-1 size-6 text-muted-foreground" />
+            <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Password-protected. Visitors sign in as ${data.protected_username}.`">
+              <Lock class="size-3.5" aria-hidden="true" /> Private
             </span>
-            <span v-else>Runs in the background, no web address</span>
+          </template>
+          <span v-else-if="internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
+            <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
+          </span>
+          <span v-else>Runs in the background, no web address</span>
+          <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
+          <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
+          <span v-else>Not deployed yet</span>
+          <template v-if="data.git_source">
             <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
-            <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
-            <span v-else>Not deployed yet</span>
-            <template v-if="data.git_source">
-              <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
-              <span class="inline-flex items-center gap-1.5">
-                <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
-                <template v-if="dep?.commit_sha">
-                  <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-[13px] text-foreground hover:underline">{{ shortSha(dep.commit_sha) }}</a>
-                  <span v-else class="font-mono text-[13px] text-foreground">{{ shortSha(dep.commit_sha) }}</span>
-                </template>
-              </span>
-            </template>
-          </div>
-        </div>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
+              <template v-if="dep?.commit_sha">
+                <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-[13px] text-foreground hover:underline">{{ shortSha(dep.commit_sha) }}</a>
+                <span v-else class="font-mono text-[13px] text-foreground">{{ shortSha(dep.commit_sha) }}</span>
+              </template>
+            </span>
+          </template>
+        </template>
 
-        <div class="flex flex-wrap items-center gap-2">
           <template v-if="isWeb && primary !== 'open'">
             <Button v-if="dep" as-child variant="outline">
               <a :href="data.url" target="_blank" rel="noopener noreferrer">{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></a>
@@ -226,12 +181,13 @@ const pending = useRestartNeeded(data, () => env.data.value)
               </DropdownMenuItem>
               <DropdownMenuItem v-if="canStop" :disabled="busy" @click="confirmStop = true"><Square /> Stop {{ thing }}</DropdownMenuItem>
               <DropdownMenuItem v-if="isWeb" @click="copyText(data.url, 'Link copied')"><Link /> Copy link</DropdownMenuItem>
+              <DropdownMenuItem v-if="project" @click="router.push(projectRoute(project.id, { app: slug }))"><PanelRight /> Show on the canvas</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem @click="router.push({ name: 'app-settings', params: { slug } })"><Settings /> Settings</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </div>
+      </PageHeader>
       <div v-else class="grid gap-2">
         <Skeleton class="h-8 w-72 max-w-full" />
         <Skeleton class="h-4 w-96 max-w-full" />
@@ -252,28 +208,6 @@ const pending = useRestartNeeded(data, () => env.data.value)
           <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
         </Button>
       </div>
-
-      <!-- The other apps of the project. -->
-      <nav v-if="project && (siblings.length > 1 || canAdd)" class="-mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs" :aria-label="`Apps in ${project.name}`">
-        <RouterLink :to="projectRoute(project.id)" class="mr-1 text-muted-foreground hover:text-foreground">In {{ project.name }}:</RouterLink>
-        <RouterLink
-          v-for="a in siblings"
-          :key="a.id"
-          :to="appRoute(a)"
-          :aria-current="a.slug === slug ? 'page' : undefined"
-          class="inline-flex items-center gap-1.5 rounded-md border bg-card px-2 py-1 font-mono transition-colors hover:border-foreground/25 aria-[current=page]:border-primary/40 aria-[current=page]:bg-primary/5"
-        >
-          <StatusDot :status="a.status" /> {{ aliasOf(a) }}
-        </RouterLink>
-        <button
-          v-if="canAdd"
-          type="button"
-          class="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          @click="openAdd(project.id)"
-        >
-          <Plus class="size-3" /> Add
-        </button>
-      </nav>
 
       <Tabs :model-value="current" class="min-w-0">
         <div class="overflow-x-auto overflow-y-hidden border-b">
@@ -297,6 +231,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
       @confirm="stop"
     />
     <ServiceSheet v-if="data && multi" :app="data" />
+    <DeleteAppDialog v-if="data" v-model:open="deleteOpen" :app="data" />
     <CatalogUpdateDialog v-if="data?.catalog_update && updateOpen" v-model:open="updateOpen" :app="data" />
   </div>
 </template>
