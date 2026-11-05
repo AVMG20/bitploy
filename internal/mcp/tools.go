@@ -88,10 +88,12 @@ type deployFilesIn struct {
 }
 
 type catalogDeployIn struct {
-	ID     string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
-	Name   string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
-	Slug   string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
-	Domain string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
+	ID      string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
+	Name    string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
+	Slug    string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+	Domain  string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
+	Project string `json:"project,omitempty" jsonschema:"The project (id or name from list_projects) to add the app and its databases to. Leave out to make a new project named after the app."`
+	Alias   string `json:"alias,omitempty" jsonschema:"The app's short name in the project, like stats. Leave out to use the subdomain."`
 }
 
 type gitSourceIn struct {
@@ -441,10 +443,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_catalog_app", "Deploy a one-click app",
-		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind.",
+		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind. With project, the app and the databases it brings are added to that project (a database name that is taken there gets -2); without it they get a new project.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in catalogDeployIn) (*result, error) {
-			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug, Domain: in.Domain})
+			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug, Domain: in.Domain, Project: in.Project, Alias: in.Alias})
 			if err != nil {
 				return nil, err
 			}
@@ -768,7 +770,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "delete_app", "Delete an app",
-		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named.",
+		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): change those variables with set_env or delete those apps first.",
 		destructive(), true, nil,
 		func(ctx context.Context, a app.Actor, in deleteAppIn) (*result, error) {
 			if strings.TrimSpace(in.ConfirmSlug) == "" {

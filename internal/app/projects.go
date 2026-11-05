@@ -69,27 +69,147 @@ func trimAlias(base string) string {
 	return strings.Trim(b, "-")
 }
 
-// freeAlias returns base, or base-2, base-3, ... when that is taken in the
-// project by another app than exceptID.
-func freeAlias(ctx context.Context, q *db.Queries, projectID, base, exceptID string) (string, error) {
+// freeAlias returns base, or base-2, base-3, ... when that (or a name it
+// gives the services, see hostNames) is taken on the project network by
+// another app than exceptID.
+func freeAlias(ctx context.Context, q *db.Queries, projectID, base, exceptID string, services []string) (string, error) {
 	base = trimAlias(base)
 	if base == "" {
 		base = "app"
+	}
+	held, err := projectHostNames(ctx, q, projectID, exceptID)
+	if err != nil {
+		return "", err
 	}
 	for i := 1; i < 100; i++ {
 		cand := base
 		if i > 1 {
 			cand = fmt.Sprintf("%s-%d", base, i)
 		}
-		n, err := q.ProjectAliasTaken(ctx, db.ProjectAliasTakenParams{ProjectID: projectID, Alias: cand, ExceptID: exceptID})
-		if err != nil {
-			return "", err
-		}
-		if n == 0 {
+		if _, clash := firstClash(held, cand, services); !clash {
 			return cand, nil
 		}
 	}
 	return "", errors.New("no free alias")
+}
+
+// ---- names on the project network ----
+
+// hostNames are the names an app takes on its project network: its alias,
+// and for an app with several services <alias>-<service> for each (see
+// projectAliases).
+func hostNames(alias string, services []string) []string {
+	out := []string{alias}
+	for _, sv := range services {
+		out = append(out, alias+"-"+sv)
+	}
+	return out
+}
+
+// heldName is a name on a project network and the app that holds it.
+type heldName struct {
+	app     db.App
+	service string // "" for the bare alias
+}
+
+// networkServices are the service names of an app with several services
+// (nil for an app with one: it only has its alias).
+func networkServices(ctx context.Context, q *db.Queries, app db.App) ([]string, error) {
+	if !isMulti(app) {
+		return nil, nil
+	}
+	rows, err := q.ListAppServices(ctx, app.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Name
+	}
+	return out, nil
+}
+
+// projectHostNames maps every name on the project network to the app that
+// holds it, for the apps other than exceptID.
+func projectHostNames(ctx context.Context, q *db.Queries, projectID, exceptID string) (map[string]heldName, error) {
+	out := map[string]heldName{}
+	if projectID == "" {
+		return out, nil
+	}
+	apps, err := q.ListAppsByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ap := range apps {
+		if ap.ID == exceptID || ap.Alias == "" {
+			continue
+		}
+		svcs, err := networkServices(ctx, q, ap)
+		if err != nil {
+			return nil, err
+		}
+		out[ap.Alias] = heldName{app: ap}
+		for _, sv := range svcs {
+			out[ap.Alias+"-"+sv] = heldName{app: ap, service: sv}
+		}
+	}
+	return out, nil
+}
+
+// nameClash is a name an app would take that another app holds.
+type nameClash struct {
+	name    string
+	service string // the app's own service that would take it, "" for its alias
+	holder  heldName
+}
+
+func firstClash(held map[string]heldName, alias string, services []string) (nameClash, bool) {
+	if h, ok := held[alias]; ok {
+		return nameClash{name: alias, holder: h}, true
+	}
+	for _, sv := range services {
+		n := alias + "-" + sv
+		if h, ok := held[n]; ok {
+			return nameClash{name: n, service: sv, holder: h}, true
+		}
+	}
+	return nameClash{}, false
+}
+
+// checkHostNames refuses an alias (with the app's services) that would give
+// a container on the project network a name another app already has: Docker's
+// DNS would then answer with either container.
+func checkHostNames(ctx context.Context, q *db.Queries, projectID, exceptID, alias string, services []string) error {
+	held, err := projectHostNames(ctx, q, projectID, exceptID)
+	if err != nil {
+		return err
+	}
+	if c, clash := firstClash(held, alias, services); clash {
+		return c.err(alias)
+	}
+	return nil
+}
+
+// err is 409 alias_taken, saying who holds the name.
+func (c nameClash) err(alias string) *apperr.Error {
+	if c.service == "" && c.holder.service == "" {
+		return aliasTaken(alias)
+	}
+	msg := ""
+	if c.service == "" {
+		msg = "The short name " + quote(alias) + " is already a name on the project network: the app " + quote(c.holder.app.Alias) +
+			" reaches its service " + c.holder.service + " under it."
+	} else {
+		other := "the short name of the app " + quote(c.holder.app.Alias)
+		if c.holder.service != "" {
+			other = "the name of the service " + c.holder.service + " of the app " + quote(c.holder.app.Alias)
+		}
+		msg = "With the short name " + quote(alias) + ", this app's service " + c.service + " would be reached as " + c.name +
+			" on the project network, which is already " + other + "."
+	}
+	return apperr.Conflict("alias_taken", msg,
+		"Pick another short name, or call get_project to see the names in use.").WithNext("get_project").
+		WithDetail("name", c.name).WithDetail("app", c.holder.app.Slug)
 }
 
 // loadProject finds a project by id, or by its name among the caller's
@@ -269,7 +389,7 @@ func (s *Service) DeleteProject(ctx context.Context, a Actor, ref, confirm strin
 			WithNext("delete_project").WithDetail("apps", slugs)
 	}
 	for _, ap := range apps {
-		if err := s.DeleteApp(ctx, a, ap.ID, ap.Slug); err != nil {
+		if err := s.deleteApp(ctx, a, ap.ID, ap.Slug, false); err != nil {
 			return err
 		}
 	}
@@ -491,14 +611,15 @@ func (s *Service) planProjectChange(ctx context.Context, a Actor, row db.App, in
 	moving := pc.to != pc.from
 	if moving {
 		// References would break: the apps that use this one stay behind.
-		refs, err := s.referrers(ctx, row, row.Alias)
+		deps, err := s.dependents(ctx, row, row.Alias)
 		if err != nil {
 			return nil, apperr.Internal(err)
 		}
-		if len(refs) > 0 {
+		if len(deps) > 0 {
 			return nil, apperr.Conflict("app_referenced",
-				"Other apps in this project refer to this app's variables: "+describeReferrers(refs)+".",
-				"Change those variables with set_env first, or move those apps too.").WithNext("set_env").WithDetail("apps", sortedKeys(refs))
+				"Other apps in this project refer to this app's variables: "+describeDependents(deps)+".",
+				"Change those variables with set_env first, or move those apps too.").WithNext("set_env").
+				WithDetail("apps", dependentSlugs(deps)).WithDetail("dependents", deps)
 		}
 		if mine := s.appReferences(ctx, row.ID); len(mine) > 0 {
 			return nil, apperr.Conflict("app_has_references",
@@ -510,15 +631,15 @@ func (s *Service) planProjectChange(ctx context.Context, a Actor, row db.App, in
 		return nil, nil
 	}
 	if in.Alias != nil || moving {
-		n, err := s.Q.ProjectAliasTaken(ctx, db.ProjectAliasTakenParams{ProjectID: pc.to, Alias: pc.alias, ExceptID: row.ID})
+		svcs, err := networkServices(ctx, s.Q, row)
 		if err != nil {
 			return nil, apperr.Internal(err)
 		}
-		if n > 0 {
-			if in.Alias != nil {
-				return nil, aliasTaken(pc.alias)
+		if err := checkHostNames(ctx, s.Q, pc.to, row.ID, pc.alias, svcs); err != nil {
+			if in.Alias != nil || apperr.As(err).Code != "alias_taken" {
+				return nil, apperr.As(err)
 			}
-			al, err := freeAlias(ctx, s.Q, pc.to, pc.alias, row.ID)
+			al, err := freeAlias(ctx, s.Q, pc.to, pc.alias, row.ID, svcs)
 			if err != nil {
 				return nil, apperr.Internal(err)
 			}
@@ -603,14 +724,6 @@ func (s *Service) restartIfRunning(ctx context.Context, userID, ref string) {
 	if _, err := s.RestartApp(ctx, sys, row.ID); err != nil {
 		s.Log.Warn("restart after a variable change", "app", row.Slug, "err", err)
 	}
-}
-
-func describeReferrers(refs map[string][]string) string {
-	parts := []string{}
-	for _, slug := range sortedKeys(refs) {
-		parts = append(parts, slug+" ("+strings.Join(refs[slug], ", ")+")")
-	}
-	return strings.Join(parts, ", ")
 }
 
 func sortedKeys[V any](m map[string]V) []string {

@@ -1,0 +1,153 @@
+package app
+
+import (
+	"context"
+	"testing"
+
+	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/store/db"
+)
+
+// makeMulti turns an app into one with the given services (as a compose
+// deploy would), so it holds <alias>-<service> on the project network.
+func (e *depEnv) makeMulti(t *testing.T, appID string, services ...string) {
+	t.Helper()
+	e.exec(t, `UPDATE apps SET service_layout = 'multi' WHERE id = ?`, appID)
+	e.exec(t, `DELETE FROM app_services WHERE app_id = ?`, appID)
+	for i, sv := range services {
+		if err := e.s.Q.InsertAppService(context.Background(), db.InsertAppServiceParams{
+			AppID: appID, Name: sv, Kind: "image", Image: "busybox:1.36", Public: b2i(i == 0), MemoryMb: 64, CpuMillis: 100,
+			Position: int64(i), CreatedAt: 1, UpdatedAt: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Names on a project network: an alias may not equal <alias>-<service> of an
+// app with several services, in either direction.
+func TestProjectHostNameClashes(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "P"})
+	web := e.mustApp(t, CreateAppInput{Name: "web", Slug: "web-app", Project: p.ID, Alias: "web"})
+	e.makeMulti(t, web.ID, "api", "worker")
+
+	_, err := e.s.CreateApp(ctx, e.user, CreateAppInput{Name: "x", Slug: "other", Project: p.ID, Alias: "web-api"})
+	if depCode(err) != "alias_taken" || apperr.As(err).Details["name"] != "web-api" || apperr.As(err).Details["app"] != "web-app" {
+		t.Fatalf("alias over a service name: %v", err)
+	}
+	// A default alias skips the taken name.
+	if a := e.mustApp(t, CreateAppInput{Name: "x", Slug: "web-api", Project: p.ID}); a.Alias != "web-api-2" {
+		t.Errorf("default alias = %q, want web-api-2", a.Alias)
+	}
+	if _, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "valkey", Name: "web-worker"}); depCode(err) != "alias_taken" {
+		t.Errorf("add_service over a service name: %v", err)
+	}
+	blog := e.mustApp(t, CreateAppInput{Name: "blog", Slug: "blog", Project: p.ID})
+	if _, err := e.s.UpdateApp(ctx, e.user, blog.Slug, UpdateAppInput{Alias: strp("web-worker")}); depCode(err) != "alias_taken" {
+		t.Errorf("rename over a service name: %v", err)
+	}
+	// The other way round: renaming the app with services so that one of its
+	// service names becomes another app's alias.
+	e.mustApp(t, CreateAppInput{Name: "y", Slug: "shop-api", Project: p.ID, Alias: "shop-api"})
+	_, err = e.s.UpdateApp(ctx, e.user, web.Slug, UpdateAppInput{Alias: strp("shop")})
+	if depCode(err) != "alias_taken" || apperr.As(err).Details["name"] != "shop-api" {
+		t.Fatalf("rename into a clash: %v", err)
+	}
+	if _, err := e.s.UpdateApp(ctx, e.user, web.Slug, UpdateAppInput{Alias: strp("site")}); err != nil {
+		t.Fatalf("free rename: %v", err)
+	}
+
+	// A compose deploy whose service names clash fails before anything is built.
+	row, _ := e.s.Q.GetApp(ctx, blog.ID)
+	ae := e.s.checkServiceHostNames(ctx, row, []serviceSpec{{Name: "api"}, {Name: "web"}})
+	if ae != nil {
+		t.Fatalf("no clash expected: %v", ae)
+	}
+	e.mustApp(t, CreateAppInput{Name: "z", Slug: "blog-db", Project: p.ID, Alias: "blog-db"})
+	ae = e.s.checkServiceHostNames(ctx, row, []serviceSpec{{Name: "web"}, {Name: "db"}})
+	if ae == nil || ae.Code != "network_name_taken" || ae.Details["service"] != "db" || ae.Details["name"] != "blog-db" || ae.HTTPStatus != 422 {
+		t.Fatalf("clash = %+v", ae)
+	}
+
+	// Moving an app with services into a project where its names clash picks
+	// a free alias.
+	q, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "Q"})
+	e.mustApp(t, CreateAppInput{Name: "q", Slug: "q-one", Project: q.ID, Alias: "site-api"})
+	moved, err := e.s.UpdateApp(ctx, e.user, web.Slug, UpdateAppInput{Project: strp(q.ID)})
+	if err != nil || moved.Alias != "site-2" {
+		t.Fatalf("move = %q, %v", moved.Alias, err)
+	}
+}
+
+// deploy_catalog_app with a project adds the app and its services there; a
+// service name that is taken gets the next free one, and the references
+// follow it.
+func TestDeployCatalogIntoProject(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "Analytics"})
+	e.mustApp(t, CreateAppInput{Name: "Old db", Slug: "old-db", Project: p.ID, Alias: "db"})
+
+	res, err := e.s.DeployCatalogApp(ctx, e.user, "umami", CatalogDeployInput{Project: p.ID, Alias: "stats"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.App.Project.ID != p.ID || res.App.Alias != "stats" {
+		t.Fatalf("app = %+v alias %q", res.App.Project, res.App.Alias)
+	}
+	got, _ := e.s.GetProject(ctx, e.user, p.ID)
+	if len(got.Apps) != 3 {
+		t.Fatalf("apps in the project: %d", len(got.Apps))
+	}
+	var svc *App
+	for i := range got.Apps {
+		if got.Apps[i].Template != nil {
+			svc = &got.Apps[i]
+		}
+	}
+	if svc == nil || svc.Alias != "db-2" || *svc.Template != "postgres" {
+		t.Fatalf("service = %+v", svc)
+	}
+	if v := e.envValue(t, res.App.ID, "DATABASE_URL"); v != "${{db-2.DATABASE_URL}}" {
+		t.Errorf("DATABASE_URL = %q", v)
+	}
+	row, _ := e.s.Q.GetApp(ctx, res.App.ID)
+	if _, ae := e.s.containerEnv(ctx, row, 3000); ae != nil {
+		t.Errorf("references do not resolve: %v", ae)
+	}
+	if ps, _ := e.s.ListProjects(ctx, e.user); len(ps) != 1 {
+		t.Errorf("projects = %d, want 1 (no new project)", len(ps))
+	}
+
+	// A single-container entry goes into the project too; by name works.
+	memos, err := e.s.DeployCatalogApp(ctx, e.user, "memos", CatalogDeployInput{Project: "analytics"})
+	if err != nil || memos.App.Project.ID != p.ID || memos.App.Alias != "memos" {
+		t.Fatalf("memos = %+v %q, %v", memos.App.Project, memos.App.Alias, err)
+	}
+
+	// Refusals leave the project as it was.
+	before := e.countApps(t)
+	if _, err := e.s.DeployCatalogApp(ctx, e.user, "umami", CatalogDeployInput{Project: p.ID, Alias: "stats"}); depCode(err) != "alias_taken" {
+		t.Errorf("alias taken: %v", err)
+	}
+	if _, err := e.s.DeployCatalogApp(ctx, e.user, "umami", CatalogDeployInput{Project: p.ID, Alias: "-x"}); depCode(err) != "alias_invalid" {
+		t.Errorf("alias invalid: %v", err)
+	}
+	bob := e.addUser(t, "usr_bob", "bob@example.com", "user")
+	if _, err := e.s.DeployCatalogApp(ctx, bob, "umami", CatalogDeployInput{Project: p.ID}); depCode(err) != "project_not_found" {
+		t.Errorf("another user's project: %v", err)
+	}
+	// The app is made, its database is over the quota: both go, the project stays.
+	e.exec(t, `UPDATE users SET quota_apps = ? WHERE id = ?`, before+1, e.user.UserID)
+	if _, err := e.s.DeployCatalogApp(ctx, e.user, "umami", CatalogDeployInput{Project: p.ID}); depCode(err) != "apps_quota_exceeded" {
+		t.Fatalf("over quota: %v", err)
+	}
+	if n := e.countApps(t); n != before {
+		t.Errorf("apps after refusals: %d, want %d", n, before)
+	}
+	if got, err := e.s.GetProject(ctx, e.user, p.ID); err != nil || len(got.Apps) != before {
+		t.Errorf("project after refusals: %v, %v", got.Apps, err)
+	}
+}

@@ -77,15 +77,11 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 		if ae != nil {
 			return res, ae
 		}
-		n, err := s.Q.ProjectAliasTaken(ctx, db.ProjectAliasTakenParams{ProjectID: p.ID, Alias: al, ExceptID: ""})
-		if err != nil {
-			return res, apperr.Internal(err)
-		}
-		if n > 0 {
-			return res, aliasTaken(al)
+		if err := checkHostNames(ctx, s.Q, p.ID, "", al, nil); err != nil {
+			return res, apperr.As(err)
 		}
 		alias = al
-	} else if alias, err = freeAlias(ctx, s.Q, p.ID, tpl.ID, ""); err != nil {
+	} else if alias, err = freeAlias(ctx, s.Q, p.ID, tpl.ID, "", nil); err != nil {
 		return res, apperr.Internal(err)
 	}
 	ref := "${{" + alias + "." + tpl.MainVar + "}}"
@@ -156,7 +152,7 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 				s.Log.Error("add_service: undo connect_to", "app", c.Slug, "err", uerr)
 			}
 		}
-		if derr := s.DeleteApp(bg, a, created.Slug, created.Slug); derr != nil {
+		if derr := s.deleteApp(bg, a, created.Slug, created.Slug, false); derr != nil {
 			s.Log.Error("add_service: remove the app after a failed deploy", "app", created.Slug, "err", derr)
 		}
 	}()

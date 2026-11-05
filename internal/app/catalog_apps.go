@@ -63,6 +63,11 @@ type CatalogDeployInput struct {
 	Domain   string `json:"domain,omitempty" doc:"The domain of the address, one of app_domains in whoami. Empty: the default domain."`
 	MemoryMB *int64 `json:"memory_mb,omitempty"`
 	VolumeMB *int64 `json:"volume_mb,omitempty"`
+	// Project is the project (id or name) to add the app and its services
+	// to; empty: a new project named after the app.
+	Project string `json:"project,omitempty" doc:"The project to add the app (and its services) to, an id from GET /projects. Empty: a new project named after the app."`
+	// Alias is the app's short name in the project; default: the subdomain.
+	Alias string `json:"alias,omitempty" doc:"The app's short name in the project (a DNS label). Default: the subdomain, with -2, -3 ... when that is taken."`
 }
 
 // CatalogDeployResult is what deploying a catalog app returns.
@@ -118,8 +123,13 @@ func (s *Service) GetCatalogApp(ctx context.Context, a Actor, id string) (Catalo
 
 // DeployCatalogApp creates an app from a catalog entry and deploys its
 // Dockerfile. The app goes through CreateApp (quotas, slug rules), so a refusal
-// there is the caller's answer. When anything fails after the app was created,
-// the app is deleted again: nothing half-made stays.
+// there is the caller's answer. With in.Project the app and the entry's
+// services are added to that project; without it a multi-service entry gets a
+// new project named after the app. A service whose name is taken in the
+// project gets the next free one (db-2), and the app's references follow it.
+// When anything fails before the deployment is queued, everything this call
+// made is deleted again (a project it made goes as a whole; a project that was
+// given keeps its other apps).
 func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in CatalogDeployInput) (res CatalogDeployResult, err error) {
 	if err := RequireDeploy(a); err != nil {
 		return res, err
@@ -138,7 +148,7 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	}
 	port := int64(e.Port)
 	create := CreateAppInput{
-		Name: name, Type: "web", Port: &port, Volume: e.Volume, MemoryMB: &mem, BuildMode: "dockerfile", Domain: in.Domain,
+		Name: name, Type: "web", Port: &port, Volume: e.Volume, MemoryMB: &mem, BuildMode: "dockerfile", Domain: in.Domain, Alias: in.Alias,
 	}
 	if e.Volume {
 		vol := int64(e.VolumeMB)
@@ -147,26 +157,61 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 		}
 		create.VolumeMB = &vol
 	}
+	if strings.TrimSpace(in.Alias) != "" {
+		if _, ae := normalizeAlias(in.Alias); ae != nil {
+			return res, ae
+		}
+	}
 
-	// A multi-service entry gets a project of its own, with its services.
-	var project *Project
-	if len(e.Services) > 0 {
+	// The project: the one given (the same check as create_app), a new one
+	// for a multi-service entry, or none (CreateApp makes the app's own).
+	var made *Project // a project this call created, removed on failure
+	projectID := ""
+	if ref := strings.TrimSpace(in.Project); ref != "" {
+		p, perr := s.loadProject(ctx, a, ref, true)
+		if perr != nil {
+			return res, perr
+		}
+		if p.UserID != a.UserID {
+			return res, projectNotFound(ref)
+		}
+		projectID = p.ID
+	} else if len(e.Services) > 0 {
 		p, perr := s.CreateProject(ctx, a, CreateProjectInput{Name: name})
 		if perr != nil {
 			return res, perr
 		}
-		project = &p
-		create.Project = p.ID
-		defer func() {
-			if err != nil && project != nil {
-				if derr := s.DeleteProject(context.WithoutCancel(ctx), a, project.ID, project.Name, true); derr != nil {
-					s.Log.Error("catalog: remove the project after a failed deploy", "project", project.ID, "err", derr)
-				}
-			}
-		}()
+		made, projectID = &p, p.ID
 	}
+	create.Project = projectID
 
 	var created App
+	var services []App // service apps this call added
+	queued := false
+	defer func() {
+		if err == nil || queued {
+			return
+		}
+		// Do not leave anything half-made behind.
+		bg := context.WithoutCancel(ctx)
+		if made != nil {
+			if derr := s.DeleteProject(bg, a, made.ID, made.Name, true); derr != nil {
+				s.Log.Error("catalog: remove the project after a failed deploy", "project", made.ID, "err", derr)
+			}
+			return
+		}
+		if created.ID != "" {
+			if derr := s.deleteApp(bg, a, created.ID, created.Slug, false); derr != nil {
+				s.Log.Error("catalog: remove the app after a failed deploy", "app", created.Slug, "err", derr)
+			}
+		}
+		for _, sv := range services {
+			if derr := s.deleteApp(bg, a, sv.ID, sv.Slug, false); derr != nil {
+				s.Log.Error("catalog: remove a service after a failed deploy", "app", sv.Slug, "err", derr)
+			}
+		}
+	}()
+
 	if slug := strings.ToLower(strings.TrimSpace(in.Slug)); slug != "" {
 		create.Slug = slug
 		created, err = s.CreateApp(ctx, a, create)
@@ -186,14 +231,6 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	if err != nil {
 		return res, err
 	}
-	queued := false
-	defer func() {
-		if err != nil && !queued && project == nil { // do not leave a half-made app behind (a project goes as a whole)
-			if derr := s.DeleteApp(context.WithoutCancel(ctx), a, created.Slug, created.Slug); derr != nil {
-				s.Log.Error("catalog: remove the app after a failed deploy", "app", created.Slug, "err", derr)
-			}
-		}
-	}()
 
 	url := created.URL
 	if e.HealthPath != "" && e.HealthPath != created.HealthPath {
@@ -201,9 +238,21 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 			return res, err
 		}
 	}
+	// The services, under the entry's names or the next free ones.
+	renamed := map[string]string{}
 	for _, sv := range e.Services {
-		if _, err = s.AddService(ctx, a, project.ID, AddServiceInput{Template: sv.Template, Name: sv.Name}); err != nil {
+		alias, aerr := freeAlias(ctx, s.Q, created.Project.ID, sv.Name, "", nil)
+		if aerr != nil {
+			err = apperr.Internal(aerr)
 			return res, err
+		}
+		var svc App
+		if svc, err = s.AddService(ctx, a, created.Project.ID, AddServiceInput{Template: sv.Template, Name: alias}); err != nil {
+			return res, err
+		}
+		services = append(services, svc)
+		if svc.Alias != sv.Name {
+			renamed[sv.Name] = svc.Alias
 		}
 	}
 	set := map[string]string{}
@@ -211,7 +260,7 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 		if ev.Generate == "secret" {
 			set[ev.Name] = ids.Base62(32)
 		} else {
-			set[ev.Name] = catalog.Fill(ev.Value, url)
+			set[ev.Name] = renameRefs(catalog.Fill(ev.Value, url), renamed)
 		}
 	}
 	if len(set) > 0 {
@@ -230,7 +279,15 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	}
 	// From here on the app stays: its deployment is queued.
 	queued = true
-	s.Audit(ctx, a, "catalog.deploy", "app", created.ID, map[string]any{"catalog": e.ID, "version": e.Version, "app": created.Slug, "deployment": dep.ID})
+	meta := map[string]any{"catalog": e.ID, "version": e.Version, "app": created.Slug, "deployment": dep.ID, "project": created.Project.ID}
+	if len(services) > 0 {
+		aliases := make([]string, len(services))
+		for i, sv := range services {
+			aliases[i] = sv.Alias
+		}
+		meta["services"] = aliases
+	}
+	s.Audit(ctx, a, "catalog.deploy", "app", created.ID, meta)
 	steps := make([]string, len(e.FirstSteps))
 	for i, st := range e.FirstSteps {
 		steps[i] = catalog.Fill(st, url)
@@ -240,6 +297,20 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 		final = created
 	}
 	return CatalogDeployResult{App: final, Deployment: dep, FirstSteps: steps}, nil
+}
+
+// renameRefs points ${{old.VAR}} at ${{new.VAR}} for each old -> new.
+func renameRefs(v string, renamed map[string]string) string {
+	if len(renamed) == 0 || !strings.Contains(v, "${{") {
+		return v
+	}
+	return refRe.ReplaceAllStringFunc(v, func(m string) string {
+		sm := refRe.FindStringSubmatch(m)
+		if to, ok := renamed[sm[1]]; ok {
+			return varRef{to, sm[2]}.String()
+		}
+		return m
+	})
 }
 
 // catalogNewer says whether the catalog version cat is newer than the

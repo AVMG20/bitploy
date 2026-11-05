@@ -292,11 +292,20 @@ func (s *Service) appReferences(ctx context.Context, appID string) []string {
 	return out
 }
 
-// referrers lists the apps of the project (other than app) whose variables
-// refer to alias, with the variable names.
-func (s *Service) referrers(ctx context.Context, app db.App, alias string) (map[string][]string, error) {
-	out := map[string][]string{}
-	if app.ProjectID == "" {
+// Dependent is an app of the project whose variables refer to another app
+// (409 app_in_use, app_referenced: details.dependents).
+type Dependent struct {
+	Slug  string   `json:"slug"`
+	Alias string   `json:"alias"`
+	Vars  []string `json:"vars" doc:"The names of its variables that refer to the app"`
+}
+
+// dependents lists the apps of the project (other than app) whose variables
+// refer to alias, by slug, with the variable names (shared and per service,
+// each name once, sorted).
+func (s *Service) dependents(ctx context.Context, app db.App, alias string) ([]Dependent, error) {
+	out := []Dependent{}
+	if app.ProjectID == "" || alias == "" {
 		return out, nil
 	}
 	apps, err := s.Q.ListAppsByProject(ctx, app.ProjectID)
@@ -311,20 +320,52 @@ func (s *Service) referrers(ctx context.Context, app db.App, alias string) (map[
 		if err != nil {
 			return nil, err
 		}
+		seen := map[string]bool{}
 		for _, r := range rows {
 			v, err := s.Crypto.Open(r.ValueEnc, envAADFor(other.ID, r.Service, r.Name))
-			if err != nil {
+			if err != nil || seen[r.Name] {
 				continue
 			}
 			for _, ref := range refsIn(string(v)) {
 				if ref.Alias == alias {
-					out[other.Slug] = append(out[other.Slug], r.Name)
+					seen[r.Name] = true
 					break
 				}
 			}
 		}
+		if len(seen) > 0 {
+			out = append(out, Dependent{Slug: other.Slug, Alias: other.Alias, Vars: sortedKeys(seen)})
+		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out, nil
+}
+
+// describeDependents is "shop (DATABASE_URL), blog (DB_URL, DB_HOST)".
+func describeDependents(deps []Dependent) string {
+	parts := make([]string, len(deps))
+	for i, d := range deps {
+		parts[i] = d.Slug + " (" + strings.Join(d.Vars, ", ") + ")"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func dependentSlugs(deps []Dependent) []string {
+	out := make([]string, len(deps))
+	for i, d := range deps {
+		out[i] = d.Slug
+	}
+	return out
+}
+
+// appInUse is the answer to deleting an app that other apps refer to.
+func appInUse(row db.App, deps []Dependent) *apperr.Error {
+	first := deps[0]
+	return apperr.Conflict("app_in_use",
+		"Other apps in this project use this app's variables: "+describeDependents(deps)+". They would fail to start without it, so nothing was deleted.",
+		"First change those variables with set_env (for example set_env app="+first.Slug+" unset=["+strings.Join(first.Vars, ", ")+"], or set them to a new value), "+
+			"or delete those apps. Then call delete_app again for "+row.Slug+".").
+		WithNext("set_env").WithDetail("dependents", deps)
 }
 
 // rewriteRefs replaces ${{old.X}} with ${{new.X}} in the variables of the

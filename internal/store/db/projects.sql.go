@@ -258,23 +258,6 @@ func (q *Queries) ListProjectsByUser(ctx context.Context, userID string) ([]Proj
 	return items, nil
 }
 
-const projectAliasTaken = `-- name: ProjectAliasTaken :one
-SELECT COUNT(*) FROM apps WHERE project_id = ? AND alias = ? AND id != ?3
-`
-
-type ProjectAliasTakenParams struct {
-	ProjectID string
-	Alias     string
-	ExceptID  string
-}
-
-func (q *Queries) ProjectAliasTaken(ctx context.Context, arg ProjectAliasTakenParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, projectAliasTaken, arg.ProjectID, arg.Alias, arg.ExceptID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const renameProject = `-- name: RenameProject :exec
 UPDATE projects SET name = ?, updated_at = ? WHERE id = ?
 `

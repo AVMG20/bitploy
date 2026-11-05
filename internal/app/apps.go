@@ -290,14 +290,12 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		al := alias
 		if al != "" {
-			if n, err := q.ProjectAliasTaken(ctx, db.ProjectAliasTakenParams{ProjectID: pid, Alias: al, ExceptID: id}); err != nil {
+			if err := checkHostNames(ctx, q, pid, id, al, nil); err != nil {
 				return err
-			} else if n > 0 {
-				return aliasTaken(al)
 			}
 		} else {
 			var err error
-			if al, err = freeAlias(ctx, q, pid, slug, id); err != nil {
+			if al, err = freeAlias(ctx, q, pid, slug, id, nil); err != nil {
 				return err
 			}
 		}
@@ -766,7 +764,17 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 }
 
 // DeleteApp requires confirmSlug == the app's slug.
+// DeleteApp deletes an app with its containers, images, volumes and
+// backups. It is refused with 409 app_in_use while other apps of its project
+// refer to its variables (${{<alias>.VAR}}): they would fail to start.
 func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug string) error {
+	return s.deleteApp(ctx, a, ref, confirmSlug, true)
+}
+
+// deleteApp is DeleteApp; checkUse false skips the app_in_use check, for
+// callers that remove the apps that refer to it as well (delete_project
+// with_apps, undoing a failed catalog deploy or add_service).
+func (s *Service) deleteApp(ctx context.Context, a Actor, ref, confirmSlug string, checkUse bool) error {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return err
@@ -775,6 +783,15 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 		return apperr.BadRequest("confirm_mismatch",
 			"The confirmation does not match this app's subdomain, so nothing was deleted.",
 			"Call delete_app again with confirm_slug set to exactly "+quote(row.Slug)+".").WithNext("delete_app")
+	}
+	if checkUse {
+		deps, err := s.dependents(ctx, row, row.Alias)
+		if err != nil {
+			return apperr.Internal(err)
+		}
+		if len(deps) > 0 {
+			return appInUse(row, deps)
+		}
 	}
 	// A backup or restore in progress holds files and the volume of this app.
 	bl := s.backupLock(row.ID)

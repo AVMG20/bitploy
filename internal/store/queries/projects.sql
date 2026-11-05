@@ -21,9 +21,6 @@ SELECT * FROM apps WHERE project_id = ? ORDER BY created_at, id;
 -- name: CountAppsByProject :one
 SELECT COUNT(*) FROM apps WHERE project_id = ?;
 
--- name: ProjectAliasTaken :one
-SELECT COUNT(*) FROM apps WHERE project_id = ? AND alias = ? AND id != sqlc.arg(except_id);
-
 -- name: SetAppProject :exec
 UPDATE apps SET project_id = ?, alias = ?, updated_at = ? WHERE id = ?;
 
