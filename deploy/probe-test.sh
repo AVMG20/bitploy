@@ -8,6 +8,9 @@
 #   must work    the internet; another container on the same network (Traefik <-> app)
 #   must fail    Traefik's internal port 8081 on the app's own network, the host (bridge gateway and primary address), the metadata
 #                address, a container on another app network
+#   then         both apps join a project network "bp-probe-project" (like bp-p-<id>, one /24
+#                from the pool): the client reaches the other app by its alias db there,
+#                and still not through the other app's own network
 #
 # Before it checks the "must fail" cases it takes the firewall away once, so a
 # green run means the rules are what blocks the traffic, not the test setup.
@@ -24,6 +27,7 @@ URL="${PROBE_URL:-http://example.com}"
 HOST_PORT="${PROBE_HOST_PORT:-18099}"
 NET="bp-probe"
 NET_OTHER="bp-probe-other"
+NET_PROJECT="bp-probe-project"
 CLIENT="bp-probe-client"
 SIBLING="bp-probe-sibling"
 OTHER="bp-probe-other-app"
@@ -43,7 +47,7 @@ cleanup() {
   if [ -n "$listener_pid" ]; then kill "$listener_pid" 2>/dev/null || true; fi
   if [ -n "$www" ]; then rm -rf "$www"; fi
   docker rm -f "$CLIENT" "$SIBLING" "$OTHER" >/dev/null 2>&1 || true
-  docker network rm "$NET" "$NET_OTHER" >/dev/null 2>&1 || true
+  docker network rm "$NET" "$NET_OTHER" "$NET_PROJECT" >/dev/null 2>&1 || true
   # The control run takes the rules away; always put them back, also on Ctrl-C or an early exit.
   if [ "$firewall_removed" -eq 1 ]; then "$HERE/firewall.sh" apply >/dev/null || say "  WARNING: could not re-apply the firewall: run systemctl restart bitploy-firewall"; fi
 }
@@ -158,6 +162,18 @@ else
   bad "the metadata rule counted no dropped packets"
 fi
 expect_blocked "private range 192.168.1.1" "http://192.168.1.1/"
+
+say "Project network (two apps of one project)"
+docker network create --label "$LABEL" "$NET_PROJECT" >/dev/null
+case "$(subnet "$NET_PROJECT")" in
+  10.200.*) ;;
+  *) bad "network $NET_PROJECT is not in 10.200.0.0/16" ;;
+esac
+docker network connect "$NET_PROJECT" "$CLIENT"
+docker network connect --alias db "$NET_PROJECT" "$OTHER"
+sleep 1
+expect_reach "the other app by its alias db on the project network" "http://db:8000/"
+expect_blocked "the other app through its own app network $OTHER_IP:8000" "http://$OTHER_IP:8000/"
 
 if [ "$fail" -eq 0 ]; then
   say "All checks passed."
