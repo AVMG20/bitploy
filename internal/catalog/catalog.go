@@ -657,6 +657,33 @@ var entries = []Entry{
 			"Add your mail provider's SMTP server under Settings, SMTP, and send yourself a test before your first campaign.",
 		},
 	},
+	// Version: https://ghcr.io/v2/karakeep-app/karakeep/tags/list (0.34.1).
+	{
+		ID:          "karakeep",
+		Name:        "Karakeep",
+		Tagline:     "Save links, notes and images, and find them again with full-text search",
+		Description: "Karakeep keeps links, notes and images in lists, with tags, highlights and a browser extension and phone apps to save things. Search goes through Meilisearch, which bitploy adds next to it as a private service named search. Saved pages are fetched without a browser, so there are no screenshots and pages that need JavaScript may come in empty. The database and saved files are kept in /data.",
+		Category:    "Productivity",
+		Version:     "0.34.1",
+		Website:     "https://karakeep.app",
+		Port:        3000,
+		MemoryMB:    1024,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/api/health",
+		Services:    []ServiceSpec{{Template: "meilisearch", Name: "search"}},
+		Env: []EnvSpec{
+			{Name: "NEXTAUTH_URL", Value: "{url}", Description: "The address of this app, used in links and for sign-in."},
+			{Name: "NEXTAUTH_SECRET", Generate: "secret", Description: "Signs sign-in sessions. Changing it signs everyone out."},
+			{Name: "MEILI_ADDR", Value: "${{search.MEILI_URL}}", Description: "The address of the Meilisearch service search, filled in when the app starts."},
+			{Name: "MEILI_MASTER_KEY", Value: "${{search.MEILI_MASTER_KEY}}", Description: "The generated key of the Meilisearch service search, filled in when the app starts."},
+		},
+		FirstSteps: []string{
+			"Open {url} and sign up at once: the first account becomes the admin.",
+			"Then turn sign-ups off: add the environment variable DISABLE_SIGNUPS with the value true and restart the app.",
+			"For tags suggested by AI, add the environment variable OPENAI_API_KEY with your own key and restart the app.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
