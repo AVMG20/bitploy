@@ -10,7 +10,7 @@ Defaults picked where the brief was open:
 | Database | One SQLite file (WAL mode) | One server, nothing to operate |
 | Reverse proxy | Traefik v3; bitploy writes the routes as files | Zero-downtime swaps, routing owned by bitploy |
 | Control plane | `bitploy.nl` serves dashboard, `/api/v1` and `/mcp` | Apps live on `*.bitploy.nl` |
-| App shape | One container per app, optional `/data` volume | No compose or managed databases in v1 |
+| App shape | One container per app, optional `/data` volume, in a project | A database server is an app of its own from a service template, next to the app in its project; compose files only when a project already has one |
 | Default limits | 512 MB RAM and 0.5 CPU per app, 10 apps per user | Many colleagues on one Hetzner box |
 | MCP auth | Bearer token in a header; OAuth later | Works in Claude Code, Cursor and VS Code today |
 
@@ -164,6 +164,22 @@ Zip handling: if everything sits in one top-level folder, strip it (people zip t
 
 Detection is conservative. `create_app` (MCP and REST) makes build mode `dockerfile`, which never runs a compose file: the deploy warns `compose_ignored` and names `update_app(build_mode="compose")`. Only an app in `auto` (the dashboard's default) picks a compose file by itself, and only on its first deploy: several services, or one the app's settings cannot hold, make it a compose app; one plain build service is built like a Dockerfile app with that service's context, Dockerfile, port and `/data`. After that the shape never changes by itself. Turning an app with one container into a compose app is explicit, one way, and keeps `/data`: its volume becomes the file's volume at `/data` (or stays mounted at `/data` of the public service). Before a deploy, `POST /api/v1/compose/validate` (`validate_compose`) previews what would run and every problem with a stable code, the service, the compose key and a hint.
 
+**Projects**: every app is in exactly one project (`prj_…`, a name, an owner). A project is a space for apps that belong together, like a shop and its database. `create_app` without `project` makes a project named after the app; that project goes away with its last app. A project made with `create_project`, renamed, or picked on `create_app` stays when it is empty. Each app has a short name in its project (`alias`, a DNS label of 1 to 40 characters, default the slug, unique in the project). Once a project has two apps, all their containers join a private network `bp-p-<id>` (a /24 from the app pool, label `nl.bitploy.project`) besides their own `bp-<slug>`, reachable at their alias (an app with several services: `<alias>-<service>` for each, and the bare alias on the public service). Traefik never joins a project network, and the firewall drops traffic between projects. `update_app` moves an app (`project`) or renames it (`alias`); a move is refused while references cross the two projects (`app_referenced`, `app_has_references`), and a rename rewrites the references in the project's other apps and restarts them. At most 100 projects per user. `quota_apps` counts apps, so a database counts as one.
+
+**Variable references**: a variable value may contain `${{<alias>.<VAR>}}`, which bitploy fills in when a container starts with the variable `VAR` of the app `<alias>` in the same project (a variable set for every service, not one scoped with `service`). For an app made from a service template, `VAR` may also be one of the template's connection variables (`DATABASE_URL`, `REDIS_URL`, ...), built from its generated passwords and its address on the project network. References may chain up to 3 deep; `set_env` refuses an unknown app or variable (`variable_reference_unknown`), the app itself (`variable_reference_self`) and loops (`variable_reference_loop`). The stored value stays the reference, so a changed password reaches every app at its next start. A deployment whose variables refer to a service-template app waits up to 5 minutes for that app to run.
+
+**Service templates** (`internal/servicetpl`): databases and other ready services, each with a pinned image version, its own sizes, a non-root user and a Docker HEALTHCHECK. `add_service(project, template, name?, connect_to?)` creates a private worker app from one (alias = `name`, default the template id), generates its passwords (32 alphanumeric characters, stored encrypted like every variable), keeps its data in its own volume at `/data`, builds the template's Dockerfile and deploys it. Each app in `connect_to` (slugs in the same project) gets `<main_var>=${{<alias>.<main_var>}}`, for example `DATABASE_URL=${{db.DATABASE_URL}}`, and restarts once the service is live. If a step fails, the service app is removed and the variables it set are taken out again.
+
+| Template | Image | Port | Memory, storage | User | Connection variables (main first) |
+| --- | --- | --- | --- | --- | --- |
+| `postgres` | `postgres:18.6` | 5432 | 256 MB, 2 GB (shm 128 MB) | 999:999 | `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` |
+| `pgvector` | `pgvector/pgvector:0.8.7-pg18` | 5432 | 256 MB, 2 GB (shm 128 MB) | 999:999 | as `postgres` |
+| `mariadb` | `mariadb:11.8.9` | 3306 | 256 MB, 2 GB | 999:999 | `DATABASE_URL`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` |
+| `mysql` | `mysql:8.4.13` | 3306 | 512 MB, 2 GB | 999:999 | as `mariadb` |
+| `valkey` | `valkey/valkey:9.1.3` | 6379 | 128 MB, 512 MB | 999:999 | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `VALKEY_URL` |
+| `redis` (only by name) | `redis:8.8.4` | 6379 | 128 MB, 512 MB | 999:999 | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` |
+| `meilisearch` | `getmeili/meilisearch:v1.56.1` | 7700 | 512 MB, 2 GB | 10001:10001 | `MEILI_URL`, `MEILI_HOST`, `MEILI_MASTER_KEY` |
+
 **Pre-built images**: a Dockerfile that is only `FROM <image>:<tag>` (plus `USER`, `ENV` and the like) runs a published image. `EXPOSE` is optional there: after the build the pipeline reads the port from the image config and stores it on the deployment, so a rollback reuses it. The image's data must go under `/data`.
 
 **Pipeline**, one row per deployment state:
@@ -233,10 +249,14 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 8. Files that must survive a redeploy go in /data: create_app volume=true, or
    for an existing app update_app volume=true, then restart_app. Keep a
    database as SQLite in /data inside the app's one container; never add a
-   database server to the image. Only when the project already has a compose
-   file (compose.yaml, docker-compose.yml) whose services it needs, such as
-   Postgres or Redis next to the app, deploy that file: validate_compose, then
-   create_app build_mode=compose. Never write a compose file just to deploy.
+   database server to the image. Only when the code needs a database server
+   (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
+   add one next to the app: add_service with the app's project (get_app shows
+   it) and connect_to=[<slug>]; the app then reads DATABASE_URL (or REDIS_URL,
+   ...) from its environment. When the project already has a compose file
+   (compose.yaml, docker-compose.yml) whose services it needs, deploy that
+   file instead: validate_compose, then create_app build_mode=compose.
+   Never write a compose file just to deploy.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
 10. For a well-known tool (password manager, notes, uptime monitor, ...) call
@@ -255,10 +275,14 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
 | `validate_compose(compose, app?)` | Previews a compose file: services, volumes, totals, quota, warnings and errors (`{code, service, key, message, hint}`); a bad file is `ok: false`, never a tool error. Only for a project that already has a compose file | read | read-only |
 | `list_catalog` | The one-click apps (id, name, tagline, pinned version, memory, volume, category) | read | read-only |
-| `deploy_catalog_app(id, name?, slug?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if the deployment cannot be queued | deploy | — |
-| `list_apps` / `get_app(app)` | Apps with URL, state, current deployment | read | read-only |
-| `create_app(name, type?, slug?, port?, volume?, build_mode?, compose_path?)` | Reserves a subdomain, returns the URL; `build_mode: compose` only for a project that already has a compose file | deploy | — |
-| `update_app(app, …)` | Port, health path, volume, resources, `build_mode` (`compose` turns a one-container app into a compose app, keeping `/data`; no way back) | deploy | idempotent |
+| `deploy_catalog_app(id, name?, slug?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if the deployment cannot be queued. An entry with services (like Umami with PostgreSQL) makes a project with the services and the app | deploy | — |
+| `list_projects` / `get_project(project)` | Projects with their apps: alias, `internal_host`, template, connection variables, references | read | read-only |
+| `create_project(name)` | An empty project that stays when empty | deploy | — |
+| `list_service_templates` | The templates of `add_service` with image, port, sizes, `connection_vars` and `main_var` | read | read-only |
+| `add_service(project, template, name?, connect_to?, memory_mb?, volume_mb?)` | Adds a database or other service from a template to the project as a private app and deploys it; `connect_to` apps get the main variable as a reference and restart once it runs | deploy | — |
+| `list_apps` / `get_app(app)` | Apps with URL, state, current deployment, project, alias, `internal_host` and template | read | read-only |
+| `create_app(name, type?, slug?, port?, volume?, build_mode?, compose_path?, project?, alias?)` | Reserves a subdomain, returns the URL; `build_mode: compose` only for a project that already has a compose file; `project` puts it in an existing project | deploy | — |
+| `update_app(app, …)` | Port, health path, volume, resources, `build_mode` (`compose` turns a one-container app into a compose app, keeping `/data`; no way back), `project` (move), `alias` (rename; references follow) | deploy | idempotent |
 | `deploy_files(app, files[])` | Inline source, validates, queues a deployment; a compose app sends the compose file and every Dockerfile it builds | deploy | — |
 | `create_upload(app)` | One-time URL (15 min) and the exact `curl` command | deploy | — |
 | `set_git_source(app, repo_url?, branch?, subdir?, auto_deploy?, remove?)` | Saves the source and checks access with `ls-remote`; `auto_deploy` (default on for GitHub) deploys on every push; `remove: true` unlinks | deploy | idempotent |
@@ -266,7 +290,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_deployment(id?, app?, wait_seconds?)` | State, timings, error, last 50 log lines; with only `app` it returns the latest deployment | read | read-only |
 | `list_deployments(app)` | History, newest first | read | read-only |
 | `get_logs(app, kind, tail?, since?, service?)` | `build` or `runtime` logs, max 1,000 lines; `service` picks one service of an app with several | read | read-only |
-| `set_env(app, set, unset, service?)` | Encrypted env vars; values are never returned. `service` scopes them to one service of a compose app | deploy | idempotent |
+| `set_env(app, set, unset, service?)` | Encrypted env vars; values are never returned. `service` scopes them to one service of a compose app. Values may hold `${{<alias>.VAR}}` references to apps of the same project, checked on set | deploy | idempotent |
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
@@ -365,6 +389,9 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/catalog/{id}/deploy` | `deploy_catalog_app` (deploy scope; 202; accepts `Idempotency-Key`) |
 | `POST /api/v1/apps/{app}/catalog-update` | Replace the Dockerfile with the catalog's current one and deploy (accepts `Idempotency-Key`); 409 `catalog_up_to_date`, `not_catalog_app`, `git_source_linked` |
 | `GET` `PUT /api/v1/apps/{app}/dockerfile` | Read or replace the Dockerfile in the newest stored source, then deploy (REST and dashboard only; 64 KB; 409 `git_source_linked`, `dockerfile_not_used`, `source_missing`; 400 `dockerfile_empty`; 413 `dockerfile_too_large`) |
+| `GET` `POST /api/v1/projects`, `GET` `PATCH` `DELETE /api/v1/projects/{id}` | `list_projects`, `create_project`, `get_project`; rename; delete with `?confirm=<name>` (409 `project_not_empty` unless `with_apps=true`). `{id}` is an id or a name |
+| `GET /api/v1/service-templates` | `list_service_templates` (any scope) |
+| `POST /api/v1/projects/{id}/services` | `add_service` (`{template, name?, connect_to?, memory_mb?, volume_mb?}`; 202 with the App; accepts `Idempotency-Key`) |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
 | `GET` `PATCH` `DELETE /api/v1/apps/{app}` | `get_app`, `update_app`, `delete_app` |
 | `POST /api/v1/apps/{app}/files` | `deploy_files` |
@@ -712,7 +739,7 @@ Traefik needs no Docker socket: it reads only files. Bitploy attaches the Traefi
 **Not in v1**
 
 - More than one server: no clustering, Swarm or Kubernetes.
-- Multi-container apps (Compose) and managed databases. Apps use SQLite in `/data` or an external database through env vars.
+- Managed databases with backups, failover or upgrades run by bitploy: a service-template app is a container with a volume, backed up like any `/data`. Its image version stays at the one it was made with.
 - Any build path without a Dockerfile: no buildpacks, no Nixpacks.
 - Raw TCP or UDP ports; only HTTP(S) through Traefik.
 - Billing, teams and shared apps.

@@ -517,7 +517,7 @@ func TestIdempotentPathAllowList(t *testing.T) {
 	for p, want := range map[string]bool{
 		"/api/v1/apps": true, "/api/v1/apps/x/files": true, "/api/v1/apps/x/deployments": true,
 		"/api/v1/apps/x/domains": true, "/api/v1/apps/x/rollback": true, "/api/v1/apps/x/redeploy": true,
-		"/api/v1/catalog/memos/deploy": true, "/api/v1/apps/x/catalog-update": true, "/api/v1/catalog/memos": false, "/api/v1/apps/x/dockerfile": false, "/api/v1/apps/x/uploads": false, "/api/v1/apps/x/stop": false, "/api/v1/tokens": false,
+		"/api/v1/catalog/memos/deploy": true, "/api/v1/apps/x/catalog-update": true, "/api/v1/projects/prj_x/services": true, "/api/v1/projects": true, "/api/v1/projects/prj_x": false, "/api/v1/catalog/memos": false, "/api/v1/apps/x/dockerfile": false, "/api/v1/apps/x/uploads": false, "/api/v1/apps/x/stop": false, "/api/v1/tokens": false,
 		"/api/v1/admin/invites": false, "/api/v1/invites/open/accept": false, "/api/v1/auth/login": false,
 		"/api/v1/me/password": false, "/api/v1/sessions/revoke-others": false, "/api/v1/apps/x/domains/a.b/check": false,
 	} {
@@ -605,6 +605,7 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/templates":   {"get"}, "/templates/{stack}": {"get"}, "/dockerfile/validate": {"post"}, "/compose/validate": {"post"},
 		"/apps": {"get", "post"}, "/apps/{app}": {"get", "patch", "delete"},
 		"/catalog": {"get"}, "/catalog/{id}": {"get"}, "/catalog/{id}/deploy": {"post"}, "/apps/{app}/catalog-update": {"post"},
+		"/projects": {"get", "post"}, "/projects/{id}": {"get", "patch", "delete"}, "/service-templates": {"get"}, "/projects/{id}/services": {"post"},
 		"/apps/{app}/dockerfile": {"get", "put"},
 		"/apps/{app}/files":      {"post"}, "/apps/{app}/uploads": {"post"}, "/apps/{app}/git-source": {"put", "patch", "delete"},
 		"/apps/{app}/deployments": {"get", "post"}, "/deployments/{id}": {"get"}, "/deployments/{id}/log": {"get"},

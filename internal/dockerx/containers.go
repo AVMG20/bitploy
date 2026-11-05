@@ -55,6 +55,17 @@ type RunSpec struct {
 	// User and WorkingDir override the image's when set (compose user, working_dir).
 	User       string
 	WorkingDir string
+	// Extra are further networks the container joins before it starts, like
+	// its project's network (bp-p-<id>) with the app's short name as alias.
+	Extra []NetworkAttach `json:",omitempty"`
+	// ShmMB is the size of /dev/shm; 0 keeps Docker's default (64 MB).
+	ShmMB int64 `json:",omitempty"`
+}
+
+// NetworkAttach is a network a container joins, with its DNS aliases there.
+type NetworkAttach struct {
+	Network string
+	Aliases []string
 }
 
 // VolumeMount is a named Docker volume mounted at Target.
@@ -84,6 +95,9 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 		CapAdd:        append([]string(nil), AppCapabilities...),
 		LogConfig:     container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m", "max-file": "3"}},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+	}
+	if s.ShmMB > 0 {
+		hc.ShmSize = s.ShmMB * 1024 * 1024
 	}
 	if s.Volume != "" {
 		hc.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: s.Volume, Target: DataMount}}

@@ -15,8 +15,8 @@ var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 const defaultQuotaMB = 2048
 
 func TestEntriesCount(t *testing.T) {
-	if n := len(All()); n < 6 || n > 8 {
-		t.Fatalf("want 6 to 8 entries, got %d", n)
+	if n := len(All()); n < 6 || n > 40 {
+		t.Fatalf("want 6 to 40 entries, got %d", n)
 	}
 }
 
@@ -95,7 +95,12 @@ func TestEntries(t *testing.T) {
 				if ev.Description == "" {
 					t.Errorf("env %s has no description", ev.Name)
 				}
-				checkPlaceholders(t, ev.Value)
+				checkPlaceholders(t, refsOut(t, e, ev.Value))
+			}
+			for _, sv := range e.Services {
+				if !slugRe.MatchString(sv.Name) && !regexp.MustCompile(`^[a-z0-9]{1,3}$`).MatchString(sv.Name) {
+					t.Errorf("service name %q", sv.Name)
+				}
 			}
 
 			// The Dockerfile passes the same checks as a deploy: no error, no warning.
@@ -122,6 +127,22 @@ func TestEntries(t *testing.T) {
 			}
 		})
 	}
+}
+
+// refsOut checks that each ${{name.VAR}} names a service of the entry and
+// removes them.
+func refsOut(t *testing.T, e Entry, v string) string {
+	t.Helper()
+	names := map[string]bool{}
+	for _, sv := range e.Services {
+		names[sv.Name] = true
+	}
+	for _, m := range RefPattern.FindAllStringSubmatch(v, -1) {
+		if !names[m[1]] {
+			t.Errorf("reference %s names no service of the entry", m[0])
+		}
+	}
+	return RefPattern.ReplaceAllString(v, "")
 }
 
 func checkPlaceholders(t *testing.T, s string) {

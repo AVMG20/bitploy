@@ -12,6 +12,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/catalog"
 	"github.com/AVMG20/bitploy/internal/ids"
+	"github.com/AVMG20/bitploy/internal/servicetpl"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
@@ -41,6 +42,18 @@ type CatalogApp struct {
 	Env         []CatalogEnv `json:"env"`
 	FirstSteps  []string     `json:"first_steps" doc:"What to do once the app is up. {url} stands for the app's address."`
 	Dockerfile  string       `json:"dockerfile"`
+	// Services are the database servers deployed next to the app, in its
+	// project (each from a service template, see GET /service-templates).
+	Services []CatalogService `json:"services" doc:"Services (like PostgreSQL) deployed next to the app in the same project; empty for a single-container app"`
+}
+
+// CatalogService is a service a catalog app brings along.
+type CatalogService struct {
+	Template string `json:"template" doc:"The service template id, like postgres"`
+	Name     string `json:"name" doc:"Its short name in the project"`
+	Image    string `json:"image" doc:"The image with its pinned version"`
+	MemoryMB int64  `json:"memory_mb"`
+	VolumeMB int64  `json:"volume_mb"`
 }
 
 // CatalogDeployInput: every field is optional.
@@ -64,10 +77,18 @@ func catalogView(e catalog.Entry) CatalogApp {
 	for _, ev := range e.Env {
 		env = append(env, CatalogEnv{Name: ev.Name, Description: ev.Description, Generated: ev.Generate == "secret"})
 	}
+	svcs := make([]CatalogService, 0, len(e.Services))
+	for _, sv := range e.Services {
+		cs := CatalogService{Template: sv.Template, Name: sv.Name}
+		if t, ok := servicetpl.Get(sv.Template); ok {
+			cs.Image, cs.MemoryMB, cs.VolumeMB = t.ImageRef(), t.MemoryMB, t.VolumeMB
+		}
+		svcs = append(svcs, cs)
+	}
 	return CatalogApp{
 		ID: e.ID, Name: e.Name, Tagline: e.Tagline, Description: e.Description, Category: e.Category,
 		Version: e.Version, Website: e.Website, Port: e.Port, MemoryMB: e.MemoryMB, Volume: e.Volume, VolumeMB: e.VolumeMB,
-		HealthPath: e.HealthPath, Env: env, FirstSteps: e.FirstSteps, Dockerfile: e.Dockerfile,
+		HealthPath: e.HealthPath, Env: env, FirstSteps: e.FirstSteps, Dockerfile: e.Dockerfile, Services: svcs,
 	}
 }
 
@@ -127,6 +148,24 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 		create.VolumeMB = &vol
 	}
 
+	// A multi-service entry gets a project of its own, with its services.
+	var project *Project
+	if len(e.Services) > 0 {
+		p, perr := s.CreateProject(ctx, a, CreateProjectInput{Name: name})
+		if perr != nil {
+			return res, perr
+		}
+		project = &p
+		create.Project = p.ID
+		defer func() {
+			if err != nil && project != nil {
+				if derr := s.DeleteProject(context.WithoutCancel(ctx), a, project.ID, project.Name, true); derr != nil {
+					s.Log.Error("catalog: remove the project after a failed deploy", "project", project.ID, "err", derr)
+				}
+			}
+		}()
+	}
+
 	var created App
 	if slug := strings.ToLower(strings.TrimSpace(in.Slug)); slug != "" {
 		create.Slug = slug
@@ -149,7 +188,7 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	}
 	queued := false
 	defer func() {
-		if err != nil && !queued { // do not leave a half-made app behind
+		if err != nil && !queued && project == nil { // do not leave a half-made app behind (a project goes as a whole)
 			if derr := s.DeleteApp(context.WithoutCancel(ctx), a, created.Slug, created.Slug); derr != nil {
 				s.Log.Error("catalog: remove the app after a failed deploy", "app", created.Slug, "err", derr)
 			}
@@ -159,6 +198,11 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	url := created.URL
 	if e.HealthPath != "" && e.HealthPath != created.HealthPath {
 		if _, err = s.UpdateApp(ctx, a, created.Slug, UpdateAppInput{HealthPath: &e.HealthPath}); err != nil {
+			return res, err
+		}
+	}
+	for _, sv := range e.Services {
+		if _, err = s.AddService(ctx, a, project.ID, AddServiceInput{Template: sv.Template, Name: sv.Name}); err != nil {
 			return res, err
 		}
 	}

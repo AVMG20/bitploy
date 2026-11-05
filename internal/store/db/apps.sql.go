@@ -156,8 +156,8 @@ func (q *Queries) GetUpload(ctx context.Context, id string) (Upload, error) {
 const insertApp = `-- name: InsertApp :exec
 
 INSERT INTO apps (id, user_id, slug, name, type, port, volume_enabled, volume_mb, volume_name, memory_mb, cpu_millis,
-                  build_mode, home_page, output_dir, base_domain, desired_state, status, status_message, deploy_seq, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
+                  build_mode, home_page, output_dir, base_domain, project_id, alias, desired_state, status, status_message, deploy_seq, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'new', '', 0, ?, ?)
 `
 
 type InsertAppParams struct {
@@ -176,6 +176,8 @@ type InsertAppParams struct {
 	HomePage      string
 	OutputDir     string
 	BaseDomain    string
+	ProjectID     string
+	Alias         string
 	CreatedAt     int64
 	UpdatedAt     int64
 }
@@ -198,6 +200,8 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) error {
 		arg.HomePage,
 		arg.OutputDir,
 		arg.BaseDomain,
+		arg.ProjectID,
+		arg.Alias,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)

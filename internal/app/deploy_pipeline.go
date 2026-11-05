@@ -254,6 +254,9 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if ae := p.settleResources(ctx); ae != nil {
 		return ae
 	}
+	if ae := p.waitForReferences(ctx); ae != nil {
+		return ae
+	}
 	if ae := p.setState(ctx, "starting"); ae != nil {
 		return ae
 	}
@@ -835,7 +838,22 @@ func (p *pipeline) serviceErr(r *serviceRun, ae *apperr.Error) *apperr.Error {
 	}
 	out := *ae
 	out.Message = "Service " + r.spec.Name + ": " + ae.Message
+	out.Details = make(map[string]any, len(ae.Details)+1)
+	for k, v := range ae.Details {
+		out.Details[k] = v
+	}
+	out.Details["service"] = r.spec.Name
 	return &out
+}
+
+// errorService is the service an error of a multi-service deployment is
+// about (details.service), or "".
+func errorService(ae *apperr.Error) string {
+	if ae == nil {
+		return ""
+	}
+	name, _ := ae.Details["service"].(string)
+	return name
 }
 
 // waitForDependencies waits for the services r depends on with condition
@@ -934,8 +952,9 @@ func (p *pipeline) checkPrimary(ctx context.Context) *apperr.Error {
 	app := p.app
 	start := time.Now()
 
-	// Workers: still running after 30 s.
-	if app.Type == "worker" {
+	// Workers: still running after 30 s. A service-template app (a database)
+	// has a HEALTHCHECK, which says more: it waits for that below.
+	if app.Type == "worker" && !(app.Template != "" && p.hcCfg != nil) {
 		p.logf("Worker: waiting %s to see that it keeps running.", workerAliveFor)
 		last, ok := deploy.Poll(ctx, workerAliveFor+10*time.Second, time.Second, func(c context.Context) deploy.PollResult {
 			if r := p.aliveCheck(c); r.Fail {
@@ -1125,7 +1144,11 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 			hint += " Read the service's logs with get_logs service=" + p.failed.spec.Name + "."
 		}
 	}
-	return apperr.Unprocessable(code, msg, hint).WithNext(next)
+	out := apperr.Unprocessable(code, msg, hint).WithNext(next)
+	if isMulti(p.app) && p.failed != nil {
+		out.WithDetail("service", p.failed.spec.Name)
+	}
+	return out
 }
 
 // ---- swapping ----
@@ -1273,10 +1296,12 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}()
 
 	if ae == nil {
+		s.runAfterLive(bg, p.dep.ID)
 		s.pruneApp(bg, p.app.ID)
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
+	s.forgetAfterLive(p.dep.ID)
 	if ae == errCancelled || ae.Code == "cancelled" {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
 			return // bitploy is shutting down: the reconciler cleans up after restart
@@ -1310,7 +1335,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	p.cleanupFailed(bg)
 	if err := s.Q.FailDeployment(bg, db.FailDeploymentParams{
 		ErrorCode: nullStr(ae.Code), ErrorMessage: nullStr(apperr.Redact(ae.Message)), ErrorHint: nullStr(apperr.Redact(ae.Hint)),
-		ErrorNext: nullStr(ae.Next), LogTail: nullStr(apperr.Redact(strings.Join(tail, "\n"))),
+		ErrorNext: nullStr(ae.Next), ErrorService: errorService(ae), LogTail: nullStr(apperr.Redact(strings.Join(tail, "\n"))),
 		FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
 	}); err != nil {
 		s.Log.Error("store deployment failure", "id", p.dep.ID, "err", err)
