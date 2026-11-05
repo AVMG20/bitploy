@@ -100,7 +100,7 @@ func (s *srv) registerProjectTools() {
 		})
 
 	addTool(s, "create_project", "Create a project",
-		"Makes an empty project to group apps that belong together, like a shop and its database. Not needed for a single app: create_app makes a project named after the app by itself. The project stays when it is empty.",
+		"Makes an empty project to group apps that belong together, like a shop and its database. Not needed for a single app: create_app makes a project named after the app. An empty project is kept.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in createProjectIn) (*result, error) {
 			p, err := svc.CreateProject(ctx, a, app.CreateProjectInput{Name: in.Name})
@@ -115,7 +115,7 @@ func (s *srv) registerProjectTools() {
 		})
 
 	addTool(s, "list_service_templates", "List service templates",
-		"Databases, caches and search engines that add_service can put in a project: id, image with its pinned version, port, memory, storage and connection_vars (the variables other apps can reference, main_var first). Most apps need none of them: one Dockerfile with SQLite in /data is simpler. Use one when the code needs PostgreSQL, MySQL, MariaDB, Redis (Valkey) or Meilisearch.",
+		"Databases, caches and search engines that add_service can put in a project: id, image with its pinned version, port, memory, storage and connection_vars (the variables other apps can reference, main_var first). Most apps need none: they keep their data as SQLite in /data. Use one only when the code needs PostgreSQL, MySQL, MariaDB, Redis (Valkey) or Meilisearch.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			ts := svc.ListServiceTemplates(ctx, a)

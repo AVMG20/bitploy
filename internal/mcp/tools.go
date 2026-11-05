@@ -22,30 +22,30 @@ import (
 type emptyIn struct{}
 
 type appIn struct {
-	App string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Not sure? Look in the project's .bitploy file or call list_apps."`
+	App string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Read it from the .bitploy file in the code folder, or call list_apps."`
 }
 
 type templateIn struct {
 	Stack    string   `json:"stack" jsonschema:"One of: static, node, node-spa, node-static, nextjs, python, django, go, php, laravel, generic."`
-	FileList []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the project folder, relative with forward slashes, like [\"package.json\",\"pnpm-lock.yaml\"]. Lets bitploy match the Dockerfile to the package manager (npm, pnpm, yarn, bun, uv, Poetry)."`
+	FileList []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the code folder, relative with forward slashes, like [\"package.json\",\"pnpm-lock.yaml\"]. Lets bitploy match the Dockerfile to the package manager (npm, pnpm, yarn, bun, uv, Poetry)."`
 }
 
 type validateIn struct {
-	Dockerfile string   `json:"dockerfile" jsonschema:"The full text of the Dockerfile (not a path). Use an empty string if the project has none: you then get the template to use."`
-	FileList   []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the project folder, relative with forward slashes, like [\"package.json\",\"src/index.js\",\".env\"]. Lets bitploy name the right stack and warn about .env files and a missing .dockerignore."`
+	Dockerfile string   `json:"dockerfile" jsonschema:"The full text of the Dockerfile (not a path). An empty string when the code has none returns the template to use."`
+	FileList   []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the code folder, relative with forward slashes, like [\"package.json\",\"src/index.js\",\".env\"]. Lets bitploy name the right stack and warn about .env files and a missing .dockerignore."`
 	App        string   `json:"app,omitempty" jsonschema:"Optional app slug. Uses that app's port setting and skips port checks for a worker."`
 }
 
 type createAppIn struct {
-	Name        string `json:"name" jsonschema:"Short human name, like My Portfolio. You will match the app by this name later, so make it readable."`
+	Name        string `json:"name" jsonschema:"Short readable name, like My Portfolio. Later sessions recognise the app by this name."`
 	Type        string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
 	Slug        string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
 	Domain      string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami, like example.com, so the app lives at <slug>.example.com. Leave out for the default domain."`
 	Port        *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
-	Volume      bool   `json:"volume,omitempty" jsonschema:"true gives the app a persistent folder at /data that survives redeploys, for the SQLite database (like /data/app.db) and uploads. Any app that stores data needs it, and must write its files to /data."`
+	Volume      bool   `json:"volume,omitempty" jsonschema:"true keeps the files in /data across deploys: the SQLite database (like /data/app.db) and uploads. Needed by every app that stores data; the app must write those files to /data."`
 	VolumeMB    *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
-	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out for the usual app: one Dockerfile (keep data as SQLite in /data). compose: only when the project ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file just to deploy a simple app."`
-	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the project, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
+	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out to build one Dockerfile (data as SQLite in /data). compose: only when the code ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file only to deploy."`
+	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the code, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
 	Project     string `json:"project,omitempty" jsonschema:"Only to put the app next to apps that belong with it (like the app of a database added with add_service): the project id (prj_...) from list_projects. Leave out for a new project named after the app."`
 	Alias       string `json:"alias,omitempty" jsonschema:"The app's short name in its project: its host name for the project's other apps and the name in ${{<alias>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the slug."`
 }
@@ -63,15 +63,15 @@ type updateAppIn struct {
 	Type           *string `json:"type,omitempty" jsonschema:"web or worker."`
 	Port           *int64  `json:"port,omitempty" jsonschema:"The port the app listens on, like 3000. 0 clears it so the Dockerfile EXPOSE is used. Applies on the next deploy."`
 	HealthPath     *string `json:"health_path,omitempty" jsonschema:"Path bitploy requests to see the app is healthy, like /healthz. Starts with /. Default /. Any status below 500 passes. Applies on the next deploy."`
-	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile inside the project, default Dockerfile. Example: docker/Dockerfile.prod."`
-	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the project root). Example: backend."`
-	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the persistent /data volume (call restart_app afterwards). false turns it off at once and deletes its files and backups (see delete_data). Not for static sites."`
+	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile in the code, default Dockerfile. Example: docker/Dockerfile.prod."`
+	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the top folder of the code). Example: backend."`
+	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the /data volume, kept across deploys (call restart_app afterwards). false turns it off at once and deletes its files and backups (see delete_data). Not for static sites."`
 	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: confirms deleting the files in /data and all backups. Needed when there is anything to delete, else volume_has_data is returned. Ask the user first: this cannot be undone."`
-	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. Bitploy checks /data hourly and stops an app that is over its limit."`
+	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
-	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build the one Dockerfile (the usual app). compose: run every service of the project's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the project has one); check the file with validate_compose first."`
-	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the project, like deploy/compose.yaml. Empty string: the usual names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
+	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build one Dockerfile (the default). compose: run every service of the code's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the code has one); check the file with validate_compose first."`
+	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the code, like deploy/compose.yaml. Empty string: the standard names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
 	Project        *string `json:"project,omitempty" jsonschema:"Move the app to another project (id prj_... from list_projects). Refused while other apps of its project refer to its variables, or its variables refer to apps of its project."`
 	Alias          *string `json:"alias,omitempty" jsonschema:"New short name in the project. References to the old name in the project's other apps are rewritten, and those apps restart."`
 }
@@ -84,7 +84,7 @@ type fileIn struct {
 
 type deployFilesIn struct {
 	App   string   `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	Files []fileIn `json:"files" jsonschema:"EVERY file of the project, including Dockerfile and .dockerignore: this list replaces the previous source completely. At most 200 files and 2 MB in total. Leave out node_modules, .git, .env and .bitploy."`
+	Files []fileIn `json:"files" jsonschema:"EVERY file of the code, including Dockerfile and .dockerignore: this list replaces the previous source completely. At most 200 files and 2 MB in total. Leave out node_modules, .git, .env and .bitploy."`
 }
 
 type catalogDeployIn struct {
@@ -96,11 +96,11 @@ type catalogDeployIn struct {
 
 type gitSourceIn struct {
 	App        string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	RepoURL    string `json:"repo_url,omitempty" jsonschema:"HTTPS address of the repository, like https://github.com/owner/repo (no .git needed, no token in the URL, no git@ addresses). Take it from the project's git remote. Not needed with remove."`
+	RepoURL    string `json:"repo_url,omitempty" jsonschema:"HTTPS address of the repository, like https://github.com/owner/repo (no .git needed, no token in the URL, no git@ addresses). Take it from the code's git remote (git remote -v). Not needed with remove."`
 	Branch     string `json:"branch,omitempty" jsonschema:"Branch to deploy, like main. Leave out for the repository's default branch."`
-	Subdir     string `json:"subdir,omitempty" jsonschema:"Folder inside the repository that holds the project and its Dockerfile, like apps/web. Leave out when the Dockerfile is at the top."`
+	Subdir     string `json:"subdir,omitempty" jsonschema:"Folder inside the repository that holds the app and its Dockerfile, like apps/web. Leave out when the Dockerfile is at the top."`
 	AutoDeploy *bool  `json:"auto_deploy,omitempty" jsonschema:"true (default): every push to the branch is built and deployed by itself. false: pushes do nothing until you call deploy. Only GitHub repositories can deploy on push."`
-	Remove     bool   `json:"remove,omitempty" jsonschema:"true: unlink the repository so the app takes uploaded files again (deploy_files, create_upload). The running version stays. Only when the user really wants to go back to uploads; then no repo_url is needed."`
+	Remove     bool   `json:"remove,omitempty" jsonschema:"true: unlink the repository so the app takes uploaded files again (deploy_files, create_upload). The running version stays. Only when the user wants to go back to uploads; no repo_url needed."`
 }
 
 type deployIn struct {
@@ -134,7 +134,7 @@ type getLogsIn struct {
 }
 
 type restartIn struct {
-	App     string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Not sure? Look in the project's .bitploy file or call list_apps."`
+	App     string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Read it from the .bitploy file in the code folder, or call list_apps."`
 	Service string `json:"service,omitempty" jsonschema:"Only for an app with several services: the service name from services in get_app. Leave it out for a normal app."`
 }
 
@@ -142,7 +142,7 @@ type setEnvIn struct {
 	App     string            `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
 	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
-	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the usual case). get_app lists the services."`
+	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the default). get_app lists the services."`
 }
 
 type setPasswordIn struct {
@@ -217,7 +217,7 @@ func (s *srv) registerTools() {
 			d["token_can_deploy"] = me.Scope != app.ScopeRead
 			d["limits"] = limitsInfo()
 			d["how_changes_apply"] = changeRules()
-			next := []string{"Call list_apps to see the existing apps, or create_app to make a new one (but first: a .bitploy file in the project names its app; no .bitploy means create a NEW app unless the user says it is already online)."}
+			next := []string{"Call list_apps to see the existing apps, or create_app to make a new one (but first: a .bitploy file in the code folder names its app; no .bitploy means create a NEW app unless the user says it is already online)."}
 			if me.Scope == app.ScopeRead {
 				next = []string{"This token is read-only: you can look but not deploy. Ask the user for a token with the deploy scope (dashboard, Tokens), then call list_apps to look around."}
 			}
@@ -246,14 +246,14 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			return &result{
-				Summary: "Bitploy deploy rules and runtime contract.",
+				Summary: "bitploy deploy rules and runtime contract.",
 				Data:    data("rules", md, "base_domain", svc.Cfg.AppsDomain, "app_url_pattern", svc.Cfg.AppURL("<slug>"), "limits", limitsInfo()),
-				Next:    []string{"Check which app this project is: a .bitploy file names it; otherwise create a NEW app (list_apps only when the user says it is already online). If the project has no Dockerfile, call get_template with the stack that fits, then validate_dockerfile."},
+				Next:    []string{"Find the app for this code: a .bitploy file in the code folder names it; otherwise create a NEW app (list_apps only when the user says it is already online). If the code has no Dockerfile, call get_template with the stack that fits, then validate_dockerfile."},
 			}, nil
 		})
 
 	addTool(s, "get_template", "Get a Dockerfile template",
-		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build (single page, falls back to index.html). node-static: multi-page static build (Astro, Eleventy). node: Node server (Express, Fastify) or bot. nextjs: Next.js (standalone output). python: Flask/FastAPI. django. go. php: index.php or Composer site. laravel (SQLite in /data). generic: anything else (Ruby, Java, Deno). Pass file_list. Save both files in the project root, adapt CMD and EXPOSE, then call validate_dockerfile.",
+		"Returns a ready Dockerfile and .dockerignore for a stack. static: only HTML/CSS/JS with an index.html. node-spa: Vite/React/Vue/Svelte site built with npm run build (single page, falls back to index.html). node-static: multi-page static build (Astro, Eleventy). node: Node server (Express, Fastify) or bot. nextjs: Next.js (standalone output). python: Flask/FastAPI. django. go. php: index.php or Composer site. laravel (SQLite in /data). generic: anything else (Ruby, Java, Deno). Pass file_list. Save both files in the top folder of the code, adapt CMD and EXPOSE, then call validate_dockerfile.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in templateIn) (*result, error) {
 			t, err := svc.GetTemplateForFiles(ctx, a, in.Stack, in.FileList)
@@ -264,15 +264,15 @@ func (s *srv) registerTools() {
 				Summary: fmt.Sprintf("Template %q: a Dockerfile and a .dockerignore.", t.Stack),
 				Data:    data("stack", t.Stack, "dockerfile", t.Dockerfile, "dockerignore", t.Dockerignore, "notes", t.Readme),
 				Next: []string{
-					"Save dockerfile as Dockerfile and dockerignore as .dockerignore in the top folder of the project; read notes for what to change.",
+					"Save dockerfile as Dockerfile and dockerignore as .dockerignore in the top folder of the code; read notes for what to change.",
 					"Adapt it: the start command (CMD), and make the app listen on 0.0.0.0 at the EXPOSE port ($PORT), never on localhost. A bot or other app without a web port: use create_app with type=worker.",
-					"Call validate_dockerfile with the Dockerfile text and the list of project files.",
+					"Call validate_dockerfile with the Dockerfile text and the list of files.",
 				},
 			}, nil
 		})
 
 	addTool(s, "validate_dockerfile", "Validate a Dockerfile",
-		"Checks a Dockerfile without building. Call it before every deploy and fix every finding with severity error. Pass the Dockerfile text and file_list (all project paths) so it can name the stack and warn about .env files. Returns ok, the detected port and findings (code, severity, message, hint, line). If ok is true, send the code next.",
+		"Checks a Dockerfile without building. Call it before every deploy and fix every finding with severity error. Pass the Dockerfile text and file_list (all file paths) so it can name the stack and warn about .env files. Returns ok, the detected port and findings (code, severity, message, hint, line). If ok is true, send the code next.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in validateIn) (*result, error) {
 			var res app.ValidateResult
@@ -308,7 +308,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "validate_compose", "Check a compose file",
-		"Checks a compose file (compose.yaml, docker-compose.yml) without building or starting anything, and shows what bitploy would run: each service (built from the project or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, the totals and whether they fit the quota (quota.message). ok=false lists errors, each with code, service, key (the compose key at fault, like ports or volumes[0]) and a hint: fix them all, then check again. Use it only when the project already has a compose file the user needs, before create_app build_mode=compose or a deploy of such an app. Most apps need no compose file: one Dockerfile with SQLite in /data is simpler, so never write one just to deploy.",
+		"Checks a compose file (compose.yaml, docker-compose.yml) without building or starting anything, and shows what bitploy would run: each service (built from the code or a published image, public or not, port, memory, CPU, depends_on, volumes), the volumes, the totals and whether they fit the quota (quota.message). ok=false lists errors, each with code, service, key (the compose key at fault, like ports or volumes[0]) and a hint: fix them all, then check again. Use it only when the code already has a compose file the user needs, before create_app build_mode=compose or a deploy of such an app. Most apps need none: they run from one Dockerfile with SQLite in /data. Never write a compose file only to deploy.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in validateComposeIn) (*result, error) {
 			p, err := svc.ValidateCompose(ctx, a, app.ValidateComposeInput{Compose: in.Compose, App: in.App})
@@ -319,7 +319,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "list_apps", "List apps",
-		"Lists all the user's apps, one compact entry each: slug, name, url, status, healthy, problem, latest deployment. Use it to answer \"what do I have and is it healthy\", and to find an app the user says is already online (confirm by name AND url; ask the user if several could match). Do not use it to hunt for a similar name: other projects may own it. status: running (serving), deploying, new (nothing deployed yet), stopped (stopped on purpose), failed (deploy failed, nothing live), crashed (stopped on its own). A non-empty problem means look closer.",
+		"Lists all the user's apps, one compact entry each: slug, name, url, status, healthy, problem, latest deployment. Use it to answer \"what do I have and is it healthy\", and to find an app the user says is already online (confirm by name AND url; ask the user if several could match). Never pick an app because its name is similar: it may belong to a different codebase. status: running (serving), deploying, new (nothing deployed yet), stopped (stopped on purpose), failed (deploy failed, nothing live), crashed (stopped on its own). A non-empty problem means look closer.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			apps, err := svc.ListApps(ctx, a)
@@ -353,7 +353,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "create_app", "Create an app",
-		"Reserves a name and URL for a NEW app; it serves nothing until the first deploy. BEFORE calling this: if the project has a .bitploy file, that app is the one to update (skip create_app, use deploy_files). If the user says the project is already online, find it with list_apps and confirm by name and url. Otherwise create a NEW app: never reuse an app just because the name is similar. After creating, save {\"app\":\"<slug>\",\"url\":\"<url>\"} as .bitploy in the project (do not deploy that file). Use type=worker for bots with no web port.",
+		"Reserves a name and URL for a NEW app; it serves nothing until the first deploy. BEFORE calling this: if the code folder has a .bitploy file, update that app instead (deploy_files, no create_app). If the user says the code is already online, find it with list_apps and confirm by name and url. Otherwise create a NEW app: never reuse an app only because the name is similar. After creating, save {\"app\":\"<slug>\",\"url\":\"<url>\"} as .bitploy in the code folder (do not deploy that file). Use type=worker for bots with no web port.",
 		write(), true,
 		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
@@ -368,12 +368,12 @@ func (s *srv) registerTools() {
 			}
 			if ap.BuildMode == "compose" {
 				return &result{
-					Summary: fmt.Sprintf("Created app %s (%s) at %s for the services of the project's compose file; nothing is deployed yet.", ap.Slug, ap.Name, url),
+					Summary: fmt.Sprintf("Created app %s (%s) at %s for the services of its compose file; nothing is deployed yet.", ap.Slug, ap.Name, url),
 					Data:    data("app", ap),
 					Next: []string{
 						bitployFileStep(ap),
 						"Secrets the compose file reads as ${VAR}: set them with set_env first (bitploy does not read .env files).",
-						"Send the project with the compose file and every Dockerfile it builds: set_git_source then deploy, deploy_files with ALL files, or create_upload. A compose file with only image: services can be sent alone: deploy_files with [{path: \"compose.yaml\", content: ...}].",
+						"Send the code with the compose file and every Dockerfile it builds: set_git_source then deploy, deploy_files with ALL files, or create_upload. A compose file with only image: services can be sent alone: deploy_files with [{path: \"compose.yaml\", content: ...}].",
 					},
 				}, nil
 			}
@@ -382,14 +382,14 @@ func (s *srv) registerTools() {
 				Data:    data("app", ap),
 				Next: []string{
 					bitployFileStep(ap),
-					"If the project has no Dockerfile, call get_template and add one, then call validate_dockerfile.",
-					"Send the code. If the project already has a GitHub remote, prefer set_git_source with app=" + ap.Slug + " and that URL, then deploy once: later, every push deploys by itself. Otherwise deploy_files with app=" + ap.Slug + " for up to 2 MB and 200 files, or create_upload for a zip (no repository needed). To publish changes later with uploads, call deploy_files again with ALL files (it replaces the whole source).",
+					"If the code has no Dockerfile, call get_template and add one, then call validate_dockerfile.",
+					"Send the code. If it has a GitHub remote, prefer set_git_source with app=" + ap.Slug + " and that URL, then deploy once: later, every push deploys by itself. Otherwise deploy_files with app=" + ap.Slug + " for up to 2 MB and 200 files, or create_upload for a zip (no repository needed). To publish changes later with uploads, call deploy_files again with ALL files (it replaces the whole source).",
 				},
 			}, nil
 		})
 
 	addTool(s, "update_app", "Change app settings",
-		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type, build_mode apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To turn on persistent files: volume=true, restart_app, and the app must write to /data. An app with several services (a compose app) takes its port, memory, CPU and volumes from the compose file: change the file and deploy again.",
+		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type, build_mode apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To keep files across deploys: volume=true, then restart_app; the app must write them to /data. An app with several services (a compose app) takes its port, memory, CPU and volumes from the compose file: change the file and deploy again.",
 		idempotent(), true, enums(map[string][]string{"build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
@@ -409,7 +409,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_files", "Deploy files",
-		"Publishes the project from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file of the project every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the project's .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. A compose app (build_mode=compose) needs the compose file and every Dockerfile it builds; with only image: services the compose file alone is enough. An app that is linked to a git repository refuses this with git_source_linked: push to the repository instead.",
+		"Publishes the code from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. A compose app (build_mode=compose) needs the compose file and every Dockerfile it builds; with only image: services the compose file alone is enough. An app linked to a git repository refuses this with git_source_linked: push to the repository instead.",
 		write(), true,
 		nil,
 		func(ctx context.Context, a app.Actor, in deployFilesIn) (*result, error) {
@@ -425,7 +425,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "list_catalog", "List one-click apps",
-		"Popular ready-made tools you can deploy without any code: password manager, notes, uptime monitor, backend, budgeting, developer tools. Each keeps its data in /data. Use it when the user asks for such a tool by name or kind; then call deploy_catalog_app with the id. For anything else, write a Dockerfile.",
+		"Ready-made tools that deploy without code: password manager, notes, uptime monitor, backend, budgeting, developer tools. Each keeps its data in /data. Use it when the user asks for such a tool by name or kind; then call deploy_catalog_app with the id. For anything else, write a Dockerfile.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			items := svc.ListCatalog(ctx, a)
@@ -465,7 +465,7 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			next := []string{
-				"In the project folder run: zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git --exclude .env --exclude .env.* .). Keep the Dockerfile inside.",
+				"In the code folder run: zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy' (Windows: tar -a -c -f app.zip --exclude node_modules --exclude .git --exclude .env --exclude .env.* .). Keep the Dockerfile inside.",
 				"In that same folder run the curl command from the curl field (it uploads ./app.zip). On success it prints the upload as JSON; on an error it prints an error object with code, message and hint: follow the hint. Then delete app.zip.",
 				"Then call deploy with app=" + in.App + " and upload_id=" + u.ID + ". If more than 15 minutes pass first, call create_upload again.",
 			}
@@ -477,7 +477,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_git_source", "Link a git repository",
-		"Links the app to a git repository and checks that bitploy can read it. Prefer this over uploads when the project has a GitHub remote (repo_url: its HTTPS address). Bitploy builds what is pushed, not local files, so commit and push first. After linking call deploy once; with auto_deploy (default true) every later push to the branch deploys by itself, so update the app by committing and pushing and follow it with get_deployment (app=slug, wait_seconds=30). Public repos work as is. A private GitHub repo needs the USER to open Settings > GitHub ("+settingsURL+"), press Connect GitHub and give bitploy access to the repo; you cannot do that. If this fails with github_access_missing, tell the user, or upload the files instead. The repo must contain the Dockerfile (inside subdir if set). remove=true unlinks the repository so the app takes uploads again; only when the user wants that. Not for projects without a GitHub remote: never ask the user to create a repository just to deploy.",
+		"Links the app to a git repository and checks that bitploy can read it. Prefer this over uploads when the code has a GitHub remote (repo_url: its HTTPS address). bitploy builds what is pushed, not local files, so commit and push first. After linking call deploy once; with auto_deploy (default true) every later push to the branch deploys by itself, so update the app by committing and pushing and follow it with get_deployment (app=slug, wait_seconds=30). Public repos work as is. A private GitHub repo needs the USER to open Settings > GitHub ("+settingsURL+"), press Connect GitHub and give bitploy access to the repo; you cannot do that. If this fails with github_access_missing, tell the user, or upload the files instead. The repo must contain the Dockerfile (inside subdir if set). remove=true unlinks the repository so the app takes uploads again; only when the user wants that. Not for code without a GitHub remote: never ask the user to create a repository only to deploy.",
 		openWorld(idempotent()), true, nil,
 		func(ctx context.Context, a app.Actor, in gitSourceIn) (*result, error) {
 			if in.Remove {
@@ -526,7 +526,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_deployment", "Get a deployment",
-		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail), superseded or cancelled (stopped on request, not a failure). Pass the id from deploy/deploy_files, or just app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
+		"State of one deployment: queued, fetching, validating, building, starting, health_check, swapping, running (live, see url), failed (see error and log_tail), superseded or cancelled (stopped on request, not a failure). Pass the id from deploy/deploy_files, or only app to get its latest: that is how you follow the deployment a git push started (channel github; commit_sha tells which commit). With wait_seconds=30 it waits for the end state; call again until running or failed. Also the way to see why a deploy failed: error {code, message, hint} and the last 50 log lines.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in getDeploymentIn) (*result, error) {
 			wait := in.WaitSeconds
@@ -560,7 +560,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "cancel_deployment", "Cancel a deployment",
-		"Stops a deployment that is queued or in progress (fetching, validating, building, starting, health_check): the build ends, the new container is removed and the version that is live keeps running. Use it when a build is clearly wrong or stuck, or the user asks, instead of waiting for it to time out; then fix the cause and deploy again. Pass id (dep_...) or just app to cancel that app's open deployment. Not possible once it is swapping (too_late_to_cancel: wait, then rollback if needed) or finished (deployment_finished). A cancelled deployment is not a failure.",
+		"Stops a deployment that is queued or in progress (fetching, validating, building, starting, health_check): the build ends, the new container is removed and the version that is live keeps running. Use it when a build is clearly wrong or stuck, or the user asks, instead of waiting for it to time out; then fix the cause and deploy again. Pass id (dep_...) or only app to cancel that app's open deployment. Not possible once it is swapping (too_late_to_cancel: wait, then rollback if needed) or finished (deployment_finished). A cancelled deployment is not a failure.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in cancelDeploymentIn) (*result, error) {
 			var d app.Deployment
@@ -781,7 +781,7 @@ func (s *srv) registerTools() {
 			return &result{
 				Summary: "Deleted " + in.App + ".",
 				Data:    data("deleted", in.App),
-				Next:    []string{"Tell the user the app and its data are gone. If the project has a .bitploy file for this app, delete that file too."},
+				Next:    []string{"Tell the user the app and its data are gone. If the code folder has a .bitploy file for this app, delete that file too."},
 			}, nil
 		})
 
@@ -818,7 +818,7 @@ func (s *srv) registerTools() {
 			case "issuing_cert":
 				next = []string{"The DNS is right and the secure certificate is being issued (a minute or two). Call check_domain again in a minute."}
 			case "failed":
-				next = []string{"Bitploy stopped waiting. Re-check the records with the user (tell_the_user text from add_domain, or the records in this result), fix them, then call check_domain again."}
+				next = []string{"bitploy stopped waiting. Re-check the records with the user (tell_the_user text from add_domain, or the records in this result), fix them, then call check_domain again."}
 			default:
 				next = []string{"The records are not visible yet. Ask the user to check they match exactly, wait a few minutes (DNS can take up to an hour), then call check_domain again."}
 			}
@@ -864,7 +864,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "create_backup", "Back up /data",
-		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. Returns a backup with status running: call list_backups until it is ready or failed. Backups count towards the account's storage allowance (whoami). Good practice before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
+		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. Returns a backup with status running: call list_backups until it is ready or failed. Backups count towards the account's storage allowance (whoami). Make one before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			b, err := svc.CreateBackup(ctx, a, in.App)

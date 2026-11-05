@@ -27,14 +27,14 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 
 	init := cs.InitializeResult().Instructions
 	for _, s := range []string{
-		"If the project has a GitHub remote, prefer git",
+		"If it has a GitHub remote, prefer git",
 		"set_git_source with the remote's HTTPS URL",
 		"push",
 		"get_deployment",
-		"Upload\n   instead",
+		"? Upload:",
 		"deploy_files",
 		"create_upload",
-		"Never ask the user\n   to create a repository or install git just to deploy",
+		"Never ask the user to\n   create a repository or install git only to deploy",
 		"git_source_linked",
 	} {
 		if !strings.Contains(init, s) {
@@ -48,9 +48,9 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 	res := call(t, cs, "get_deploy_rules", nil)
 	rules := structured(t, res)["rules"].(string)
 	for _, s := range []string{
-		"A project that has a GitHub remote is best linked with set_git_source.", "A project without a GitHub remote is uploaded",
+		"Code with a GitHub remote is best linked with set_git_source.", "Code without a GitHub remote is uploaded",
 		"upload the files instead",
-		"never ask the user to create a repository or install git just to deploy",
+		"never ask the user to create a repository or install git only to deploy",
 		"create_upload", "deploy_files", "git_source_linked", "set_git_source with remove=true", "github_access_missing",
 		"Connect GitHub", "Settings > GitHub", "push_ready",
 	} {
@@ -65,7 +65,7 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	pt := p.Messages[0].Content.(*sdk.TextContent).Text
-	for _, s := range []string{"Prefer git", "No GitHub remote? Upload, which is fully supported", "Never ask the user to create a repository or install git just to deploy", "deploy_files", "create_upload"} {
+	for _, s := range []string{"Prefer git", "No GitHub remote? Upload, which is fully supported", "Never ask the user to create a repository or install git only to deploy", "deploy_files", "create_upload"} {
 		if !strings.Contains(pt, s) {
 			t.Errorf("prompt lacks %q", s)
 		}
@@ -86,7 +86,7 @@ func TestRulesPreferGitAndKeepUploadsFirstClass(t *testing.T) {
 	}
 	g := desc["set_git_source"]
 	for _, s := range []string{"Prefer this", "has a GitHub remote", "commit and push first", "upload the files instead", "auto_deploy", "committing and pushing", "get_deployment", "Settings > GitHub", "Connect GitHub",
-		"remove=true", "Not for projects without a GitHub remote", "never ask the user to create a repository"} {
+		"remove=true", "Not for code without a GitHub remote", "never ask the user to create a repository"} {
 		if !strings.Contains(g, s) {
 			t.Errorf("set_git_source description lacks %q: %s", s, g)
 		}

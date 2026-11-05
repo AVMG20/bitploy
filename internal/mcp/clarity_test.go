@@ -228,7 +228,7 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	nextSteps(t, "get_deploy_rules", res)
 	rules := structured(t, res)["rules"].(string)
 	for _, s := range []string{
-		"https://<slug>.bitploy.test", "This server", "2 MB", "95 MB", "restart_app", ".bitploy", "Never reuse an app just because its name looks similar",
+		"https://<slug>.bitploy.test", "This server", "2 MB", "95 MB", "restart_app", ".bitploy", "Never reuse an app only because its name looks similar",
 		"full snapshot", "out of memory", "/data", "DNS", "deploy_rate_limited", "token_read_only", "github_access_missing", "git_source_linked",
 	} {
 		if !strings.Contains(rules, s) {
@@ -300,7 +300,7 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	// A Dockerfile-less folder: the error carries the template and next_tool.
 	res = call(t, cs, "deploy_files", map[string]any{"app": "bakery-shop", "files": []map[string]any{{"path": "index.html", "content": "<h1>hi</h1>"}}})
 	if m := assertErrorShape(t, "deploy without Dockerfile", res); m != nil {
-		if m["code"] != "dockerfile_missing" || m["next_tool"] != "get_template" || !strings.Contains(m["hint"].(string), "deploy_files again with ALL project files") {
+		if m["code"] != "dockerfile_missing" || m["next_tool"] != "get_template" || !strings.Contains(m["hint"].(string), "deploy_files again with ALL files") {
 			t.Errorf("dockerfile_missing = %v", m)
 		}
 	}
@@ -361,13 +361,13 @@ func TestDeploymentResultGuidesEachState(t *testing.T) {
 	d = base
 	d.State, d.URL = "running", "https://shop.bitploy.test"
 	s := joined(d)
-	for _, want := range []string{"https://shop.bitploy.test", "deploy_files", "app=shop", "ALL project files", ".bitploy", `"app":"shop"`} {
+	for _, want := range []string{"https://shop.bitploy.test", "deploy_files", "app=shop", "ALL files", ".bitploy", `"app":"shop"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("running lacks %q:\n%s", want, s)
 		}
 	}
 	d.SourceKind = "git"
-	if s := joined(d); !strings.Contains(s, "commit and push") || strings.Contains(s, "ALL project files") {
+	if s := joined(d); !strings.Contains(s, "commit and push") || strings.Contains(s, "ALL files") {
 		t.Errorf("git update path: %s", s)
 	}
 	d.SourceKind = "upload"

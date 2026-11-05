@@ -89,7 +89,7 @@ func actorFrom(extra *mcp.RequestExtra) (app.Actor, error) {
 // NewServer builds the MCP server with all tools, resources and the prompt.
 func NewServer(svc *app.Service) *mcp.Server {
 	s := &srv{svc: svc}
-	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "bitploy", Title: "Bitploy", Version: "1.0.0"},
+	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "bitploy", Title: "bitploy", Version: "1.0.0"},
 		&mcp.ServerOptions{Instructions: Instructions(svc)})
 	s.registerTools()
 	s.registerProjectTools()
@@ -193,9 +193,9 @@ func (s *srv) errorResult(tool string, err error) *mcp.CallToolResult {
 func hintSuffix(tool, code string) string {
 	switch {
 	case code == "dockerfile_missing" && tool == "deploy_files":
-		return "\n\nAfter saving the two files, call deploy_files again with ALL project files, including the new Dockerfile and .dockerignore."
+		return "\n\nAfter saving the two files, call deploy_files again with ALL files, including the new Dockerfile and .dockerignore."
 	case code == "dockerfile_missing" && tool == "deploy":
-		return "\n\nAdd the two files to the project: for a git source commit and push them (a push deploys by itself when auto-deploy is on), for a zip create it again (create_upload), for files use deploy_files with ALL files."
+		return "\n\nAdd the two files to the code: for a git source commit and push them (a push deploys by itself when auto-deploy is on), for a zip create it again (create_upload), for files use deploy_files with ALL files."
 	}
 	return ""
 }

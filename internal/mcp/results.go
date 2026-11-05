@@ -201,7 +201,7 @@ func listAppsResult(briefs []appBrief) *result {
 		lines = append(lines, line)
 	}
 	next = append(next,
-		"This project's app is the one in its .bitploy file. Without .bitploy, only reuse an app if the user says it is already online and name AND url match (ask the user if unsure); otherwise create_app for a NEW app. Never overwrite an app just because its name is similar.",
+		"The app for the code is the one in its .bitploy file. Without .bitploy, only reuse an app if the user says it is already online and name AND url match (ask the user if unsure); otherwise create_app for a NEW app. Never overwrite an app only because its name is similar.",
 		"Call get_app for the full settings of one app.")
 	return &result{
 		Summary: fmt.Sprintf("%d app(s): %d healthy, %d need attention, %d not deployed yet.\n%s", len(briefs), healthy, attention, fresh, strings.Join(lines, "\n")),
@@ -258,7 +258,7 @@ func updateHow(slug, sourceKind string) string {
 	case "upload":
 		return "zip the folder again: create_upload with app=" + slug + ", run its curl command, then deploy with the new upload_id"
 	}
-	return "call deploy_files with app=" + slug + " and ALL project files (it replaces the whole source, it is not a patch)"
+	return "call deploy_files with app=" + slug + " and ALL files (it replaces the whole source, it is not a patch)"
 }
 
 // appUpdateHow says how to publish new code to a specific app: a linked
@@ -312,7 +312,7 @@ func bitployFileStep(ap app.App) string {
 	if ap.URL != "" {
 		content = fmt.Sprintf(`{"app":%q,"url":%q}`, ap.Slug, ap.URL)
 	}
-	return "Save " + content + " as the file .bitploy in the project folder (do not send it with the deploy) so a later session updates this app instead of creating a new one."
+	return "Save " + content + " as the file .bitploy in the code folder (do not send it with the deploy) so a later session updates this app instead of creating a new one."
 }
 
 // runtimeFailure reports a failed status that came after the deploy: the
@@ -330,7 +330,7 @@ func appNext(ap app.App) []string {
 	case "failed":
 		if runtimeFailure(ap) {
 			return []string{
-				"The deploy worked, but the live version stopped working afterwards; status_message says why.",
+				"The deploy worked, but the live version stopped afterwards; status_message says why.",
 				"Out of memory: update_app with a higher memory_mb (whoami shows the quota), then restart_app. The /data volume over its limit: ask the user to delete files from /data, then start_app.",
 				"Otherwise call get_logs with app=" + slug + " and kind=runtime; fix a code bug, then " + appUpdateHow(ap) + ", or restart_app for a one-off failure.",
 			}
@@ -400,7 +400,7 @@ func validateComposeResult(p app.ComposePreview, slug string) *result {
 	}
 	next := []string{"Read the warnings: they say what bitploy ignores."}
 	if slug == "" {
-		next = append(next, "Create the app with create_app build_mode=compose (or, for an app that has one service now, update_app build_mode=compose), then send the project with the compose file and every Dockerfile it builds.")
+		next = append(next, "Create the app with create_app build_mode=compose (or, for an app that has one service now, update_app build_mode=compose), then send the code with the compose file and every Dockerfile it builds.")
 	} else {
 		next = append(next, "Deploy it: push to the linked repository, deploy_files with ALL files (compose file included), or create_upload; then get_deployment with wait_seconds=30.")
 	}
@@ -414,7 +414,7 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 		out = append(out, "From the next deploy on, "+ap.Slug+" runs every service of its compose file. Check the file with validate_compose app="+ap.Slug+", then deploy (deploy with only app= rebuilds the last source, or send new files).")
 	}
 	if in.Slug != nil && ap.URL != "" {
-		out = append(out, "The app now lives at "+ap.URL+"; the old address no longer works. Tell the user, and update the url in the project's .bitploy file.")
+		out = append(out, "The app now lives at "+ap.URL+"; the old address stops working. Tell the user, and update the url in the .bitploy file.")
 	}
 	if in.Volume != nil && !*in.Volume {
 		out = append(out, "/data is off: its files and the backups are deleted, and the app restarts without it.")
@@ -434,7 +434,7 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 		}
 	}
 	if in.Volume != nil && *in.Volume {
-		out = append(out, "The app must write its persistent files to /data, and its user must own that folder: in the Dockerfile add RUN mkdir /data && chown <user> /data before USER. Anything outside /data is lost on redeploy.")
+		out = append(out, "The app must save files it needs to keep in /data, and its user must own that folder: in the Dockerfile add RUN mkdir /data && chown <user> /data before USER. Anything outside /data is lost on redeploy.")
 	}
 	if len(out) == 0 {
 		out = append(out, "Done. Call get_app to see the current settings.")
@@ -490,7 +490,7 @@ func failureSteps(d app.Deployment) []string {
 	}
 	switch e.Code {
 	case "dockerfile_missing":
-		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore into the project, then "+redo+".")
+		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore in the code folder, then "+redo+".")
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
 	case "build_failed":
@@ -658,7 +658,7 @@ func metricsResult(slug, window string, m app.Metrics) *result {
 	var next []string
 	switch {
 	case total == 0:
-		next = []string{"No samples: the app is not running or just started. Call get_app to check its status."}
+		next = []string{"No samples: the app is not running or started moments ago. Call get_app to check its status."}
 	case m.MemoryLimitMB > 0 && peakMem > 0.85*float64(m.MemoryLimitMB):
 		next = []string{
 			fmt.Sprintf("Memory peaked at %.0f of %d MB: close to the limit, the app may be killed (out of memory). Call update_app with a higher memory_mb (whoami shows the quota), then restart_app; or make the app use less.", peakMem, m.MemoryLimitMB),
