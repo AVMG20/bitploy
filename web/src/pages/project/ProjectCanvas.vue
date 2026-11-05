@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
 import { projectRoute } from '@/lib/appLinks'
-import { labelRoom, routeLinks, spreadLabels } from '@/lib/canvas'
+import { labelSpots, placeLabels, routeLinks, routesBottom } from '@/lib/canvas'
 import type { Box, RoutedLink } from '@/lib/canvas'
 import { formatMB } from '@/lib/format'
 import { aliasOf, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
@@ -70,53 +70,73 @@ const onLine = (p: RoutedLink) => p.from === focus.value || p.to === focus.value
 // ---------------------------------------------------------------- the lines behind the cards
 const board = ref<HTMLElement>()
 const paths = ref<RoutedLink[]>([])
+/** The cards and the add button: lines and labels keep clear of them. */
 const cards = ref<Box[]>([])
 const size = ref({ w: 0, h: 0 })
+/** Room added under the lanes when lines run below a lane. */
+const below = ref(0)
 /** Lines are drawn when the lanes sit side by side; stacked lanes show the names on the cards. */
 const routable = ref(false)
 function measure() {
   const el = board.value
   if (!el) return
+  // Board coordinates start inside its border, where the lines' svg starts.
   const box = el.getBoundingClientRect()
-  size.value = { w: box.width, h: box.height }
+  const left = box.left + el.clientLeft
+  const top = box.top + el.clientTop
   const tops = new Set([...el.querySelectorAll<HTMLElement>('[data-lane]')].map((s) => Math.round(s.getBoundingClientRect().top)))
   routable.value = tops.size === 1 && lanes.value.length > 1
   if (!routable.value) {
     paths.value = []
+    below.value = 0
+    size.value = { w: el.clientWidth, h: el.clientHeight }
     return
   }
   const boxes: Box[] = []
-  for (const card of el.querySelectorAll<HTMLElement>('[data-app]')) {
-    const r = card.getBoundingClientRect()
-    const col = Number(card.closest<HTMLElement>('[data-lane]')?.dataset.lane ?? 0)
-    boxes.push({ id: card.dataset.app!, col, l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top })
+  for (const item of el.querySelectorAll<HTMLElement>('[data-app], [data-keep-clear]')) {
+    const r = item.getBoundingClientRect()
+    const col = Number(item.closest<HTMLElement>('[data-lane]')?.dataset.lane ?? 0)
+    boxes.push({ id: item.dataset.app ?? 'add', col, l: r.left - left, r: r.right - left, t: r.top - top, b: r.bottom - top })
   }
   cards.value = boxes
-  paths.value = routeLinks(boxes, links.value)
+  // A project with very many lines gets the best routes found in 120ms.
+  paths.value = routeLinks(boxes, links.value, { width: el.clientWidth, budget: 120 })
+  // The board without the added room, then the room the lowest line needs.
+  const base = el.clientHeight - below.value
+  below.value = Math.max(0, Math.ceil(routesBottom(paths.value) + 16 - base))
+  size.value = { w: el.clientWidth, h: base + below.value }
+}
+let frame = 0
+function measureSoon() {
+  cancelAnimationFrame(frame)
+  frame = requestAnimationFrame(measure)
 }
 const labels = computed(() => {
   const f = focus.value
   if (!f) return []
-  const shown = paths.value.flatMap((p) => {
-    if (!onLine(p)) return []
-    const l = links.value.find((x) => x.from === p.from && x.to === p.to)
-    return [{ key: p.key, x: p.endSide === 'l' ? p.end.x - 6 : p.end.x + 6, y: p.end.y, side: p.endSide, text: l?.vars.join(', ') ?? '' }]
+  const spots = labelSpots(paths.value, f, (p) => links.value.find((x) => x.from === p.from && x.to === p.to)?.vars.join(', ') ?? '')
+  // A label is cut short where a card starts and left out where there is no room; the card and the panel name every variable.
+  const placed = new Map(placeLabels(spots, cards.value, size.value).map((p) => [p.key, p]))
+  return spots.flatMap((s) => {
+    const p = placed.get(s.key)
+    return p ? [{ ...p, text: s.text }] : []
   })
-  // A label is cut short where a card starts, so it never covers one; the card and the panel name every variable.
-  return spreadLabels(shown, 22).map((lb) => ({ ...lb, room: Math.max(32, labelRoom(lb.x, lb.y, lb.side, cards.value, size.value.w) - 4) }))
 })
 
 let ro: ResizeObserver | undefined
 onMounted(() => {
-  ro = new ResizeObserver(() => measure())
+  ro = new ResizeObserver(measureSoon)
   if (board.value) ro.observe(board.value)
 })
 watch(board, (el, old) => {
   if (old) ro?.unobserve(old)
   if (el) ro?.observe(el)
 })
-onBeforeUnmount(() => ro?.disconnect())
-watch([links, apps, lanes], () => void nextTick(measure), { deep: true })
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  cancelAnimationFrame(frame)
+})
+watch([links, apps, lanes], () => void nextTick(measureSoon), { deep: true })
 
 // ---------------------------------------------------------------- one app: what to add next
 const quickPicks = computed(() => {
@@ -199,7 +219,7 @@ const quickPicks = computed(() => {
         </g>
       </svg>
 
-      <div class="relative grid gap-6 lg:gap-x-20" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 14rem), 1fr))` }">
+      <div class="relative grid gap-6 md:gap-x-20" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 14rem), 1fr))` }">
         <section v-for="(l, i) in lanes" :key="l.key" :data-lane="i" class="grid content-start gap-3" :aria-labelledby="`lane-${l.key}`">
           <div class="px-1">
             <h2 :id="`lane-${l.key}`" class="truncate text-xs font-medium text-foreground/80">{{ l.title }}</h2>
@@ -221,6 +241,7 @@ const quickPicks = computed(() => {
           <button
             v-if="i === lanes.length - 1 && !fallback"
             type="button"
+            data-keep-clear
             class="flex items-center justify-center gap-2 rounded-xl border border-dashed bg-background/50 px-4 py-5 text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
             @click="openAdd(project.id)"
           >
@@ -228,13 +249,15 @@ const quickPicks = computed(() => {
           </button>
         </section>
       </div>
+      <!-- Room for the lines that run below a lane. -->
+      <div v-if="below" :style="{ height: `${below}px` }" />
       <!-- The variables each line carries, on the lines of the hovered or open app. -->
       <div v-if="routable" class="pointer-events-none absolute inset-0 z-20" aria-hidden="true">
         <span
           v-for="lb in labels"
           :key="`${lb.key}-label`"
-          class="absolute truncate rounded-md border border-primary/40 bg-card px-1.5 py-0.5 font-mono text-[10.5px] whitespace-nowrap text-foreground shadow-card"
-          :style="{ left: `${lb.x}px`, top: `${lb.y}px`, maxWidth: `${lb.room}px`, transform: lb.side === 'l' ? 'translate(-100%, -50%)' : 'translate(0, -50%)' }"
+          class="absolute truncate rounded-md border border-primary/40 bg-card px-1.5 font-mono text-[10.5px] leading-[18px] whitespace-nowrap text-foreground shadow-card"
+          :style="{ left: `${lb.left}px`, top: `${lb.top}px`, width: `${lb.width}px`, height: `${lb.height}px` }"
         >{{ lb.text }}</span>
       </div>
     </div>

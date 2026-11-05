@@ -236,6 +236,7 @@ const projects: ProjectRow[] = [
   { id: 'prj_shop', name: 'Shop', created_at: ago(60 * 24 * 30) },
   { id: 'prj_notes', name: 'Notes stack', created_at: ago(60 * 24 * 12) },
   { id: 'prj_status', name: 'Status page', created_at: ago(60 * 24 * 2) },
+  { id: 'prj_market', name: 'Marketplace', created_at: ago(60 * 24 * 20) },
 ]
 
 const apps: App[] = []
@@ -430,6 +431,52 @@ apps.push(
   makeApp({ slug: 'uptime', name: 'Uptime Kuma', project: 'prj_status', alias: 'uptime', port: 3001, catalog: 'uptime-kuma', status: 'deploying', memory: 256, cpu: 250, createdDaysAgo: 0.01, deploys: 1,
     volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: 1024, used_mb: null }] }),
 )
+// A bigger project for the canvas: ten apps in three lanes, many lines.
+apps.push(
+  makeApp({ slug: 'mk-store', name: 'storefront', project: 'prj_market', alias: 'store', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 20 }),
+  makeApp({ slug: 'mk-admin', name: 'admin', project: 'prj_market', alias: 'admin', port: 3000, repo: 'ada/shop', memory: 256, cpu: 250, createdDaysAgo: 19 }),
+  makeApp({ slug: 'mk-docs', name: 'docs', project: 'prj_market', alias: 'docs', port: 80, repo: 'ada/portfolio', static: true, memory: 32, cpu: 100, createdDaysAgo: 18 }),
+  makeApp({ slug: 'mk-api', name: 'api', project: 'prj_market', alias: 'api', type: 'worker', port: 8080, repo: 'ada/api-go', createdDaysAgo: 20 }),
+  makeApp({ slug: 'mk-worker', name: 'worker', project: 'prj_market', alias: 'worker', type: 'worker', port: null, repo: 'ada/api-go', createdDaysAgo: 19 }),
+  makeApp({ slug: 'mk-mailer', name: 'mailer', project: 'prj_market', alias: 'mailer', type: 'worker', port: 8025, repo: 'ada/api-go', memory: 128, createdDaysAgo: 18 }),
+  makeApp({ slug: 'mk-indexer', name: 'indexer', project: 'prj_market', alias: 'indexer', type: 'worker', port: null, repo: 'ada/api-go', memory: 128, createdDaysAgo: 17 }),
+  makeApp({ slug: 'mk-postgres', name: 'postgres', project: 'prj_market', alias: 'postgres', template: 'postgres', type: 'worker', port: 5432, memory: 512, createdDaysAgo: 20, deploys: 1 }),
+  makeApp({ slug: 'mk-redis', name: 'redis', project: 'prj_market', alias: 'redis', template: 'valkey', type: 'worker', port: 6379, memory: 128, createdDaysAgo: 20, deploys: 1 }),
+  makeApp({ slug: 'mk-search', name: 'search', project: 'prj_market', alias: 'search', template: 'meilisearch', type: 'worker', port: 7700, memory: 256, createdDaysAgo: 17, deploys: 1 }),
+)
+seedEnv('mk-store', [
+  { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'MEILI_URL', value: '${{search.MEILI_URL}}' },
+  { name: 'ADMIN_URL', value: 'http://${{admin.HOST}}:3000' },
+])
+seedEnv('mk-admin', [
+  { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
+])
+seedEnv('mk-docs', [{ name: 'MEILI_URL', value: '${{search.MEILI_URL}}' }])
+seedEnv('mk-api', [
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
+  { name: 'MEILI_URL', value: '${{search.MEILI_URL}}' },
+  { name: 'MAILER_URL', value: 'http://${{mailer.HOST}}:8025' },
+])
+seedEnv('mk-worker', [
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
+  { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
+])
+seedEnv('mk-mailer', [{ name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' }, { name: 'SMTP_URL' }])
+seedEnv('mk-indexer', [
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'MEILI_URL', value: '${{search.MEILI_URL}}' },
+  { name: 'MEILI_MASTER_KEY', value: '${{search.MEILI_MASTER_KEY}}' },
+])
+seedEnv('mk-postgres', ['DATABASE_URL', 'PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'].map((name) => ({ name })))
+seedEnv('mk-redis', ['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'VALKEY_URL'].map((name) => ({ name })))
+seedEnv('mk-search', ['MEILI_URL', 'MEILI_HOST', 'MEILI_MASTER_KEY'].map((name) => ({ name })))
+
 // The status page's first deploy is still building.
 {
   const up = apps.find((a) => a.slug === 'uptime')!
