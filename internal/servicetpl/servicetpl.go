@@ -184,7 +184,7 @@ var (
 var templates = []Template{
 	{
 		ID: "postgres", Name: "PostgreSQL", Category: "database",
-		Description: "The open-source SQL database most frameworks support. Other apps of the project connect with DATABASE_URL.",
+		Description: "The open-source SQL database most frameworks support. Apps in the project connect with DATABASE_URL.",
 		Image:       "postgres", Version: "18.6", Port: 5432, MemoryMB: 256, CPUMillis: 500, VolumeMB: 2048, User: "999:999",
 		Env: pgEnv, DockerEnv: pgDockerEnv, Healthcheck: pgHealth, HealthStartS: 30, ShmMB: 128,
 		Connection: pgConn("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"), MainVar: "DATABASE_URL",
@@ -248,7 +248,7 @@ var templates = []Template{
 	},
 	{
 		ID: "valkey", Name: "Valkey (Redis-compatible)", Category: "cache",
-		Description: "An in-memory key-value store that speaks the Redis protocol, for caches, sessions and job queues. Other apps connect with REDIS_URL.",
+		Description: "An in-memory key-value store that speaks the Redis protocol, for caches, sessions and job queues. Apps in the project connect with REDIS_URL.",
 		Image:       "valkey/valkey", Version: "9.1.3", Port: 6379, MemoryMB: 128, CPUMillis: 250, VolumeMB: 512, User: "999:999",
 		Env: []EnvSpec{{Name: "VALKEY_PASSWORD", Generate: "secret", Description: "The password clients send (AUTH)."}},
 		// A shell so the password comes from the variable, not the Dockerfile.
@@ -275,7 +275,7 @@ var templates = []Template{
 	},
 	{
 		ID: "meilisearch", Name: "Meilisearch", Category: "search",
-		Description: "A search engine with typo tolerance and filters, for search boxes. Other apps connect with MEILI_URL and MEILI_MASTER_KEY.",
+		Description: "A search engine with typo tolerance and filters, for search boxes. Apps in the project connect with MEILI_URL and MEILI_MASTER_KEY.",
 		Image:       "getmeili/meilisearch", Version: "v1.56.1", Port: 7700, MemoryMB: 512, CPUMillis: 500, VolumeMB: 2048, User: "10001:10001",
 		Env: []EnvSpec{{Name: "MEILI_MASTER_KEY", Generate: "secret", Description: "The key that protects the search API."}},
 		DockerEnv: [][2]string{
