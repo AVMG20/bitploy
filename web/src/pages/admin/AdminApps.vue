@@ -19,6 +19,7 @@ import { useQueryParam } from '@/composables/useQueryParam'
 import { useTableSort } from '@/composables/useTableSort'
 import { api } from '@/lib/api'
 import { appMatches, sortApps } from '@/lib/appList'
+import { appPath } from '@/lib/appLinks'
 import { CPU_HINT, compareText, cpuFromPercent, formatCPU, formatMB, formatPercent, hostOf, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { App } from '@/lib/types'
@@ -140,7 +141,7 @@ const stop = useMutation({
           <TableBody>
             <TableRow v-for="a in shown" :key="a.id">
               <TableCell>
-                <RouterLink :to="{ name: 'app', params: { slug: a.slug } }" class="font-medium hover:underline">{{ a.name }}</RouterLink>
+                <RouterLink :to="appPath(a.slug)" class="font-medium hover:underline">{{ a.name }}</RouterLink>
                 <p class="text-xs text-muted-foreground">{{ a.type === 'web' ? hostOf(a.url) : 'Background worker' }}</p>
               </TableCell>
               <TableCell class="hidden sm:table-cell">{{ ownerOf(a) }}</TableCell>

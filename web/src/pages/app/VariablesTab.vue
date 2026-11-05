@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -20,7 +21,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { keys, useApp } from '@/composables/queries'
+import { keys, useApp, useProject } from '@/composables/queries'
+import ConnectionCard from '@/components/project/ConnectionCard.vue'
+import { appRoute } from '@/lib/appLinks'
+import { aliasOf, appRole, projectIdOf, referenceParts, referenceText } from '@/lib/projects'
+import type { EnvVar } from '@/lib/types'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { ApiError, api } from '@/lib/api'
 import { parseDotenv } from '@/lib/dotenv'
@@ -67,12 +72,35 @@ const scopes = computed(() => [
   ...services.value.map((s) => ({ value: s.name, label: s.name, sub: serviceRole(s).label, count: all.value.filter((v) => v.service === s.name).length })),
 ])
 
+// ---------------------------------------------------------------- references to the other apps of the project
+const { project } = useProject(() => (app.data.value ? projectIdOf(app.data.value) : ''))
+const byAlias = computed(() => new Map((project.value?.apps ?? []).map((a) => [aliasOf(a), a])))
+/** The references in a value as chips naming the other app: ${{postgres.DATABASE_URL}} shows as postgres.DATABASE_URL. */
+function valueParts(v: EnvVar) {
+  const parts = referenceParts(v.references?.length ? v.references.join(' ') : v.masked).filter((p) => 'ref' in p || p.text.trim())
+  return parts.some((p) => 'ref' in p) ? parts : null
+}
+// Quick picks under the form: the main variable of each database or cache in the project.
+const suggestions = computed(() =>
+  (project.value?.apps ?? [])
+    .filter((a) => a.template && a.slug !== props.slug)
+    .map((a) => {
+      const role = appRole(a)
+      const name = a.main_var || a.connection_vars?.[0] || (role.key === 'cache' ? 'REDIS_URL' : role.key === 'search' ? 'MEILI_URL' : 'DATABASE_URL')
+      return { app: a, name, value: referenceText(aliasOf(a), name) }
+    })
+    .filter((sg) => !names.value.has(sg.name)),
+)
+function pickSuggestion(s: { name: string; value: string }) {
+  addForm.setValues({ name: s.name, value: s.value })
+}
+
 function changed() {
   markRestartNeeded(app.data.value, 'variables')
   void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
 }
 const willRestart = computed(() => app.data.value?.status === 'running')
-const appliesWhen = computed(() => (willRestart.value ? `Restart the ${multi.value ? 'project' : 'app'} to use it.` : `The ${multi.value ? 'project' : 'app'} uses it the next time it starts.`))
+const appliesWhen = computed(() => (willRestart.value ? 'Restart the app to use it.' : 'The app uses it the next time it starts.'))
 
 // ---------------------------------------------------------------- search (only worth it for a longer list)
 const search = ref('')
@@ -195,6 +223,7 @@ const importAll = useMutation({
 
 <template>
   <div class="grid gap-4">
+    <ConnectionCard v-if="app.data.value?.template && !service" :app="app.data.value" />
     <Card>
       <CardHeader class="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1.5">
@@ -203,7 +232,7 @@ const importAll = useMutation({
             Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. Values are hidden once saved; a change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="multi">
-            Shared variables: every service of this project gets them. Passwords, API keys and other settings, hidden once saved. A change applies after a restart.
+            Shared variables: every service of this app gets them. Passwords, API keys and other settings, hidden once saved. A change applies after a restart.
           </CardDescription>
           <CardDescription v-else>
             Passwords, API keys and other settings your app reads when it starts. Values are hidden once saved. A change applies after a restart.
@@ -257,6 +286,19 @@ const importAll = useMutation({
             <Button type="submit" class="sm:mt-[1.375rem]" :disabled="save.isPending.value && !editing">
               <Plus /> {{ addingExisting ? 'Replace' : 'Add' }}
             </Button>
+            <div v-if="suggestions.length && !scope && !app.data.value?.template" class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground sm:col-span-3">
+              <span>Use another app of {{ project?.name }}:</span>
+              <button
+                v-for="sg in suggestions"
+                :key="sg.app.id"
+                type="button"
+                class="rounded-md border bg-card px-1.5 py-0.5 font-mono text-[11px] text-foreground/85 transition-colors hover:border-foreground/30"
+                :title="`Fills in ${sg.name}=${sg.value}`"
+                @click="pickSuggestion(sg)"
+              >
+{{ sg.name }} from {{ aliasOf(sg.app) }}
+</button>
+            </div>
             <p v-if="addingExisting" class="text-xs text-muted-foreground sm:col-span-3">
               <span class="font-mono">{{ addForm.values.name?.trim() }}</span> exists already. Saving gives it this new value.
             </p>
@@ -279,7 +321,19 @@ const importAll = useMutation({
             <li v-for="v in shown" :key="v.name" class="px-3 py-2">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span class="font-mono text-sm font-medium break-all">{{ v.name }}</span>
-                <span class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
+                <span v-if="valueParts(v)" class="inline-flex min-w-0 flex-wrap items-center gap-0.5 font-mono text-sm text-muted-foreground">
+                  <template v-for="(part, i) in valueParts(v)!" :key="i">
+                    <RouterLink
+                      v-if="'ref' in part && byAlias.get(part.ref.app)"
+                      :to="appRoute(byAlias.get(part.ref.app)!)"
+                      class="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-xs text-foreground hover:border-primary/60"
+                      :title="`${part.ref.variable} of ${part.ref.app}, kept up to date by bitploy`"
+                    ><span class="text-primary">{{ part.ref.app }}</span><span class="text-muted-foreground">.</span>{{ part.ref.variable }}</RouterLink>
+                    <span v-else-if="'ref' in part" class="rounded-md border border-dashed px-1.5 py-0.5 text-xs" :title="`No app called ${part.ref.app} in this project`">{{ part.ref.raw }}</span>
+                    <span v-else>{{ part.text }}</span>
+                  </template>
+                </span>
+                <span v-else class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
                 <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
                 <div v-if="editing !== v.name" class="ml-auto flex gap-1">
                   <Button size="sm" variant="ghost" :aria-label="`Change the value of ${v.name}`" @click="startEdit(v.name)"><Pencil /> Change</Button>
@@ -353,7 +407,7 @@ const importAll = useMutation({
     <ConfirmDialog
       v-model:open="removeOpen"
       :title="`Remove ${toRemove ?? 'this variable'}?`"
-      :description="`${toRemove ?? 'The variable'} will be gone${forWhom} the next time the ${multi ? 'project' : 'app'} starts. It may stop working if it needs it.`"
+      :description="`${toRemove ?? 'The variable'} will be gone${forWhom} the next time the app starts. It may stop working if it needs it.`"
       confirm-label="Remove"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove)"

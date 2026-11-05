@@ -7,6 +7,9 @@ import type { MetricWindow, TrafficWindow } from './types'
 export const keys = {
   me: ['me'] as const,
   apps: ['apps'] as const,
+  /** Below apps on purpose: whatever refreshes the apps refreshes the projects that hold them. */
+  projects: ['apps', 'projects'] as const,
+  serviceTemplates: ['service-templates'] as const,
   catalog: ['catalog'] as const,
   catalogApp: (id: string) => ['catalog', id] as const,
   dockerfile: (slug: string) => ['dockerfile', slug] as const,

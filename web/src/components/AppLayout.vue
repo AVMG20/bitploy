@@ -4,23 +4,38 @@ import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { ChevronRight, Search } from 'lucide-vue-next'
 import { Kbd } from '@/components/ui/kbd'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { useApp } from '@/composables/queries'
+import { useApp, useProject } from '@/composables/queries'
+import { projectRoute } from '@/lib/appLinks'
 import { useEvents } from '@/composables/useEvents'
 import { modKey, paletteOpen, usePaletteShortcut } from '@/composables/useShortcuts'
 import AppSidebar from './AppSidebar.vue'
 import CommandPalette from './CommandPalette.vue'
+import AddToProjectDialog from './project/AddToProjectDialog.vue'
 
 const route = useRoute()
 // Live updates for everything below: opens when you are signed in, closes when you leave (logout).
 useEvents()
 usePaletteShortcut()
 
-// Where you are, shown next to the sidebar toggle: "Apps › My app". The app
-// page asks for the same app, so this costs no extra request.
+// Where you are, shown next to the sidebar toggle: "Projects › Shop › web".
+// The pages ask for the same app and projects, so this costs no extra request.
 const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
+// Adding to a project (/new?project=, /ready-made?project=) shows that project in the crumbs too.
+const intoProject = computed(() => (typeof route.query.project === 'string' ? route.query.project : ''))
+const projectId = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : intoProject.value))
 const app = useApp(slug, () => !!slug.value)
+const { project } = useProject(projectId)
 const crumbs = computed(() => {
-  if (slug.value) return [{ label: 'Projects', to: '/' }, { label: app.data.value?.slug === slug.value ? app.data.value.name : slug.value }]
+  const appName = app.data.value?.slug === slug.value ? app.data.value.name : slug.value
+  if (projectId.value) {
+    const name = project.value?.name ?? (app.data.value?.slug === slug.value ? app.data.value.project?.name : '') ?? ''
+    const list: { label: string; to?: ReturnType<typeof projectRoute> | string }[] = [{ label: 'Projects', to: '/' }]
+    if (slug.value) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: appName })
+    else if (!route.params.projectId) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: route.name === 'new-app' ? 'Add an app' : String(route.meta.title ?? '') })
+    else list.push({ label: name || 'Project' })
+    return list
+  }
+  if (slug.value) return [{ label: 'Projects', to: '/' }, { label: appName }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
@@ -68,5 +83,6 @@ watch(
       </main>
     </SidebarInset>
     <CommandPalette />
+    <AddToProjectDialog />
   </SidebarProvider>
 </template>

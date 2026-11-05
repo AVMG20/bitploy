@@ -21,7 +21,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe } from '@/composables/queries'
+import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe, useProjects, useServiceTemplates } from '@/composables/queries'
+import ProjectSettings from './ProjectSettings.vue'
+import { projectRoute } from '@/lib/appLinks'
+import { projectIdOf } from '@/lib/projects'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
@@ -36,12 +39,13 @@ const props = defineProps<{ slug: string }>()
 const router = useRouter()
 
 // The page is grouped in sections; the links at the top jump to them.
-const sections = [
+const sections = computed(() => [
   { id: 'general', label: 'General' },
-  { id: 'build', label: 'Build' },
+  ...(inProjects.value ? [{ id: 'project', label: 'Project' }] : []),
+  { id: 'build', label: app.data.value?.template ? 'Image' : 'Build' },
   { id: 'size', label: 'Size' },
-  { id: 'delete', label: 'Delete project' },
-]
+  { id: 'delete', label: 'Delete app' },
+])
 function jump(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -51,6 +55,13 @@ const me = useMe()
 const quota = computed(() => me.data.value?.quota)
 // Several services: build and size come from the compose file, one per service.
 const multi = computed(() => isMulti(app.data.value))
+// Without projects on the server each app is its own project: nothing to move or rename.
+const projectList = useProjects()
+const templates = useServiceTemplates()
+// A database, cache or search engine: no web address, nothing to protect with a password.
+const isPrivate = computed(() => !!app.data.value?.template)
+const templateOf = computed(() => templates.data.value?.find((t) => t.id === app.data.value?.template) ?? null)
+const inProjects = computed(() => !!projectList.data.value && !projectList.data.value.fallback)
 const services = computed(() => sortServices(app.data.value?.services ?? []))
 const totalMB = computed(() => services.value.reduce((n, s) => n + s.memory_mb, 0))
 const totalCPU = computed(() => services.value.reduce((n, s) => n + s.cpu_millis, 0))
@@ -330,10 +341,14 @@ const del = useMutation({
   mutationFn: () => api.deleteApp(props.slug),
   onSuccess: async () => {
     const slug = props.slug
+    const gone = app.data.value
     toastOk('App deleted')
     deleteOpen.value = false
     // Leave first: removing the cache while this page still polls the app would flash a 404.
-    await router.replace('/')
+    // Back to the project when it still holds other apps.
+    const pid = gone ? projectIdOf(gone) : ''
+    const rest = projectList.data.value?.projects.find((p) => p.id === pid)?.apps.filter((a) => a.slug !== slug) ?? []
+    await router.replace(inProjects.value && rest.length ? projectRoute(pid) : '/')
     for (const key of [keys.app(slug), keys.deployments(slug), keys.env(slug), keys.domains(slug)]) {
       queryClient.removeQueries({ queryKey: key })
     }
@@ -359,12 +374,13 @@ const del = useMutation({
       </a>
     </nav>
 
-    <SettingsSection id="general" class="scroll-mt-16" title="General" :description="`What the ${multi ? 'project' : 'app'} is called in bitploy, where people open it, and who may see it.`">
+    <SettingsSection id="general" class="scroll-mt-16" title="General" :description="isPrivate ? 'What the app is called in bitploy.' : 'What the app is called in bitploy, where people open it, and who may see it.'">
       <div class="grid gap-4">
         <Card>
           <CardHeader>
-            <CardTitle>Name and address</CardTitle>
-            <CardDescription>The name is only shown in bitploy. The address is where people open the app.</CardDescription>
+            <CardTitle>{{ isPrivate ? 'Name and ID' : 'Name and address' }}</CardTitle>
+            <CardDescription v-if="isPrivate">The name is only shown in bitploy. The ID is in the links to this page and in the API.</CardDescription>
+            <CardDescription v-else>The name is only shown in bitploy. The address is where people open the app.</CardDescription>
           </CardHeader>
           <CardContent>
             <FormScope :form="generalForm">
@@ -379,12 +395,13 @@ const del = useMutation({
                   </FormField>
                   <FormField v-slot="{ componentField }" name="slug">
                     <FormItem>
-                      <FormLabel>Address</FormLabel>
+                      <FormLabel>{{ isPrivate ? 'ID' : 'Address' }}</FormLabel>
                       <div class="flex min-w-0 items-center gap-2">
                         <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
-                        <DomainSelect v-if="me.data.value && app.data.value" v-model="domain" :current="app.data.value.domain" />
+                        <DomainSelect v-if="me.data.value && app.data.value && !isPrivate" v-model="domain" :current="app.data.value.domain" />
                       </div>
-                      <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                      <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
+                      <FormDescription v-else>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   </FormField>
@@ -395,11 +412,27 @@ const del = useMutation({
           </CardContent>
         </Card>
 
-        <PasswordProtection v-if="app.data.value" :app="app.data.value" />
+        <PasswordProtection v-if="app.data.value && !isPrivate" :app="app.data.value" />
       </div>
     </SettingsSection>
 
-    <SettingsSection id="build" class="scroll-mt-16" title="Build" description="Where the code comes from and how bitploy turns it into a running app. Changes here apply on the next deploy.">
+    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one, and which project it is in.">
+      <ProjectSettings :app="app.data.value" />
+    </SettingsSection>
+
+    <SettingsSection v-if="app.data.value?.template" id="build" class="scroll-mt-16" title="Image" description="A database or service runs a ready image. There is no code to build.">
+      <Card>
+        <CardContent class="grid gap-1 text-sm">
+          <p>
+            Runs <span class="font-mono">{{ templateOf?.image ?? app.data.value.template }}</span>
+            <template v-if="templateOf"> from the {{ templateOf.name }} template</template>.
+          </p>
+          <p class="text-muted-foreground">Its data stays on its volume when it restarts or redeploys.</p>
+        </CardContent>
+      </Card>
+    </SettingsSection>
+
+    <SettingsSection v-else id="build" class="scroll-mt-16" title="Build" description="Where the code comes from and how bitploy turns it into a running app. Changes here apply on the next deploy.">
       <div class="grid gap-4">
         <Card v-if="app.data.value?.catalog_id">
           <CardHeader>
@@ -424,7 +457,7 @@ const del = useMutation({
           <CardHeader>
             <CardTitle>Compose file</CardTitle>
             <CardDescription>
-              This project runs {{ services.length }} services from <span class="font-mono">{{ app.data.value?.compose_path || 'compose.yaml' }}</span>.
+              This app runs {{ services.length }} services from <span class="font-mono">{{ app.data.value?.compose_path || 'compose.yaml' }}</span>.
               Each one is built from your code or pulled as a ready-made image. To add a service or change one, edit the file and deploy again.
             </CardDescription>
           </CardHeader>
@@ -525,7 +558,7 @@ const del = useMutation({
       </Card>
     </SettingsSection>
 
-    <SettingsSection id="delete" class="scroll-mt-16" title="Delete project" description="Removes the project with all its services, its address, its saved files, its backups and all old versions.">
+    <SettingsSection id="delete" class="scroll-mt-16" title="Delete app" :description="`Removes this app${multi ? ' with all its services' : ''}, its address, its saved files, its backups and all old versions. The other apps of the project stay.`">
       <Card class="border-destructive/40">
         <CardContent class="flex flex-wrap items-center justify-between gap-3">
           <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need the data.</p>
@@ -548,7 +581,7 @@ const del = useMutation({
       v-model:open="deleteOpen"
       :title="`Delete ${app.data.value?.name ?? 'this app'} for good?`"
       description="Everything about it is removed, including its saved files and its backups."
-      confirm-label="Delete project"
+      confirm-label="Delete app"
       :type-to-confirm="slug"
       :loading="del.isPending.value"
       @confirm="del.mutate()"

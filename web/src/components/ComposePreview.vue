@@ -19,7 +19,7 @@ const props = defineProps<{
   text: string
   /** Where it comes from, like compose.yaml in your upload. */
   from?: string
-  /** The project address, for the public service. */
+  /** The app's address, for the public service. */
   address: string
 }>()
 /** The outcome: undefined while checking, null when the server cannot check compose files. */
@@ -70,39 +70,43 @@ onBeforeUnmount(() => {
 const c = computed(() => (state.value === 'done' ? check.value : null))
 const services = computed(() => sortServices(c.value?.services ?? []))
 const errors = computed(() => c.value?.errors ?? [])
-const warnings = computed<ComposeIssue[]>(() => (c.value?.warnings ?? []).map((w) => (typeof w === 'string' ? { code: '', message: w } : w)))
+const warnings = computed<ComposeIssue[]>(() => c.value?.warnings ?? [])
 const volumes = computed(() => c.value?.volumes ?? [])
 
 function deps(s: ComposeService): string[] {
-  return (s.depends_on ?? []).map((d) => (typeof d === 'string' ? d : d.service)).filter(Boolean)
+  return (s.depends_on ?? []).filter(Boolean)
 }
-/** The volumes a service mounts, with the size from the file's volume list. */
+/** The volumes a service mounts, with the size and path from the file's volume list. */
 function mounts(s: ComposeService): { name: string; size: number | null; path: string }[] {
-  const named = (s.volumes ?? []).map((v) => (typeof v === 'string' ? { name: v.split(':')[0] ?? v, path: v.split(':')[1] ?? '' } : { name: v.name ?? v.volume ?? v.source ?? '', path: v.target ?? v.mount_path ?? '' }))
-  const fromList = volumes.value.filter((v) => v.service === s.name && !named.some((n) => n.name === v.name)).map((v) => ({ name: v.name, path: v.mount_path ?? '' }))
-  return [...named, ...fromList].filter((v) => v.name).map((v) => ({ ...v, size: volumes.value.find((x) => x.name === v.name)?.size_mb ?? null }))
+  const names = new Set([...(s.volumes ?? []), ...volumes.value.filter((v) => v.service === s.name).map((v) => v.name)])
+  return [...names].filter(Boolean).map((name) => {
+    const v = volumes.value.find((x) => x.name === name)
+    return { name, path: v?.mount_path ?? '', size: v?.size_mb ?? null }
+  })
 }
 
 // ---------------------------------------------------------------- does it fit
 const memoryTotal = computed(() => c.value?.memory_mb_total ?? services.value.reduce((n, s) => n + s.memory_mb, 0))
 const cpuTotal = computed(() => c.value?.cpu_millis_total ?? services.value.reduce((n, s) => n + s.cpu_millis, 0))
 const memoryLeft = computed(() => {
-  if (c.value?.memory_mb_left !== undefined) return c.value.memory_mb_left
+  if (c.value?.quota) return c.value.quota.memory_mb_left
   const m = me.data.value
   return m ? Math.max(0, m.quota.memory_mb - m.usage.memory_reserved_mb) : null
 })
 const cpuLeft = computed(() => {
-  if (c.value?.cpu_millis_left !== undefined) return c.value.cpu_millis_left
+  if (c.value?.quota) return c.value.quota.cpu_millis_left
   const m = me.data.value
   return m ? Math.max(0, m.quota.cpu_millis - m.usage.cpu_reserved_millis) : null
 })
-const storageTotal = computed(() => volumes.value.reduce((n, v) => n + v.size_mb, 0))
+const storageTotal = computed(() => c.value?.volume_mb_total ?? volumes.value.reduce((n, v) => n + v.size_mb, 0))
 const storageLeft = computed(() => {
-  if (c.value?.volume_mb_left !== undefined) return c.value.volume_mb_left
+  if (c.value?.quota) return c.value.quota.storage_mb_left
   const m = me.data.value
   return m ? Math.max(0, m.quota.volume_mb - m.usage.files_mb - m.usage.backups_mb - m.usage.volume_reserved_mb) : null
 })
 const memoryOver = computed(() => memoryLeft.value !== null && memoryTotal.value > memoryLeft.value)
+// The server's own sentence when it says the file does not fit.
+const quotaMessage = computed(() => (c.value?.quota && !c.value.quota.fits ? c.value.quota.message : ''))
 const cpuOver = computed(() => cpuLeft.value !== null && cpuTotal.value > cpuLeft.value)
 const storageOver = computed(() => storageLeft.value !== null && storageTotal.value > storageLeft.value)
 const noPublic = computed(() => services.value.length > 0 && !services.value.some((s) => s.public))
@@ -155,7 +159,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
             <span
               v-if="s.public"
               class="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs text-foreground"
-              title="Visitors open this service at the project address."
+              title="Visitors open this service at the app's address."
             >
               <Globe class="size-3 shrink-0 text-primary" /> <span class="truncate font-mono">{{ address }}</span>
             </span>
@@ -175,7 +179,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
       </ul>
 
       <p v-if="noPublic && !errors.length" class="text-xs text-muted-foreground">
-        No service gets a web address: this project runs in the background. Give the website a <span class="font-mono">ports:</span> entry to put it online.
+        No service gets a web address: this app runs in the background. Give the website a <span class="font-mono">ports:</span> entry to put it online.
       </p>
 
       <div v-if="services.length" class="grid gap-3 sm:grid-cols-2">
@@ -203,8 +207,8 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
           <p class="text-xs text-muted-foreground">{{ volumes.length ? 'Kept between deploys and backed up.' : 'Nothing is kept between deploys.' }}</p>
         </div>
       </div>
-      <p v-if="memoryOver || cpuOver || storageOver" class="text-xs text-destructive">
-        This does not fit in what is left of your allowance. Lower the limits in the file (mem_limit, cpus, volume size), or stop another project first.
+      <p v-if="quotaMessage || memoryOver || cpuOver || storageOver" class="text-xs text-destructive">
+        {{ quotaMessage || 'This does not fit in what is left of your allowance.' }} Lower the limits in the file (mem_limit, cpus, volume size), or delete another app first.
       </p>
 
       <ul v-if="warnings.length" class="grid gap-1 text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">

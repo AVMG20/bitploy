@@ -1,10 +1,11 @@
 import { computed, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
-import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/vue-query'
 import { ApiError, api } from '@/lib/api'
 import { keys } from '@/lib/live'
 import type { DbSource } from '@/lib/dbSource'
-import type { DbRowsQuery, MetricWindow, TrafficWindow } from '@/lib/types'
+import { projectsFromApps } from '@/lib/projects'
+import type { App, DbRowsQuery, EnvVar, MetricWindow, Project, TrafficWindow } from '@/lib/types'
 import { eventsConnected } from './useEvents'
 
 export const REFRESH_MS = 5_000
@@ -32,6 +33,63 @@ export function useMe() {
 
 export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
+}
+
+export interface ProjectList {
+  projects: Project[]
+  /** The server has no projects yet: each app is shown as a project of its own, and nothing can be added to one. */
+  fallback: boolean
+}
+
+/**
+ * The projects with their apps. A server without the projects endpoint gets one
+ * project per app, made from /apps, so the dashboard works on both.
+ */
+export function useProjects() {
+  return useQuery({
+    queryKey: keys.projects,
+    queryFn: async (): Promise<ProjectList> => {
+      const list = await api.projects()
+      if (list) return { projects: list, fallback: false }
+      return { projects: projectsFromApps(await api.apps()), fallback: true }
+    },
+    refetchInterval: livePoll(REFRESH_MS),
+  })
+}
+
+/** One project, from the list (so the sidebar, the page and the palette share one request). */
+export function useProject(id: MaybeRefOrGetter<string>) {
+  const list = useProjects()
+  const project = computed(() => list.data.value?.projects.find((p) => p.id === toValue(id)) ?? null)
+  return { list, project }
+}
+
+/**
+ * The variables of every app of a project, by slug: the canvas draws who talks
+ * to whom from their ${{alias.VAR}} references. Shares the cache of the
+ * Variables tab.
+ */
+export function useProjectEnv(apps: MaybeRefOrGetter<readonly App[]>) {
+  const results = useQueries({
+    queries: computed(() =>
+      toValue(apps).map((a) => ({ queryKey: keys.env(a.slug), queryFn: () => api.env(a.slug), staleTime: 30_000, retry: false })),
+    ),
+  })
+  return computed(() => {
+    const out: Record<string, EnvVar[] | undefined> = {}
+    toValue(apps).forEach((a, i) => (out[a.slug] = results.value[i]?.data))
+    return out
+  })
+}
+
+/** Databases and other ready services; [] on a server without them. */
+export function useServiceTemplates() {
+  return useQuery({
+    queryKey: keys.serviceTemplates,
+    queryFn: async () => (await api.serviceTemplates()) ?? [],
+    staleTime: 10 * 60_000,
+    retry: false,
+  })
 }
 
 /** The ready-made apps. They change with bitploy releases, so there is no polling. */

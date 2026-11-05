@@ -121,9 +121,9 @@ export function publicService(app: Pick<App, 'services'>): AppService | undefine
   return app.services?.find((s) => s.public)
 }
 
-/** The service's own status when the server sends one, otherwise the project's. */
-export function serviceStatus(app: Pick<App, 'status'>, s: Pick<AppService, 'status'>): AppStatus {
-  return s.status ?? app.status
+/** A service has no status of its own on the server: it shares the app's. */
+export function serviceStatus(app: Pick<App, 'status'>, _service?: Pick<AppService, 'name'>): AppStatus {
+  return app.status
 }
 
 /** The services that start after this one and reach it by name: who talks to it. */
