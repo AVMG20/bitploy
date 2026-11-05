@@ -577,6 +577,86 @@ var entries = []Entry{
 			"Once email works, set security__staffDeviceVerification to true and restart the app.",
 		},
 	},
+	// Version: https://ghcr.io/v2/linkwarden/linkwarden/tags/list (v2.16.3).
+	{
+		ID:          "linkwarden",
+		Name:        "Linkwarden",
+		Tagline:     "Save bookmarks with a copy of each page, so links that die stay readable",
+		Description: "Linkwarden saves bookmarks in collections with tags, and can keep a screenshot, a PDF and a readable copy of every page it saves. Share collections with others or publish them. Bookmarks and accounts are kept in a PostgreSQL database that bitploy adds next to it as a private service named db; the page copies are kept in /data.",
+		Category:    "Productivity",
+		Version:     "2.16.3",
+		Website:     "https://linkwarden.app",
+		Port:        3000,
+		MemoryMB:    1024,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/",
+		Services:    []ServiceSpec{{Template: "postgres", Name: "db"}},
+		Env: []EnvSpec{
+			{Name: "NEXTAUTH_URL", Value: "{url}/api/v1/auth", Description: "The sign-in address of this app."},
+			{Name: "NEXTAUTH_SECRET", Generate: "secret", Description: "Signs sign-in sessions. Changing it signs everyone out."},
+			{Name: "DATABASE_URL", Value: "${{db.DATABASE_URL}}", Description: "The address of the PostgreSQL service db, with its generated password, filled in when the app starts."},
+		},
+		FirstSteps: []string{
+			"Open {url} and register your account. Anyone who reaches the address can register until you turn it off.",
+			"Then turn registration off: add the environment variable NEXT_PUBLIC_DISABLE_REGISTRATION with the value true and restart the app.",
+			"Install the Linkwarden browser extension and enter {url} as the server to save the page you are on.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/miniflux/miniflux/tags (2.3.5, 2026-11-02).
+	{
+		ID:          "miniflux",
+		Name:        "Miniflux",
+		Tagline:     "A fast, plain RSS reader for the news and blogs you follow",
+		Description: "Miniflux checks the RSS and Atom feeds you subscribe to and shows new articles in a clean list, without ads or tracking. It works on phones and with many RSS apps. Feeds and articles are kept in a PostgreSQL database that bitploy adds next to it as a private service named db.",
+		Category:    "Productivity",
+		Version:     "2.3.5",
+		Website:     "https://miniflux.app",
+		Port:        8080,
+		MemoryMB:    128,
+		Volume:      false,
+		HealthPath:  "/healthcheck",
+		Services:    []ServiceSpec{{Template: "postgres", Name: "db"}},
+		Env: []EnvSpec{
+			{Name: "BASE_URL", Value: "{url}", Description: "The address of this app, used in links and for sign-in cookies."},
+			// Miniflux's PostgreSQL driver asks for an encrypted connection unless told otherwise.
+			{Name: "DATABASE_URL", Value: "${{db.DATABASE_URL}}?sslmode=disable", Description: "The address of the PostgreSQL service db, with its generated password, filled in when the app starts. The connection stays inside the project, so it is not encrypted."},
+		},
+		FirstSteps: []string{
+			"Miniflux has no sign-up page. Add the environment variables ADMIN_USERNAME and ADMIN_PASSWORD with a name and a long password of your own, restart the app, then sign in at {url}.",
+			"The variables create the account once. After you sign in, remove ADMIN_PASSWORD; change the password under Settings from then on.",
+			"Add feeds under Feeds, Add feed, or bring the feeds of your old reader along with an OPML file under Feeds, Import.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/listmonk/listmonk/tags (v6.2.0, 2026-06-26;
+	// v7.0.0-beta.1 is a beta).
+	{
+		ID:          "listmonk",
+		Name:        "Listmonk",
+		Tagline:     "Send newsletters and mailing lists through your own mail provider",
+		Description: "Listmonk manages subscriber lists, sign-up forms and email campaigns, with templates and open and click counts. It sends through an SMTP server you add, such as Amazon SES, Postmark or Brevo. Lists and campaigns are kept in a PostgreSQL database that bitploy adds next to it as a private service named db; uploaded images are kept in /data.",
+		Category:    "Marketing",
+		Version:     "6.2.0",
+		Website:     "https://listmonk.app",
+		Port:        9000,
+		MemoryMB:    256,
+		Volume:      true,
+		VolumeMB:    512,
+		HealthPath:  "/health",
+		Services:    []ServiceSpec{{Template: "postgres", Name: "db"}},
+		Env: []EnvSpec{
+			{Name: "LISTMONK_db__host", Value: "${{db.PGHOST}}", Description: "The host of the PostgreSQL service db, filled in when the app starts."},
+			{Name: "LISTMONK_db__port", Value: "${{db.PGPORT}}", Description: "The port of the PostgreSQL service db, filled in when the app starts."},
+			{Name: "LISTMONK_db__user", Value: "${{db.PGUSER}}", Description: "The database user of the PostgreSQL service db, filled in when the app starts."},
+			{Name: "LISTMONK_db__password", Value: "${{db.PGPASSWORD}}", Description: "The generated password of the PostgreSQL service db, filled in when the app starts."},
+			{Name: "LISTMONK_db__database", Value: "${{db.PGDATABASE}}", Description: "The database name on the PostgreSQL service db, filled in when the app starts."},
+		},
+		FirstSteps: []string{
+			"Open {url}/admin and create the admin account at once: the first visitor gets to do it.",
+			"Under Settings, General, set Root URL to {url}, so links in your emails point here.",
+			"Add your mail provider's SMTP server under Settings, SMTP, and send yourself a test before your first campaign.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
