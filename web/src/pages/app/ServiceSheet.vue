@@ -160,8 +160,8 @@ const canRestart = computed(() => !!props.app.current_deployment && !actions.res
 
             <TabsContent value="storage" class="grid gap-3">
               <p v-if="!volumes.length" class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                {{ service.name }} keeps nothing between deploys: what it writes is gone after a restart.
-                Give it a volume in your compose file to keep files.
+                {{ service.name }} has no saved files: what it writes is lost on every restart and deploy.
+                To keep files, give it a volume in your compose file.
               </p>
               <div v-for="v in volumes" :key="v.name" class="grid gap-2 rounded-lg border p-4">
                 <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -207,7 +207,7 @@ const canRestart = computed(() => !!props.app.current_deployment && !actions.res
                   <span v-if="users.length" class="font-mono text-[13px]">{{ listWords(users) }}</span>
                   <span v-else class="text-muted-foreground">No other service</span>
                 </dd>
-                <dt class="text-muted-foreground">Stored data</dt>
+                <dt class="text-muted-foreground">Saved files</dt>
                 <dd>
                   <span v-if="volumes.length" class="font-mono text-[13px]">{{ volumes.map((v) => `${v.name} at ${v.mount_path}`).join(', ') }}</span>
                   <span v-else class="text-muted-foreground">None</span>

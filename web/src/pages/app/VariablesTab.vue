@@ -64,7 +64,7 @@ const forWhom = computed(() => (scope.value ? ` for ${scope.value}` : multi.valu
 // A server without per-service variables refuses the field; say so in plain words.
 function saveError(e: unknown) {
   if (scope.value && e instanceof ApiError && e.status === 422 && /service/.test(e.message)) {
-    toastError(new Error(`This server cannot keep variables for one service yet. Add it under Shared instead; every service gets those.`))
+    toastError(new Error(`This server cannot store variables for one service. Add it under Shared; every service gets those.`))
   } else toastError(e)
 }
 const scopes = computed(() => [
@@ -300,7 +300,7 @@ const importAll = useMutation({
 </button>
             </div>
             <p v-if="addingExisting" class="text-xs text-muted-foreground sm:col-span-3">
-              <span class="font-mono">{{ addForm.values.name?.trim() }}</span> exists already. Saving gives it this new value.
+              <span class="font-mono">{{ addForm.values.name?.trim() }}</span> already exists. Saving replaces its value.
             </p>
           </form>
         </FormScope>
@@ -407,7 +407,7 @@ const importAll = useMutation({
     <ConfirmDialog
       v-model:open="removeOpen"
       :title="`Remove ${toRemove ?? 'this variable'}?`"
-      :description="`${toRemove ?? 'The variable'} will be gone${forWhom} the next time the app starts. It may stop working if it needs it.`"
+      :description="`${toRemove ?? 'The variable'} is removed${forWhom} the next time the app starts. An app that reads it may stop working.`"
       confirm-label="Remove"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove)"

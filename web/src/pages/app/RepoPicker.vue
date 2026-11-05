@@ -95,14 +95,14 @@ defineExpose({ canPick, configured, loading: computed(() => github.isPending.val
           <RouterLink :to="{ name: 'settings-github' }" class="font-medium text-foreground underline underline-offset-4">Connect GitHub</RouterLink> in Settings to deploy a repository.
         </template>
         <template v-else-if="isAdmin">
-          GitHub is not set up yet.
+          GitHub is not set up on this server.
           <RouterLink :to="{ name: 'admin', query: { tab: 'github' } }" class="font-medium text-foreground underline underline-offset-4">Set it up</RouterLink> on the Admin page first, then connect it in Settings > GitHub.
         </template>
-        <template v-else>GitHub is not set up on this server yet. Ask your admin, or upload your files instead.</template>
+        <template v-else>GitHub is not set up on this server. Ask your admin, or upload your files.</template>
       </p>
       <div v-else class="grid gap-3 rounded-lg border border-dashed p-4 text-sm">
-        <p v-if="!configured && !isAdmin" class="text-muted-foreground">GitHub is not set up on this server yet. Ask your admin, or use a repository address.</p>
-        <p v-else-if="!configured" class="text-muted-foreground">GitHub is not set up yet. Create the GitHub App on the Admin page first.</p>
+        <p v-if="!configured && !isAdmin" class="text-muted-foreground">GitHub is not set up on this server. Ask your admin, or use a repository address.</p>
+        <p v-else-if="!configured" class="text-muted-foreground">GitHub is not set up on this server. Create the GitHub App on the Admin page first.</p>
         <p v-else class="text-muted-foreground">Connect GitHub to pick one of your repositories and deploy on every push.</p>
         <div v-if="configured || isAdmin">
           <Button as-child variant="outline" size="sm">
@@ -121,7 +121,7 @@ defineExpose({ canPick, configured, loading: computed(() => github.isPending.val
       <QueryError v-if="repos.isError.value" :error="repos.error.value" @retry="repos.refetch()" />
       <div v-else-if="repos.isPending.value" class="grid gap-2"><Skeleton v-for="i in 3" :key="i" class="h-10 w-full" /></div>
       <p v-else-if="!repos.data.value?.length" class="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-        {{ search.trim() ? 'No repository matches that.' : 'Bitploy cannot see any repository yet. Choose repositories on GitHub in Settings > GitHub.' }}
+        {{ search.trim() ? 'No repository matches that.' : 'bitploy cannot read any of your repositories. Choose which ones it may read in Settings > GitHub.' }}
       </p>
       <ul v-else class="max-h-72 divide-y overflow-y-auto rounded-lg border">
         <li v-for="r in repos.data.value" :key="r.full_name">

@@ -54,7 +54,7 @@ function openOnly() {
 }
 
 const SOURCES = [
-  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Pick a repository. Bitploy finds how to build it.' },
+  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Pick a repository. bitploy works out how to build it.' },
   { key: 'upload', icon: Upload, title: 'Upload a folder', text: 'Drop a folder or a .zip with your code.' },
   { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste one, or a Docker image name.' },
   { key: 'ready-made', icon: Boxes, title: 'Ready-made app', text: 'Open-source apps, set up for you.' },
@@ -95,7 +95,7 @@ function sourceTo(key: string) {
         :value="usage ? formatMB(storageTaken) : ''"
         :suffix="quota ? `of ${formatMB(quota.volume_mb)} taken` : ''"
         :progress="usage && quota ? pct(storageTaken, quota.volume_mb) : undefined"
-        :sub="usage ? (usage.volume_reserved_mb ? `Includes ${formatMB(usage.volume_reserved_mb)} set aside for stored data.` : 'App files and backups.') : ''"
+        :sub="usage ? (usage.volume_reserved_mb ? `Includes ${formatMB(usage.volume_reserved_mb)} set aside for saved files.` : 'App files and backups.') : ''"
       />
       <StatCard
         title="Apps"
@@ -118,7 +118,7 @@ function sourceTo(key: string) {
     <section v-else-if="!all.length" class="canvas-dots grid justify-items-center gap-6 rounded-xl border px-4 py-14 text-center" aria-labelledby="first-project">
       <div class="grid max-w-lg gap-2">
         <h2 id="first-project" class="text-xl font-semibold tracking-tight">Deploy your first project</h2>
-        <p class="text-sm text-muted-foreground">Where is your code? Pick one. You can add a database or more apps to the project afterwards.</p>
+        <p class="text-sm text-muted-foreground">Where is your code? You can add a database or more apps to the project afterwards.</p>
       </div>
       <div class="grid w-full max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <RouterLink
@@ -166,7 +166,7 @@ function sourceTo(key: string) {
         </RouterLink>
       </div>
       <p v-if="projects.data.value?.fallback" class="text-xs text-muted-foreground">
-        <Container class="mr-1 inline size-3.5 align-[-2px]" />This server shows each app as its own project. It cannot put several apps in one project yet.
+        <Container class="mr-1 inline size-3.5 align-[-2px]" />This server shows each app as its own project. It cannot put several apps in one project.
       </p>
     </section>
   </div>

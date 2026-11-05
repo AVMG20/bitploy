@@ -126,7 +126,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
     <p v-else-if="state === 'unsupported' || state === 'failed'" class="flex items-start gap-2 text-sm text-muted-foreground">
       <Info class="mt-0.5 size-4 shrink-0" />
       <span>
-        {{ state === 'unsupported' ? 'This server cannot show a preview of compose files yet.' : `The preview did not load${failure ? `: ${failure}` : '.'}` }}
+        {{ state === 'unsupported' ? 'This server cannot show a preview of compose files.' : `The preview did not load${failure ? `: ${failure}` : '.'}` }}
         You can still deploy; if something in the file is not allowed, the deploy says what and where.
       </span>
     </p>
@@ -172,7 +172,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
             <span v-if="deps(s).length">Talks to <span class="font-mono text-foreground/80">{{ listWords(deps(s)) }}</span></span>
             <span v-for="m in mounts(s)" :key="m.name" class="inline-flex items-center gap-1">
               <HardDrive class="size-3" />
-              <span>Keeps data in <span class="font-mono text-foreground/80">{{ m.name }}</span>{{ m.size !== null ? `, ${formatMB(m.size)}` : '' }}</span>
+              <span>Saves files in <span class="font-mono text-foreground/80">{{ m.name }}</span>{{ m.size !== null ? `, ${formatMB(m.size)}` : '' }}</span>
             </span>
           </p>
         </li>
@@ -197,7 +197,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
         </div>
         <div class="grid content-start gap-1.5">
           <p class="flex items-baseline justify-between gap-2 text-xs">
-            <span class="text-muted-foreground">Stored data</span>
+            <span class="text-muted-foreground">Saved files</span>
             <span class="tabular-nums" :class="storageOver && 'font-medium text-destructive'">
               <template v-if="volumes.length">{{ formatMB(storageTotal) }}<span v-if="storageLeft !== null" class="text-muted-foreground"> of {{ formatMB(storageLeft) }} left</span></template>
               <span v-else class="text-muted-foreground">None</span>

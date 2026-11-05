@@ -52,7 +52,7 @@ const { handleSubmit, resetForm } = useForm({
 const add = useMutation({
   mutationFn: (hostname: string) => api.addDomain(props.slug, hostname),
   onSuccess: (d) => {
-    toastOk(`Added ${d.hostname}`, 'Now add the DNS records shown below.')
+    toastOk(`Added ${d.hostname}`, 'Add the DNS records shown below.')
     resetForm()
     refresh()
   },
@@ -100,7 +100,7 @@ const remove = useMutation({
       <CardHeader>
         <CardTitle>Address</CardTitle>
         <CardDescription>
-          Always works, also after you add your own domain. Change it in
+          Keeps working when you add your own domain. Change it in
           <RouterLink :to="{ name: 'app-settings', params: { slug }, hash: '#general' }" class="underline">Settings</RouterLink>.
         </CardDescription>
       </CardHeader>
@@ -156,7 +156,7 @@ const remove = useMutation({
       <CardContent class="grid gap-3">
         <p v-if="d.last_error" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{{ d.last_error }}</p>
         <template v-if="d.status !== 'active' && d.records?.length">
-          <p class="text-sm">Add these records where you bought the domain. We check every 5 minutes; changes can take a few hours to show up.</p>
+          <p class="text-sm">Add these records where you bought the domain. bitploy checks every 5 minutes; DNS changes can take a few hours to show up.</p>
           <div class="overflow-x-auto rounded-lg border bg-card">
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs text-muted-foreground">
@@ -175,7 +175,7 @@ const remove = useMutation({
         <ul v-if="d.notes?.length" class="list-disc pl-5 text-sm text-muted-foreground">
           <li v-for="(n, i) in d.notes" :key="i">{{ n }}</li>
         </ul>
-        <p v-if="d.status === 'active'" class="text-sm text-muted-foreground">All set. <a :href="`https://${d.hostname}`" target="_blank" rel="noopener noreferrer" class="underline">Open {{ d.hostname }}</a></p>
+        <p v-if="d.status === 'active'" class="text-sm text-muted-foreground"><a :href="`https://${d.hostname}`" target="_blank" rel="noopener noreferrer" class="underline">Open {{ d.hostname }}</a></p>
       </CardContent>
     </Card>
 

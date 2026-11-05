@@ -94,11 +94,11 @@ const to = computed(() => ({ query: { ...route.query, service: props.service.nam
       <span v-if="service.depends_on?.length" class="inline-flex min-w-0 items-center gap-1.5" :title="`${service.name} starts after ${listWords(service.depends_on)} and reaches them by name.`">
         <ArrowRight class="size-3 shrink-0" /> Talks to <span class="truncate font-mono text-foreground/80">{{ service.depends_on.join(', ') }}</span>
       </span>
-      <span v-for="v in volumes" :key="v.name" class="inline-flex items-center gap-1.5" :title="`Stored data in ${v.mount_path}, kept between deploys.`">
+      <span v-for="v in volumes" :key="v.name" class="inline-flex items-center gap-1.5" :title="`Saved files in ${v.mount_path}, kept between deploys.`">
         <HardDrive class="size-3 shrink-0" /> <span class="font-mono text-foreground/80">{{ v.name }}</span>
         {{ v.used_mb !== null ? `${formatMB(v.used_mb)} of ${formatMB(v.size_mb)}` : formatMB(v.size_mb) }}
       </span>
-      <span v-if="!service.depends_on?.length && !volumes.length">Needs no other service and keeps no data</span>
+      <span v-if="!service.depends_on?.length && !volumes.length">Needs no other service, saves no files</span>
     </div>
   </article>
 </template>

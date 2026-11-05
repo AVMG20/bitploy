@@ -153,7 +153,7 @@ const submit = form.handleSubmit((v) => {
         <template v-for="(sv, i) in entry.data.value.services" :key="sv.name">
           {{ i ? ', ' : '' }}<span class="font-mono text-foreground/85">{{ sv.name }}</span> ({{ sv.image }}, {{ formatMB(sv.memory_mb) }})
         </template>.
-        They run next to it in a new project{{ intoProject ? ', not in the one you came from' : '' }}, and it connects to them by itself.
+        They run next to it in a new project{{ intoProject ? ', not in the one you came from' : '' }}, already connected to it.
       </p>
 
       <form novalidate class="grid gap-6" @submit.prevent="submit">
@@ -180,7 +180,7 @@ const submit = form.handleSubmit((v) => {
                 <p class="truncate rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[13px] text-muted-foreground" data-testid="address-preview">
                   {{ addressParts.before }}<span class="font-medium text-foreground">{{ form.values.slug || 'your-app' }}</span>{{ addressParts.after }}
                 </p>
-                <FormDescription v-if="!editingAddress">This is where people open the app. It follows the name.</FormDescription>
+                <FormDescription v-if="!editingAddress">Where people open the app. It follows the name until you change it.</FormDescription>
                 <FormMessage />
               </FormItem>
             </FormField>

@@ -79,7 +79,7 @@ watch(
   <slot v-else-if="!latest" />
   <Card v-else>
     <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
-      <CardTitle>{{ failed ? 'The deploy failed' : cancelled ? 'The build was cancelled' : latest.state === 'running' ? 'Almost there' : 'Putting your app online' }}</CardTitle>
+      <CardTitle>{{ failed ? 'The deploy failed' : cancelled ? 'The build was cancelled' : latest.state === 'running' ? 'Your app is online' : 'Putting your app online' }}</CardTitle>
       <StatusBadge v-bind="deploymentStateInfo(latest.state)" />
     </CardHeader>
     <CardContent class="grid gap-4">

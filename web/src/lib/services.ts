@@ -53,15 +53,15 @@ const KNOWN: Known[] = [
 ]
 
 const LABELS: Record<RoleKey, { label: string; blurb: string }> = {
-  website: { label: 'Website', blurb: 'What visitors open at the project address.' },
+  website: { label: 'Website', blurb: 'What visitors open at the app address.' },
   api: { label: 'API', blurb: 'Answers requests from the other services. Not open to visitors.' },
   worker: { label: 'Worker', blurb: 'Runs background jobs. Has no web address.' },
-  database: { label: 'Database', blurb: 'Keeps your data. Only the other services of this project can reach it.' },
-  cache: { label: 'Cache', blurb: 'Keeps data in memory for speed. Only the other services of this project can reach it.' },
+  database: { label: 'Database', blurb: 'Keeps your data. Only the other services of this app can reach it.' },
+  cache: { label: 'Cache', blurb: 'Keeps data in memory for speed. Only the other services of this app can reach it.' },
   queue: { label: 'Message queue', blurb: 'Passes jobs between the other services.' },
   files: { label: 'File storage', blurb: 'Keeps uploaded files for the other services.' },
   search: { label: 'Search', blurb: 'Search index for the other services.' },
-  service: { label: 'Service', blurb: 'Part of this project. Only the other services can reach it.' },
+  service: { label: 'Service', blurb: 'Part of this app. Only the other services can reach it.' },
 }
 
 /** postgres:16-alpine, docker.io/library/postgres:16, ghcr.io/owner/redis@sha256:... → ["postgres", "16-alpine"]. */

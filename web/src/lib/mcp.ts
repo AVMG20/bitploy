@@ -49,7 +49,7 @@ export function clientSnippets(mcpUrl: string, token: string): ClientSnippet[] {
     {
       id: 'claude-code',
       label: 'Claude Code',
-      where: 'Run this once in your terminal. It works in all your projects.',
+      where: 'Run this once in your terminal. It works in every folder.',
       code: `claude mcp add --scope user --transport http bitploy ${mcpUrl} \\\n  --header "Authorization: ${bearer}"`,
     },
     {
@@ -65,18 +65,18 @@ export function clientSnippets(mcpUrl: string, token: string): ClientSnippet[] {
           },
         },
       }),
-      note: 'Needs Node.js installed. Claude Desktop reaches remote servers through the small mcp-remote helper.',
+      note: 'Needs Node.js. Claude Desktop connects through the mcp-remote helper.',
     },
     {
       id: 'cursor',
       label: 'Cursor',
-      where: 'Save as .cursor/mcp.json in your project, or ~/.cursor/mcp.json to use it everywhere.',
+      where: 'Save as .cursor/mcp.json in your code folder, or as ~/.cursor/mcp.json to use it in every folder.',
       code: json({ mcpServers: { bitploy: { url: mcpUrl, headers: { Authorization: bearer } } } }),
     },
     {
       id: 'vscode',
       label: 'VS Code',
-      where: 'Save as .vscode/mcp.json in your project (or run "MCP: Open User Configuration" to use it everywhere).',
+      where: 'Save as .vscode/mcp.json in your code folder, or run "MCP: Open User Configuration" to use it in every folder.',
       code: json({ servers: { bitploy: { type: 'http', url: mcpUrl, headers: { Authorization: bearer } } } }),
     },
     {

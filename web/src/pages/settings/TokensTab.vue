@@ -98,7 +98,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
 </script>
 
 <template>
-  <SettingsSection title="API tokens" description="A token is a password for your AI assistant. It lets the assistant put apps online for you. You usually need one per assistant.">
+  <SettingsSection title="API tokens" description="A token is a password for your AI assistant: it lets the assistant put apps online for you. Use one token per assistant.">
     <template v-if="tokens.data.value?.length" #aside>
       <Button size="sm" @click="createOpen = true"><Plus /> New token</Button>
     </template>
@@ -205,7 +205,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
       <DialogContent class="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Your new token</DialogTitle>
-          <DialogDescription>Copy it now. For safety you will not be able to see it again.</DialogDescription>
+          <DialogDescription>Copy it now. It is not shown again.</DialogDescription>
         </DialogHeader>
         <template v-if="created">
           <div class="flex items-center gap-1 rounded-lg border bg-muted/40 py-1 pr-1 pl-3">

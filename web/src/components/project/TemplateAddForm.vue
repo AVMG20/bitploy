@@ -214,7 +214,7 @@ const busy = computed(() => stage.value === 'adding')
         </div>
         <Progress :class="cn(memOver ? '[&>[data-slot=progress-indicator]]:bg-destructive' : '[&>[data-slot=progress-indicator]]:bg-success')" :model-value="memLeft ? Math.min(100, pct(template.memory_mb, memLeft)) : 100" />
         <div v-if="template.volume_mb" class="flex items-baseline justify-between gap-3 text-xs">
-          <span class="text-muted-foreground">Storage for its data, kept and backed up</span>
+          <span class="text-muted-foreground">Storage for its data, backed up</span>
           <span class="tabular-nums" :class="storageOver && 'font-medium text-destructive'">
             {{ formatMB(template.volume_mb) }}<span v-if="storageLeft !== null" class="text-muted-foreground"> of {{ formatMB(storageLeft) }} left</span>
           </span>

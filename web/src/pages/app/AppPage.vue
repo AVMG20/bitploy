@@ -140,7 +140,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
 
 <template>
   <div class="grid grid-cols-[minmax(0,1fr)] gap-5">
-    <EmptyState v-if="notFound" title="We cannot find that app." description="It may have been deleted, or the address has a typo.">
+    <EmptyState v-if="notFound" title="App not found." description="It may have been deleted, or the address has a typo.">
       <Button as-child><RouterLink to="/">Back to your projects</RouterLink></Button>
     </EmptyState>
     <QueryError v-else-if="app.isError.value && !data" :error="app.error.value" @retry="app.refetch()" />
@@ -291,7 +291,7 @@ const pending = useRestartNeeded(data, () => env.data.value)
     <ConfirmDialog
       v-model:open="confirmStop"
       :title="`Stop ${data?.name ?? 'this app'}?`"
-      :description="multi ? 'Every service stops. People who open its address will see a page saying it is stopped. You can start it again at any time.' : 'People who open its address will see a page saying it is stopped. You can start it again at any time.'"
+      :description="multi ? 'Every service stops. Visitors see a page that says the app is stopped until you start it again.' : 'Visitors see a page that says the app is stopped until you start it again.'"
       :confirm-label="`Stop ${thing}`"
       :loading="actions.stop.isPending.value"
       @confirm="stop"

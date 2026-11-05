@@ -80,7 +80,7 @@ const finish = useMutation({
   onSuccess: (i) => {
     qc.setQueryData(keys.adminGithub, i)
     void qc.invalidateQueries({ queryKey: keys.github })
-    toastOk('GitHub is set up', 'Everyone can now connect their GitHub account in Settings.')
+    toastOk('GitHub is set up', 'Everyone can connect their GitHub account in Settings > GitHub.')
   },
   onError: (e) => (finishError.value = e),
 })
@@ -95,7 +95,7 @@ const disconnect = useMutation({
   mutationFn: api.adminGithubDisconnect,
   onSuccess: () => {
     disconnectOpen.value = false
-    toastOk('GitHub disconnected', 'Now delete the app on GitHub too.')
+    toastOk('GitHub disconnected', 'Delete the app on GitHub too.')
     named = false
     void qc.invalidateQueries({ queryKey: keys.adminGithub })
     void qc.invalidateQueries({ queryKey: keys.github })
@@ -222,7 +222,7 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
     <ConfirmDialog
       v-model:open="disconnectOpen"
       title="Disconnect GitHub?"
-      description="Bitploy forgets the app's keys and every connected GitHub account. Private repositories cannot be built and pushes stop deploying until you create the app again. This does not delete the app on GitHub: do that yourself under Manage on GitHub, Advanced, Delete GitHub App."
+      description="bitploy forgets the app's keys and every connected GitHub account. Private repositories cannot be built and pushes stop deploying until you create the app again. This does not delete the app on GitHub: do that yourself under Manage on GitHub, Advanced, Delete GitHub App."
       confirm-label="Disconnect"
       :loading="disconnect.isPending.value"
       @confirm="disconnect.mutate()"

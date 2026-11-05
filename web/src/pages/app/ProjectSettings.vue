@@ -90,7 +90,7 @@ const moveFail = computed(() => (move.error.value ? friendlyError(move.error.val
     <Card v-if="others.length">
       <CardHeader>
         <CardTitle>Move to another project</CardTitle>
-        <CardDescription>The app keeps its address and data. It can no longer reach the apps it leaves behind by their short name.</CardDescription>
+        <CardDescription>The app keeps its address and saved files. After the move it cannot reach the apps of this project by their short name.</CardDescription>
       </CardHeader>
       <CardContent class="flex flex-wrap items-center gap-2">
         <Select v-model="target">

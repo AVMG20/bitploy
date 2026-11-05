@@ -139,7 +139,7 @@ const source = computed(() => appSourceText(props.app, props.templates))
         >{{ aliasOf(t) }}</RouterLink>
       </template>
       <span v-else class="truncate">{{ source }}</span>
-      <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" :title="`Stored data, kept between deploys and backed up`">
+      <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" title="Saved files, kept between deploys and backed up">
         <HardDrive class="size-3" /> {{ formatMB(storedMB) }}
       </span>
     </div>

@@ -179,7 +179,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
     <ConfirmDialog
       v-model:open="confirmOpen"
       title="Go back to this version?"
-      :description="`Your app will run ${versionLabel(target?.seq).toLowerCase()} again. The version running now stays available to switch back to.`"
+      :description="`Your app runs ${versionLabel(target?.seq).toLowerCase()} again. You can switch back to the current version later.`"
       confirm-label="Go back"
       :loading="rollback.isPending.value"
       @confirm="target && rollback.mutate(target)"

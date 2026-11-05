@@ -236,7 +236,7 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
     <ConfirmDialog
       v-model:open="confirmOpen"
       title="Allow writes?"
-      description="With writes on, INSERT, UPDATE, DELETE and schema changes are saved to the database at once. They cannot be undone, and a running app may be using this file. Consider making a backup first."
+      description="With writes on, INSERT, UPDATE, DELETE and schema changes are saved to the database at once. They cannot be undone, and a running app may be using this file. Make a backup first if you are unsure."
       confirm-label="Allow writes"
       @confirm="confirmWrite"
     />

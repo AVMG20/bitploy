@@ -44,14 +44,14 @@ const open = computed({ get: () => !!picked.value, set: (v) => !v && (picked.val
       <div>
         <h2 id="rm-services" class="font-medium">Databases &amp; services</h2>
         <p class="text-sm text-muted-foreground">
-          For the apps you deploy. Each one is private to its project and gets its own password; bitploy gives your apps its address as a variable.
+          For the apps you deploy. Each one is private to its project and gets its own password. Your apps get its address as a variable.
         </p>
       </div>
       <div v-if="templates.isPending.value" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <Skeleton v-for="i in 6" :key="i" class="h-20 rounded-lg" />
       </div>
       <p v-else-if="!groups.length" class="rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground">
-        This server cannot add databases on their own yet. A compose file can bring its own: start a new project and paste it.
+        This server cannot add databases on their own. A compose file can bring its own: start a new project and paste it.
       </p>
       <div v-for="g in groups" v-else :key="g.key" class="grid gap-2">
         <h3 class="text-xs font-medium text-muted-foreground">{{ g.label }}</h3>

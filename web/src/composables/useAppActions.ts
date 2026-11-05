@@ -54,10 +54,10 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
   return {
     cancel,
     restartService,
-    redeploy: action(api.redeploy, 'Redeploy started', 'A live version keeps running until the new one is ready.'),
+    redeploy: action(api.redeploy, 'Redeploy started', 'The live version keeps running until the new one is ready.'),
     // Restart and start answer once the app runs again.
-    restart: action(api.restart, 'App restarted', 'It is running again with a fresh start.'),
-    stop: action(api.stop, 'App stopped', 'Its address now shows a "stopped" page. Start it again any time.'),
+    restart: action(api.restart, 'App restarted'),
+    stop: action(api.stop, 'App stopped', 'Its address shows a "stopped" page until you start it again.'),
     start: action(api.start, 'App started'),
   }
 }

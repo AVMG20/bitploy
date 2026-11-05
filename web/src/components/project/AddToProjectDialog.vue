@@ -49,9 +49,9 @@ const groups = computed(() => groupTemplates(templates.data.value ?? []))
 const memLeft = computed(() => (me.data.value ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
 
 const SOURCES = [
-  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. Bitploy finds its Dockerfile, compose file, Node.js project or website.' },
+  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. bitploy finds its Dockerfile, compose file, Node.js app or website.' },
   { key: 'upload', icon: Upload, title: 'Upload', text: 'Drop a folder or a .zip from your computer.' },
-  { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose file', text: 'Paste one. A compose file brings all its services.' },
+  { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose file', text: 'Paste a Dockerfile, or a compose file for several services.' },
   { key: 'image', icon: Container, title: 'Docker image', text: 'Run a published image, like nginx:1.27 or ghcr.io/you/app.' },
 ] as const
 
@@ -84,7 +84,7 @@ function readyMade() {
       <template v-else>
         <DialogHeader class="border-b px-5 py-4">
           <DialogTitle>Add to {{ project?.name ?? 'the project' }}</DialogTitle>
-          <DialogDescription>Each app runs on its own, and the apps of a project reach each other by their short name.</DialogDescription>
+          <DialogDescription>Each app runs in its own container. Apps of a project reach each other by their short name.</DialogDescription>
         </DialogHeader>
 
         <section class="grid gap-2 px-5 pt-4" aria-labelledby="add-code">
@@ -134,7 +134,7 @@ function readyMade() {
           <Skeleton v-for="i in 4" :key="i" class="h-20 rounded-lg" />
         </div>
         <p v-else-if="!groups.length" class="mx-5 mt-5 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
-          This server cannot add databases on their own yet. A compose file can bring its own: choose "Dockerfile or compose file" above.
+          This server cannot add databases on their own. A compose file can bring its own: choose "Dockerfile or compose file" above.
         </p>
 
         <div class="px-5 pt-5 pb-5">

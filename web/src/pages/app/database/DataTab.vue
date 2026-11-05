@@ -206,7 +206,7 @@ const readOnlyReason = computed(() => {
   if (!props.source.write) return '' // bitploy's own database: the page already says it is read-only
   if (props.table.type === 'view') return 'This is a view, so its rows are read-only.'
   if (editable.value) return ''
-  return 'This table has no primary key or rowid that identifies a row, so its rows are read-only here. The SQL tab can still change them.'
+  return 'This table has no primary key or rowid that identifies a row, so its rows are read-only here. Use the SQL tab to change them.'
 })
 
 // ---------------------------------------------------------------- viewing a value
@@ -428,7 +428,7 @@ const bulk = useMutation({
   onError: (e) => {
     if (!(e instanceof ApiError && e.code === 'row_changed')) return // shown in the dialog
     bulkOpen.value = false
-    toastError(new Error('A selected row changed since it was loaded, so nothing was saved. The list is up to date now; check it and try again.'))
+    toastError(new Error('A selected row changed since it was loaded, so nothing was saved. The list has been reloaded: check it and try again.'))
     selected.value = new Set()
     refreshAll()
   },
@@ -467,7 +467,7 @@ const remove = useMutation({
   onError: (e) => {
     confirmDelete.value = false
     if (e instanceof ApiError && e.code === 'row_changed') {
-      toastError(new Error('A selected row changed since it was loaded, so nothing was deleted. The list is up to date now; check it and try again.'))
+      toastError(new Error('A selected row changed since it was loaded, so nothing was deleted. The list has been reloaded: check it and try again.'))
       selected.value = new Set()
       refreshAll()
       return

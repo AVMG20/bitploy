@@ -240,7 +240,7 @@ function autoNode(p: Project): Template | null {
 const MISSING_PACKAGE = (what: string): Detected => ({
   kind: 'none',
   label: 'No package.json',
-  message: `There is no package.json at the top of the project, so it cannot be built as ${what}.`,
+  message: `There is no package.json at the top of your code, so it cannot be built as ${what}.`,
   hint: 'Put package.json in the top folder, or choose another type.',
 })
 
@@ -268,7 +268,7 @@ function explicitNode(mode: 'node' | 'static_build', packageJson: string | null,
       kind: 'none',
       label: 'No build script',
       message: 'package.json has no build script, so there is nothing to build.',
-      hint: 'Add a build script to package.json, like "build": "vite build", or choose Plain website if you have ready-made files.',
+      hint: 'Add a build script to package.json, like "build": "vite build", or set the type to Plain website if the files are ready to serve.',
     }
   }
   return staticBuild(fw)
@@ -366,7 +366,7 @@ export function detectSource(
       kind: 'none',
       label: 'No Dockerfile found',
       message: 'No Dockerfile found.',
-      hint: 'Add a Dockerfile at the top of the folder, or choose Plain website as the type.',
+      hint: 'Add a Dockerfile at the top of the folder. For a site of HTML files, set the type to Plain website.',
     }
   }
   // auto: the same rule as the server. A project with a package.json and so on
@@ -376,7 +376,7 @@ export function detectSource(
   const otherDockerfile = otherCase(files, dockerfilePath)
   if (otherDockerfile) return renamed(otherDockerfile, dockerfilePath)
   if (lang === 'Node.js' && files.has('package.json')) {
-    if (packageJson === null) return { kind: 'template', type: 'unknown', label: 'Node.js project', known: false }
+    if (packageJson === null) return { kind: 'template', type: 'unknown', label: 'Node.js app', known: false }
     const project = readProject(packageJson, nextConfig, hasIndex)
     const node = project && autoNode(project)
     if (node) return node
@@ -389,7 +389,7 @@ export function detectSource(
     return {
       kind: 'none',
       label: 'Needs a build first',
-      message: `No Dockerfile found. This is a ${lang} project, so it has to be built before it can be shown.`,
+      message: `No Dockerfile found. This is a ${lang} app, so it has to be built before it can be shown.`,
       hint: 'Add a Dockerfile (your AI assistant can write one), or upload the built website instead, usually the dist or build folder.',
       assistant: true,
     }
@@ -415,7 +415,7 @@ export function outputDirError(dir: string): string {
   if (d === '') return ''
   while (d.startsWith('./')) d = d.slice(2)
   d = d.replace(/\/+$/, '')
-  if (d.startsWith('/')) return 'Use a folder inside the project, not an absolute path.'
+  if (d.startsWith('/')) return 'Use a folder inside your code, not an absolute path.'
   if (d.split('/').includes('..')) return 'The folder cannot contain ..'
   const ok = d.length <= 200 && d.split('/').every((seg) => seg !== '' && seg !== '.' && /^[A-Za-z0-9_.-]+$/.test(seg))
   return ok ? '' : 'Use only letters, numbers and . _ - /, like dist or build/client.'

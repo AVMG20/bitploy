@@ -171,7 +171,7 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
               <CopyButton :value="ipv4" what="IP address copied" />
             </span>
             <span v-else class="mt-1 block text-muted-foreground">
-              Bitploy does not know this server's IP address. Use the one your hosting provider shows, or set BITPLOY_SERVER_IPV4 in the server settings.
+              bitploy does not know this server's IP address. Use the one your hosting provider shows, or set BITPLOY_SERVER_IPV4 in the server settings.
             </span>
             <span v-if="ipv6" class="mt-2 block">
               The server also has an IPv6 address, so add a record of type <b>AAAA</b>, name <span class="font-mono">*</span>, also Proxied:
@@ -254,7 +254,7 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
     <ConfirmDialog
       v-model:open="removeOpen"
       :title="`Remove ${toRemove?.domain}?`"
-      description="Nobody can put new apps on it any more, and its certificate is deleted from the server. People who could use it lose access."
+      description="Nobody can put new apps on it, and its certificate is deleted from the server. People who could use it lose access."
       confirm-label="Remove"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove)"

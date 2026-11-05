@@ -41,8 +41,8 @@ const INFO: Record<string, Info> = {
     description: 'The file does not start with the SQLite header. It may be another kind of file, or damaged.',
     retry: false,
   },
-  db_not_found: { icon: FileQuestion, title: 'That file does not exist (anymore).', description: 'Go back to Storage and pick it again.', retry: false },
-  file_not_found: { icon: FileQuestion, title: 'That file does not exist (anymore).', description: 'Go back to Storage and pick it again.', retry: false },
+  db_not_found: { icon: FileQuestion, title: 'That file does not exist.', description: 'Go back to Storage and pick it again.', retry: false },
+  file_not_found: { icon: FileQuestion, title: 'That file does not exist.', description: 'Go back to Storage and pick it again.', retry: false },
   db_unreadable: {
     icon: FileQuestion,
     title: 'This database cannot be read.',

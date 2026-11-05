@@ -103,9 +103,9 @@ async function deploy() {
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{{ first ? 'Upload your files' : 'Upload a new version' }}</DialogTitle>
-          <DialogDescription v-if="first">Drop your project folder, a .zip or a single .html page. Bitploy builds it and puts it online.</DialogDescription>
+          <DialogDescription v-if="first">Drop your code folder, a .zip or a single .html page. bitploy builds it and puts it online.</DialogDescription>
           <DialogDescription v-else>
-            Drop the folder again, with your changes. The version that runs now stays available, so you can go back to it.
+            Drop the folder with your changes. You can go back to the current version later.
           </DialogDescription>
         </DialogHeader>
         <SourceDropZone v-model="choice" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />

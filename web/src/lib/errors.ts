@@ -11,11 +11,11 @@ export interface FriendlyError {
 // dashboard words.
 const HINTS: Record<string, string> = {
   github_access_missing: 'Check which repositories bitploy may read in Settings > GitHub, then try again.',
-  dockerfile_missing: 'Add a Dockerfile at the top of your project, or choose Plain website as the type if it is a plain website.',
+  dockerfile_missing: 'Add a Dockerfile at the top of your code folder. For a site of HTML files, set the type to Plain website.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
   server_app_limit: 'Delete an app you no longer need, or ask your admin to raise the limit.',
   slug_taken: 'Pick another name for the address.',
-  storage_quota_exceeded: 'Delete an app you no longer need, turn off /data on another app, or ask your admin for more storage.',
+  storage_quota_exceeded: 'Delete an app you no longer need, turn off saved files on another app, or ask your admin for more storage.',
   memory_quota_exceeded: 'Stop or delete another app, or ask your admin for more memory.',
   cpu_quota_exceeded: 'Stop or delete another app, or ask your admin for more CPU.',
   server_disk_full: 'Tell your admin that the server disk is full. Your running apps are not affected.',
@@ -24,7 +24,7 @@ const HINTS: Record<string, string> = {
   project_name_invalid: 'Use 1 to 80 characters for the project name.',
   project_required: 'Pick the project to put it in.',
   project_ambiguous: 'Two projects have that name. Rename one of them first.',
-  projects_limit: 'You have 100 projects, the most there can be. Delete one you no longer need.',
+  projects_limit: 'You have 100 projects, the maximum. Delete one you no longer need.',
   project_not_empty: 'Move its apps to another project or delete them first, or tick the box that deletes them too.',
   confirm_mismatch: 'Type the name exactly as shown to confirm.',
   alias_invalid: 'Use lowercase letters, numbers and dashes for the short name, like db or api-2.',
@@ -65,7 +65,7 @@ export function friendlyError(e: unknown): FriendlyError {
 const COMPOSE_TITLES: Record<string, string> = {
   compose_invalid: 'bitploy cannot read this compose file.',
   compose_forbidden: 'The compose file asks for something bitploy does not allow.',
-  compose_unsupported: 'The compose file uses something bitploy cannot run yet.',
+  compose_unsupported: 'The compose file uses something bitploy cannot run.',
   compose_public_ambiguous: 'Several services could be the website.',
   compose_too_many_services: 'This compose file has too many services.',
   compose_no_services: 'This compose file has no services.',
@@ -81,8 +81,8 @@ const COMPOSE_TITLES: Record<string, string> = {
 }
 const COMPOSE_HINTS: Record<string, string> = {
   compose_public_ambiguous: 'Add "x-bitploy: {public: true}" to the service visitors should open, or give only that one a ports: entry.',
-  compose_too_many_services: 'A project can have up to 6 services. Leave out the ones you do not need, or split it into two projects.',
-  compose_variable_unset: 'Add it under Variables (shared) after creating the project, or write the value in the file.',
+  compose_too_many_services: 'An app can have up to 6 services. Leave out the ones you do not need, or split them over two apps.',
+  compose_variable_unset: 'Add it under Variables, Shared, once the app is created, or write the value in the file.',
   compose_ports_not_published: 'Only the website gets an address. The other services reach each other by name, like postgres:5432.',
 }
 // Hints that name AI tools are for the assistant, not for a person.

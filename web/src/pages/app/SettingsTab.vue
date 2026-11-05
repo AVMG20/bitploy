@@ -133,11 +133,11 @@ const saveGeneral = useMutation({
     domain.value = updated.domain
     void qc.invalidateQueries({ queryKey: keys.apps })
     if (updated.slug === oldSlug) {
-      toastOk(moved ? 'Address changed' : 'Name saved', moved && updated.url ? `The app now lives at ${updated.url}. The old address no longer works.` : undefined)
+      toastOk(moved ? 'Address changed' : 'Name saved', moved && updated.url ? `The app is at ${updated.url}. The old address stops working.` : undefined)
       void qc.invalidateQueries({ queryKey: keys.app(oldSlug) })
       return
     }
-    toastOk('Address changed', updated.url ? `The app now lives at ${updated.url}. The old address no longer works.` : undefined)
+    toastOk('Address changed', updated.url ? `The app is at ${updated.url}. The old address stops working.` : undefined)
     qc.setQueryData(keys.app(updated.slug), updated)
     await router.replace({ name: 'app-settings', params: { slug: updated.slug } })
     for (const key of [keys.app(oldSlug), keys.deployments(oldSlug), keys.env(oldSlug), keys.domains(oldSlug)]) {
@@ -420,14 +420,14 @@ const del = useMutation({
       <ProjectSettings :app="app.data.value" />
     </SettingsSection>
 
-    <SettingsSection v-if="app.data.value?.template" id="build" class="scroll-mt-16" title="Image" description="A database or service runs a ready image. There is no code to build.">
+    <SettingsSection v-if="app.data.value?.template" id="build" class="scroll-mt-16" title="Image" description="This runs a ready-made image. There is no code to build.">
       <Card>
         <CardContent class="grid gap-1 text-sm">
           <p>
             Runs <span class="font-mono">{{ templateOf?.image ?? app.data.value.template }}</span>
             <template v-if="templateOf"> from the {{ templateOf.name }} template</template>.
           </p>
-          <p class="text-muted-foreground">Its data stays on its volume when it restarts or redeploys.</p>
+          <p class="text-muted-foreground">Its data is kept when it restarts or redeploys.</p>
         </CardContent>
       </Card>
     </SettingsSection>
@@ -466,7 +466,7 @@ const del = useMutation({
         <Card v-if="showDockerfile && !multi">
           <CardHeader>
             <CardTitle>Dockerfile</CardTitle>
-            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. Bitploy builds and deploys it. Saved files are kept.</CardDescription>
+            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it. Saved files are kept.</CardDescription>
             <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
           </CardHeader>
           <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
@@ -561,7 +561,7 @@ const del = useMutation({
     <SettingsSection id="delete" class="scroll-mt-16" title="Delete app" :description="`Removes this app${multi ? ' with all its services' : ''}, its address, its saved files, its backups and all old versions. The other apps of the project stay.`">
       <Card class="border-destructive/40">
         <CardContent class="flex flex-wrap items-center justify-between gap-3">
-          <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need the data.</p>
+          <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need its saved files.</p>
           <Button variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete {{ app.data.value?.name ?? 'app' }}</Button>
         </CardContent>
       </Card>

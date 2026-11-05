@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, LayoutGrid, Lock, Sparkles, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, LayoutGrid, Lock, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
@@ -135,7 +135,7 @@ const image = ref('')
 const imageError = computed(() => {
   const v = image.value.trim()
   if (!v) return ''
-  return /^[a-z0-9][a-z0-9._/:@-]*$/i.test(v) ? '' : 'An image name has no spaces, like nginx:1.27 or ghcr.io/owner/app.1.0.'
+  return /^[a-z0-9][a-z0-9._/:@-]*$/i.test(v) ? '' : 'An image name has no spaces, like nginx:1.27 or ghcr.io/owner/app:1.0.'
 })
 // Private: only the other apps of the project reach it, like a database you bring yourself.
 const imagePrivate = ref(false)
@@ -240,7 +240,7 @@ interface Tile {
 }
 const TILES: Tile[] = [
   { id: 'upload', title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.', icon: Upload },
-  { id: 'dockerfile', title: 'Dockerfile or compose', text: 'Paste one. A compose file runs each of its services.', icon: FileCode },
+  { id: 'dockerfile', title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.', icon: FileCode },
   { id: 'image', title: 'Docker image', text: 'A published image, like nginx:1.27 or ghcr.io/owner/app.', icon: Container },
   { id: 'ready-made', title: 'Ready-made', text: 'Well-known apps set up for you, like Uptime Kuma, Vaultwarden or PocketBase.', icon: LayoutGrid },
 ]
@@ -385,7 +385,7 @@ const submit = form.handleSubmit(run)
     </RouterLink>
     <PageHeader
       :title="project ? `Add an app to ${project.name}` : 'New project'"
-      :description="chosenSource ? `Name the ${thing}, then Deploy. Bitploy builds it and puts it online.` : 'Where is your code? Pick one, and bitploy builds it and puts it online.'"
+      :description="chosenSource ? `Name the ${thing} and press Deploy.` : 'Where is your code? bitploy builds it and puts it online.'"
     />
 
     <!-- Step 1: where the code is. -->
@@ -403,10 +403,9 @@ const submit = form.handleSubmit(run)
             <span v-if="canPick" class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">Connected</span>
           </span>
           <span class="text-sm text-muted-foreground">
-            Any repository. Bitploy finds a Dockerfile, a compose file, a website or a Node.js project, and deploys again on every push.
+            Any repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.
           </span>
           <span class="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground">
-            <span class="inline-flex items-center gap-1"><Sparkles class="size-3 text-primary" /> Detects how to build it</span>
             <span v-if="!canPick">Connect GitHub on the next step</span>
           </span>
         </span>
@@ -433,7 +432,7 @@ const submit = form.handleSubmit(run)
             <FolderPlus class="size-4.5 text-muted-foreground" />
             <span class="grid">
               <span class="text-sm font-medium">Start empty</span>
-              <span class="text-xs text-muted-foreground">A project with nothing in it. Add a database, a cache or your app to it next.</span>
+              <span class="text-xs text-muted-foreground">An empty project. Add a database, a cache or an app to it next.</span>
             </span>
           </span>
           <Button variant="outline" size="sm" @click="emptyOpen = true">Start empty</Button>
@@ -460,7 +459,7 @@ const submit = form.handleSubmit(run)
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
           <template v-if="source === 'github'">
-            <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">Bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js project.</p>
+            <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js app.</p>
           </template>
 
           <CatalogPicker v-if="source === 'ready-made'" :name="form.values.name" :slug="addressEdited ? form.values.slug : undefined" :domain="domain" :project="intoProject || undefined" />
@@ -514,13 +513,13 @@ const submit = form.handleSubmit(run)
                 @blur="checkDockerfile"
               />
               <p v-if="!pasted.trim()" class="text-[0.8rem] text-muted-foreground">
-                A Dockerfile runs one container. A compose file runs several services, like an app with its database. The page recognises which one you paste.
+                A Dockerfile runs one container. A compose file runs several services, like an app with its database.
               </p>
               <p v-else-if="source === 'compose'" class="text-[0.8rem] text-muted-foreground">
                 Every service needs a published image, like <span class="font-mono">postgres</span> or <span class="font-mono">redis</span>. If a service builds your own code, upload the folder or pick the GitHub repository instead.
               </p>
               <p v-else class="text-[0.8rem] text-muted-foreground">
-                For a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, the port is the one the image declares. Files are kept only under <span class="font-mono">/data</span>, with the switch below.
+                Only for a Dockerfile that needs no other files. Without an <span class="font-mono">EXPOSE</span> line, bitploy uses the port the image declares. Files are kept between deploys only in <span class="font-mono">/data</span>, with Keep saved files turned on below.
               </p>
               <ul v-if="findings.length" class="grid gap-1.5" data-testid="dockerfile-findings">
                 <li
@@ -544,7 +543,7 @@ const submit = form.handleSubmit(run)
               <Label for="new-image">Image</Label>
               <Input id="new-image" v-model="image" class="font-mono" placeholder="ghcr.io/owner/app:1.0" autocapitalize="off" autocomplete="off" spellcheck="false" :disabled="busy" :aria-invalid="!!imageError || undefined" />
               <p v-if="imageError" class="text-[0.8rem] text-destructive">{{ imageError }}</p>
-              <p v-else class="text-[0.8rem] text-muted-foreground">From Docker Hub, GitHub (ghcr.io) or another public registry. Add a version after the colon to stay on it.</p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">From Docker Hub, GitHub (ghcr.io) or another public registry. Add a version after the colon, like :1.27, to keep that version.</p>
             </div>
             <div v-if="intoProject" class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Who reaches it">
               <button
@@ -611,8 +610,8 @@ const submit = form.handleSubmit(run)
               <p v-else class="truncate rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[13px] text-muted-foreground" data-testid="address-preview">
                 {{ addressParts.before }}<span class="font-medium text-foreground">{{ form.values.slug || 'your-app' }}</span>{{ addressParts.after }}
               </p>
-              <FormDescription v-if="privateApp">No web address. The ID is in the links to its page.</FormDescription>
-              <FormDescription v-else-if="!editingAddress">This is where people open your app. It follows the name.</FormDescription>
+              <FormDescription v-if="privateApp">No web address. The ID is used in the dashboard's links to it.</FormDescription>
+              <FormDescription v-else-if="!editingAddress">Where people open your app. It follows the name until you change it.</FormDescription>
               <FormMessage />
             </FormItem>
           </FormField>
@@ -625,7 +624,7 @@ const submit = form.handleSubmit(run)
             <div class="grid gap-1">
               <Label for="new-volume">Keep saved files <span class="font-mono text-xs font-normal text-muted-foreground">/data</span></Label>
               <p class="text-[0.8rem] text-muted-foreground">
-                Turn this on if your app has a database or saves uploads. Files in <span class="font-mono">/data</span>, like a SQLite database, are kept between deploys. While this is on, each deploy takes the app offline for a few seconds.
+                For an app with a database or uploads. Files in <span class="font-mono">/data</span>, like a SQLite database, are kept between deploys. Each deploy then takes the app offline for a few seconds.
               </p>
             </div>
             <Switch id="new-volume" v-model="volume" :disabled="busy" />

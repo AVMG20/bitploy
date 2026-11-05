@@ -173,9 +173,9 @@ export class ApiError extends Error {
 
 function fallbackMessage(status: number): string {
   if (status === 0) return 'Cannot reach bitploy.'
-  if (status === 401) return 'Please log in again.'
+  if (status === 401) return 'Log in again.'
   if (status === 403) return 'You are not allowed to do that.'
-  if (status === 404) return 'That does not exist (anymore).'
+  if (status === 404) return 'That does not exist. It may have been deleted.'
   if (status === 429) return 'Too many requests. Wait a moment and try again.'
   if (status >= 500) return 'The server had a problem.'
   return 'Something went wrong.'

@@ -40,7 +40,7 @@ function usePasted() {
 
 <template>
   <div class="grid gap-6">
-    <PageHeader title="Connect your AI assistant" description="Three steps, about two minutes. After this you can just ask your assistant to put things online." />
+    <PageHeader title="Connect your AI assistant" description="Three steps, about two minutes. Then your assistant can put your code online for you." />
 
     <Card>
       <CardHeader>
@@ -83,12 +83,12 @@ function usePasted() {
     <Card>
       <CardHeader>
         <CardTitle>3. Ask your assistant</CardTitle>
-        <CardDescription>Open a folder with your project in your tool, then paste this.</CardDescription>
+        <CardDescription>Open your code folder in your tool, then paste this.</CardDescription>
       </CardHeader>
       <CardContent>
         <CodeBlock :code="STARTER_PROMPT" what="Prompt copied" wrap />
         <p class="mt-3 text-sm text-muted-foreground">
-          Your assistant sends the files, builds the app and gives you a link. You can watch it on the <RouterLink to="/" class="underline">Apps page</RouterLink>.
+          Your assistant sends the files, builds the app and gives you a link. You can watch it on the <RouterLink to="/" class="underline">Projects page</RouterLink>.
         </p>
       </CardContent>
     </Card>

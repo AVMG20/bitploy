@@ -45,7 +45,7 @@ const submit = handleSubmit(async (values) => {
 </script>
 
 <template>
-  <AuthShell title="Log in" description="Welcome back. Log in to see your apps.">
+  <AuthShell title="Log in" description="Log in to see your projects.">
     <form class="grid gap-4" novalidate @submit.prevent="submit">
       <Alert v-if="failure" variant="destructive">
         <AlertTitle>{{ failure.message }}</AlertTitle>

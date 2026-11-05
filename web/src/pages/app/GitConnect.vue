@@ -70,7 +70,7 @@ const submitUrl = urlForm.handleSubmit((v) =>
   <Card>
     <CardHeader>
       <CardTitle>Connect a repository</CardTitle>
-      <CardDescription>Build this app from git instead of uploaded files. Every push can deploy it by itself.</CardDescription>
+      <CardDescription>Build this app from a git repository instead of uploaded files. Each push can deploy it.</CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">
       <Tabs v-model="tab" class="min-w-0">
@@ -122,7 +122,7 @@ const submitUrl = urlForm.handleSubmit((v) =>
       </form>
     </CardContent>
     <CardFooter>
-      <p class="text-xs text-muted-foreground">Once connected, the app is built from this repository. To send files again, disconnect it.</p>
+      <p class="text-xs text-muted-foreground">A connected app takes no uploads. To upload files again, disconnect the repository.</p>
     </CardFooter>
   </Card>
 </template>

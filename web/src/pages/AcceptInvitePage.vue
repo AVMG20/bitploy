@@ -23,7 +23,7 @@ const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
     z
       .object({
-        name: z.string().trim().min(1, 'Tell us your name.'),
+        name: z.string().trim().min(1, 'Enter your name.'),
         email: z.string().trim().min(1, 'Enter your email address.').email('That does not look like an email address.'),
         password: z.string().min(10, 'Use at least 10 characters.'),
         confirm: z.string(),

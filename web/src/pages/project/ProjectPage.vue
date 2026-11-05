@@ -192,7 +192,7 @@ const deleteText = computed(() => {
   const n = apps.value.length
   if (!n) return 'The project is empty, so nothing else is deleted.'
   const names = apps.value.map((a) => a.name).join(', ')
-  return `This deletes ${n === 1 ? 'its app' : `its ${n} apps`} (${names}) with their stored data, domains and backups. It cannot be undone.`
+  return `This deletes ${n === 1 ? 'its app' : `its ${n} apps`} (${names}) with their saved files, domains and backups. This cannot be undone.`
 })
 
 // ---------------------------------------------------------------- one app: what to add next
@@ -295,7 +295,7 @@ const projectForAi = computed(() => {
           <div>
             <h2 class="font-medium">Add to {{ project.name }}</h2>
             <p class="mt-1 text-sm text-muted-foreground">
-              A project holds everything one product needs. Add a database and {{ aliasOf(apps[0]!) }} gets its address as a variable; add an API or a worker from another repository.
+              A project holds the apps and databases of one product. Add a database and {{ aliasOf(apps[0]!) }} gets its address as a variable, or add an API or a worker from another repository.
             </p>
           </div>
           <div v-if="quickPicks.length" class="grid gap-2 sm:grid-cols-3">

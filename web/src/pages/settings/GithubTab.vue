@@ -80,7 +80,7 @@ const remove = useMutation({
 })
 
 function describe(i: GitHubInstallation): string {
-  if (i.status === 'deleted') return 'Bitploy was removed on GitHub'
+  if (i.status === 'deleted') return 'bitploy was removed on GitHub'
   if (i.status === 'suspended') return 'Paused on GitHub'
   const n = i.repo_count
   if (i.limited) return n === 1 ? '1 repository you have access to' : `${n ?? 0} repositories you have access to`
@@ -134,7 +134,7 @@ const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? link
         <Card v-else>
           <CardHeader>
             <CardTitle>Connected accounts</CardTitle>
-            <CardDescription>Bitploy can only read the repositories you choose on GitHub.</CardDescription>
+            <CardDescription>bitploy can only read the repositories you choose on GitHub.</CardDescription>
           </CardHeader>
           <CardContent class="grid gap-3">
             <ul v-if="installations.length" class="divide-y rounded-lg border">
@@ -158,7 +158,7 @@ const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? link
             </ul>
             <p v-else class="text-sm text-muted-foreground">No account connected yet. Connect one and pick the repositories bitploy may read.</p>
             <p v-if="installations.some((i) => i.status === 'deleted')" class="text-xs text-muted-foreground">
-              Bitploy was removed on GitHub for some accounts. Connect them again, or disconnect them here.
+              bitploy was removed on GitHub for some accounts. Connect them again, or disconnect them here.
             </p>
             <p v-if="installations.some((i) => i.limited && i.status === 'active')" class="text-xs text-muted-foreground">
               For accounts that are not yours, bitploy only uses the repositories you can open on GitHub. Got access to more? Press Sync from GitHub.
@@ -186,7 +186,7 @@ const linkErrorHint = computed(() => (linkError.value instanceof ApiError ? link
     <ConfirmDialog
       v-model:open="removeOpen"
       title="Disconnect this account?"
-      :description="`Bitploy forgets @${toRemove?.account_login ?? ''}. Apps from its private repositories can no longer be built, and pushes stop deploying. To remove the access on GitHub too, uninstall bitploy there.`"
+      :description="`bitploy forgets @${toRemove?.account_login ?? ''}. Apps from its private repositories can no longer be built, and pushes stop deploying. To remove the access on GitHub too, uninstall bitploy there.`"
       confirm-label="Disconnect"
       :loading="remove.isPending.value"
       @confirm="toRemove && remove.mutate(toRemove.id)"

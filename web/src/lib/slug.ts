@@ -12,7 +12,7 @@ export const slugSchema = z
   .min(3, 'Use at least 3 characters.')
   .max(40, 'Use at most 40 characters.')
   .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Use letters, numbers and -, not at the start or end.')
-  .refine((s) => !RESERVED.has(s) && !s.startsWith('bp-'), 'Bitploy keeps this name for itself. Pick another one.')
+  .refine((s) => !RESERVED.has(s) && !s.startsWith('bp-'), 'bitploy keeps this name for itself. Pick another one.')
 
 /** A name as a subdomain: "My cool app!" becomes "my-cool-app". */
 export function slugify(name: string): string {

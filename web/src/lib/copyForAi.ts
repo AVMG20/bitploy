@@ -113,7 +113,7 @@ function logBlock(log: Log): string[] {
 function failedDeploymentText(app: App, d: Deployment, log: Log): string {
   const service = failedService(app, d)
   const lines = [
-    'My app on bitploy failed to deploy. Please find the cause, fix it, and deploy again.',
+    'My app on bitploy failed to deploy. Find the cause, fix it and deploy again.',
     '',
     appLine(app),
   ]
@@ -131,7 +131,7 @@ function failedDeploymentText(app: App, d: Deployment, log: Log): string {
 
 function crashText(app: App, dep: Deployment | null, log: Log): string {
   const what = app.status === 'crashed' ? 'keeps crashing' : 'stopped working'
-  const lines = [`My app on bitploy ${what}. Please find the cause, fix it, and deploy again.`, '', appLine(app)]
+  const lines = [`My app on bitploy ${what}. Find the cause, fix it and deploy again.`, '', appLine(app)]
   if (isMulti(app)) lines.push(servicesLine(app))
   if (app.status_message) lines.push(`Status: ${app.status_message}`)
   if (app.restart_count > 0) lines.push(`Restarts: ${app.restart_count}`)

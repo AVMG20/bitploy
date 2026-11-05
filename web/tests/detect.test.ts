@@ -100,7 +100,7 @@ test('the Next.js config is read for its output, comments aside', () => {
 })
 
 test('an unreadable package.json gives a neutral preview in every mode', () => {
-  assert.deepEqual(detect(files, null), { kind: 'template', type: 'unknown', label: 'Node.js project', known: false })
+  assert.deepEqual(detect(files, null), { kind: 'template', type: 'unknown', label: 'Node.js app', known: false })
   const sb = detect(files, null, 'static_build')
   assert.equal(sb.kind === 'template' && sb.known, false)
   assert.equal(detect(['index.html'], null, 'node').kind, 'none')

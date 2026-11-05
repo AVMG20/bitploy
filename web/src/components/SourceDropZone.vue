@@ -143,7 +143,7 @@ async function takeFolder(c: Collected) {
   if (!c.files.length) {
     error.value = c.skipped.length
       ? `Nothing to upload: only ${c.skipped.join(', ')} found, and those are always left out.`
-      : 'That folder is empty. Drop the folder that holds your project.'
+      : 'That folder is empty. Drop the folder that holds your code.'
     return
   }
   try {
@@ -184,7 +184,7 @@ async function takeFolder(c: Collected) {
 
 async function takeZip(file: File) {
   if (file.size > MAX_ZIP_BYTES) {
-    error.value = `This zip is ${formatBytes(file.size)}. The limit is ${Math.round(MAX_ZIP_BYTES / MB)} MB. Leave out node_modules, build output and videos, zip it again and try again.`
+    error.value = `This zip is ${formatBytes(file.size)}. The limit is ${Math.round(MAX_ZIP_BYTES / MB)} MB. Leave out node_modules, build output and videos, then zip it again.`
     return
   }
   const names = await listZipNames(file)
@@ -249,7 +249,7 @@ async function onFilePicked(e: Event) {
   else if (isPage(file.name)) await take(async () => takeFolder(collectFromFileList([file])))
   else {
     reset()
-    error.value = `${file.name} is not a .zip or an .html file. To upload a whole project, choose its folder.`
+    error.value = `${file.name} is not a .zip or an .html file. To upload a whole folder, use Choose a folder.`
   }
 }
 
@@ -299,7 +299,7 @@ onBeforeUnmount(() => abort?.abort())
         <FolderUp class="size-5" />
       </div>
       <div>
-        <p class="text-sm font-medium">Drop your project folder here</p>
+        <p class="text-sm font-medium">Drop your code folder here</p>
         <p class="mt-1 text-xs text-muted-foreground">or a .zip, or a single .html page, up to {{ Math.round(MAX_ZIP_BYTES / MB) }} MB</p>
       </div>
       <div class="flex flex-wrap justify-center gap-2">
@@ -341,15 +341,15 @@ onBeforeUnmount(() => abort?.abort())
               Builds the site and serves the <span class="font-mono font-medium">{{ outputDir || detected.output }}</span> folder.
             </template>
             <template v-else-if="detected.type === 'node'">{{ detected.build ? 'Builds it, then runs it as a Node.js app.' : 'Runs it as a Node.js app.' }}</template>
-            <template v-else>Bitploy reads package.json when you deploy and builds the project if it can.</template>
+            <template v-else>bitploy reads package.json when you deploy and builds it if it can.</template>
           </span>
-          <span v-else-if="detected.kind === 'static' && homeChoices">Serves these files as a website. There is no index.html, so people see the home page first.</span>
+          <span v-else-if="detected.kind === 'static' && homeChoices">Serves these files as a website. There is no index.html, so visitors first see the home page you pick below.</span>
           <span v-else-if="detected.kind === 'static' && choice.from === 'page'">Serves this page as a website.</span>
           <span v-else-if="detected.kind === 'static' && detected.home">
             Serves these files as a website, with <span class="font-medium">{{ detected.home }}</span> as the home page.
           </span>
           <span v-else-if="detected.kind === 'static'">Serves these files as a website.</span>
-          <span v-else>Builds the Dockerfile at the top of your project.</span>
+          <span v-else>Builds the Dockerfile at the top of your folder.</span>
         </p>
         <p v-if="detected.kind === 'template' && detected.unsure" class="text-xs text-muted-foreground">
           Choose the type below.
@@ -379,7 +379,7 @@ onBeforeUnmount(() => abort?.abort())
           </p>
         </template>
       </div>
-      <p v-else-if="!composeChosen" class="text-xs text-muted-foreground">Bitploy checks what is inside this zip when you deploy.</p>
+      <p v-else-if="!composeChosen" class="text-xs text-muted-foreground">bitploy checks what is inside this zip when you deploy.</p>
     </template>
   </div>
 </template>

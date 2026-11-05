@@ -111,7 +111,7 @@ const worker = computed(() => props.app.type !== 'web')
   <Card>
     <CardHeader>
       <CardTitle>Password protection</CardTitle>
-      <CardDescription>Ask visitors for a username and password before they see the app. Handy for drafts and private tools.</CardDescription>
+      <CardDescription>Ask visitors for a username and password before they see the app.</CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">
       <p v-if="worker" class="text-sm text-muted-foreground">A worker has no web address, so there is nothing to protect.</p>

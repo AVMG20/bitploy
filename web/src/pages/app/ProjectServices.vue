@@ -56,7 +56,7 @@ const dep = computed(() => props.app.current_deployment)
         <Progress class="mt-2" :model-value="live ? pct(cpuFromPercent(live.cpu), cpuLimit) : 0" />
       </div>
       <RouterLink :to="{ name: 'app-storage', params: { slug: app.slug } }" class="border-l p-4 transition-colors hover:bg-muted/40">
-        <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Stored data</p>
+        <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Saved files</p>
         <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
           <template v-if="!app.volumes.length"><span class="text-sm font-normal tracking-normal text-muted-foreground">None</span></template>
           <template v-else>
@@ -64,7 +64,7 @@ const dep = computed(() => props.app.current_deployment)
             <span class="text-sm font-normal tracking-normal text-muted-foreground">of {{ formatMB(storedLimit) }}</span>
           </template>
         </p>
-        <p v-if="app.volumes.length" class="mt-1 text-xs text-muted-foreground">{{ app.volumes.length === 1 ? '1 volume' : `${app.volumes.length} volumes` }}, kept between deploys</p>
+        <p v-if="app.volumes.length" class="mt-1 text-xs text-muted-foreground">In {{ app.volumes.length === 1 ? '1 volume' : `${app.volumes.length} volumes` }}, kept between deploys</p>
       </RouterLink>
     </div>
 

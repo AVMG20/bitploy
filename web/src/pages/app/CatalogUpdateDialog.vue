@@ -58,7 +58,7 @@ const update = useMutation({
   onSuccess: () => {
     open.value = false
     emit('updated')
-    toastOk('Update started', 'A new version is being built. The current one keeps running until it is ready.')
+    toastOk('Update started', 'The current version keeps running until the new one is ready.')
     void qc.invalidateQueries({ queryKey: keys.dockerfile(slug.value) })
     void qc.invalidateQueries({ queryKey: keys.app(slug.value) })
     void qc.invalidateQueries({ queryKey: keys.deployments(slug.value) })
@@ -81,8 +81,8 @@ const blocked = computed(() => update.isPending.value || deploying.value || back
       <AlertDialogHeader>
         <AlertDialogTitle>Update to {{ to }}?</AlertDialogTitle>
         <AlertDialogDescription>
-          Bitploy replaces the Dockerfile with the catalog's version {{ to }} and deploys it. Changes you made to the Dockerfile are lost.
-          <template v-if="app.volume"> Saved files are kept, but a new version may convert them so the old one cannot read them again.</template>
+          bitploy replaces the Dockerfile with the catalog's version {{ to }} and deploys it. Your changes to the Dockerfile are lost.
+          <template v-if="app.volume"> Saved files are kept, but the new version may convert them so the old version cannot read them.</template>
         </AlertDialogDescription>
       </AlertDialogHeader>
 
