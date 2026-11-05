@@ -5,10 +5,27 @@
 // Every entry pins an exact version, listens on 0.0.0.0 at its port, keeps all
 // persistent data under /data and runs inside bitploy's container sandbox
 // (all capabilities dropped but a few, no-new-privileges, 256 processes).
+//
+// Multi-service entries. An entry that needs a database server lists it in
+// Services: each is a service template (internal/servicetpl, like postgres)
+// with a short name. Deploying such an entry creates a project named after
+// the app, adds each service to it as an app of its own (private, pinned
+// version, generated passwords, data in its own volume), then creates the
+// entry's app in the same project. The app's Env values reach the services
+// through references, ${{<name>.<VAR>}} with VAR one of the template's
+// connection variables (servicetpl.Template.Connection), like
+//
+//	Services: []ServiceSpec{{Template: "postgres", Name: "db"}},
+//	Env:      []EnvSpec{{Name: "DATABASE_URL", Value: "${{db.DATABASE_URL}}", ...}},
+//
+// The app's first deployment waits until its services run. The entry's own
+// Dockerfile, Port, MemoryMB and Volume describe only the app itself; the
+// services bring their own sizes. umami is the example.
 package catalog
 
 import (
 	"embed"
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +41,13 @@ type EnvSpec struct {
 	// A generated value is stored encrypted and never shown.
 	Generate    string
 	Description string
+}
+
+// ServiceSpec is a service a multi-service entry adds next to its app, in
+// the same project (see the package comment).
+type ServiceSpec struct {
+	Template string // a service template id (internal/servicetpl), like postgres
+	Name     string // the service's short name in the project, used in ${{<name>.VAR}}
 }
 
 // Entry is one app of the catalog.
@@ -43,8 +67,13 @@ type Entry struct {
 	Env         []EnvSpec
 	// FirstSteps may contain {url}.
 	FirstSteps []string
+	// Services are the database servers the app needs (multi-service entries).
+	Services   []ServiceSpec
 	Dockerfile string // filled in from the embedded file
 }
+
+// RefPattern matches a reference to a service of the entry, ${{<name>.VAR}}.
+var RefPattern = regexp.MustCompile(`\$\{\{([a-z0-9][a-z0-9-]*)\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
 
 // URLPlaceholder stands for the app's public URL in Env values and FirstSteps.
 const URLPlaceholder = "{url}"
@@ -185,6 +214,28 @@ var entries = []Entry{
 			"Open {url} and pick a tool.",
 		},
 	},
+	{
+		ID:          "umami",
+		Name:        "Umami",
+		Tagline:     "Website analytics without cookies, with its own PostgreSQL",
+		Description: "Umami counts visits, pages and referrers of your websites without cookies or personal data. It keeps its data in a PostgreSQL database that bitploy adds next to it as a private service named db, in the same project.",
+		Category:    "Analytics",
+		Version:     "3.4.1",
+		Website:     "https://umami.is",
+		Port:        3000,
+		MemoryMB:    512,
+		HealthPath:  "/api/heartbeat",
+		Services:    []ServiceSpec{{Template: "postgres", Name: "db"}},
+		Env: []EnvSpec{
+			{Name: "DATABASE_URL", Value: "${{db.DATABASE_URL}}", Description: "The address of the PostgreSQL service db, with its generated password, filled in when the app starts."},
+			{Name: "APP_SECRET", Generate: "secret", Description: "Signs the login sessions."},
+		},
+		FirstSteps: []string{
+			"Open {url} and sign in with the username admin and the password umami.",
+			"Change that password at once under Settings, Profile: anyone who reaches the address can try it.",
+			"Add a website under Settings, Websites, and put the tracking code it shows in your site.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
@@ -221,5 +272,6 @@ func withDockerfile(e Entry) Entry {
 	e.Dockerfile = string(b)
 	e.Env = append([]EnvSpec(nil), e.Env...)
 	e.FirstSteps = append([]string(nil), e.FirstSteps...)
+	e.Services = append([]ServiceSpec(nil), e.Services...)
 	return e
 }
