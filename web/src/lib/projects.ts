@@ -370,3 +370,36 @@ export function pastedKind(text: string): 'empty' | 'compose' | 'image' | 'docke
   if (!/\s/.test(t) && /^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$/.test(t) && !/^from$/i.test(t)) return 'image'
   return 'dockerfile'
 }
+
+// ---------------------------------------------------------------- deleting an app others use
+
+/** An app whose variables point at the one being deleted. */
+export interface Dependent {
+  slug: string
+  alias: string
+  /** Its variables that read from the app, like DATABASE_URL. */
+  vars: string[]
+}
+
+/** Who uses this app, from the project's links: the delete dialog shows them before anyone tries. */
+export function dependentsOf(app: Pick<App, 'id'>, apps: readonly App[], links: readonly AppLink[]): Dependent[] {
+  const out: Dependent[] = []
+  for (const l of links) {
+    if (l.to !== app.id || l.from === app.id) continue
+    const from = apps.find((a) => a.id === l.from)
+    if (from) out.push({ slug: from.slug, alias: aliasOf(from), vars: [...l.vars] })
+  }
+  return out.sort((a, b) => a.alias.localeCompare(b.alias))
+}
+
+/** The dependents an app_in_use error lists in details.dependents; [] for anything else. */
+export function dependentsFromError(details: unknown): Dependent[] {
+  const list = (details as { dependents?: unknown } | null | undefined)?.dependents
+  if (!Array.isArray(list)) return []
+  return list.flatMap((d): Dependent[] => {
+    const o = d as { slug?: unknown; alias?: unknown; vars?: unknown } | null
+    if (!o || typeof o.slug !== 'string' || !o.slug) return []
+    const vars = Array.isArray(o.vars) ? o.vars.filter((v): v is string => typeof v === 'string') : []
+    return [{ slug: o.slug, alias: typeof o.alias === 'string' && o.alias ? o.alias : o.slug, vars }]
+  })
+}

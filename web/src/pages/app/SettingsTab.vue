@@ -10,6 +10,10 @@ import { ArrowUpCircle, Trash2 } from 'lucide-vue-next'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import DangerRow from '@/components/DangerRow.vue'
+import DangerZone from '@/components/DangerZone.vue'
+import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
+import FormCard from '@/components/FormCard.vue'
 import QueryError from '@/components/QueryError.vue'
 import GitConnect from './GitConnect.vue'
 import GitLinked from './GitLinked.vue'
@@ -23,8 +27,6 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from '@/components/ui/input'
 import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import ProjectSettings from './ProjectSettings.vue'
-import { projectRoute } from '@/lib/appLinks'
-import { projectIdOf } from '@/lib/projects'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
@@ -44,7 +46,7 @@ const sections = computed(() => [
   ...(inProjects.value ? [{ id: 'project', label: 'Project' }] : []),
   { id: 'build', label: app.data.value?.template ? 'Image' : 'Build' },
   { id: 'size', label: 'Size' },
-  { id: 'delete', label: 'Delete app' },
+  { id: 'danger', label: 'Danger zone' },
 ])
 function jump(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -337,27 +339,6 @@ function catalogUpdated() {
 
 // ---------------------------------------------------------------- delete
 const deleteOpen = ref(false)
-const del = useMutation({
-  mutationFn: () => api.deleteApp(props.slug),
-  onSuccess: async () => {
-    const slug = props.slug
-    const gone = app.data.value
-    toastOk('App deleted')
-    deleteOpen.value = false
-    // Leave first: removing the cache while this page still polls the app would flash a 404.
-    // Back to the project when it still holds other apps.
-    const pid = gone ? projectIdOf(gone) : ''
-    const rest = projectList.data.value?.projects.find((p) => p.id === pid)?.apps.filter((a) => a.slug !== slug) ?? []
-    await router.replace(inProjects.value && rest.length ? projectRoute(pid) : '/')
-    for (const key of [keys.app(slug), keys.deployments(slug), keys.env(slug), keys.domains(slug)]) {
-      queryClient.removeQueries({ queryKey: key })
-    }
-    queryClient.removeQueries({ queryKey: ['metrics', slug] })
-    void qc.invalidateQueries({ queryKey: keys.apps })
-    void qc.invalidateQueries({ queryKey: keys.me })
-  },
-  onError: (e) => toastError(e),
-})
 </script>
 
 <template>
@@ -376,41 +357,39 @@ const del = useMutation({
 
     <SettingsSection id="general" class="scroll-mt-16" title="General" :description="isPrivate ? 'What the app is called in bitploy.' : 'What the app is called in bitploy, where people open it, and who may see it.'">
       <div class="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>{{ isPrivate ? 'Name and ID' : 'Name and address' }}</CardTitle>
-            <CardDescription v-if="isPrivate">The name is only shown in bitploy. The ID is in the links to this page and in the API.</CardDescription>
-            <CardDescription v-else>The name is only shown in bitploy. The address is where people open the app.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FormScope :form="generalForm">
-              <form class="grid gap-4" novalidate @submit.prevent="submitGeneral">
-                <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
-                  <FormField v-slot="{ componentField }" name="name">
-                    <FormItem>
-                      <FormLabel>Name</FormLabel>
-                      <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  </FormField>
-                  <FormField v-slot="{ componentField }" name="slug">
-                    <FormItem>
-                      <FormLabel>{{ isPrivate ? 'ID' : 'Address' }}</FormLabel>
-                      <div class="flex min-w-0 items-center gap-2">
-                        <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
-                        <DomainSelect v-if="me.data.value && app.data.value && !isPrivate" v-model="domain" :current="app.data.value.domain" />
-                      </div>
-                      <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
-                      <FormDescription v-else>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  </FormField>
-                </div>
-                <div><Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-              </form>
-            </FormScope>
-          </CardContent>
-        </Card>
+        <FormScope :form="generalForm">
+          <form novalidate @submit.prevent="submitGeneral">
+            <FormCard
+              :title="isPrivate ? 'Name and ID' : 'Name and address'"
+              :description="isPrivate ? 'The name is only shown in bitploy. The ID is in the links to this page and in the API.' : 'The name is only shown in bitploy. The address is where people open the app.'"
+            >
+              <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+                <FormField v-slot="{ componentField }" name="name">
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl><Input autocomplete="off" v-bind="componentField" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                </FormField>
+                <FormField v-slot="{ componentField }" name="slug">
+                  <FormItem>
+                    <FormLabel>{{ isPrivate ? 'ID' : 'Address' }}</FormLabel>
+                    <div class="flex min-w-0 items-center gap-2">
+                      <FormControl><Input autocapitalize="off" autocomplete="off" spellcheck="false" class="min-w-0 font-mono" v-bind="componentField" /></FormControl>
+                      <DomainSelect v-if="me.data.value && app.data.value && !isPrivate" v-model="domain" :current="app.data.value.domain" />
+                    </div>
+                    <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
+                    <FormDescription v-else>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                </FormField>
+              </div>
+              <template #actions>
+                <Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button>
+              </template>
+            </FormCard>
+          </form>
+        </FormScope>
 
         <PasswordProtection v-if="app.data.value && !isPrivate" :app="app.data.value" />
       </div>
@@ -483,18 +462,15 @@ const del = useMutation({
           </CardContent>
         </Card>
 
-        <Card v-if="!multi">
-          <CardHeader>
-            <CardTitle>Type</CardTitle>
-            <CardDescription>How bitploy builds your files. Changes apply on the next deploy.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form class="grid gap-4" novalidate @submit.prevent="saveType.mutate()">
-              <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
-              <div><Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button></div>
-            </form>
-          </CardContent>
-        </Card>
+        <form v-if="!multi" novalidate @submit.prevent="saveType.mutate()">
+          <FormCard title="Type" description="How bitploy builds your files.">
+            <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
+            <template #hint>Applies on the next deploy.</template>
+            <template #actions>
+              <Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button>
+            </template>
+          </FormCard>
+        </form>
       </div>
     </SettingsSection>
 
@@ -523,48 +499,51 @@ const del = useMutation({
       </Card>
     </SettingsSection>
 
-    <SettingsSection v-else id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT} A change applies after a restart.`">
-      <Card>
-        <CardContent>
-          <p v-if="isStatic" class="mb-4 text-sm text-muted-foreground">Static sites have a fixed size and do not count towards your memory and CPU allowance.</p>
-          <FormScope :form="resForm">
-            <form class="grid gap-4" novalidate @submit.prevent="submitRes">
-              <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
-                <FormField v-slot="{ componentField }" name="memory_mb">
-                  <FormItem>
-                    <FormLabel>Memory (MB)</FormLabel>
-                    <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
-                    <FormDescription v-if="room && quota && !isStatic">
-                      Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-                <FormField v-slot="{ componentField }" name="cpus">
-                  <FormItem>
-                    <FormLabel>CPU</FormLabel>
-                    <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
-                    <FormDescription v-if="room && quota && !isStatic">
-                      Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template>
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                </FormField>
-              </div>
-              <div><Button type="submit" :disabled="isStatic || saveRes.isPending.value || !resForm.meta.value.dirty">{{ saveRes.isPending.value ? 'Saving...' : 'Save size' }}</Button></div>
-            </form>
-          </FormScope>
-        </CardContent>
-      </Card>
+    <SettingsSection v-else id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT}`">
+      <FormScope :form="resForm">
+        <form novalidate @submit.prevent="submitRes">
+          <FormCard>
+            <p v-if="isStatic" class="mb-4 text-sm text-muted-foreground">Static sites have a fixed size and do not count towards your memory and CPU allowance.</p>
+          <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+            <FormField v-slot="{ componentField }" name="memory_mb">
+              <FormItem>
+                <FormLabel>Memory (MB)</FormLabel>
+                <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                <FormDescription v-if="room && quota && !isStatic">
+                  Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+            <FormField v-slot="{ componentField }" name="cpus">
+              <FormItem>
+                <FormLabel>CPU</FormLabel>
+                <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
+                <FormDescription v-if="room && quota && !isStatic">
+                  Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template>
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+          </div>
+            <template #hint>Applies after a restart.</template>
+            <template #actions>
+              <Button type="submit" :disabled="isStatic || saveRes.isPending.value || !resForm.meta.value.dirty">{{ saveRes.isPending.value ? 'Saving...' : 'Save size' }}</Button>
+            </template>
+          </FormCard>
+        </form>
+      </FormScope>
     </SettingsSection>
 
-    <SettingsSection id="delete" class="scroll-mt-16" title="Delete app" :description="`Removes this app${multi ? ' with all its services' : ''}, its address, its saved files, its backups and all old versions. The other apps of the project stay.`">
-      <Card class="border-destructive/40">
-        <CardContent class="flex flex-wrap items-center justify-between gap-3">
-          <p class="text-sm text-muted-foreground">This cannot be undone. Download a backup first if you may need its saved files.</p>
-          <Button variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete {{ app.data.value?.name ?? 'app' }}</Button>
-        </CardContent>
-      </Card>
+    <SettingsSection id="danger" class="scroll-mt-16" title="Danger zone" description="Actions that cannot be undone.">
+      <DangerZone>
+        <DangerRow
+          :title="`Delete ${app.data.value?.name ?? 'this app'}`"
+          :description="`Removes the app${multi ? ' with all its services' : ''}, its address, its saved files, its backups and all old versions. The other apps of the project stay. Download a backup first if you may need its saved files.`"
+        >
+          <Button variant="destructive" :disabled="!app.data.value" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
+        </DangerRow>
+      </DangerZone>
     </SettingsSection>
 
     <CatalogUpdateDialog v-if="app.data.value?.catalog_update && updateOpen" v-model:open="updateOpen" :app="app.data.value" @updated="catalogUpdated" />
@@ -577,14 +556,6 @@ const del = useMutation({
       :loading="saveGeneral.isPending.value"
       @confirm="pendingRename && saveGeneral.mutate(pendingRename)"
     />
-    <ConfirmDialog
-      v-model:open="deleteOpen"
-      :title="`Delete ${app.data.value?.name ?? 'this app'} for good?`"
-      description="Everything about it is removed, including its saved files and its backups."
-      confirm-label="Delete app"
-      :type-to-confirm="slug"
-      :loading="del.isPending.value"
-      @confirm="del.mutate()"
-    />
+    <DeleteAppDialog v-if="app.data.value" v-model:open="deleteOpen" :app="app.data.value" />
   </div>
 </template>

@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, ChevronRight, ExternalLink } from 'lucide-vue-next'
+import { ChevronRight, ExternalLink } from 'lucide-vue-next'
 import CatalogMonogram from '@/components/CatalogMonogram.vue'
 import CodeBlock from '@/components/CodeBlock.vue'
 import DomainSelect from '@/components/DomainSelect.vue'
@@ -17,13 +17,16 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { keys, useCatalogApp, useMe } from '@/composables/queries'
+import { keys, useCatalogApp, useMe, useProjects } from '@/composables/queries'
 import { api, ApiError } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB } from '@/lib/format'
-import { appRoute } from '@/lib/appLinks'
+import { appRoute, projectRoute } from '@/lib/appLinks'
+import { aliasOf, freeAlias, projectIdOf } from '@/lib/projects'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
@@ -83,36 +86,55 @@ const SLUG_CODES = new Set(['slug_invalid', 'slug_reserved', 'slug_taken'])
 const error = ref<FriendlyError | null>(null)
 const showFile = ref(false)
 
-// ?project=<id>: add it to that project instead of starting a new one.
-const intoProject = computed(() => (typeof route.query.project === 'string' ? route.query.project : ''))
+// The project it goes into: ?project=<id> from "Add" on a project, or a new one named after the app.
+const NEW_PROJECT = '__new__'
+const projects = useProjects()
+const inProjects = computed(() => !!projects.data.value && !projects.data.value.fallback)
+const projectChoice = ref(typeof route.query.project === 'string' && route.query.project ? route.query.project : NEW_PROJECT)
+const intoProject = computed(() => (projectChoice.value === NEW_PROJECT ? '' : projectChoice.value))
+const target = computed(() => projects.data.value?.projects.find((p) => p.id === intoProject.value) ?? null)
+// Its short name in that project: the other apps reach it at this name.
+const alias = ref('')
+const aliasTouched = ref(false)
+watch(
+  [() => entry.data.value?.id, target],
+  ([id, p]) => {
+    if (id && !aliasTouched.value) alias.value = freeAlias(id, (p?.apps ?? []).map(aliasOf))
+  },
+  { immediate: true },
+)
+const aliasError = computed(() => {
+  const a = alias.value.trim()
+  if (!intoProject.value) return ''
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(a)) return 'Use 1 to 32 lowercase letters, numbers and dashes, like status or kuma-2.'
+  if (target.value?.apps.some((x) => aliasOf(x) === a)) return `${target.value.name} already has an app called ${a}.`
+  return ''
+})
 
-// A ready-made app that brings its own database stays in the project it makes with them.
 const bringsServices = computed(() => !!entry.data.value?.services?.length)
 const deploy = useMutation({
-  mutationFn: async (v: { name: string; slug: string }) => {
-    const r = await api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined })
-    // The server makes a project for it; move it to the one asked for, and drop the empty one.
-    const made = r.app.project
-    if (!intoProject.value || bringsServices.value || made?.id === intoProject.value) return r
-    try {
-      const moved = await api.updateApp(r.app.slug, { project: intoProject.value })
-      if (made) await api.deleteProject(made.id, made.name).catch(() => undefined)
-      return { ...r, app: moved }
-    } catch {
-      // It runs in a project of its own; Settings > Project moves it.
-      return r
-    }
-  },
+  mutationFn: (v: { name: string; slug: string }) =>
+    api.deployCatalog(props.catalogId, {
+      name: v.name,
+      slug: v.slug,
+      domain: domain.value || undefined,
+      project: inProjects.value ? intoProject.value || undefined : undefined,
+      alias: inProjects.value && intoProject.value ? alias.value.trim() || undefined : undefined,
+    }),
   onSuccess: async (r) => {
     qc.setQueryData(keys.app(r.app.slug), r.app)
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.me })
     void qc.invalidateQueries({ queryKey: keys.deployments(r.app.slug) })
-    await router.push(appRoute(r.app))
+    // Into a project: back to its canvas with the new app open in the panel.
+    await router.push(intoProject.value ? projectRoute(projectIdOf(r.app), { app: r.app.slug }) : appRoute(r.app))
   },
   onError: (e) => {
     const f = friendlyError(e)
-    if (SLUG_CODES.has(f.code)) {
+    if (f.code === 'alias_taken' || f.code === 'alias_invalid') {
+      aliasTouched.value = true
+      error.value = f
+    } else if (SLUG_CODES.has(f.code)) {
       editingAddress.value = true
       addressEdited.value = true
       form.setFieldError('slug', f.hint ? `${f.message} ${f.hint}` : f.message)
@@ -122,6 +144,7 @@ const deploy = useMutation({
   },
 })
 const submit = form.handleSubmit((v) => {
+  if (aliasError.value) return
   error.value = null
   deploy.mutate(v)
 })
@@ -129,13 +152,9 @@ const submit = form.handleSubmit((v) => {
 
 <template>
   <div class="grid gap-6">
-    <RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft class="size-4" /> New project
-    </RouterLink>
-
     <Alert v-if="notFound" variant="destructive">
       <AlertTitle>This ready-made app does not exist.</AlertTitle>
-      <AlertDescription><RouterLink :to="{ name: 'new-app', query: { source: 'ready-made' } }" class="underline">Back to New project</RouterLink></AlertDescription>
+      <AlertDescription><RouterLink :to="{ name: 'ready-made' }" class="underline">Back to Ready-made</RouterLink></AlertDescription>
     </Alert>
     <QueryError v-else-if="entry.isError.value" :error="entry.error.value" @retry="entry.refetch()" />
     <div v-else-if="!entry.data.value" class="grid gap-4">
@@ -144,21 +163,38 @@ const submit = form.handleSubmit((v) => {
     </div>
 
     <template v-else>
-      <div class="flex items-center gap-3">
-        <CatalogMonogram :name="entry.data.value.name" size="lg" />
-        <PageHeader :title="entry.data.value.name" :description="entry.data.value.tagline" />
-      </div>
+      <PageHeader :title="entry.data.value.name" :description="entry.data.value.tagline">
+        <template #icon><CatalogMonogram :name="entry.data.value.name" size="lg" /></template>
+      </PageHeader>
       <p v-if="bringsServices" class="-mt-3 text-sm text-muted-foreground" data-testid="catalog-services">
         Comes with
         <template v-for="(sv, i) in entry.data.value.services" :key="sv.name">
           {{ i ? ', ' : '' }}<span class="font-mono text-foreground/85">{{ sv.name }}</span> ({{ sv.image }}, {{ formatMB(sv.memory_mb) }})
         </template>.
-        They run next to it in a new project{{ intoProject ? ', not in the one you came from' : '' }}, already connected to it.
+        They run next to it in {{ target ? target.name : 'its new project' }}, already connected to it.
       </p>
 
       <form novalidate class="grid gap-6" @submit.prevent="submit">
         <Card>
           <CardContent class="grid items-start gap-5 lg:grid-cols-2">
+            <div v-if="inProjects" class="grid gap-2">
+              <Label for="catalog-project">Project</Label>
+              <Select v-model="projectChoice" :disabled="deploy.isPending.value">
+                <SelectTrigger id="catalog-project" class="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem :value="NEW_PROJECT">New project, named after the app</SelectItem>
+                  <SelectSeparator v-if="projects.data.value?.projects.length" />
+                  <SelectItem v-for="p in projects.data.value?.projects ?? []" :key="p.id" :value="p.id">{{ p.name }}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p class="text-[0.8rem] text-muted-foreground">{{ target ? `It joins the apps of ${target.name} on their private network.` : 'A project of its own. You can add databases and other apps to it later.' }}</p>
+            </div>
+            <div v-if="inProjects && target" class="grid gap-2">
+              <Label for="catalog-alias">Short name</Label>
+              <Input id="catalog-alias" v-model="alias" class="font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :disabled="deploy.isPending.value" :aria-invalid="!!aliasError || undefined" @input="aliasTouched = true" />
+              <p v-if="aliasError" class="text-[0.8rem] text-destructive">{{ aliasError }}</p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">The other apps of {{ target.name }} reach it at this name.</p>
+            </div>
             <FormField v-slot="{ componentField }" name="name">
               <FormItem>
                 <FormLabel>Name</FormLabel>
@@ -238,8 +274,8 @@ const submit = form.handleSubmit((v) => {
         </Alert>
 
         <div class="flex flex-wrap items-center gap-3">
-          <Button type="submit" :disabled="deploy.isPending.value">{{ deploy.isPending.value ? 'Creating the app...' : 'Deploy' }}</Button>
-          <Button as-child variant="ghost" :disabled="deploy.isPending.value"><RouterLink :to="{ name: 'new-app' }">Cancel</RouterLink></Button>
+          <Button type="submit" :disabled="deploy.isPending.value">{{ deploy.isPending.value ? 'Creating the app...' : target ? `Deploy to ${target.name}` : 'Deploy' }}</Button>
+          <Button as-child variant="ghost" :disabled="deploy.isPending.value"><RouterLink :to="target ? projectRoute(target.id) : { name: 'ready-made' }">Cancel</RouterLink></Button>
         </div>
       </form>
     </template>

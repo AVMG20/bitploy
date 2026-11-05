@@ -905,6 +905,10 @@ export interface CatalogDeployInput {
   domain?: string
   memory_mb?: number
   volume_mb?: number
+  /** The project to add it to; empty starts a new project named after the app. */
+  project?: string
+  /** Its short name in that project; the server picks one when empty. */
+  alias?: string
 }
 
 export interface CatalogDeployResult {

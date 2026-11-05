@@ -728,6 +728,7 @@ class HttpError extends Error {
     readonly code: string,
     message: string,
     readonly hint = '',
+    readonly details?: unknown,
   ) {
     super(message)
   }
@@ -921,6 +922,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     }
     case 'DELETE /apps/:id': {
       const a = needApp(id)
+      // Apps of the project whose variables point at this one keep it: the server answers app_in_use.
+      const alias = a.alias || a.slug
+      const dependents = apps
+        .filter((x) => x !== a && x.project?.id === a.project?.id)
+        .map((x) => ({ slug: x.slug, alias: x.alias || x.slug, vars: (env[x.slug] ?? []).filter((v) => (v.references ?? []).some((r) => r.startsWith(`\${{${alias}.`))).map((v) => v.name) }))
+        .filter((d) => d.vars.length)
+      if (dependents.length)
+        throw new HttpError(409, 'app_in_use', `${dependents.map((d) => d.alias).join(', ')} still ${dependents.length === 1 ? 'reads' : 'read'} variables of ${alias}.`, 'Remove those variables first.', { dependents })
       apps.splice(apps.indexOf(a), 1)
       return send(res, 204)
     }
@@ -1040,7 +1049,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         projects.push(row)
         pid = row.id
       }
-      const a = blankApp(name, slug, pid, { catalog_id: c.id, catalog_version: c.version, port: c.port, memory_mb: c.memory_mb, volume: c.volume, volume_mb: c.volume_mb })
+      const alias = slugish(String(body.alias || c.id))
+      if (apps.some((x) => x.project?.id === pid && (x.alias || x.slug) === alias))
+        throw new HttpError(409, 'alias_taken', `That project already has an app called ${alias}.`, 'Pick another short name.')
+      const a = blankApp(name, slug, pid, { catalog_id: c.id, catalog_version: c.version, port: c.port, memory_mb: c.memory_mb, volume: c.volume, volume_mb: c.volume_mb, alias })
       const d = startDeploy(a, 'files')
       return send(res, 201, { app: a, deployment: d, first_steps: c.first_steps })
     }
@@ -1062,7 +1074,7 @@ export function mockApi(): Plugin {
         if (!req.url?.startsWith('/api/v1')) return next()
         const noProjects = noProjectsEnv || req.headers['x-mock-no-projects'] === '1'
         handle(req, res, noProjects).catch((e: unknown) => {
-          if (e instanceof HttpError) send(res, e.status, { error: { code: e.code, message: e.message, hint: e.hint || undefined } })
+          if (e instanceof HttpError) send(res, e.status, { error: { code: e.code, message: e.message, hint: e.hint || undefined, details: e.details } })
           else {
             console.error(e)
             send(res, 500, { error: { code: 'mock_failed', message: String(e) } })

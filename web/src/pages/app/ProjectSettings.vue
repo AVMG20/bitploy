@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import FormCard from '@/components/FormCard.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -63,45 +63,43 @@ const moveFail = computed(() => (move.error.value ? friendlyError(move.error.val
 
 <template>
   <div class="grid gap-4">
-    <Card>
-      <CardHeader>
-        <CardTitle>Short name</CardTitle>
-        <CardDescription>
+    <form novalidate @submit.prevent="!aliasError && saveAlias.mutate()">
+      <FormCard title="Short name">
+        <template #description>
           The other apps of {{ project?.name ?? 'the project' }} reach this one at this name, and use its variables as
           <span class="font-mono">{{ referenceText(aliasOf(app), 'NAME') }}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form class="grid gap-2" novalidate @submit.prevent="!aliasError && saveAlias.mutate()">
+        </template>
+        <div class="grid gap-2">
           <Label for="app-alias" class="sr-only">Short name</Label>
-          <div class="flex flex-wrap items-start gap-2">
-            <Input id="app-alias" v-model="alias" class="max-w-xs font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :aria-invalid="!!aliasError || undefined" />
-            <Button type="submit" :disabled="!!aliasError || alias.trim() === aliasOf(app) || saveAlias.isPending.value">{{ saveAlias.isPending.value ? 'Saving...' : 'Save' }}</Button>
-          </div>
+          <Input id="app-alias" v-model="alias" class="max-w-xs font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :aria-invalid="!!aliasError || undefined" />
           <p v-if="aliasError" class="text-[0.8rem] text-destructive">{{ aliasError }}</p>
           <p v-else-if="aliasFail" class="text-[0.8rem] text-destructive">{{ aliasFail }}</p>
           <p v-else-if="users.length && alias.trim() !== aliasOf(app)" class="text-[0.8rem] text-warning">
             {{ listWords(users.map((u) => u.name)) }} {{ users.length === 1 ? 'uses' : 'use' }} <span class="font-mono">{{ aliasOf(app) }}</span> in {{ users.length === 1 ? 'its' : 'their' }} variables. Change those too, or they lose the connection.
           </p>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+        <template #hint>Lowercase letters, numbers and dashes.</template>
+        <template #actions>
+          <Button type="submit" :disabled="!!aliasError || alias.trim() === aliasOf(app) || saveAlias.isPending.value">{{ saveAlias.isPending.value ? 'Saving...' : 'Save' }}</Button>
+        </template>
+      </FormCard>
+    </form>
 
-    <Card v-if="others.length">
-      <CardHeader>
-        <CardTitle>Move to another project</CardTitle>
-        <CardDescription>The app keeps its address and saved files. After the move it cannot reach the apps of this project by their short name.</CardDescription>
-      </CardHeader>
-      <CardContent class="flex flex-wrap items-center gap-2">
-        <Select v-model="target">
-          <SelectTrigger class="w-64" aria-label="Project to move it to"><SelectValue placeholder="Pick a project" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="p in others" :key="p.id" :value="p.id">{{ p.name }}</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="outline" :disabled="!target || move.isPending.value" @click="move.mutate()">{{ move.isPending.value ? 'Moving...' : 'Move' }}</Button>
-        <p v-if="moveFail" class="w-full text-[0.8rem] text-destructive">{{ moveFail }}</p>
-      </CardContent>
-    </Card>
+    <form v-if="others.length" novalidate @submit.prevent="target && move.mutate()">
+      <FormCard title="Move to another project" description="The app keeps its address and saved files. After the move it cannot reach the apps of this project by their short name.">
+        <div class="grid gap-2">
+          <Select v-model="target">
+            <SelectTrigger class="w-64 max-w-full" aria-label="Project to move it to"><SelectValue placeholder="Pick a project" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="p in others" :key="p.id" :value="p.id">{{ p.name }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p v-if="moveFail" class="text-[0.8rem] text-destructive">{{ moveFail }}</p>
+        </div>
+        <template #actions>
+          <Button type="submit" variant="outline" :disabled="!target || move.isPending.value">{{ move.isPending.value ? 'Moving...' : 'Move' }}</Button>
+        </template>
+      </FormCard>
+    </form>
   </div>
 </template>

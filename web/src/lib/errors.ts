@@ -29,6 +29,7 @@ const HINTS: Record<string, string> = {
   confirm_mismatch: 'Type the name exactly as shown to confirm.',
   alias_invalid: 'Use lowercase letters, numbers and dashes for the short name, like db or api-2.',
   alias_taken: 'Another app of the project has that short name. Pick another, like db-2.',
+  app_in_use: 'Other apps of the project read its variables. Remove those variables from them first, then delete it.',
   app_referenced: 'Other apps of the project use its variables. Remove those references first, or move them along.',
   app_has_references: 'Its variables use other apps of the project. Remove those references first, or move those apps along.',
   service_template_unknown: 'Pick one from the list under Add.',

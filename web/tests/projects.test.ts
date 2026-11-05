@@ -5,6 +5,8 @@ import {
   appRole,
   appSourceText,
   defaultConnect,
+  dependentsFromError,
+  dependentsOf,
   envReferences,
   freeAlias,
   groupTemplates,
@@ -239,6 +241,21 @@ test('projectLinks finds who talks to whom', () => {
   ])
   assert.deepEqual(usedBy(pg, apps, links).map((a) => a.slug), ['shop-api'])
   assert.deepEqual(talksTo(api, apps, links).map((a) => a.slug), ['postgres', 'redis'])
+  // The delete dialog names them with the variables they read.
+  assert.deepEqual(dependentsOf(pg, apps, links), [{ slug: 'shop-api', alias: 'api', vars: ['DATABASE_URL', 'PGHOST'] }])
+  assert.deepEqual(dependentsOf(web, apps, links), [])
+})
+
+test('dependentsFromError reads details.dependents of app_in_use', () => {
+  assert.deepEqual(
+    dependentsFromError({ dependents: [{ slug: 'shop-web', alias: 'web', vars: ['DATABASE_URL', 7] }, { slug: 'shop-api', vars: null }, { alias: 'nope' }, null] }),
+    [
+      { slug: 'shop-web', alias: 'web', vars: ['DATABASE_URL'] },
+      { slug: 'shop-api', alias: 'shop-api', vars: [] },
+    ],
+  )
+  assert.deepEqual(dependentsFromError(undefined), [])
+  assert.deepEqual(dependentsFromError({ dependents: 'web' }), [])
 })
 
 test('groupTemplates groups by category and keeps unknown ones', () => {

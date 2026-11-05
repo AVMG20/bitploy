@@ -22,6 +22,8 @@ const props = withDefaults(
     loading?: boolean
     /** When set, the user must type this text before the button enables. */
     typeToConfirm?: string
+    /** The action cannot run yet (the dialog says why). */
+    blocked?: boolean
   }>(),
   { confirmLabel: 'Confirm', destructive: true },
 )
@@ -32,7 +34,7 @@ const typed = ref('')
 watch(open, (o) => {
   if (o) typed.value = ''
 })
-const ready = computed(() => !props.typeToConfirm || typed.value.trim() === props.typeToConfirm)
+const ready = computed(() => !props.blocked && (!props.typeToConfirm || typed.value.trim() === props.typeToConfirm))
 const inputId = `confirm-${Math.random().toString(36).slice(2, 8)}`
 // Enter in the field confirms, once the right text is there.
 function onEnter() {
@@ -48,7 +50,7 @@ function onEnter() {
         <AlertDialogDescription>{{ description }}</AlertDialogDescription>
       </AlertDialogHeader>
       <slot />
-      <div v-if="typeToConfirm" class="grid gap-2">
+      <div v-if="typeToConfirm && !blocked" class="grid gap-2">
         <Label :for="inputId" class="text-sm font-normal">
           <span>Type <span class="font-mono font-semibold">{{ typeToConfirm }}</span> to confirm.</span>
         </Label>
