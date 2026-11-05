@@ -390,6 +390,10 @@ export interface App {
   template?: string | null
   /** Template apps: the version of the template's image it runs, like 18.6. */
   template_version?: string
+  /** Template apps: the template's version in this bitploy. Newer than template_version when template_update_available. */
+  template_latest?: string
+  /** A newer version of the template exists. bitploy never applies it by itself: a new major version of a database can need a dump and restore. */
+  template_update_available?: boolean
   /** Where the other apps of the project reach it, like postgres:5432; "" when the port is not known. */
   internal_host?: string
   /** Template apps: the variables the other apps can reference, main one first. */

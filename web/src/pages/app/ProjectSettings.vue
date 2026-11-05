@@ -8,11 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { keys, useProject, useProjectEnv, useProjects } from '@/composables/queries'
-import { api } from '@/lib/api'
+import { ApiError, api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { friendlyError } from '@/lib/errors'
 import { toastOk } from '@/lib/notify'
-import { aliasOf, projectIdOf, projectLinks, referenceText, usedBy } from '@/lib/projects'
+import { aliasOf, dependentsFromError, projectIdOf, projectLinks, referenceText, usedBy } from '@/lib/projects'
 import { listWords } from '@/lib/services'
 import type { App } from '@/lib/types'
 
@@ -58,7 +58,14 @@ const move = useMutation({
     await router.replace(appRoute(a, 'app-settings'))
   },
 })
-const moveFail = computed(() => (move.error.value ? friendlyError(move.error.value).message : ''))
+const moveFail = computed(() => {
+  const e = move.error.value
+  if (!e) return ''
+  const msg = friendlyError(e).message
+  // A refused move names the apps that read this one's variables.
+  const deps = e instanceof ApiError && e.code === 'app_referenced' ? dependentsFromError(e.details) : []
+  return deps.length ? `${msg} ${listWords(deps.map((d) => `${d.alias} (${d.vars.join(', ') || 'its variables'})`))} ${deps.length === 1 ? 'reads' : 'read'} its variables.` : msg
+})
 </script>
 
 <template>

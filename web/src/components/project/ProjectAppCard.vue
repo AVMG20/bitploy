@@ -8,7 +8,7 @@ import StatusDot from '@/components/StatusDot.vue'
 import { useAppMetrics } from '@/composables/queries'
 import { projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
-import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, roleTitle } from '@/lib/projects'
+import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, roleTitle, templateUpdate } from '@/lib/projects'
 import type { AppRole } from '@/lib/projects'
 import { isMulti, serviceRole, serviceStatus, sortServices } from '@/lib/services'
 import type { App, ServiceTemplate } from '@/lib/types'
@@ -135,6 +135,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       </p>
       <p class="flex min-w-0 items-center gap-1.5">
         <span class="truncate">{{ source }}</span>
+        <span v-if="templateUpdate(app)" class="relative z-10 shrink-0 rounded border px-1 text-[10.5px]" :title="templateUpdate(app)!.title">{{ templateUpdate(app)!.text }}</span>
         <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" title="Saved files, kept between deploys and backed up">
           <HardDrive class="size-3" /> {{ formatMB(storedMB) }}
         </span>

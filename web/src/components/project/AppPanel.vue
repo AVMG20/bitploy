@@ -22,7 +22,7 @@ import { api, fetchLogEntries } from '@/lib/api'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { plainHint } from '@/lib/errors'
 import { deploymentStateInfo, deployedVia, hostOf, shortSha } from '@/lib/format'
-import { aliasOf, envReferences, internalHostOf, roleTitle, talksTo, usedBy } from '@/lib/projects'
+import { aliasOf, envReferences, internalHostOf, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
 import CatalogUpdateDialog from '@/pages/app/CatalogUpdateDialog.vue'
 import UploadVersionButton from '@/pages/app/UploadVersionButton.vue'
 
@@ -167,6 +167,7 @@ watch(
               <Play /> {{ actions.start.isPending.value ? 'Starting...' : 'Start' }}
             </Button>
           </div>
+          <p v-if="templateUpdate(data)" class="text-xs text-muted-foreground" data-testid="template-update">{{ templateUpdate(data)!.title }}</p>
           <div v-if="pending.reasons.value.length" role="status" class="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
             <RotateCw class="size-3.5 shrink-0" aria-hidden="true" />
             <span class="min-w-0 flex-1">Your changes to {{ pending.text.value }} apply after a restart.</span>

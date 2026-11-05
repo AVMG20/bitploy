@@ -25,6 +25,7 @@ import {
   talksTo,
   templateLabel,
   templateRole,
+  templateUpdate,
   usedBy,
 } from '../src/lib/projects.ts'
 import type { App, AppService, EnvVar, ServiceTemplate } from '../src/lib/types.ts'
@@ -307,4 +308,13 @@ test('templateRole and templateLabel name what a template makes', () => {
   // An unknown category falls back to the image.
   assert.equal(templateRole(t('kv', 'other', 'valkey/valkey:8')), 'cache')
   assert.equal(templateLabel(t('postgres', 'database', 'postgres:16')), 'Database')
+})
+
+test('templateUpdate notes a newer template version, and nothing otherwise', () => {
+  const u = templateUpdate({ template_version: '18.4', template_latest: '18.6', template_update_available: true })
+  assert.equal(u?.text, '18.6 available')
+  assert.match(u!.title, /^Runs 18\.4; 18\.6 is available\./)
+  assert.equal(templateUpdate({ template_version: '18.6', template_latest: '18.6', template_update_available: false }), null)
+  // An older server sends neither field.
+  assert.equal(templateUpdate({}), null)
 })

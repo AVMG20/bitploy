@@ -403,3 +403,16 @@ export function dependentsFromError(details: unknown): Dependent[] {
     return [{ slug: o.slug, alias: typeof o.alias === 'string' && o.alias ? o.alias : o.slug, vars }]
   })
 }
+
+/**
+ * A quiet note for a database or cache whose template has a newer version:
+ * "18.6 available", and a sentence for its title. null when it is up to date.
+ * bitploy never upgrades it by itself.
+ */
+export function templateUpdate(app: Pick<App, 'template_version' | 'template_latest' | 'template_update_available'>): { text: string; title: string } | null {
+  if (!app.template_update_available || !app.template_latest) return null
+  return {
+    text: `${app.template_latest} available`,
+    title: `Runs ${app.template_version || 'an older version'}; ${app.template_latest} is available. bitploy does not update a database by itself, because a new major version can need a dump and restore.`,
+  }
+}

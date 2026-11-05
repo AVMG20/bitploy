@@ -33,7 +33,7 @@ import ServiceSheet from './ServiceSheet.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { useProject, useServiceTemplates } from '@/composables/queries'
 import { projectRoute } from '@/lib/appLinks'
-import { appRole, internalHostOf, projectIdOf, roleTitle } from '@/lib/projects'
+import { appRole, internalHostOf, projectIdOf, roleTitle, templateUpdate } from '@/lib/projects'
 
 const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
@@ -110,6 +110,7 @@ const deleteOpen = ref(false)
         <template #badges>
           <span v-if="role" class="text-sm text-muted-foreground">{{ roleTitle(role) }}</span>
           <AppStatusBadge :status="shownStatus" />
+          <span v-if="templateUpdate(data)" class="text-xs text-muted-foreground" :title="templateUpdate(data)!.title" data-testid="template-update">{{ templateUpdate(data)!.text }}</span>
           <button
             v-if="data.catalog_update"
             type="button"

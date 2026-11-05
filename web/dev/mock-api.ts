@@ -295,6 +295,8 @@ interface AppSeed {
   memory?: number
   cpu?: number
   createdDaysAgo: number
+  /** A template app that runs an older version than the template's. */
+  templateVersion?: string
   deploys?: number
 }
 
@@ -366,7 +368,7 @@ function makeApp(s: AppSeed): App {
     project: { id: proj.id, name: proj.name },
     alias: s.alias,
     template: s.template ?? null,
-    ...(s.template ? { template_version: templates.find((t) => t.id === s.template)?.version, connection_vars: templates.find((t) => t.id === s.template)?.connection_vars, main_var: templates.find((t) => t.id === s.template)?.main_var } : {}),
+    ...(s.template ? { template_version: s.templateVersion ?? templates.find((t) => t.id === s.template)?.version, template_latest: templates.find((t) => t.id === s.template)?.version, template_update_available: !!s.templateVersion && s.templateVersion !== templates.find((t) => t.id === s.template)?.version, connection_vars: templates.find((t) => t.id === s.template)?.connection_vars, main_var: templates.find((t) => t.id === s.template)?.main_var } : {}),
     references: [],
     internal_host: s.port ? `${s.alias}:${s.port}` : '',
     created_at: ago(60 * 24 * s.createdDaysAgo),
@@ -405,7 +407,7 @@ apps.push(
   makeApp({ slug: 'portfolio', name: 'Portfolio', project: 'prj_portfolio', alias: 'portfolio', port: 80, repo: 'ada/portfolio', static: true, memory: 32, cpu: 100, createdDaysAgo: 60, deploys: 5 }),
   makeApp({ slug: 'shop-web', name: 'web', project: 'prj_shop', alias: 'web', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 30, deploys: 4 }),
   makeApp({ slug: 'shop-api', name: 'api', project: 'prj_shop', alias: 'api', type: 'worker', port: 8080, repo: 'ada/api-go', memory: 256, cpu: 250, createdDaysAgo: 29, deploys: 3 }),
-  makeApp({ slug: 'shop-postgres', name: 'postgres', project: 'prj_shop', alias: 'postgres', template: 'postgres', type: 'worker', port: 5432, memory: 256, cpu: 250, createdDaysAgo: 28, deploys: 1,
+  makeApp({ slug: 'shop-postgres', name: 'postgres', project: 'prj_shop', alias: 'postgres', template: 'postgres', templateVersion: '18.4', type: 'worker', port: 5432, memory: 256, cpu: 250, createdDaysAgo: 28, deploys: 1,
     volumes: [{ name: 'pgdata', service: 'app', mount_path: '/var/lib/postgresql/data', size_mb: 2048, used_mb: 184 }] }),
   makeApp({ slug: 'shop-redis', name: 'redis', project: 'prj_shop', alias: 'redis', template: 'valkey', type: 'worker', port: 6379, memory: 128, cpu: 250, createdDaysAgo: 28, deploys: 1 }),
   makeApp({
