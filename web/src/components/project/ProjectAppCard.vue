@@ -6,9 +6,9 @@ import ServiceIcon from '@/components/ServiceIcon.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { useAppMetrics } from '@/composables/queries'
-import { appRoute } from '@/lib/appLinks'
+import { projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
-import { aliasOf, appSourceText, internalHostOf, isPublicApp, roleTitle } from '@/lib/projects'
+import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, roleTitle } from '@/lib/projects'
 import type { AppRole } from '@/lib/projects'
 import { isMulti, serviceRole, serviceStatus, sortServices } from '@/lib/services'
 import type { App, ServiceTemplate } from '@/lib/types'
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 
 // One app on the project canvas: what it is for, whether it runs, where it is
 // reached, how busy it is, and which apps it talks to. A compose app shows its
-// services inside. The whole card opens the app.
+// services inside. The whole card opens the app's panel over the canvas.
 const props = defineProps<{
   app: App
   role: AppRole
@@ -27,6 +27,8 @@ const props = defineProps<{
   dim?: boolean
   /** Linked to the hovered card. */
   lit?: boolean
+  /** Its panel is open. */
+  selected?: boolean
 }>()
 const emit = defineEmits<{ hover: [id: string | null] }>()
 
@@ -47,6 +49,7 @@ const reading = computed(() => {
 const services = computed(() => (isMulti(props.app) ? sortServices(props.app.services) : []))
 const storedMB = computed(() => props.app.volumes.reduce((n, v) => n + (v.used_mb ?? 0), 0))
 const source = computed(() => appSourceText(props.app, props.templates))
+const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
 </script>
 
 <template>
@@ -55,6 +58,7 @@ const source = computed(() => appSourceText(props.app, props.templates))
     :class="cn(
       'group relative flex w-full min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 shadow-card transition-[border-color,opacity,box-shadow] duration-150 hover:border-foreground/25 focus-within:border-foreground/25',
       lit && 'border-primary/50 ring-1 ring-primary/20',
+      selected && 'border-primary ring-2 ring-primary/30 hover:border-primary',
       dim && 'opacity-45',
     )"
     @mouseenter="emit('hover', app.id)"
@@ -66,7 +70,7 @@ const source = computed(() => appSourceText(props.app, props.templates))
       <ServiceIcon :role="role.key" />
       <div class="min-w-0 flex-1">
         <h3 class="flex min-w-0 items-baseline gap-2">
-          <RouterLink :to="appRoute(app)" class="truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
+          <RouterLink :to="panelOf(app)" :aria-current="selected ? 'true' : undefined" class="truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
             {{ app.name }}
           </RouterLink>
           <span v-if="aliasOf(app) !== app.name" class="truncate font-mono text-xs text-muted-foreground">{{ aliasOf(app) }}</span>
@@ -119,29 +123,22 @@ const source = computed(() => appSourceText(props.app, props.templates))
       </div>
     </div>
 
-    <div class="mt-auto flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
-      <template v-if="talksTo.length">
-        <Cable class="size-3 shrink-0" /> <span>Talks to</span>
+    <div class="mt-auto grid gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+      <p v-for="row in [{ label: 'Talks to', apps: talksTo }, { label: 'Used by', apps: usedBy }].filter((r) => r.apps.length)" :key="row.label" class="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Cable class="size-3 shrink-0" /> <span>{{ row.label }}</span>
         <RouterLink
-          v-for="t in talksTo"
+          v-for="t in row.apps"
           :key="t.id"
-          :to="appRoute(t)"
+          :to="panelOf(t)"
           class="relative z-10 rounded-md border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground/85 hover:border-foreground/30"
         >{{ aliasOf(t) }}</RouterLink>
-      </template>
-      <template v-else-if="usedBy.length">
-        <Cable class="size-3 shrink-0" /> <span>Used by</span>
-        <RouterLink
-          v-for="t in usedBy"
-          :key="t.id"
-          :to="appRoute(t)"
-          class="relative z-10 rounded-md border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground/85 hover:border-foreground/30"
-        >{{ aliasOf(t) }}</RouterLink>
-      </template>
-      <span v-else class="truncate">{{ source }}</span>
-      <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" title="Saved files, kept between deploys and backed up">
-        <HardDrive class="size-3" /> {{ formatMB(storedMB) }}
-      </span>
+      </p>
+      <p class="flex min-w-0 items-center gap-1.5">
+        <span class="truncate">{{ source }}</span>
+        <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" title="Saved files, kept between deploys and backed up">
+          <HardDrive class="size-3" /> {{ formatMB(storedMB) }}
+        </span>
+      </p>
     </div>
   </article>
 </template>

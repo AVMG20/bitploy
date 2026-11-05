@@ -65,10 +65,15 @@ export const router = createRouter({
         { path: 'ready-made', name: 'ready-made', component: () => import('./pages/ReadyMadePage.vue'), meta: { title: 'Ready-made' } },
         {
           path: 'projects/:projectId',
-          name: 'project',
           component: () => import('./pages/project/ProjectPage.vue'),
           props: true,
           meta: { wide: true },
+          children: [
+            // ?app=<slug> opens that app's panel over the canvas.
+            { path: '', name: 'project', component: () => import('./pages/project/ProjectCanvas.vue'), props: true },
+            { path: 'variables', name: 'project-variables', component: () => import('./pages/project/ProjectVariablesTab.vue'), props: true, meta: { title: 'Variables' } },
+            { path: 'settings', name: 'project-settings', component: () => import('./pages/project/ProjectSettingsTab.vue'), props: true, meta: { title: 'Settings' } },
+          ],
         },
         {
           path: 'projects/:projectId/apps/:slug',
