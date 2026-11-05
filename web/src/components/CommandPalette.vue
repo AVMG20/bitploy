@@ -3,13 +3,15 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import { Box, Boxes, CornerDownLeft, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
+import { Box, Boxes, CornerDownLeft, ExternalLink, Github, KeyRound, Link, Maximize2, Monitor, Moon, PanelRight, Plus, RefreshCw, RotateCw, Search, Settings, Settings2, ShieldCheck, Sparkles, Sun, Variable } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
-import { useProjects } from '@/composables/queries'
+import { useProjects, useServiceTemplates } from '@/composables/queries'
+import { useAppActions } from '@/composables/useAppActions'
 import { openAdd } from '@/composables/useAddToProject'
 import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, appRole, isPublicApp, roleTitle } from '@/lib/projects'
+import { aliasOf, appRole, isPublicApp, projectIdOf, roleTitle, templateLabel } from '@/lib/projects'
+import { copyText } from '@/lib/notify'
 import { useSession } from '@/composables/useSession'
 import { paletteOpen } from '@/composables/useShortcuts'
 import { APP_TABS } from '@/lib/appTabs'
@@ -17,8 +19,9 @@ import { appStatusInfo, hostOf } from '@/lib/format'
 import { setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
-// The quick switcher: type a few letters of a project, an app or a page and
-// press Enter. "web logs" finds the Logs tab of the app called web.
+// The quick switcher: type a few letters of a project, an app, a page or an
+// action and press Enter. "web logs" finds the Logs tab of the app called web;
+// "restart" restarts the app you are on, "postgres" adds one to this project.
 interface Item {
   id: string
   group: string
@@ -54,7 +57,10 @@ const DOT: Record<string, string> = {
   muted: 'bg-muted-foreground/50',
 }
 
-const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
+// The app you are on: its page, or its panel on the canvas (?app=).
+const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : typeof route.query.app === 'string' ? route.query.app : ''))
+const templates = useServiceTemplates()
+const actions = useAppActions(currentSlug)
 const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 
 const items = computed<Item[]>(() => {
@@ -65,6 +71,17 @@ const items = computed<Item[]>(() => {
   const out: Item[] = []
   const current = list.find((a) => a.slug === currentSlug.value)
   if (current) {
+    const web = isPublicApp(current)
+    const live = !!current.current_deployment
+    const g = current.name
+    if (current.git_source) out.push({ id: 'act-deploy', group: g, label: 'Deploy latest', hint: current.git_source.branch, icon: RefreshCw, keywords: 'deploy build redeploy commit', run: () => actions.redeploy.mutate() })
+    if (live) out.push({ id: 'act-restart', group: g, label: `Restart ${current.name}`, icon: RotateCw, keywords: 'restart reboot', run: () => actions.restart.mutate() })
+    if (web && live) {
+      out.push({ id: 'act-open', group: g, label: `Open ${hostOf(current.url)}`, icon: ExternalLink, keywords: 'open visit website', run: () => window.open(current.url, '_blank', 'noopener') })
+      out.push({ id: 'act-copy', group: g, label: 'Copy link', icon: Link, keywords: 'copy url address', run: () => void copyText(current.url, 'Link copied') })
+    }
+    if (route.params.slug && !fallback) out.push({ id: 'act-canvas', group: g, label: 'Show on the canvas', icon: PanelRight, keywords: 'project panel', to: projectRoute(projectIdOf(current), { app: current.slug }) })
+    else if (!route.params.slug) out.push({ id: 'act-page', group: g, label: 'Open full page', icon: Maximize2, keywords: 'app page details', to: appRoute(current) })
     for (const t of APP_TABS) {
       if (t.database || (t.webOnly && !isPublicApp(current))) continue
       out.push({ id: `cur-${t.name}`, group: current.name, label: t.label, keywords: current.slug, to: appRoute(current, t.name) })
@@ -73,7 +90,12 @@ const items = computed<Item[]>(() => {
   // The project you are in: add to it.
   const here = plist.find((p) => p.id === currentProject.value)
   if (here && !fallback) {
-    out.push({ id: 'add-here', group: here.name, label: `Add to ${here.name}`, icon: Plus, keywords: 'add database postgres redis service app', run: () => openAdd(here.id) })
+    out.push({ id: 'add-here', group: here.name, label: `Add to ${here.name}`, icon: Plus, keywords: 'add database postgres redis service app github repository docker', run: () => openAdd(here.id) })
+    for (const t of templates.data.value ?? []) {
+      out.push({ id: `add-${t.id}`, group: here.name, label: `Add ${t.name}`, hint: templateLabel(t), icon: Plus, keywords: `add ${t.id} ${t.category} database cache`, run: () => openAdd(here.id, t.id), searchOnly: true })
+    }
+    if (route.name !== 'project-variables') out.push({ id: 'proj-vars', group: here.name, label: 'Project variables', icon: Variable, keywords: 'env environment connections', to: { name: 'project-variables', params: { projectId: here.id } } })
+    if (route.name !== 'project-settings') out.push({ id: 'proj-settings', group: here.name, label: 'Project settings', icon: Settings2, keywords: 'rename delete project', to: { name: 'project-settings', params: { projectId: here.id } } })
   }
   for (const p of plist) {
     if (fallback) break
@@ -108,7 +130,8 @@ const items = computed<Item[]>(() => {
   }
   out.push(
     { id: 'p-apps', group: 'Go to', label: 'All projects', icon: Box, keywords: 'home overview apps', to: { name: 'overview' } },
-    { id: 'p-new', group: 'Go to', label: 'New project', icon: Plus, keywords: 'create deploy upload app github', to: { name: 'new-app' } },
+    { id: 'p-new', group: 'Go to', label: 'New project', icon: Plus, keywords: 'create deploy upload app docker compose', to: { name: 'new-app' } },
+    { id: 'p-new-git', group: 'Go to', label: 'New project from a GitHub repository', icon: Github, keywords: 'create deploy git repo', to: { name: 'new-app', query: { source: 'github' } } },
     { id: 'p-ready', group: 'Go to', label: 'Ready-made apps and databases', icon: Boxes, keywords: 'catalog postgres redis mysql template', to: { name: 'ready-made' } },
     { id: 'p-connect', group: 'Go to', label: 'Connect AI', icon: Sparkles, keywords: 'mcp assistant claude', to: '/connect' },
     { id: 'p-settings', group: 'Go to', label: 'Settings', icon: Settings, keywords: 'account profile password', to: { name: 'settings' } },
@@ -190,14 +213,14 @@ function choose(item: Item | undefined) {
       @open-auto-focus.prevent="inputEl?.focus()"
     >
       <DialogTitle class="sr-only">Go to</DialogTitle>
-      <DialogDescription class="sr-only">Type the name of an app or a page, then press Enter.</DialogDescription>
+      <DialogDescription class="sr-only">Type the name of an app, a page or an action, then press Enter.</DialogDescription>
       <div class="flex items-center gap-2 border-b px-3">
         <Search class="size-4 shrink-0 text-muted-foreground" />
         <input
           ref="inputEl"
           v-model="query"
           class="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="Go to a project or a page..."
+          placeholder="Go to a project, an app or an action..."
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"

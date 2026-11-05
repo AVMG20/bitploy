@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowLeft, ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, LayoutGrid, Lock, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, LayoutGrid, Lock, TriangleAlert, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
@@ -30,7 +30,7 @@ import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastError } from '@/lib/notify'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
-import type { BuildMode, ComposeCheck, DockerfileFinding, GitSourceInput } from '@/lib/types'
+import type { BuildMode, ComposeCheck, DockerfileFinding, GitHubRepo, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
 const router = useRouter()
@@ -119,6 +119,12 @@ watch(pastedKind, (k) => {
 })
 
 const repo = ref<GitSourceInput | null>(null)
+// Picked on the first step: the second opens with it.
+const startRepo = ref<GitHubRepo | null>(null)
+function startFromRepo(r: GitHubRepo) {
+  startRepo.value = r
+  pick('github')
+}
 const upload = ref<UploadChoice | null>(null)
 const mode = ref<BuildMode>('auto')
 const outputDir = ref('')
@@ -127,7 +133,8 @@ watch(upload, () => (outputDir.value = ''))
 const homePage = ref('')
 const volume = ref(false)
 
-watch(repo, (r) => r && suggestName(r.repo_url.replace(/\.git$/, '').split('/').pop() ?? ''))
+// After the render: a repository picked on the first step arrives while the name field mounts.
+watch(repo, (r) => r && suggestName(r.repo_url.replace(/\.git$/, '').split('/').pop() ?? ''), { flush: 'post' })
 watch(upload, (u) => u && suggestName(u.name.replace(/\.(zip|html?)$/i, '')))
 
 // ---------------------------------------------------------------- a published image
@@ -380,9 +387,6 @@ const submit = form.handleSubmit(run)
 
 <template>
   <div class="grid gap-6">
-    <RouterLink :to="backTo" class="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft class="size-4" /> {{ project ? project.name : 'All projects' }}
-    </RouterLink>
     <PageHeader
       :title="project ? `Add an app to ${project.name}` : 'New project'"
       :description="chosenSource ? `Name the ${thing} and press Deploy.` : 'Where is your code? bitploy builds it and puts it online.'"
@@ -390,28 +394,40 @@ const submit = form.handleSubmit(run)
 
     <!-- Step 1: where the code is. -->
     <div v-if="!chosenSource" class="grid gap-3" data-testid="source-picker">
+      <!-- GitHub connected: the repositories, right here. -->
+      <Card v-if="canPick" class="border-primary/30" data-testid="start-github">
+        <CardContent class="grid gap-4">
+          <div class="flex items-start gap-3">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
+            <span class="grid gap-0.5">
+              <span class="flex items-center gap-2 text-base font-semibold">
+                Deploy from GitHub
+                <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">Connected</span>
+              </span>
+              <span class="text-sm text-muted-foreground">Pick a repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.</span>
+            </span>
+          </div>
+          <RepoPicker compact :show-folder="false" id-prefix="start" @picked="startFromRepo" />
+        </CardContent>
+      </Card>
       <button
+        v-else
         type="button"
         class="group relative grid gap-3 overflow-hidden rounded-xl border bg-card p-5 text-left transition-colors hover:border-primary/50 sm:grid-cols-[auto_1fr_auto] sm:items-center"
-        :class="canPick && 'border-primary/30'"
         @click="pick('github')"
       >
         <span class="flex size-11 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
         <span class="grid gap-1">
-          <span class="flex items-center gap-2 text-base font-semibold">
-            Deploy from GitHub
-            <span v-if="canPick" class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">Connected</span>
-          </span>
+          <span class="text-base font-semibold">Deploy from GitHub</span>
           <span class="text-sm text-muted-foreground">
             Any repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.
           </span>
-          <span class="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground">
-            <span v-if="!canPick">Connect GitHub on the next step</span>
-          </span>
+          <span class="pt-1 text-xs text-muted-foreground">Connect GitHub on the next step</span>
         </span>
         <ArrowRight class="hidden size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground sm:block" />
       </button>
 
+      <h2 class="pt-3 text-sm font-medium text-muted-foreground">Or start from</h2>
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <button
           v-for="t in TILES"
@@ -454,10 +470,10 @@ const submit = form.handleSubmit(run)
         <CardContent class="grid gap-4">
           <div class="flex items-center justify-between gap-3">
             <Label class="text-sm">{{ SOURCE_LABEL[source] }}</Label>
-            <Button type="button" variant="ghost" size="sm" class="-my-1 h-7 px-2 text-xs" :disabled="busy" @click="chosenSource = null">Pick another source</Button>
+            <Button type="button" variant="ghost" size="sm" class="-my-1 h-7 px-2 text-xs" :disabled="busy" @click="(chosenSource = null), (startRepo = null)">Pick another source</Button>
           </div>
 
-          <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" />
+          <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" :start="startRepo" />
           <template v-if="source === 'github'">
             <p v-if="repo && mode === 'auto'" class="text-xs text-muted-foreground">bitploy looks for a Dockerfile in the repository. Without one, it serves an index.html as a website or builds a Node.js app.</p>
           </template>

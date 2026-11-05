@@ -22,7 +22,9 @@ import type { GitHubRepo, GitSourceInput } from '@/lib/types'
 // deploy. v-model is the choice as the git-source call wants it, or null while
 // nothing is picked. Used by "Connect a repository" in the app settings and by
 // the New app form.
-const props = withDefaults(defineProps<{ compact?: boolean; showFolder?: boolean; idPrefix?: string }>(), { showFolder: true, idPrefix: 'pick' })
+// `start` opens it with that repository picked (the New project page picks on its first step).
+const props = withDefaults(defineProps<{ compact?: boolean; showFolder?: boolean; idPrefix?: string; start?: GitHubRepo | null }>(), { showFolder: true, idPrefix: 'pick', start: null })
+const emit = defineEmits<{ picked: [repo: GitHubRepo] }>()
 const model = defineModel<GitSourceInput | null>({ default: null })
 const { isAdmin } = useSession()
 
@@ -57,6 +59,7 @@ function pick(r: GitHubRepo) {
   branch.value = r.default_branch
   subdir.value = ''
   auto.value = true
+  emit('picked', r)
 }
 // Main or master first, when the repository's own default is not known to exist.
 watch(
@@ -81,6 +84,7 @@ watch(
   },
   { flush: 'sync' },
 )
+if (props.start) pick(props.start)
 defineExpose({ canPick, configured, loading: computed(() => github.isPending.value) })
 </script>
 

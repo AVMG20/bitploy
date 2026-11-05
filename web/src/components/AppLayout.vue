@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ChevronRight, Search } from 'lucide-vue-next'
+import { Check, ChevronRight, ChevronsUpDown, Plus, Search } from 'lucide-vue-next'
+import StatusDot from '@/components/StatusDot.vue'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { useApp, useProject } from '@/composables/queries'
-import { projectRoute } from '@/lib/appLinks'
+import { useApp, useProject, useServiceTemplates } from '@/composables/queries'
+import { openAdd } from '@/composables/useAddToProject'
+import { appRoute, projectRoute } from '@/lib/appLinks'
+import { aliasOf, sortProjectApps } from '@/lib/projects'
+import type { App } from '@/lib/types'
 import { useEvents } from '@/composables/useEvents'
 import { modKey, paletteOpen, usePaletteShortcut } from '@/composables/useShortcuts'
 import AppSidebar from './AppSidebar.vue'
@@ -24,7 +29,8 @@ const slug = computed(() => (typeof route.params.slug === 'string' ? route.param
 const intoProject = computed(() => (typeof route.query.project === 'string' ? route.query.project : ''))
 const projectId = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : intoProject.value))
 const app = useApp(slug, () => !!slug.value)
-const { project } = useProject(projectId)
+const { list: projectList, project } = useProject(projectId)
+const templates = useServiceTemplates()
 const crumbs = computed(() => {
   const appName = app.data.value?.slug === slug.value ? app.data.value.name : slug.value
   if (projectId.value) {
@@ -32,13 +38,24 @@ const crumbs = computed(() => {
     const list: { label: string; to?: ReturnType<typeof projectRoute> | string }[] = [{ label: 'Projects', to: '/' }]
     if (slug.value) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: appName })
     else if (!route.params.projectId) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: route.name === 'new-app' ? 'Add an app' : String(route.meta.title ?? '') })
+    else if (route.meta.title) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: String(route.meta.title) })
     else list.push({ label: name || 'Project' })
     return list
   }
   if (slug.value) return [{ label: 'Projects', to: '/' }, { label: appName }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
+  if (route.name === 'new-app' || route.name === 'ready-made') return [{ label: 'Projects', to: '/' }, { label: String(route.meta.title ?? '') }]
+  if (route.name === 'new-catalog') return [{ label: 'Projects', to: '/' }, { label: 'Ready-made', to: '/ready-made' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
+
+// The app crumb switches to another app of the project, on the same tab.
+const siblings = computed(() => (slug.value && project.value ? sortProjectApps(project.value.apps, templates.data.value ?? []) : []))
+const canAdd = computed(() => !!project.value && !projectList.data.value?.fallback)
+function sameTab(a: App) {
+  const name = typeof route.name === 'string' && route.name.startsWith('app') && !route.name.startsWith('app-database') ? route.name : 'app'
+  return appRoute(a, name)
+}
 
 // On desktop the inset panel scrolls, not the window; reset it on navigation
 // the same way the router's scrollBehavior resets the window.
@@ -63,6 +80,30 @@ watch(
           <template v-for="(c, i) in crumbs" :key="i">
             <ChevronRight v-if="i > 0" class="size-3.5 shrink-0 text-muted-foreground/60" />
             <RouterLink v-if="c.to" :to="c.to" class="truncate text-muted-foreground transition-colors hover:text-foreground">{{ c.label }}</RouterLink>
+            <DropdownMenu v-else-if="i === crumbs.length - 1 && siblings.length > 1">
+              <DropdownMenuTrigger
+                class="-mx-1 inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 font-medium transition-colors hover:bg-accent aria-expanded:bg-accent"
+                aria-label="Switch to another app of the project"
+              >
+                <span class="truncate" aria-current="page">{{ c.label }}</span>
+                <ChevronsUpDown class="size-3.5 shrink-0 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" class="w-60">
+                <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">{{ project?.name }}</DropdownMenuLabel>
+                <DropdownMenuItem v-for="a in siblings" :key="a.id" as-child>
+                  <RouterLink :to="sameTab(a)">
+                    <StatusDot :status="a.status" />
+                    <span class="min-w-0 flex-1 truncate">{{ a.name }}</span>
+                    <span v-if="aliasOf(a) !== a.name" class="truncate font-mono text-xs text-muted-foreground">{{ aliasOf(a) }}</span>
+                    <Check v-if="a.slug === slug" class="size-3.5" />
+                  </RouterLink>
+                </DropdownMenuItem>
+                <template v-if="canAdd">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem @click="openAdd(project!.id)"><Plus /> Add to {{ project!.name }}</DropdownMenuItem>
+                </template>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span v-else class="truncate font-medium" aria-current="page">{{ c.label }}</span>
           </template>
         </nav>
