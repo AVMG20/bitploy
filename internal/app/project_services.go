@@ -187,10 +187,11 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 	}
 	queued = true
 	now := s.now()
+	bg := context.WithoutCancel(ctx) // the deployment is queued: a client that went away must not lose the restarts
 	for _, c := range connected {
 		// Stored, so a bitploy restart before the service is live does not
 		// lose the restart (reconcileRestarts).
-		if ierr := s.Q.InsertDeploymentRestart(ctx, db.InsertDeploymentRestartParams{DeploymentID: dep.ID, AppID: c.ID, CreatedAt: now}); ierr != nil {
+		if ierr := s.Q.InsertDeploymentRestart(bg, db.InsertDeploymentRestartParams{DeploymentID: dep.ID, AppID: c.ID, CreatedAt: now}); ierr != nil {
 			s.Log.Warn("add_service: store the restart of a connected app", "app", c.Slug, "err", ierr)
 		}
 	}
@@ -246,15 +247,24 @@ func (s *Service) reconcileRestarts(ctx context.Context) {
 		if ctx.Err() != nil || s.activeDeployment(r.DeploymentID) {
 			continue // its pipeline is finishing and does it
 		}
-		switch r.State {
-		case "running", "superseded":
-			if s.Docker == nil {
-				continue // nothing can restart now; kept for the next pass
+		live := r.State == "running" || r.State == "superseded"
+		if !live {
+			// bitploy stopped between the swap and the deployment's last step:
+			// the reconciler marked it failed, but it is what the app runs.
+			if d, err := s.Q.GetDeployment(ctx, r.DeploymentID); err == nil {
+				if ap, err := s.Q.GetApp(ctx, d.AppID); err == nil && ap.CurrentDeploymentID.Valid && ap.CurrentDeploymentID.String == d.ID {
+					live = true
+				}
 			}
-			s.runAfterLive(ctx, r.DeploymentID)
-		default:
-			s.forgetAfterLive(ctx, r.DeploymentID)
 		}
+		if !live {
+			s.forgetAfterLive(ctx, r.DeploymentID)
+			continue
+		}
+		if s.Docker == nil {
+			continue // nothing can restart now; kept for the next pass
+		}
+		s.runAfterLive(ctx, r.DeploymentID)
 	}
 }
 

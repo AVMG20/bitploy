@@ -197,6 +197,17 @@ func TestConnectRestartsAreStored(t *testing.T) {
 	if ids, _ := e.s.Q.TakeDeploymentRestarts(ctx, depID); len(ids) != 0 {
 		t.Fatalf("taken twice: %v", ids)
 	}
+	// A deployment marked failed that the app runs (bitploy stopped after
+	// the swap) went live: its restarts are kept for Docker.
+	e.exec(t, `INSERT INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, 1)`, depID, web.ID)
+	e.exec(t, `UPDATE deployments SET state = 'failed' WHERE id = ?`, depID)
+	e.exec(t, `UPDATE apps SET current_deployment_id = ? WHERE id = ?`, depID, pg.ID)
+	e.s.reconcileRestarts(ctx)
+	if count() != 1 {
+		t.Fatal("the restart of a live deployment marked failed was dropped")
+	}
+	e.exec(t, `UPDATE apps SET current_deployment_id = NULL WHERE id = ?`, pg.ID)
+	e.exec(t, `DELETE FROM deployment_restarts`)
 	// A failed deployment's restarts are dropped.
 	e.exec(t, `INSERT INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, 1)`, depID, web.ID)
 	e.exec(t, `UPDATE deployments SET state = 'failed' WHERE id = ?`, depID)

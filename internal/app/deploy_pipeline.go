@@ -1301,11 +1301,15 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
-	s.forgetAfterLive(bg, p.dep.ID)
 	if ae == errCancelled || ae.Code == "cancelled" {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
-			return // bitploy is shutting down: the reconciler cleans up after restart
+			// bitploy is shutting down: the reconciler cleans up after restart,
+			// and decides on the restarts of connected apps (reconcileRestarts).
+			return
 		}
+	}
+	s.forgetAfterLive(bg, p.dep.ID)
+	if ae == errCancelled || ae.Code == "cancelled" {
 		p.cleanupFailed(bg)
 		if who, ok := s.cancelRequester(p.dep.ID); ok {
 			// cancel_deployment: the live version stays, the app settles, and it is
