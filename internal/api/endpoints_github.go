@@ -113,7 +113,7 @@ func (a *API) githubRoutes() {
 	// ---- the repository of an app ----
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "clearGitSource", Method: http.MethodDelete, Path: "/apps/{app}/git-source", Tags: []string{"Deployments"},
-		Summary: "Unlink the repository", Description: "The app takes uploads again. What runs now keeps running.",
+		Summary: "Unlink the repository", Description: "The app takes uploads again. The running version keeps running.",
 	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.App], error) {
 		return okOrNil(a.svc.ClearGitSource(ctx, act, in.App))
 	})

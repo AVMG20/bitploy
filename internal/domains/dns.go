@@ -88,7 +88,7 @@ func Check(ctx context.Context, resolvers []Named, e Expect) Result {
 	}
 	res.Problem = fails[0].problem
 	if len(passing) > 0 {
-		res.Problem += fmt.Sprintf(" (as seen by %s; %s already sees the right records, so this may just be DNS spreading)",
+		res.Problem += fmt.Sprintf(" (as seen by %s; %s already sees the right records, so the change is probably still spreading)",
 			fails[0].resolver, strings.Join(passing, " and "))
 	}
 	return res

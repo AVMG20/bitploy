@@ -22,15 +22,15 @@ func ResolveBuildPaths(srcRoot, contextDir, dockerfilePath string) (ctxDir, dock
 		return p == rootReal || strings.HasPrefix(p, rootReal+string(filepath.Separator))
 	}
 	escape := apperr.Unprocessable("source_path_escapes",
-		"The build context or the Dockerfile points outside the project.",
-		"Use update_app to set context_dir and dockerfile_path to real folders and files inside the project, and remove links that lead elsewhere.").WithNext("update_app")
+		"The build context or the Dockerfile points outside your code.",
+		"Use update_app to set context_dir and dockerfile_path to folders and files inside your code, and remove links that lead elsewhere.").WithNext("update_app")
 
 	ctxDir, rerr = filepath.EvalSymlinks(filepath.Join(srcRoot, filepath.FromSlash(contextDir)))
 	if rerr != nil {
 		if os.IsNotExist(rerr) {
 			return "", "", apperr.Unprocessable("source_context_not_found",
-				"The build context folder does not exist in the project.",
-				"Use update_app to set context_dir to a folder that exists in the project (or \".\" for the project root).").WithNext("update_app")
+				"The build context folder does not exist in your code.",
+				"Use update_app to set context_dir to a folder that exists in your code (or \".\" for the top folder).").WithNext("update_app")
 		}
 		return "", "", escape
 	}
@@ -40,13 +40,13 @@ func ResolveBuildPaths(srcRoot, contextDir, dockerfilePath string) (ctxDir, dock
 	if info, serr := os.Stat(ctxDir); serr != nil || !info.IsDir() {
 		return "", "", apperr.Unprocessable("source_context_not_found",
 			"The build context is not a folder.",
-			"Use update_app to set context_dir to a folder in the project.").WithNext("update_app")
+			"Use update_app to set context_dir to a folder in your code.").WithNext("update_app")
 	}
 	dockerfile, rerr = filepath.EvalSymlinks(filepath.Join(srcRoot, filepath.FromSlash(dockerfilePath)))
 	if rerr != nil {
 		if os.IsNotExist(rerr) {
 			return "", "", apperr.Unprocessable("source_dockerfile_not_found",
-				"The Dockerfile does not exist in the project.",
+				"The Dockerfile does not exist in your code.",
 				"Add the Dockerfile, or use update_app to set dockerfile_path to where it is.").WithNext("update_app")
 		}
 		return "", "", escape

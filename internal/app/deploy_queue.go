@@ -143,7 +143,7 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 		Curl:      "curl -sS --fail-with-body --data-binary @app.zip -H 'Content-Type: application/zip' " + url,
 		ExpiresAt: exp.UTC(), MaxBytes: deploy.MaxZipCompressed,
 		NextSteps: []string{
-			"Run `zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy'` in the project folder, then run the curl command in that same folder, within 15 minutes.",
+			"Run `zip -r app.zip . -x 'node_modules/*' '*/node_modules/*' '.git/*' '*/.git/*' '.env' '.env.*' '*/.env' '*/.env.*' '.bitploy'` in the code folder, then run the curl command in that same folder, within 15 minutes.",
 			"After curl succeeds, call deploy with app=" + row.Slug + " and upload_id=" + id + ".",
 		},
 	}, nil
@@ -367,7 +367,7 @@ func (s *Service) redeploy(ctx context.Context, a Actor, ref string, latest bool
 	if len(deps) == 0 {
 		return Deployment{}, apperr.Conflict("app_not_deployed",
 			"This app has never been deployed, so there is nothing to redeploy.",
-			"Send the code first: deploy_files with all project files, create_upload and deploy for a zip, or set_git_source and deploy for a git repository.").WithNext("deploy_files")
+			"Send the code first: deploy_files with all files, create_upload and deploy for a zip, or set_git_source and deploy for a git repository.").WithNext("deploy_files")
 	}
 	return Deployment{}, apperr.Conflict("source_gone",
 		"The source of the last deployment is no longer stored, so there is nothing to rebuild.",
@@ -810,7 +810,7 @@ func (s *Service) nextSteps(d Deployment, appType string) []string {
 		return []string{"A newer deployment replaced this one. Call get_app to see the current one."}
 	case "cancelled":
 		if d.Error != nil && d.Error.Code == "cancelled" {
-			return []string{"The user's deployment was cancelled on request; this is not a failure and nothing needs fixing. The version that was live keeps running. Call get_app to see the current state."}
+			return []string{"This deployment was cancelled on request. It is not a failure and nothing needs fixing. The version that was live keeps running. Call get_app to see the current state."}
 		}
 		return []string{"A newer deployment replaced this one before it started, or the app was stopped. Call get_app to see the current state."}
 	}
@@ -1140,7 +1140,7 @@ func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Dep
 }
 
 func tooLateToCancel() *apperr.Error {
-	return apperr.Conflict("too_late_to_cancel", "It is already going live.", "Wait a moment; roll back if needed.")
+	return apperr.Conflict("too_late_to_cancel", "This deployment is already going live, so it cannot be cancelled.", "Wait until it is running; to undo it, call rollback with an older deployment.")
 }
 
 // CancelAppDeployment cancels the queued or in-progress deployment of an app
@@ -1156,7 +1156,7 @@ func (s *Service) CancelAppDeployment(ctx context.Context, a Actor, ref string) 
 		AND state IN ('queued','fetching','validating','building','starting','health_check') ORDER BY seq DESC LIMIT 1`, app.ID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Deployment{}, apperr.Conflict("no_deployment_to_cancel", "App "+quote(app.Slug)+" has no deployment that is queued or in progress.",
-			"Nothing to cancel. Call get_app to see the current deployment.").WithNext("get_app")
+			"Call get_app to see the current deployment.").WithNext("get_app")
 	}
 	if err != nil {
 		return Deployment{}, apperr.Internal(err)

@@ -635,7 +635,7 @@ func (s *session) update(req Request) (any, *Error) {
 				return nil, rowChanged()
 			}
 		}
-		return nil, errf("row_not_found", "This row does not exist (any more).", "Reload the table: someone may have deleted or changed the row.")
+		return nil, errf("row_not_found", "This row does not exist.", "Reload the table: someone may have deleted or changed the row.")
 	}
 	row, e := s.fetchRow(tx, m, key)
 	if e != nil {

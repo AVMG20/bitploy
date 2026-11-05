@@ -34,7 +34,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		auth.WriteError(w, apperr.TooMany("too_many_streams",
 			"You already have 10 live update streams open, which is the limit.",
-			"Close a dashboard tab you no longer use.").WithDetail("retry_after_seconds", 5))
+			"Close a bitploy tab you are not using.").WithDetail("retry_after_seconds", 5))
 		return
 	}
 	defer release()

@@ -62,7 +62,7 @@ func (s *Service) volumeEmpty(ctx context.Context, row db.App) (bool, error) {
 	vol := appVolumeName(row)
 	has, err := vs.HasVolume(ctx, vol)
 	if err != nil {
-		return false, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+		return false, apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute.")
 	}
 	if !has {
 		return true, nil

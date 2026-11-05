@@ -72,7 +72,7 @@ func TestCancelDeploymentTool(t *testing.T) {
 	}
 	add("dep_s", 4, "swapping")
 	res = call(t, cs, "cancel_deployment", map[string]any{"id": "dep_s"})
-	if m := structured(t, res); !res.IsError || m["code"] != "too_late_to_cancel" || m["hint"] != "Wait a moment; roll back if needed." {
+	if m := structured(t, res); !res.IsError || m["code"] != "too_late_to_cancel" || m["hint"] != "Wait until it is running; to undo it, call rollback with an older deployment." {
 		t.Errorf("swapping: %v", m)
 	}
 	res = call(t, cs, "cancel_deployment", map[string]any{"id": "dep_nope"})

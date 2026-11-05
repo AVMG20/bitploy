@@ -49,14 +49,14 @@ func sizeText(b int64) string {
 // VolumeOverMessage is the status message of an app stopped for exceeding its volume limit.
 func VolumeOverMessage(limitMB, usedBytes int64) string {
 	return fmt.Sprintf("%s %s limit (it holds %s), so bitploy stopped the app. "+
-		"Delete files you no longer need from /data (from inside the app), or give the app a bigger storage limit (Settings in the dashboard, or update_app volume_mb), then start the app again.",
+		"Delete files you no longer need from /data (from inside the app), or give the app a bigger storage limit (Storage tab in the dashboard, or update_app volume_mb), then start the app again.",
 		msgVolumeOver, quotaText(limitMB), sizeText(usedBytes))
 }
 
 // VolumeWarnMessage is the warning for a volume at 80% of its limit or more.
 func VolumeWarnMessage(limitMB, usedBytes int64) string {
 	return fmt.Sprintf("%s: it holds %s of its %s limit. At 100%% bitploy stops the app. "+
-		"Delete files you no longer need from /data, or give the app a bigger storage limit (Settings in the dashboard, or update_app volume_mb).",
+		"Delete files you no longer need from /data, or give the app a bigger storage limit (Storage tab in the dashboard, or update_app volume_mb).",
 		msgVolumeWarn, sizeText(usedBytes), quotaText(limitMB))
 }
 

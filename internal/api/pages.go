@@ -74,7 +74,7 @@ func (a *API) appPage(w http.ResponseWriter, r *http.Request, slug, domain strin
 		case err == nil:
 			status = http.StatusServiceUnavailable
 			d.Title = "This app is stopped"
-			d.Lines = []string{"The owner stopped this app, or it is not running right now.", "If it is yours, start it from the bitploy dashboard."}
+			d.Lines = []string{"The owner stopped this app, or it is not running.", "If it is yours, start it from the bitploy dashboard."}
 		case errors.Is(err, sql.ErrNoRows):
 		default:
 			a.svc.Log.Error("catch-all lookup failed", "err", err)

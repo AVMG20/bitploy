@@ -84,7 +84,7 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 		}
 		if reservedEnvName(n) {
 			return nil, apperr.BadRequest("env_name_reserved", "The variable "+quote(n)+" is set by bitploy itself.",
-				"PORT, BITPLOY_APP and BITPLOY_URL are injected into every app. Pick another name.")
+				"bitploy sets PORT, BITPLOY_APP and BITPLOY_URL in every app. Pick another name.")
 		}
 		if len(v) > maxEnvValueLen || strings.ContainsRune(v, 0) {
 			return nil, apperr.BadRequest("env_value_invalid", "The value of "+quote(n)+" is too long (max 32 KB) or contains a NUL byte.", "Store big files elsewhere and keep only a short value here.")

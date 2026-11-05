@@ -468,7 +468,7 @@ func (s *Service) GitHubBranches(ctx context.Context, a Actor, repo string) (Git
 		return GitHubBranches{}, githubError(lastErr)
 	}
 	return GitHubBranches{}, apperr.NotFound("github_repo_not_connected",
-		"Bitploy cannot see "+repo+" through your connected GitHub accounts.",
+		"bitploy cannot see "+repo+" through your connected GitHub accounts.",
 		"Give bitploy access to this repository in Settings > GitHub, or type the branch name yourself.")
 }
 

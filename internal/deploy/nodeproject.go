@@ -37,7 +37,7 @@ func CleanOutputDir(dir string) (string, error) {
 	}
 	dir = strings.TrimRight(dir, "/")
 	if strings.HasPrefix(dir, "/") {
-		return "", fmt.Errorf("it must be a folder inside the project, not an absolute path")
+		return "", fmt.Errorf("it must be a folder inside your code, not an absolute path")
 	}
 	for _, seg := range strings.Split(dir, "/") {
 		if seg == ".." {
@@ -411,7 +411,7 @@ func explicitProject(files []string, hasIndex bool, read func(string) []byte, wh
 	}
 	if !has {
 		return nil, cannotBuild(CodePackageJSONMissing,
-			"There is no package.json at the top of the project, so it cannot be built as "+what+".",
+			"There is no package.json at the top of your code, so it cannot be built as "+what+".",
 			"Put package.json in the top folder, or choose another type.")
 	}
 	p, ok := readProject(files, hasIndex, read)
@@ -444,7 +444,7 @@ func nodeModePlan(files []string, hasIndex bool, userIgnore []byte, read func(st
 	plan, ok := p.buildNode(userIgnore, why)
 	if !ok {
 		return BuildPlan{}, cannotBuild(CodeStartScriptMissing,
-			"Bitploy cannot set up this project as a Node.js app.",
+			"bitploy cannot set up this code as a Node.js app.",
 			"Add a Dockerfile and choose Own Dockerfile as the type.")
 	}
 	return plan, nil
@@ -459,7 +459,7 @@ func staticBuildPlan(files []string, hasIndex bool, userIgnore []byte, outputDir
 	if !p.scripts["build"] {
 		return BuildPlan{}, cannotBuild(CodeBuildScriptMissing,
 			"package.json has no build script, so there is nothing to build.",
-			`Add a build script to package.json, like "build": "vite build", or choose Plain website if you have ready-made files.`)
+			`Add a build script to package.json, like "build": "vite build", or set the type to Plain website if the files are ready to serve.`)
 	}
 	out, spa := staticDefaults(p.framework())
 	if outputDir != "" {
@@ -472,7 +472,7 @@ func staticBuildPlan(files []string, hasIndex bool, userIgnore []byte, outputDir
 	plan, ok := p.buildStatic(userIgnore, out, spa, "The app is set to be a static build: building the site and serving the "+out+" folder with nginx.")
 	if !ok {
 		return BuildPlan{}, cannotBuild(CodeBuildScriptMissing,
-			"Bitploy cannot set up this project as a static build.",
+			"bitploy cannot set up this code as a static build.",
 			"Add a Dockerfile and choose Own Dockerfile as the type.")
 	}
 	return plan, nil

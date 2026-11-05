@@ -154,8 +154,8 @@ func backupNotFound() *apperr.Error {
 }
 
 func volumeOffErr() *apperr.Error {
-	return apperr.Conflict("volume_off", "The /data folder is turned off for this app, so there is nothing to back up or restore into.",
-		"Turn /data on first (update_app with volume=true, or the Storage tab in the dashboard).")
+	return apperr.Conflict("volume_off", "Saved files (/data) are turned off for this app, so there is nothing to back up or restore into.",
+		"Turn them on with update_app volume=true, or in the dashboard under Storage.")
 }
 
 func volumeNotReadyErr() *apperr.Error {
@@ -378,7 +378,7 @@ func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string, volume 
 		return Backup{}, err
 	}
 	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
-		return Backup{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+		return Backup{}, apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute.")
 	} else if !has {
 		return Backup{}, volumeNotReadyErr()
 	}

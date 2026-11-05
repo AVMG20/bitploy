@@ -644,7 +644,7 @@ func (p *composeParser) scanTop(raw map[string]any) {
 		case k == "include":
 			p.errf(CodeComposeForbidden, "", k, "Put every service in one compose file.", "include is not allowed: bitploy reads only the one compose file.")
 		case k == "models", k == "jobs":
-			p.errf(CodeComposeUnsupported, "", k, "Leave it out and deploy the services only.", "Top-level %s is not supported by bitploy.", k)
+			p.errf(CodeComposeUnsupported, "", k, "Leave it out and deploy the services only.", "bitploy does not support top-level %s.", k)
 		default:
 			p.warnf(CodeComposeKeyIgnored, "", k, "", "The top-level key %s is not used by bitploy and is ignored.", k)
 		}
@@ -787,10 +787,10 @@ func (p *composeParser) scanBuild(name string, m map[string]any) {
 			}
 		case "privileged", "entitlements", "ssh", "secrets", "extra_hosts", "additional_contexts":
 			if isTruthy(v) {
-				p.errf(CodeComposeForbidden, name, key, "Remove "+key+": builds run on bitploy's isolated builder, from the project's files only.", "%s%s is not allowed.", svcPrefix(name), key)
+				p.errf(CodeComposeForbidden, name, key, "Remove "+key+": builds run on bitploy's isolated builder, from your code's files only.", "%s%s is not allowed.", svcPrefix(name), key)
 			}
 		case "dockerfile_inline":
-			p.errf(CodeComposeUnsupported, name, key, "Put the Dockerfile in the project and point build.dockerfile at it.", "%sbuild.dockerfile_inline is not supported.", svcPrefix(name))
+			p.errf(CodeComposeUnsupported, name, key, "Put the Dockerfile in your code and point build.dockerfile at it.", "%sbuild.dockerfile_inline is not supported.", svcPrefix(name))
 		default:
 			if !strings.HasPrefix(k, "x-") {
 				p.warnf(CodeComposeKeyIgnored, name, key, "", "%s%s is not used by bitploy and is ignored.", svcPrefix(name), key)
@@ -958,7 +958,7 @@ func (p *composeParser) service(name string, sc, ref types.ServiceConfig, proj *
 			p.errf(CodeComposeInvalid, name, "image", "Use an image name like postgres:16-alpine or ghcr.io/owner/name:tag.",
 				"%sthe image %q is not a valid image name.", svcPrefix(name), svc.Image)
 		} else if forbiddenImage(svc.Image) {
-			p.errf(CodeBaseForbidden, name, "image", "Use a public image, or build the service from the project with build:.",
+			p.errf(CodeBaseForbidden, name, "image", "Use a public image, or build the service from your code with build:.",
 				"%sthe image %s is not allowed: bitploy/* images belong to the apps on this server.", svcPrefix(name), svc.Image)
 		}
 	default:
@@ -1210,14 +1210,14 @@ func (p *composeParser) build(svc *ComposeService, b *types.BuildConfig) {
 		ctx = "."
 	}
 	if strings.Contains(ctx, "://") || strings.HasPrefix(ctx, "git@") || strings.HasSuffix(ctx, ".git") {
-		p.errf(CodeComposeForbidden, svc.Name, "build.context", "Point build.context at a folder of the project, like . or ./backend.",
-			"%sthe build context %s is not a folder of the project; bitploy builds only from the project's own files.", svcPrefix(svc.Name), ctx)
+		p.errf(CodeComposeForbidden, svc.Name, "build.context", "Point build.context at a folder of your code, like . or ./backend.",
+			"%sthe build context %s is not a folder of your code; bitploy builds only from the files you send.", svcPrefix(svc.Name), ctx)
 		return
 	}
 	c, ok := p.joinSource(ctx)
 	if !ok {
-		p.errf(CodeComposeForbidden, svc.Name, "build.context", "Point build.context at a folder inside the project, like . or ./backend.",
-			"%sthe build context %s is outside the project.", svcPrefix(svc.Name), ctx)
+		p.errf(CodeComposeForbidden, svc.Name, "build.context", "Point build.context at a folder inside your code, like . or ./backend.",
+			"%sthe build context %s is outside your code.", svcPrefix(svc.Name), ctx)
 		return
 	}
 	svc.Context = c
@@ -1232,7 +1232,7 @@ func (p *composeParser) build(svc *ComposeService, b *types.BuildConfig) {
 	}
 	full := path.Clean(path.Join(c, df))
 	if full == ".." || strings.HasPrefix(full, "../") {
-		p.errf(CodeComposeForbidden, svc.Name, "build.dockerfile", "Keep the Dockerfile inside the project.", "%sthe Dockerfile %s is outside the project.", svcPrefix(svc.Name), df)
+		p.errf(CodeComposeForbidden, svc.Name, "build.dockerfile", "Keep the Dockerfile inside your code.", "%sthe Dockerfile %s is outside your code.", svcPrefix(svc.Name), df)
 		return
 	}
 	svc.Dockerfile = full
@@ -1252,13 +1252,13 @@ func (p *composeParser) envFile(service string, i int, ef types.EnvFile, env map
 	key := fmt.Sprintf("env_file[%d]", i)
 	rel, ok := p.joinSource(ef.Path)
 	if !ok {
-		p.errf(CodeComposeForbidden, service, key, "Keep env files inside the project, or set the variables with set_env.",
-			"%sthe env file %s is outside the project.", svcPrefix(service), ef.Path)
+		p.errf(CodeComposeForbidden, service, key, "Keep env files inside your code, or set the variables with set_env.",
+			"%sthe env file %s is outside your code.", svcPrefix(service), ef.Path)
 		return
 	}
 	if p.in.Read == nil {
-		p.warnf(CodeComposeEnvFileMissing, service, key, "Deploy the project with that file, or set the variables with set_env.",
-			"%sthe env file %s is not checked: there are no project files here.", svcPrefix(service), rel)
+		p.warnf(CodeComposeEnvFileMissing, service, key, "Deploy your code with that file, or set the variables with set_env.",
+			"%sthe env file %s is not checked: only the compose file was sent.", svcPrefix(service), rel)
 		return
 	}
 	data := p.in.Read(rel)
@@ -1267,8 +1267,8 @@ func (p *composeParser) envFile(service string, i int, ef types.EnvFile, env map
 			return
 		}
 		p.errf(CodeComposeEnvFileMissing, service, key,
-			"Add the file to the project, mark it required: false, or remove env_file and set the variables with set_env (best for secrets).",
-			"%sthe env file %s is not in the project.", svcPrefix(service), rel)
+			"Add the file to your code, mark it required: false, or remove env_file and set the variables with set_env (best for secrets).",
+			"%sthe env file %s is not in your code.", svcPrefix(service), rel)
 		return
 	}
 	if len(data) > maxEnvFileBytes {

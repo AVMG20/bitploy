@@ -34,7 +34,7 @@ func (a *API) catalogRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deployCatalogApp", Method: http.MethodPost, Path: "/catalog/{id}/deploy", Tags: []string{"Catalog"},
 		Summary: "Create an app from the catalog and deploy it",
-		Description: "Creates the app (the usual quotas and slug rules apply), sets its environment, deploys the catalog Dockerfile and returns the app, the deployment and the first steps to take. " +
+		Description: "Creates the app (the quotas and slug rules of POST /apps apply), sets its environment, deploys the catalog Dockerfile and returns the app, the deployment and the first steps to take. " +
 			"If anything fails, the app is removed again. Accepts an Idempotency-Key header.",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *struct {

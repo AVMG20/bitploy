@@ -201,7 +201,7 @@ func NormalizeGitURL(raw string) (string, error) {
 		return "", invalid("The repository URL is empty.", "Pass the HTTPS address of the repository, for example https://github.com/owner/repo.")
 	}
 	if strings.HasPrefix(raw, "git@") || strings.HasPrefix(raw, "ssh://") || strings.HasPrefix(raw, "git://") || strings.HasPrefix(raw, "http://") {
-		return "", invalid("Bitploy only clones over HTTPS, and this address does not start with https://.",
+		return "", invalid("bitploy clones only over HTTPS, and this address does not start with https://.",
 			"Use the HTTPS address, for example https://github.com/owner/repo (on GitHub: Code, then HTTPS).")
 	}
 	u, err := url.Parse(raw)
@@ -607,7 +607,7 @@ func mapGitError(err error, src GitSource) *apperr.Error {
 		}
 		return apperr.NotFound("source_repo_not_found",
 			"The server refused access to this repository.",
-			"Bitploy can clone public repositories from any host and private ones from github.com only. Check the address or make the repository public.").WithNext("set_git_source")
+			"bitploy clones public repositories from any host, and private ones only from github.com. Check the address or make the repository public.").WithNext("set_git_source")
 	case errors.Is(err, transport.ErrEmptyRemoteRepository):
 		return apperr.Unprocessable("source_branch_not_found",
 			"The repository is empty, so there is nothing to deploy.",
@@ -623,8 +623,8 @@ func mapGitError(err error, src GitSource) *apperr.Error {
 			"Check the branch name (main or master are common) and call set_git_source again.").WithNext("set_git_source")
 	}
 	return apperr.Unavailable("source_git_failed",
-		"Bitploy could not read the repository: "+text,
-		"Check that the address is correct and the host is up, then try again. If it keeps failing, deploy a zip of the folder instead.").WithNext("set_git_source")
+		"bitploy could not read the repository: "+text,
+		"Check the address and that the host is up, then try again. If it fails again, deploy a zip of the folder instead.").WithNext("set_git_source")
 }
 
 // notReadable covers GitHub's "401 or 404" answer, which looks the same for a
@@ -635,14 +635,14 @@ func notReadable(src GitSource, github, hasToken bool) *apperr.Error {
 		if advice == "" {
 			advice = fmt.Sprintf("Open %s, press Connect GitHub and give bitploy access to this repository.", src.settingsText())
 		}
-		msg := "Bitploy cannot read this GitHub repository. It is private, or the address is misspelled."
+		msg := "bitploy cannot read this GitHub repository. It is private, or the address is misspelled."
 		if hasToken {
-			msg = "Bitploy's GitHub connection does not include this repository, or the address is misspelled."
+			msg = "bitploy's GitHub connection does not include this repository, or the address is misspelled."
 		}
 		return apperr.Unprocessable("github_access_missing", msg,
 			"Check the address. If the repository is private: "+advice+" Then call set_git_source again.").WithNext("set_git_source")
 	}
 	return apperr.NotFound("source_repo_not_found",
 		"The repository was not found, or it needs a login.",
-		"Check the address. Bitploy clones public repositories from any host and private ones from github.com only. Make the repository public or move it to GitHub.").WithNext("set_git_source")
+		"Check the address. bitploy clones public repositories from any host, and private ones only from github.com. Make the repository public or move it to GitHub.").WithNext("set_git_source")
 }

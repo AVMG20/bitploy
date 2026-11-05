@@ -197,7 +197,7 @@ func (s *Service) pushStatus(ctx context.Context, a Actor, r db.App, key string,
 	}
 	switch {
 	case matching:
-		return pushNoAccess, "Bitploy cannot use " + key + " yet. Give it access on GitHub, then press Sync from GitHub in Settings > GitHub."
+		return pushNoAccess, "bitploy cannot use " + key + " yet. Give it access on GitHub, then press Sync from GitHub in Settings > GitHub."
 	case inactive:
 		return pushReconnect, "GitHub access for " + owner + " was removed or paused. Connect GitHub again to deploy on every push."
 	case len(links) == 0:

@@ -330,7 +330,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string,
 	}
 	runner, ok := vs.(dbRunner)
 	if !ok {
-		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach the data folder right now.", "Try again in a minute.")
+		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach the files in /data.", "Try again in a minute.")
 	}
 	body, err := json.Marshal(req)
 	if err != nil {

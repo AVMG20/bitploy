@@ -277,12 +277,12 @@ func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.Us
 		s.publishBackup(ctx, app.ID)
 	}
 	if err := s.checkBackupDisk(); err != nil {
-		fail("The server is almost out of disk space.")
+		fail("The server is almost out of disk space, so no backup was made. Tell the bitploy admin.")
 		return false
 	}
 	room, err := s.backupRoom(ctx, owner)
 	if err != nil {
-		fail("Something went wrong on the server.")
+		fail("A server error stopped this backup. If it repeats, tell the bitploy admin.")
 		return false
 	}
 	if room == 0 {

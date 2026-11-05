@@ -74,7 +74,7 @@ func backupErrText(err error) string {
 	if len([]rune(msg)) > 300 {
 		msg = string([]rune(msg)[:300]) + "..."
 	}
-	return "The data folder could not be read: " + msg
+	return "The files in /data could not be read: " + msg
 }
 
 // makeBackup writes <backups>/<app>/<id>.tar.gz from the app's volume and
@@ -245,7 +245,7 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 		return BackupRestore{}, err
 	}
 	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
-		return BackupRestore{}, apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute.")
+		return BackupRestore{}, apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute.")
 	} else if !has {
 		return BackupRestore{}, volumeNotReadyErr()
 	}
@@ -438,11 +438,11 @@ func (s *Service) runRestore(ctx context.Context, row db.App, owner db.User, b d
 	// A backup of what is there now, so a restore can be undone.
 	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore, b.Volume)
 	if err != nil {
-		return errors.New("Something went wrong on the server. Nothing was restored.")
+		return errors.New("A server error stopped the restore before it began. Nothing was changed.")
 	}
 	if err := s.finishBackup(ctx, app, owner, safe.ID, room, true); err != nil {
 		if errors.Is(err, dockerx.ErrNoVolume) {
-			return errors.New("This app has no data folder yet, so there is nothing to restore into. Start the app once and try again.")
+			return errors.New("This app has no /data folder yet, so there is nothing to restore into. Start the app once and try again.")
 		}
 		return errors.New("The current data could not be backed up first, so nothing was restored. " + backupErrText(err))
 	}

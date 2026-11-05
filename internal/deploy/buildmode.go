@@ -224,7 +224,7 @@ func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []s
 				return homePlan(dockerignore, page), nil
 			}
 			return BuildPlan{}, apperr.Unprocessable("static_index_missing",
-				"There is no .html page at the top of the project, so there is no website to show.",
+				"There is no .html page at the top of your code, so there is no website to show.",
 				"Put index.html, or your page, in the top folder next to your other website files, then deploy again.")
 		}
 		return staticPlan(dockerignore, "The app is set to be a static site, so it is served as plain website files with nginx."), nil
@@ -319,11 +319,11 @@ func nothingToBuild(files []string, hasPage bool) *apperr.Error {
 	name := templateStackFor(stack)
 	tpl, _ := templates.Get(name)
 	msg := "No Dockerfile or index.html found."
-	hint := "Add a Dockerfile, or an index.html for a plain website, at the top of the project. Your AI assistant can set this up for you."
+	hint := "Add a Dockerfile, or an index.html for a plain website, at the top of your code. Your AI assistant can write the Dockerfile."
 	if hasPage {
 		msg = "No Dockerfile found."
 		if lang := stackLanguage(stack); lang != "" {
-			msg = fmt.Sprintf("No Dockerfile found. This is a %s project, so it has to be built before it can be shown.", lang)
+			msg = fmt.Sprintf("No Dockerfile found. This is a %s app, so it has to be built before it can be shown.", lang)
 			hint = "Add a Dockerfile (your AI assistant can write one), or upload the built website instead, usually the dist or build folder."
 		}
 	}

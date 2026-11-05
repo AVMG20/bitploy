@@ -54,7 +54,7 @@ func normalizeBuildMode(m string) (string, error) {
 	}
 	if !deploy.ValidBuildMode(m) {
 		return "", apperr.BadRequest("build_mode_invalid", "The build mode "+quote(m)+" is not known.",
-			"Use dockerfile (the source needs a Dockerfile, the default), auto (detect what the source is), node (a Node.js app), static_build (build a site and serve the output folder), static (always a plain website) or compose (run the services of the project's compose file).")
+			"Use dockerfile (the source needs a Dockerfile, the default), auto (detect what the source is), node (a Node.js app), static_build (build a site and serve the output folder), static (always a plain website) or compose (run the services of the compose file in the source).")
 	}
 	return m, nil
 }
@@ -70,7 +70,7 @@ func normalizeComposePath(p string) (string, error) {
 	lower := strings.ToLower(clean)
 	if err != nil || len(clean) > 200 || !(strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")) {
 		return "", apperr.BadRequest("compose_path_invalid", "The compose file path "+quote(p)+" is not allowed.",
-			"Use a relative path to a .yaml or .yml file inside the project, like compose.yaml or deploy/compose.prod.yaml, or leave it empty.")
+			"Use a relative path to a .yaml or .yml file inside the source, like compose.yaml or deploy/compose.prod.yaml, or leave it empty.")
 	}
 	return clean, nil
 }
@@ -454,7 +454,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			cd = "."
 		}
 		if strings.HasPrefix(cd, "/") || cd == ".." || strings.HasPrefix(cd, "../") || strings.Contains(cd, "/../") || strings.HasSuffix(cd, "/..") {
-			return App{}, apperr.BadRequest("context_dir_invalid", "The build context folder must be inside the project.", "Use a relative folder such as . or backend.")
+			return App{}, apperr.BadRequest("context_dir_invalid", "The build context folder must be inside the source.", "Use a relative folder such as . or backend.")
 		}
 		p.ContextDir = path.Clean(cd)
 		changed["context_dir"] = p.ContextDir
@@ -1086,7 +1086,7 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 			return nil // no host memory stats off Linux (dev machines)
 		}
 		return apperr.Unavailable("server_room_unknown",
-			"Bitploy could not check whether the server has room for this app right now.",
+			"bitploy could not check whether the server has room for this app.",
 			"Try again in a minute. If it keeps failing, tell the bitploy admin.")
 	}
 	if !ok {

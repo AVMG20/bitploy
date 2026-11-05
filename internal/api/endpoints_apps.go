@@ -20,7 +20,7 @@ type AppRef struct {
 
 type validateRequest struct {
 	Dockerfile string   `json:"dockerfile" doc:"Full Dockerfile text"`
-	FileList   []string `json:"file_list,omitempty" doc:"Paths of the project files, to improve the checks (.dockerignore, .env, node_modules...)"`
+	FileList   []string `json:"file_list,omitempty" doc:"Paths of the files in your code, to improve the checks (.dockerignore, .env, node_modules...)"`
 	Port       int      `json:"port,omitempty" doc:"The app's port setting, if you set one"`
 }
 
@@ -59,10 +59,10 @@ func (a *API) appRoutes() {
 		OperationID: "getTemplate", Method: http.MethodGet, Path: "/templates/{stack}", Tags: []string{"Templates"},
 		Summary: "Get a Dockerfile template",
 		Description: "Stacks: " + strings.Join(templates.Stacks, ", ") + ". " +
-			"Pass the project's file paths in `file` (repeat it) so the Dockerfile matches the package manager (npm, pnpm, yarn, bun; pip, uv, Poetry).",
+			"Pass your code's file paths in `file` (repeat it) so the Dockerfile matches the package manager (npm, pnpm, yarn, bun; pip, uv, Poetry).",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		Stack string   `path:"stack"`
-		Files []string `query:"file,explode" doc:"A project file path, relative with forward slashes; repeat for each file"`
+		Files []string `query:"file,explode" doc:"A file path in your code, relative with forward slashes; repeat for each file"`
 	}) (*Out[app.Template], error) {
 		return okOrNil(a.svc.GetTemplateForFiles(ctx, act, in.Stack, in.Files))
 	})
@@ -76,12 +76,12 @@ func (a *API) appRoutes() {
 		OperationID: "validateCompose", Method: http.MethodPost, Path: "/compose/validate", Tags: []string{"Templates"},
 		Summary: "Check a compose file",
 		Description: "Reads a compose file the way a deploy would, without building or starting anything, and returns what would run: " +
-			"each service (built from the project or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, " +
+			"each service (built from your code or a ready-made image, public or not, port, memory, CPU, depends_on, volumes), the volumes, " +
 			"the totals and how they fit the quota (`quota.message`, like: This needs 1.2 GB of memory of the 1.5 GB you have left). " +
 			"A file with problems still answers 200: `ok` is false and `errors` lists them, each with a stable `code`, the `service` and compose `key` at fault, " +
 			"and a `hint`. Only a body that is not JSON, or a compose text over 256 KB, is a 4xx. " +
 			"Pass `app` to fill in ${VAR} from that app's variables and to leave its own use out of the quota. " +
-			"The Dockerfiles of build services are checked at deploy time, when the project's files are there. Read scope is enough.",
+			"The Dockerfiles of build services are checked at deploy time, when the code is there. Read scope is enough.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.ValidateComposeInput }) (*Out[app.ComposePreview], error) {
 		return okOrNil(a.svc.ValidateCompose(ctx, act, in.Body))
 	})
@@ -332,7 +332,7 @@ func (a *API) appRoutes() {
 		OperationID: "setPasswordProtection", Method: http.MethodPut, Path: "/apps/{app}/password-protection", Tags: []string{"Apps"},
 		Summary: "Turn password protection on or off",
 		Description: "A login prompt (username and password) in front of the app's web addresses. enabled=true needs a username and a password " +
-			"the first time; send either one alone to change just that while it stays on. enabled=false removes the prompt and forgets the login. " +
+			"the first time; while it is on, send only one of them to change that one. enabled=false removes the prompt and forgets the login. " +
 			"The password is never returned. Takes effect within a second or two. Needs the deploy scope.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef

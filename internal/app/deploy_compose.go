@@ -134,11 +134,11 @@ func singleMappable(svc deploy.ComposeService) bool {
 }
 
 func composeFileMissing(app db.App) *apperr.Error {
-	msg := "The app deploys a compose file, but the project has no compose.yaml (nor compose.yml, docker-compose.yaml or docker-compose.yml)."
+	msg := "The app deploys a compose file, but the source has no compose.yaml (nor compose.yml, docker-compose.yaml or docker-compose.yml)."
 	if app.ComposePath != "" {
-		msg = "The app deploys the compose file " + app.ComposePath + ", but the project has no such file."
+		msg = "The app deploys the compose file " + app.ComposePath + ", but the source has no such file."
 	}
-	hint := "Add the compose file to the project, or set compose_path with update_app when it has another name or folder."
+	hint := "Add the compose file to the code, or set compose_path with update_app when it has another name or folder."
 	if !isMulti(app) {
 		hint += " To build only the Dockerfile instead, call update_app with build_mode=\"dockerfile\"."
 	}
@@ -192,8 +192,8 @@ func (s *Service) checkComposeServices(app db.App, proj *deploy.ComposeProject, 
 		if read(svc.Dockerfile) == nil {
 			return nil, (deploy.ComposeIssue{
 				Code: deploy.CodeComposeSourceMissing, Service: svc.Name, Key: "build",
-				Message: fmt.Sprintf("The %s service is built from %s, which is not in the project.", svc.Name, svc.Dockerfile),
-				Hint:    "Send the whole project (deploy_files with every file, a zip upload or a git repository), point build.context and build.dockerfile at the right place, or run a ready-made image with image: instead. A compose file on its own can only run image: services.",
+				Message: fmt.Sprintf("The %s service is built from %s, which is not in the source.", svc.Name, svc.Dockerfile),
+				Hint:    "Send all the code (deploy_files with every file, a zip upload or a git repository), point build.context and build.dockerfile at the right place, or run a ready-made image with image: instead. A compose file on its own can only run image: services.",
 			}).Err()
 		}
 		eff := app
@@ -577,7 +577,7 @@ func composeHintOnMissing(ae *apperr.Error, files []string, app db.App) *apperr.
 		return ae
 	}
 	out := *ae
-	out.Hint = strings.TrimSpace(out.Hint + " The project has " + f + ": if the app needs the services in it, deploy that instead with update_app build_mode=\"compose\", then deploy again. For a simple app, one Dockerfile with SQLite in /data is easier to run.")
+	out.Hint = strings.TrimSpace(out.Hint + " The source has " + f + ": if the app needs the services in it, deploy that instead with update_app build_mode=\"compose\", then deploy again. For a simple app, one Dockerfile with SQLite in /data is easier to run.")
 	return &out
 }
 
@@ -626,7 +626,7 @@ type ComposePreview struct {
 // ComposePreviewService is one service of a ComposePreview.
 type ComposePreviewService struct {
 	Name       string               `json:"name"`
-	Kind       string               `json:"kind" enum:"build,image" doc:"build: built from the project; image: a ready-made image"`
+	Kind       string               `json:"kind" enum:"build,image" doc:"build: built from the source; image: a ready-made image"`
 	Image      string               `json:"image,omitempty" doc:"The image an image service runs"`
 	Build      *ComposePreviewBuild `json:"build" doc:"How a build service is built; null for an image service"`
 	Public     bool                 `json:"public" doc:"The service the app's address points at"`

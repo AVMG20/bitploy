@@ -56,7 +56,7 @@ func (s *Service) GetTemplateForFiles(ctx context.Context, a Actor, stack string
 
 // DeployRules returns the server instructions plus the runtime contract (markdown).
 func (s *Service) DeployRules(ctx context.Context, a Actor) (string, error) {
-	return "# Bitploy deploy rules\n\n" +
+	return "# bitploy deploy rules\n\n" +
 		rules.Instructions(s.Cfg.AppURL("<slug>"), s.Cfg.AppsDomain) +
 		"\n" + rules.RuntimeContract, nil
 }
@@ -113,13 +113,13 @@ func (s *Service) validate(dockerfile string, fileList []string, appPort int, ap
 	}
 	if res.OK {
 		out.NextSteps = []string{
-			"Deploy it: deploy_files with ALL project files, it replaces the whole source (up to 2 MB and 200 files), or create_upload for a zip.",
+			"Deploy it: deploy_files with ALL files of the code (it replaces the whole source; up to 2 MB and 200 files), or create_upload for a zip.",
 			"Read any warnings first; they do not block the deploy.",
 		}
 	} else {
 		out.NextSteps = []string{"Fix every finding with severity error, then call validate_dockerfile again."}
 		if e := deploy.FirstError(res, fileList); e != nil && e.Code == deploy.CodeDockerfileMissing {
-			out.NextSteps = []string{"Call get_template with stack \"" + templateName(e) + "\", save its Dockerfile and .dockerignore into the project, adapt them, then call validate_dockerfile again."}
+			out.NextSteps = []string{"Call get_template with stack \"" + templateName(e) + "\", save its Dockerfile and .dockerignore in the code folder, adapt them, then call validate_dockerfile again."}
 		}
 	}
 	return out, nil

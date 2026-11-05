@@ -370,12 +370,12 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 	}
 	if len(plan.Inject) > 0 {
 		if err := writeInjected(p.srcRoot, plan); err != nil {
-			what := "to build your project"
+			what := "to build the app"
 			if plan.Kind == deploy.BuildKindStatic {
 				what = "to serve them as a website"
 			}
-			return apperr.Unprocessable("source_invalid", "Bitploy could not prepare the files "+what+".",
-				"Check that .dockerignore in the project is a plain file, then deploy again.").WithCause(err)
+			return apperr.Unprocessable("source_invalid", "bitploy could not prepare the files "+what+".",
+				"Check that .dockerignore in the code is a plain file, then deploy again.").WithCause(err)
 		}
 		p.app = effApp // the build uses the generated Dockerfile at the source root
 	}
@@ -487,7 +487,7 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 			"Tell the bitploy admin; your running apps are not affected. Try again later.")
 	}
 	if !filepath.IsLocal(filepath.FromSlash(p.app.ContextDir)) && p.app.ContextDir != "." {
-		return apperr.Unprocessable("context_dir_invalid", "The build context folder is outside the project.", "Use update_app to set context_dir to a folder inside the project.")
+		return apperr.Unprocessable("context_dir_invalid", "The build context folder is outside the source.", "Use update_app to set context_dir to a folder inside the source.")
 	}
 	// Resolve symlinks on disk: the context and the Dockerfile must stay inside the source.
 	ctxDir, dockerfile, perr := deploy.ResolveBuildPaths(p.srcRoot, p.app.ContextDir, p.app.DockerfilePath)
@@ -548,7 +548,7 @@ func (p *pipeline) buildFailed(ctx context.Context, err error, bld *deploy.Build
 	if deploy.BuildOutOfMemory(p.failTail) {
 		return apperr.Unprocessable("build_failed",
 			"The build ran out of memory. Builds on this server can use up to "+bld.MemoryLimit()+".",
-			"Make the build use less memory, for example by building fewer things at once, or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
+			"Make the build use less memory (for example, build fewer things at once), or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
 	}
 	summary := deploy.BuildFailureSummary(p.failTail)
 	msg := "The build failed."
@@ -780,7 +780,7 @@ func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 				if multi {
 					p.logf("Service %s has a volume: stopping its old container before starting the new one.", r.spec.Name)
 				} else {
-					p.logf("Volume attached: stopping the old container before starting the new one.")
+					p.logf("Saved files (/data) are on: stopping the old container before starting the new one.")
 				}
 				if err := s.Docker.StopContainerGrace(ctx, r.prevName, 10); err != nil {
 					return p.serviceErr(r, startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute."))
@@ -1133,7 +1133,7 @@ func (p *pipeline) unhealthy(detail, kind string) *apperr.Error {
 		hint = "Check that the HEALTHCHECK command works inside the container and that the app starts in time."
 	default:
 		msg = fmt.Sprintf("Your app did not answer GET %s with a status below 500 within %d seconds (%s).", p.app.HealthPath, int(healthTimeout.Seconds()), detail)
-		hint = fmt.Sprintf("Make sure the app listens on 0.0.0.0:%d (the PORT variable), starts within a minute and does not fail on %s. Use update_app to set another health_path if needed. If the logs show a different port, call update_app with port=<number> and deploy again.", p.port, p.app.HealthPath)
+		hint = fmt.Sprintf("Make sure the app listens on 0.0.0.0:%d (the PORT variable), starts within a minute and does not fail on %s. To check another path, set health_path with update_app. If the logs show a different port, call update_app with port=<number> and deploy again.", p.port, p.app.HealthPath)
 	}
 	if deploy.MentionsLocalhost(lines) && detail != "oom" {
 		hint = deploy.LocalhostHint

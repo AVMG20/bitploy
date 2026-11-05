@@ -232,7 +232,7 @@ func githubError(err error) *apperr.Error {
 		return nil
 	}
 	if github.IsUnreachable(err) {
-		return apperr.Unavailable("github_unreachable", "Bitploy could not reach GitHub.", "Try again in a minute.").WithCause(err)
+		return apperr.Unavailable("github_unreachable", "bitploy could not reach GitHub.", "Try again in a minute.").WithCause(err)
 	}
 	switch github.Status(err) {
 	case 401:
@@ -257,7 +257,7 @@ func publicURLProblem(rawURL string) string {
 		host = strings.ToLower(u.Hostname())
 	}
 	msg := func() string {
-		return "GitHub cannot reach " + host + " over the internet, so pushes will not deploy apps by themselves. Private repositories still work. For deploy on push, set BITPLOY_PUBLIC_URL to the public address of this server and restart bitploy."
+		return "GitHub cannot reach " + host + " over the internet, so pushes will not deploy apps by themselves. Deploying by hand works, also from private repositories. For deploy on push, set BITPLOY_PUBLIC_URL to the public address of this server and restart bitploy."
 	}
 	switch {
 	case host == "":

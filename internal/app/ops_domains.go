@@ -272,7 +272,7 @@ func (s *Service) runDomainCheck(ctx context.Context, a Actor, d db.Domain, manu
 			status, checkUntil = "pending_dns", now.Add(domainWatchFor).Unix()
 		case d.Status == "pending_dns" && now.Unix() >= d.CheckUntil:
 			status = "failed"
-			lastErr = res.Problem + ". Bitploy stopped checking after 48 hours; fix the DNS records and run check_domain again."
+			lastErr = res.Problem + ". bitploy stopped checking after 48 hours; fix the DNS records and run check_domain again."
 		}
 		return s.saveDomain(ctx, a, d, status, lastErr, checkUntil, d.ActivatedAt)
 	}

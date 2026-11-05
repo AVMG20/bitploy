@@ -223,7 +223,7 @@ func checkDomainStillThere(ctx context.Context, q *db.Queries, baseDomain string
 		return nil
 	}
 	if _, err := q.GetAppDomainByName(ctx, baseDomain); errors.Is(err, sql.ErrNoRows) {
-		return apperr.Conflict("domain_not_allowed", quote(baseDomain)+" was just removed by an admin.", "Pick another domain.")
+		return apperr.Conflict("domain_not_allowed", "An admin has removed the domain "+quote(baseDomain)+".", "Pick another domain.")
 	} else if err != nil {
 		return err
 	}
@@ -426,7 +426,7 @@ func (s *Service) AdminAddAppDomain(ctx context.Context, a Actor, in AddAppDomai
 	}
 	if err := s.Q.InsertAppDomain(ctx, p); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return AppDomain{}, apperr.Conflict("app_domain_exists", quote(d)+" is already an app domain.", "It is in the list already.")
+			return AppDomain{}, apperr.Conflict("app_domain_exists", quote(d)+" is already an app domain.", "")
 		}
 		return AppDomain{}, apperr.Internal(err)
 	}

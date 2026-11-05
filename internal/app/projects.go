@@ -264,7 +264,7 @@ func (s *Service) DeleteProject(ctx context.Context, a Actor, ref, confirm strin
 			slugs[i] = ap.Slug
 		}
 		return apperr.Conflict("project_not_empty",
-			fmt.Sprintf("The project still has %d apps: %s.", len(apps), strings.Join(slugs, ", ")),
+			fmt.Sprintf("The project has %d apps: %s.", len(apps), strings.Join(slugs, ", ")),
 			"Move them to another project (update_app with project), delete them, or call delete_project with with_apps=true to delete the apps and their data too.").
 			WithNext("delete_project").WithDetail("apps", slugs)
 	}

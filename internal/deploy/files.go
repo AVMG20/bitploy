@@ -50,7 +50,7 @@ func CleanRelPath(p string) (string, error) {
 	}
 	for _, part := range strings.Split(p, "/") {
 		if part == ".." {
-			return "", fmt.Errorf("%q goes outside the project (it contains ..)", orig)
+			return "", fmt.Errorf("%q goes outside the code folder (it contains ..)", orig)
 		}
 	}
 	c := path.Clean(p)
@@ -66,7 +66,7 @@ func DecodeFiles(files []File) ([]DecodedFile, error) {
 	if len(files) == 0 {
 		return nil, apperr.BadRequest("files_empty",
 			"No files were sent.",
-			"Send at least a Dockerfile and your project files as a list of {path, content}.").WithNext("deploy_files")
+			"Send a Dockerfile and the rest of your code as a list of {path, content}.").WithNext("deploy_files")
 	}
 	if len(files) > MaxInlineFiles {
 		return nil, apperr.BadRequest("files_too_many",

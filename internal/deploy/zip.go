@@ -61,7 +61,7 @@ func ExtractZip(zipPath, dest string, lim ZipLimits, strip bool) (ExtractResult,
 	if err != nil {
 		return ExtractResult{}, zipErr("source_zip_invalid",
 			"The upload is not a valid zip file ("+err.Error()+").",
-			"Create it with `zip -r app.zip .` inside your project folder, then upload it again.")
+			"Create it with `zip -r app.zip .` inside your code folder, then upload it again.")
 	}
 	defer zr.Close()
 	if lim.MaxFiles <= 0 {
@@ -254,7 +254,7 @@ func stripTopFolder(entries []zipEntry) string {
 func unsafeZip(name string) *apperr.Error {
 	return zipErr("source_zip_unsafe",
 		"The zip contains a path that is not allowed: "+q(name)+".",
-		"Paths must be relative and stay inside the project (no leading / and no ..). Zip the folder again with `zip -r app.zip .`.")
+		"Paths must be relative and stay inside the folder (no leading / and no ..). Zip the folder again with `zip -r app.zip .`.")
 }
 
 func tooMany(lim ZipLimits) *apperr.Error {
@@ -277,7 +277,7 @@ func InspectZip(zipPath string, lim ZipLimits) (files int, err error) {
 	if err != nil {
 		return 0, zipErr("source_zip_invalid",
 			"The upload is not a valid zip file ("+err.Error()+").",
-			"Create it with `zip -r app.zip .` inside your project folder, then upload it again.")
+			"Create it with `zip -r app.zip .` inside your code folder, then upload it again.")
 	}
 	defer zr.Close()
 	if lim.MaxFiles <= 0 {
@@ -307,7 +307,7 @@ func InspectZip(zipPath string, lim ZipLimits) (files int, err error) {
 		return 0, tooBig(lim)
 	}
 	if files == 0 {
-		return 0, zipErr("source_zip_empty", "The zip contains no files.", "Zip the folder with your project files and a Dockerfile, then upload again.")
+		return 0, zipErr("source_zip_empty", "The zip contains no files.", "Zip the folder with your code and a Dockerfile, then upload again.")
 	}
 	return files, nil
 }
@@ -350,7 +350,7 @@ func ZipSource(zipPath string, strip bool, want func(rel string) bool, max int64
 	if err != nil {
 		return nil, nil, zipErr("source_zip_invalid",
 			"The upload is not a valid zip file ("+err.Error()+").",
-			"Create it with `zip -r app.zip .` inside your project folder, then upload it again.")
+			"Create it with `zip -r app.zip .` inside your code folder, then upload it again.")
 	}
 	defer zr.Close()
 	entries, err := planZip(zr.File)

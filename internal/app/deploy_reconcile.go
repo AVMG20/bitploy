@@ -70,7 +70,7 @@ func (s *Service) reconcileDeployments(ctx context.Context) {
 		n, err := s.Q.InterruptDeployment(ctx, db.InterruptDeploymentParams{
 			ErrorCode:    nullStr("interrupted"),
 			ErrorMessage: nullStr("bitploy restarted while this deployment was running, so it was stopped."),
-			ErrorHint:    nullStr("Deploy again. Your previous version, if any, kept running."),
+			ErrorHint:    nullStr("Deploy again. The version that was live before kept running."),
 			ErrorNext:    nullStr("deploy"),
 			FinishedAt:   sql.NullInt64{Int64: s.now(), Valid: true},
 			ID:           d.ID, State: d.State,

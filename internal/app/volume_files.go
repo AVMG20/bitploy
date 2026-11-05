@@ -156,8 +156,8 @@ func validFileName(n string) error {
 // ---- common steps ----
 
 func filesVolumeOffErr() *apperr.Error {
-	return apperr.Conflict("volume_off", "The /data folder is turned off for this app, so there are no files to browse.",
-		"Turn /data on first (update_app with volume=true, or the Storage tab in the dashboard).")
+	return apperr.Conflict("volume_off", "Saved files (/data) are turned off for this app, so there are no files to browse.",
+		"Turn them on with update_app volume=true, or in the dashboard under Storage.")
 }
 
 func filesBusyErr() *apperr.Error {
@@ -193,10 +193,10 @@ func (s *Service) filesTarget(ctx context.Context, a Actor, ref string, write bo
 	}
 	fs, ok := vs.(fileStore)
 	if !ok {
-		return fail(apperr.Unavailable("docker_unavailable", "bitploy cannot reach the data folder right now.", "Try again in a minute."))
+		return fail(apperr.Unavailable("docker_unavailable", "bitploy cannot reach the files in /data.", "Try again in a minute."))
 	}
 	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
-		return fail(apperr.Unavailable("docker_unavailable", "bitploy could not look at the data folder right now.", "Try again in a minute."))
+		return fail(apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute."))
 	} else if !has {
 		return fail(volumeNotReadyErr())
 	}
@@ -256,7 +256,7 @@ func filesErr(err error) error {
 	if len([]rune(msg)) > 300 {
 		msg = string([]rune(msg)[:300]) + "..."
 	}
-	return apperr.Unavailable("files_unavailable", "bitploy could not reach the data folder: "+msg, "Try again in a minute.").WithCause(err)
+	return apperr.Unavailable("files_unavailable", "bitploy could not reach the files in /data: "+msg, "Try again in a minute.").WithCause(err)
 }
 
 // fileUploadLimit is the biggest file that may be uploaded now: at most

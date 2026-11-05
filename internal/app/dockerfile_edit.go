@@ -137,7 +137,7 @@ func (s *Service) PutAppDockerfile(ctx context.Context, a Actor, ref, content st
 	}
 	if len(content) > MaxDockerfileBytes {
 		return Deployment{}, apperr.New(http.StatusRequestEntityTooLarge, "dockerfile_too_large",
-			"The Dockerfile is larger than 64 KB.", "Make it shorter: put large scripts or config in files of the project and COPY them.")
+			"The Dockerfile is larger than 64 KB.", "Make it shorter: put large scripts or config in separate files and COPY them.")
 	}
 	snap, ok, err := s.sourceSnapshot(ctx, row)
 	if err != nil {

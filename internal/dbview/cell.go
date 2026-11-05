@@ -35,7 +35,7 @@ func (s *session) cell(req Request) (any, *Error) {
 		if err := rs.Err(); err != nil {
 			return nil, s.fail(err)
 		}
-		return nil, errf("row_not_found", "This row does not exist (any more).", "Reload the table: someone may have deleted or changed the row.")
+		return nil, errf("row_not_found", "This row does not exist.", "Reload the table: someone may have deleted or changed the row.")
 	}
 	vals, err := scanRow(rs, 1)
 	if err != nil {

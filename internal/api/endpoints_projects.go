@@ -27,7 +27,7 @@ func (a *API) projectRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "createProject", Method: http.MethodPost, Path: "/projects", Tags: []string{"Projects"},
 		Summary:       "Create a project",
-		Description:   "An empty project. It stays when it is empty, until delete_project. 400 project_name_invalid, 403 projects_limit (100).",
+		Description:   "Creates an empty project. It is kept while empty, until it is deleted. 400 project_name_invalid, 403 projects_limit (100).",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.CreateProjectInput }) (*Out[app.Project], error) {
 		return okOrNil(a.svc.CreateProject(ctx, act, in.Body))

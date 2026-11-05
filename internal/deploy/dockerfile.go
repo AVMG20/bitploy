@@ -127,7 +127,7 @@ func CheckDockerfile(in CheckInput) CheckResult {
 		add(Finding{
 			Code:     CodeDockerfileMissing,
 			Severity: sevError,
-			Message:  fmt.Sprintf("There is no Dockerfile at %q. Bitploy builds every app from a Dockerfile and never guesses how to run your code.", path),
+			Message:  fmt.Sprintf("There is no Dockerfile at %q. bitploy builds every app from a Dockerfile.", path),
 			Hint:     fmt.Sprintf("Call get_template with stack %q, save its Dockerfile as %q (and its .dockerignore next to it), adapt it, then deploy again.", templateStackFor(res.Stack), path),
 		})
 		return finish()
@@ -185,7 +185,7 @@ func CheckDockerfile(in CheckInput) CheckResult {
 				Severity: sevError,
 				Line:     line,
 				Message:  fmt.Sprintf("The EXPOSE line has %q, which is not a port number bitploy can read.", bad[0]),
-				Hint:     "Write a plain number in the last stage, for example `EXPOSE 8080`. Or set the port with update_app (port). Variables in EXPOSE are only understood when ARG or ENV gives them a default.",
+				Hint:     "Write a plain number in the last stage, for example `EXPOSE 8080`. Or set the port with update_app (port). A variable in EXPOSE works only when ARG or ENV gives it a default.",
 			})
 		case len(ports) == 0:
 			// No EXPOSE and nothing unreadable: the image may still declare a
@@ -197,7 +197,7 @@ func CheckDockerfile(in CheckInput) CheckResult {
 				Severity: sevInfo,
 				Line:     stageLine(stages[last]),
 				Message:  "The Dockerfile has no EXPOSE line, so bitploy will use the port the image declares after the build.",
-				Hint:     "Nothing to do if the image declares one port. Otherwise add `EXPOSE 8080` (the real port) to the last stage, or set the port with update_app (port). A bot or other app without a web port should be created with type worker.",
+				Hint:     "Nothing to do if the image declares one port. Otherwise add `EXPOSE 8080` (the real port) to the last stage, or set the port with update_app (port). For a bot or another app without a web port, create the app with type=worker.",
 			})
 		case len(ports) > 1:
 			strs := make([]string, len(ports))
@@ -830,9 +830,9 @@ func FirstError(res CheckResult, files []string) *apperr.Error {
 		name := templateStackFor(stack)
 		tpl, _ := templates.Get(name)
 		e.Message = first.Message + describeStack(stack)
-		e.Hint = fmt.Sprintf("Use the %q template. Save this as Dockerfile in the top folder of the project, adapt it, and save the second file as .dockerignore:\n\n"+
+		e.Hint = fmt.Sprintf("Use the %q template. Save this as Dockerfile in the top folder of your code, adapt it, and save the second file as .dockerignore:\n\n"+
 			"Dockerfile:\n%s\n.dockerignore:\n%s\n"+
-			"Then call validate_dockerfile and deploy again with ALL project files including these two (deploy_files replaces the whole source). Call get_template for more stacks (%s).",
+			"Then call validate_dockerfile and deploy again with ALL files including these two (deploy_files replaces the whole source). Call get_template for more stacks (%s).",
 			name, tpl.Dockerfile, tpl.Dockerignore, strings.Join(templates.Stacks, ", "))
 		e.WithDetail("stack", stack)
 		e.WithDetail("template", name)
@@ -852,23 +852,23 @@ func describeStack(stack string) string {
 	case "static":
 		return " This looks like a plain website (index.html, no build step)."
 	case "node":
-		return " This looks like a Node.js project (package.json)."
+		return " This looks like a Node.js app (package.json)."
 	case "python":
-		return " This looks like a Python project."
+		return " This looks like a Python app."
 	case "go":
-		return " This looks like a Go project (go.mod)."
+		return " This looks like a Go app (go.mod)."
 	case "php":
-		return " This looks like a PHP project."
+		return " This looks like a PHP app."
 	case "laravel":
-		return " This looks like a Laravel project (artisan)."
+		return " This looks like a Laravel app (artisan)."
 	case "django":
-		return " This looks like a Django project (manage.py)."
+		return " This looks like a Django app (manage.py)."
 	case "nextjs":
-		return " This looks like a Next.js project (next.config)."
+		return " This looks like a Next.js app (next.config)."
 	case "node-static":
 		return " This looks like a static site built with Node (astro.config)."
 	}
-	return " Bitploy could not tell what kind of project this is."
+	return " bitploy could not tell what kind of app this is."
 }
 
 // forbiddenImage reports whether an image reference points at an image bitploy
@@ -958,7 +958,7 @@ func (g *graph) cacheMounts() []Finding {
 					Code:     CodeCacheMount,
 					Severity: sevError,
 					Line:     line,
-					Message:  fmt.Sprintf("Bitploy cannot read the --mount options of this RUN line (%s).", err),
+					Message:  fmt.Sprintf("bitploy cannot read the --mount options of this RUN line (%s).", err),
 					Hint:     "Write the mount options as plain text, without variables. " + hint,
 				})
 				continue
@@ -969,7 +969,7 @@ func (g *graph) cacheMounts() []Finding {
 						Code:     CodeCacheMount,
 						Severity: sevError,
 						Line:     line,
-						Message:  "The RUN line uses --mount=type=cache. Cache mounts are not supported on bitploy: all apps build on one shared build server, so the cache would be shared with other users' builds.",
+						Message:  "The RUN line uses --mount=type=cache. bitploy does not support cache mounts: all apps build on one shared build server, so other users' builds would share the cache.",
 						Hint:     hint,
 					})
 					break
@@ -990,8 +990,8 @@ func composeFinding(files []string) (Finding, bool) {
 			return Finding{
 				Code:     CodeComposeIgnored,
 				Severity: sevWarning,
-				Message:  fmt.Sprintf("The project has %s, but this app builds only the Dockerfile. Other services in it (a database, Redis) do not run.", f),
-				Hint:     "For a simple app, use SQLite in /data (turn on /data for the app) instead of a database server, and an in-process or file cache instead of Redis. If the app really needs those services, deploy the compose file instead: update_app with build_mode=\"compose\", then deploy again.",
+				Message:  fmt.Sprintf("Your code has %s, but this app builds only the Dockerfile, so the other services in that file (a database, Redis) do not run.", f),
+				Hint:     "Use SQLite in /data (turn on saved files for the app) instead of a database server, and an in-process or file cache instead of Redis. If the app needs those services, deploy the compose file instead: update_app with build_mode=\"compose\", then deploy again.",
 			}, true
 		}
 	}
@@ -1070,7 +1070,7 @@ func (g *graph) databaseServers() []Finding {
 					Severity: sevWarning,
 					Line:     firstLine(run.Location()),
 					Message:  fmt.Sprintf("The Dockerfile installs %s, but an app is one container with one process: a database server in the image does not run next to the app.", p),
-					Hint:     "Remove the install and use SQLite with the file in /data, like /data/app.db (turn on /data for the app). Instead of Redis, use an in-process cache or a SQLite-backed queue. Or use a hosted database and store its URL as an environment variable.",
+					Hint:     "Remove the install and use SQLite with the file in /data, like /data/app.db (turn on saved files for the app). Instead of Redis, use an in-process cache or a SQLite-backed queue. Or use a hosted database and store its URL as an environment variable.",
 				})
 			}
 		}
@@ -1131,7 +1131,7 @@ func (g *graph) lockfileMismatch(files []string) (Finding, bool) {
 		Code:     CodeLockfileMismatch,
 		Severity: sevWarning,
 		Line:     line,
-		Message:  fmt.Sprintf("The Dockerfile runs npm ci, but the project has %s and no package-lock.json, so npm ci will fail.", lock),
-		Hint:     hint + " Or call get_template with file_list so the Dockerfile matches the project.",
+		Message:  fmt.Sprintf("The Dockerfile runs npm ci, but your code has %s and no package-lock.json, so npm ci will fail.", lock),
+		Hint:     hint + " Or call get_template with file_list so the Dockerfile matches your code.",
 	}, true
 }
