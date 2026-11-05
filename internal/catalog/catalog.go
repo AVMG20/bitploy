@@ -519,6 +519,64 @@ var entries = []Entry{
 			"Add a website under Settings, Websites, and put the tracking code it shows in your site.",
 		},
 	},
+	// Version: https://hub.docker.com/v2/repositories/docmost/docmost/tags (0.97.0, 2026-10-25).
+	{
+		ID:          "docmost",
+		Name:        "Docmost",
+		Tagline:     "A wiki for your team, with pages you edit together",
+		Description: "Docmost is a team wiki: pages in spaces, edited by several people at once, with comments, page history, diagrams and permissions per space. Pages live in a PostgreSQL database and live editing goes through Valkey, both added next to it as private services named db and cache. Uploaded files are kept in /data.",
+		Category:    "Notes",
+		Version:     "0.97.0",
+		Website:     "https://docmost.com",
+		Port:        3000,
+		MemoryMB:    512,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/api/health",
+		Services:    []ServiceSpec{{Template: "postgres", Name: "db"}, {Template: "valkey", Name: "cache"}},
+		Env: []EnvSpec{
+			{Name: "APP_URL", Value: "{url}", Description: "The address of this app, used in links and emails."},
+			{Name: "APP_SECRET", Generate: "secret", Description: "Signs sign-in sessions. Changing it signs everyone out."},
+			{Name: "DATABASE_URL", Value: "${{db.DATABASE_URL}}", Description: "The address of the PostgreSQL service db, with its generated password, filled in when the app starts."},
+			{Name: "REDIS_URL", Value: "${{cache.REDIS_URL}}", Description: "The address of the Valkey service cache, with its generated password, filled in when the app starts."},
+		},
+		FirstSteps: []string{
+			"Open {url} and create the workspace and your admin account at once: the first visitor gets to do it.",
+			"Invite your team under Settings, Members. Until email is set up, copy each invite link from the list of pending invites and send it yourself.",
+			"To send invites and password resets by email, add the environment variables SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD and MAIL_FROM_ADDRESS with your mail provider's values and restart the app.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/library/ghost/tags (6.75.0, 2026-11-05).
+	// Ghost 6 supports only MySQL 8 in production, not MariaDB.
+	{
+		ID:          "ghost",
+		Name:        "Ghost",
+		Tagline:     "A blog and newsletter, with paid memberships if you want them",
+		Description: "Ghost publishes posts on your own website and sends them to subscribers as a newsletter, with free or paid memberships. Posts, members and settings are kept in a MySQL database that bitploy adds next to it as a private service named db. Images and themes are kept in /data.",
+		Category:    "Marketing",
+		Version:     "6.75.0",
+		Website:     "https://ghost.org",
+		Port:        2368,
+		MemoryMB:    768,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/ghost/api/admin/site/",
+		Services:    []ServiceSpec{{Template: "mysql", Name: "db"}},
+		Env: []EnvSpec{
+			{Name: "url", Value: "{url}", Description: "The address of this app. Ghost uses it in every link, and sends visitors who arrive at another address there."},
+			{Name: "database__connection__host", Value: "${{db.MYSQL_HOST}}", Description: "The host of the MySQL service db, filled in when the app starts."},
+			{Name: "database__connection__port", Value: "${{db.MYSQL_PORT}}", Description: "The port of the MySQL service db, filled in when the app starts."},
+			{Name: "database__connection__user", Value: "${{db.MYSQL_USER}}", Description: "The database user of the MySQL service db, filled in when the app starts."},
+			{Name: "database__connection__password", Value: "${{db.MYSQL_PASSWORD}}", Description: "The generated password of the MySQL service db, filled in when the app starts."},
+			{Name: "database__connection__database", Value: "${{db.MYSQL_DATABASE}}", Description: "The database name on the MySQL service db, filled in when the app starts."},
+			{Name: "security__staffDeviceVerification", Value: "false", Description: "When true, Ghost emails a code each time staff sign in on a new device. Off until email is set up, or nobody could sign in a second time."},
+		},
+		FirstSteps: []string{
+			"Open {url}/ghost and create the owner account at once: the first visitor gets to do it.",
+			"Ghost sends staff invites, password resets and newsletters by email. Add the environment variables mail__transport (value SMTP), mail__options__host, mail__options__port, mail__options__auth__user, mail__options__auth__pass and mail__from with your mail provider's values and restart the app.",
+			"Once email works, set security__staffDeviceVerification to true and restart the app.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
