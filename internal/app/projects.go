@@ -752,6 +752,8 @@ func (s *Service) projectFields(ctx context.Context, v *App, r db.App) {
 		if tp, ok := templateOf(r); ok {
 			port = tp.Port
 			v.ConnectionVars, v.MainVar = tp.ConnectionNames(), tp.MainVar
+			v.TemplateLatest = tp.Version
+			v.TemplateUpdateAvailable = r.TemplateVersion != "" && catalogNewer(tp.Version, r.TemplateVersion)
 		}
 	}
 	if port == 0 && r.Port.Valid {

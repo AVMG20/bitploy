@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -238,5 +239,34 @@ func TestComposeVariableWithReference(t *testing.T) {
 	want := shared["CACHE"]
 	if !strings.HasPrefix(want, "redis://") || !containsStr(env, "REDIS=x-"+want) {
 		t.Errorf("REDIS not filled from the reference: %q", want)
+	}
+}
+
+// A template app shows the template's current version and whether it is
+// newer than the one it runs; nothing is upgraded.
+func TestTemplateUpdateAvailable(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "P"})
+	pg, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "postgres"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pg.TemplateUpdateAvailable || pg.TemplateLatest != pg.TemplateVersion || pg.TemplateLatest == "" {
+		t.Fatalf("fresh app: latest %q, runs %q, update %v", pg.TemplateLatest, pg.TemplateVersion, pg.TemplateUpdateAvailable)
+	}
+	e.exec(t, `UPDATE apps SET template_version = '18.1' WHERE id = ?`, pg.ID)
+	got, _ := e.s.GetApp(ctx, e.user, pg.Slug)
+	if !got.TemplateUpdateAvailable || got.TemplateVersion != "18.1" || got.TemplateLatest != pg.TemplateLatest {
+		t.Errorf("old app: %+v", got)
+	}
+	e.exec(t, `UPDATE apps SET template_version = '99.0' WHERE id = ?`, pg.ID)
+	if got, _ := e.s.GetApp(ctx, e.user, pg.Slug); got.TemplateUpdateAvailable {
+		t.Error("a newer running version is not an update")
+	}
+	plain := e.mustApp(t, CreateAppInput{Name: "web", Slug: "web", Project: p.ID})
+	b, _ := json.Marshal(plain)
+	if !strings.Contains(string(b), `"template_update_available":false`) || strings.Contains(string(b), "template_latest") {
+		t.Errorf("plain app JSON: %s", b)
 	}
 }
