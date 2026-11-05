@@ -267,6 +267,9 @@ func updateHow(slug, sourceKind string) string {
 // appUpdateHow says how to publish new code to a specific app: a linked
 // repository always means pushing, whatever was deployed before.
 func appUpdateHow(ap app.App) string {
+	if ap.Template != nil {
+		return "call deploy with app=" + ap.Slug + " to rebuild it from its template (its data stays)"
+	}
 	if ap.GitSource != nil {
 		if ap.GitSource.PushReady {
 			return "commit and push to " + ap.GitSource.Branch + " (bitploy deploys the push by itself; follow it with get_deployment, app=" + ap.Slug + ", wait_seconds=30)"
@@ -350,10 +353,10 @@ func appNext(ap app.App) []string {
 	case "stopped":
 		return []string{"The app is stopped on purpose. Call start_app only if the user wants it running again."}
 	case "deploying":
-		if ap.Current != nil {
-			return []string{"A deploy is in progress. Call get_deployment with app=" + slug + " and wait_seconds=30 until it is running or failed."}
-		}
 		return []string{"A deploy is in progress. Call get_deployment with app=" + slug + " and wait_seconds=30 until it is running or failed."}
+	}
+	if ap.Template != nil {
+		return templateNext(ap)
 	}
 	url := ap.URL
 	if url == "" {
@@ -363,6 +366,24 @@ func appNext(ap app.App) []string {
 		"The app is running at " + url + ". To publish changes: " + appUpdateHow(ap) + ".",
 		"If the user reports a problem: get_logs with kind=runtime; for usage: get_metrics.",
 	}
+}
+
+// templateNext is what to do with a running database (or cache) added with
+// add_service: connect apps to it, never send it code.
+func templateNext(ap app.App) []string {
+	where := ""
+	if ap.InternalHost != "" {
+		where = " at " + ap.InternalHost
+	}
+	out := []string{fmt.Sprintf("This is a %s service: no web address and no code to send. The other apps of project %s reach it%s.", *ap.Template, ap.Project.Name, where)}
+	if ap.MainVar != "" {
+		out = append(out, fmt.Sprintf("To connect an app of the project: set_env app=<slug> set={\"%s\":\"${{%s.%s}}\"}, then restart_app. Its variables: %s.",
+			ap.MainVar, ap.Alias, ap.MainVar, strings.Join(ap.ConnectionVars, ", ")))
+	}
+	if ap.TemplateUpdateAvailable {
+		out = append(out, "bitploy has "+ap.TemplateLatest+" while this runs "+ap.TemplateVersion+". It is never upgraded automatically, because a new major version can need a dump and restore. Mention it only if the user asks about versions; there is no upgrade tool.")
+	}
+	return out
 }
 
 // validateComposeResult sums up validate_compose for an AI.

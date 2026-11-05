@@ -364,7 +364,7 @@ func appInUse(row db.App, deps []Dependent) *apperr.Error {
 	return apperr.Conflict("app_in_use",
 		"Other apps in this project use this app's variables: "+describeDependents(deps)+". They would fail to start without it, so nothing was deleted.",
 		"First change those variables with set_env (for example set_env app="+first.Slug+" unset=["+strings.Join(first.Vars, ", ")+"], or set them to a new value), "+
-			"or delete those apps. Then call delete_app again for "+row.Slug+".").
+			"or, if the user agrees, delete those apps. Then call delete_app again for "+row.Slug+".").
 		WithNext("set_env").WithDetail("dependents", deps)
 }
 

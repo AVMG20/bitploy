@@ -39,12 +39,22 @@ const RuntimeContract = `## Runtime contract
 ## Databases
 
 - Default: SQLite with the file in /data (for example /data/app.db) and the volume on, inside the app's one container.
-- The code expects Postgres or MySQL (DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL: when the code already has a compose file with that database, deploy it as a compose app (see Compose apps); otherwise use an external hosted database (Neon, Supabase...) and set DATABASE_URL with set_env.
+- The code expects Postgres or MySQL (DATABASE_URL=postgres://..., Prisma provider "postgresql")? Moving to SQLite is often a small change in the ORM (Prisma, Drizzle, Django, Laravel, SQLAlchemy); ask the user first. If they want to keep Postgres or MySQL: when the code already has a compose file with that database, deploy it as a compose app (see Compose apps); otherwise add the database with add_service (see Projects and database services). An external hosted database (Neon, Supabase...) also works: set DATABASE_URL with set_env.
 - Never install a database server (postgres, mysql, mariadb, redis) in the image or run several processes in one container.
 - To look at the data or fix a row, call query_db(app, path, sql): path is the SQLite file relative to /data (like app.db). It is read-only unless write=true (deploy token); take create_backup before a risky change and only write when the user asked. Start with SELECT name, sql FROM sqlite_schema. The user can also browse, edit and query the database in the dashboard (Storage tab, Open next to the file).
 - Run migrations when the app starts, in CMD: for example sh -c "npx prisma migrate deploy && node server.js", php artisan migrate --force, python manage.py migrate.
 - SQLite is safe here: with a volume a deploy stops the old container before the new one starts (never two writers), and create_backup freezes the app while it copies, so backups are consistent.
-- Need Redis for cache or queues? Laravel: CACHE_STORE=file and QUEUE_CONNECTION=sync (the laravel template sets both: there is no separate queue worker). Elsewhere an in-process cache or a SQLite-backed queue.
+- Need Redis for cache or queues? Laravel: CACHE_STORE=file and QUEUE_CONNECTION=sync (the laravel template sets both: there is no separate queue worker). Elsewhere an in-process cache or a SQLite-backed queue. When the code needs Redis itself, add_service template=valkey (Redis-compatible, gives REDIS_URL).
+
+## Projects and database services
+
+- Every app is in a project (get_app: project.id, alias). create_app without project makes one named after the app; put related apps in one project with create_app project=<id>.
+- add_service(project, template, connect_to=[<slug>]) adds a PostgreSQL, MySQL, MariaDB, Valkey (Redis) or Meilisearch from list_service_templates as an app of its own: private (no web address), data in its own volume, passwords generated. Each connect_to app gets the main variable as a reference, like DATABASE_URL=${{postgres.DATABASE_URL}} (REDIS_URL for valkey), and is restarted once the service runs. Add it before the app's first deploy: that deploy waits up to 5 minutes for the service. connect_to takes slugs; list_projects shows each app's alias and slug.
+- The apps of a project reach each other at <alias>:<port> (internal_host). A value ${{<alias>.VAR}} in set_env is filled in when the app starts; the variable must be one of the service's connection_vars (like PGHOST, REDIS_PASSWORD) or a shared variable of the other app. A compose file may not contain ${{...}} (compose_reference_unsupported): set_env NAME=${{<alias>.VAR}} on the app and write ${NAME} in the file.
+- A database service needs no code: never deploy_files to it. deploy with only app= rebuilds it, restart_app restarts it, create_backup backs up its volume.
+- template_update_available on a service means this bitploy has a newer version than it runs (template_latest). It is never upgraded automatically: a new major version can need a dump and restore. There is no upgrade tool; mention it only when the user asks.
+- delete_app of an app that others refer to is refused with app_in_use; the message names those apps and their variables (details.dependents). Tell the user, and only with their go-ahead change those variables with set_env (or delete those apps), then delete again.
+- deploy_catalog_app project=<id> adds a catalog app (and the databases it brings) to an existing project; a database name that is taken there gets -2, and the app's variables follow.
 
 ## Compose apps (several services)
 
@@ -107,7 +117,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 
 ## Backups of /data
 
-- create_backup(app) saves the /data folder of an app that has the volume on and has been deployed. It runs in the background (the app is frozen for a moment while its files are read): call list_backups until the backup is ready or failed (error says why). Backups count towards the account's storage allowance. Offer one before a risky change to an app that keeps data in /data; do not make them in a loop.
+- create_backup(app) saves the /data folder of an app that has the volume on and has been deployed (an app with several volumes: one backup per volume, or volume= for one). It runs in the background (the app is frozen for a moment while its files are read): call list_backups until the backup is ready or failed (error says why). Backups count towards the account's storage allowance. Offer one before a risky change to an app that keeps data in /data; do not make them in a loop.
 - list_backups(app) shows the backups, the automatic backup settings, whether something is running (busy) and how the latest restore went.
 - Restoring is dashboard-only: it replaces every file in /data and stops the app for a moment. When the user wants to go back to a backup, tell them to open the app, go to the Storage tab and press Restore there. Downloading and uploading backup files and the automatic schedule are in the same tab.
 - The Storage tab also has a file browser for /data (download, upload or replace single files such as the SQLite database; make or delete folders). Send the user there to get one file out of /data or put one back. A SQLite file there can be opened in a viewer (tables, rows, edit, SQL console).
@@ -116,7 +126,7 @@ add_domain returns DNS records. Tell the user in plain words: "Open the place wh
 ## Dockerfile checks (validate_dockerfile)
 
 Errors stop the deploy: dockerfile_missing, dockerfile_parse_error, no_from, port_ambiguous (also port_unknown for an EXPOSE that cannot be read), port_reserved, base_image_forbidden, cache_mount_forbidden (RUN --mount=type=cache is not supported: the build server is shared by all apps), image_too_large.
-Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (the code has a compose file with several services, but only the Dockerfile is built; use SQLite in /data, or only if the user needs those services update_app build_mode=compose), database_server_in_image (use SQLite in /data), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck, port_from_image (no EXPOSE: the port comes from the image).
+Warnings: env_file_in_context, no_dockerignore, unpinned_base, runs_as_root, compose_ignored (the code has a compose file with several services, but only the Dockerfile is built; use SQLite in /data, or only if the user needs those services update_app build_mode=compose), database_server_in_image (use SQLite in /data, or add_service when the code needs the server), lockfile_mismatch (npm ci but the lock file is pnpm, yarn or bun). Info: no_healthcheck, port_from_image (no EXPOSE: the port comes from the image).
 Fix every error and read every warning before deploying.
 
 ## Compose checks (validate_compose)

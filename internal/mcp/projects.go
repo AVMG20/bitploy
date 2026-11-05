@@ -16,9 +16,9 @@ type createProjectIn struct {
 
 type addServiceIn struct {
 	Project   string   `json:"project" jsonschema:"The project's id (prj_...) from list_projects or get_app (project.id), or its name."`
-	Template  string   `json:"template" jsonschema:"A template id from list_service_templates, like postgres, mysql, mariadb, valkey or meilisearch."`
+	Template  string   `json:"template" jsonschema:"A template id from list_service_templates, like postgres, mysql, mariadb, valkey (Redis-compatible: use it when the code needs Redis) or meilisearch."`
 	Name      string   `json:"name,omitempty" jsonschema:"The service's short name in the project: its host name for the other apps and the name in ${{<name>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the template id (postgres, or postgres-2 when that is taken)."`
-	ConnectTo []string `json:"connect_to,omitempty" jsonschema:"Slugs of apps in the same project that should use the service, like [\"shop\"]. Each gets the template's main variable (DATABASE_URL for postgres) as a reference and restarts once the service runs."`
+	ConnectTo []string `json:"connect_to,omitempty" jsonschema:"Slugs of apps in the same project that should use the service, like [\"shop\"] (the slug, not the short name: list_projects shows both). Each gets the template's main variable (DATABASE_URL for postgres, REDIS_URL for valkey) as a reference and restarts once the service runs. Fails with connect_to_var_set when the app already has that variable."`
 	MemoryMB  *int64   `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB. Leave out for the template's (list_service_templates)."`
 	VolumeMB  *int64   `json:"volume_mb,omitempty" jsonschema:"Storage limit of the service's data in MB. Leave out for the template's."`
 }
@@ -53,9 +53,16 @@ func briefProject(p app.Project) projectBrief {
 func projectLine(p app.Project) string {
 	names := make([]string, len(p.Apps))
 	for i, ap := range p.Apps {
-		names[i] = ap.Alias
+		var about []string
 		if ap.Template != nil {
-			names[i] += " (" + *ap.Template + ")"
+			about = append(about, *ap.Template)
+		}
+		if ap.Slug != ap.Alias {
+			about = append(about, "slug "+ap.Slug)
+		}
+		names[i] = ap.Alias
+		if len(about) > 0 {
+			names[i] += " (" + strings.Join(about, ", ") + ")"
 		}
 	}
 	if len(names) == 0 {
@@ -146,8 +153,22 @@ func (s *srv) registerProjectTools() {
 			}
 			next := []string{"Follow the deployment with get_deployment app=" + ap.Slug + " wait_seconds=30."}
 			if len(in.ConnectTo) > 0 {
-				next = append(next, fmt.Sprintf("%s now have %s=${{%s.%s}}; they restart once %s runs. The code must read %s from the environment.",
-					strings.Join(in.ConnectTo, ", "), ap.MainVar, ap.Alias, ap.MainVar, ap.Alias, ap.MainVar))
+				var live, idle []string
+				for _, slug := range in.ConnectTo {
+					if c, err := svc.GetApp(ctx, a, slug); err == nil && c.Current == nil {
+						idle = append(idle, c.Slug)
+					} else {
+						live = append(live, slug)
+					}
+				}
+				next = append(next, fmt.Sprintf("Connected: %s, with %s=${{%s.%s}}. The code must read %s from the environment; if it reads other names, set them the same way with set_env (%s).",
+					strings.Join(in.ConnectTo, ", "), ap.MainVar, ap.Alias, ap.MainVar, ap.MainVar, strings.Join(ap.ConnectionVars, ", ")))
+				if len(live) > 0 {
+					next = append(next, "Restarted by bitploy once "+ap.Alias+" runs: "+strings.Join(live, ", ")+".")
+				}
+				if len(idle) > 0 {
+					next = append(next, "Nothing runs yet in "+strings.Join(idle, ", ")+", so bitploy does not restart it: deploy it (deploy with only app= rebuilds code sent before; else send the code). A deployment waits up to 5 minutes for "+ap.Alias+" to run.")
+				}
 			} else {
 				next = append(next, fmt.Sprintf("To use it from an app of the project: set_env app=<slug> set={\"%s\":\"${{%s.%s}}\"}, then restart_app. Other variables: %s.",
 					ap.MainVar, ap.Alias, ap.MainVar, strings.Join(ap.ConnectionVars, ", ")))

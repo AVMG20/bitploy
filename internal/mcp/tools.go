@@ -103,8 +103,8 @@ type catalogDeployIn struct {
 	Name    string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
 	Slug    string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
 	Domain  string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
-	Project string `json:"project,omitempty" jsonschema:"The project (id or name from list_projects) to add the app and its databases to. Leave out to make a new project named after the app."`
-	Alias   string `json:"alias,omitempty" jsonschema:"The app's short name in the project, like stats. Leave out to use the subdomain."`
+	Project string `json:"project,omitempty" jsonschema:"The project (id or name from list_projects) to add the app and its databases to. Leave out to make a new project named after the app. Fails with project_not_found for a project that is not the user's."`
+	Alias   string `json:"alias,omitempty" jsonschema:"The app's short name in the project, like stats. Leave out to use the subdomain (with -2 when that is taken). A given alias that is taken fails with alias_taken."`
 }
 
 type gitSourceIn struct {
@@ -438,18 +438,26 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "list_catalog", "List one-click apps",
-		"Ready-made tools that deploy without code: password manager, notes, uptime monitor, backend, budgeting, developer tools. Each keeps its data in /data. Use it when the user asks for such a tool by name or kind; then call deploy_catalog_app with the id. For anything else, write a Dockerfile.",
+		"Ready-made tools that deploy without code: password manager, notes, uptime monitor, backend, budgeting, developer tools. Each keeps its data in /data; an entry with services also brings its own database (like postgres), deployed as an app of its own in the same project. Use it when the user asks for such a tool by name or kind; then call deploy_catalog_app with the id. For anything else, write a Dockerfile.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			items := svc.ListCatalog(ctx, a)
 			rows := make([]map[string]any, len(items))
 			for i, c := range items {
-				rows[i] = data("id", c.ID, "name", c.Name, "tagline", c.Tagline, "version", c.Version, "memory_mb", c.MemoryMB, "volume", c.Volume, "category", c.Category)
+				row := data("id", c.ID, "name", c.Name, "tagline", c.Tagline, "version", c.Version, "memory_mb", c.MemoryMB, "volume", c.Volume, "category", c.Category)
+				if len(c.Services) > 0 {
+					svcs := make([]map[string]any, len(c.Services))
+					for j, sv := range c.Services {
+						svcs[j] = data("template", sv.Template, "name", sv.Name)
+					}
+					row["services"] = svcs
+				}
+				rows[i] = row
 			}
 			return &result{
 				Summary: fmt.Sprintf("%d one-click apps.", len(items)),
 				Data:    data("items", rows),
-				Next:    []string{"To deploy one, call deploy_catalog_app with its id. It creates the app and deploys it in one step."},
+				Next:    []string{"To deploy one, call deploy_catalog_app with its id. It creates the app and deploys it in one step; pass project= to add it to an existing project (list_projects)."},
 			}, nil
 		})
 
@@ -462,7 +470,7 @@ func (s *srv) registerTools() {
 				return nil, err
 			}
 			r := deploymentResult("Queued deployment", res.Deployment)
-			r.Summary = fmt.Sprintf("Created %s (%s) from the catalog. %s", res.App.Slug, res.App.URL, r.Summary)
+			r.Summary = fmt.Sprintf("Created %s (%s) from the catalog in project %s (%s) as %s. %s", res.App.Slug, res.App.URL, res.App.Project.Name, res.App.Project.ID, res.App.Alias, r.Summary)
 			r.Data["app"] = res.App
 			r.Data["first_steps"] = res.FirstSteps
 			r.Next = append(r.Next, "When it is running, tell the user these first steps: "+strings.Join(res.FirstSteps, " "))
@@ -781,7 +789,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "delete_app", "Delete an app",
-		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): change those variables with set_env or delete those apps first.",
+		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): the message names those apps and variables. Tell the user, and only with their go-ahead change those variables with set_env or delete those apps, then call delete_app again.",
 		destructive(), true, nil,
 		func(ctx context.Context, a app.Actor, in deleteAppIn) (*result, error) {
 			if strings.TrimSpace(in.ConfirmSlug) == "" {

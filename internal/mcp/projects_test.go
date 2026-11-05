@@ -3,6 +3,8 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"github.com/AVMG20/bitploy/internal/app"
 )
 
 // deploy_catalog_app takes project and alias; delete_app on a database that
@@ -58,5 +60,63 @@ func TestCatalogIntoProjectAndAppInUse(t *testing.T) {
 	d := deps[0].(map[string]any)
 	if d["slug"] != ap["slug"] || d["alias"] != "stats" || len(d["vars"].([]any)) != 1 || d["vars"].([]any)[0] != "DATABASE_URL" {
 		t.Errorf("dependent: %v", d)
+	}
+}
+
+// "Put my repo online with a Postgres": add_service on an app that never ran
+// tells the AI to deploy it; get_app of the database says how to connect,
+// never to send it code.
+func TestAddServiceToNewAppTellsToDeploy(t *testing.T) {
+	e := newEnv(t)
+	ds := e.connect(t, e.deployToken)
+
+	res := call(t, ds, "create_app", map[string]any{"name": "Shop", "slug": "shop"})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	ap, _ := structured(t, res)["app"].(map[string]any)
+	pr, _ := ap["project"].(map[string]any)
+	pid, _ := pr["id"].(string)
+
+	res = call(t, ds, "add_service", map[string]any{"project": pid, "template": "postgres", "connect_to": []string{"shop"}})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	m := structured(t, res)
+	next := strings.Join(toStrings(m["next_steps"]), " ")
+	if !strings.Contains(next, "Nothing runs yet in shop") || !strings.Contains(next, "DATABASE_URL=${{postgres.DATABASE_URL}}") || strings.Contains(next, "Restarted by bitploy") {
+		t.Errorf("add_service next: %s", next)
+	}
+	svc, _ := m["app"].(map[string]any)
+	slug, _ := svc["slug"].(string)
+
+	res = call(t, ds, "list_projects", nil)
+	if !strings.Contains(text(res), "postgres (postgres, slug "+slug+")") {
+		t.Errorf("list_projects: %s", text(res))
+	}
+
+	res = call(t, ds, "get_app", map[string]any{"app": slug})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	next = strings.Join(toStrings(structured(t, res)["next_steps"]), " ")
+	if strings.Contains(next, "deploy_files with app="+slug) {
+		t.Errorf("get_app of a service tells to send files: %s", next)
+	}
+}
+
+func TestTemplateAppNext(t *testing.T) {
+	tpl := "postgres"
+	ap := app.App{Slug: "postgres-ab12", Status: "running", Template: &tpl, Alias: "postgres", InternalHost: "postgres:5432",
+		MainVar: "DATABASE_URL", ConnectionVars: []string{"DATABASE_URL", "PGHOST"}, TemplateVersion: "17.1", TemplateLatest: "18.0", TemplateUpdateAvailable: true}
+	ap.Project.Name = "Shop"
+	next := strings.Join(appNext(ap), " ")
+	for _, want := range []string{"no code to send", "postgres:5432", `{"DATABASE_URL":"${{postgres.DATABASE_URL}}"}`, "never upgraded automatically"} {
+		if !strings.Contains(next, want) {
+			t.Errorf("next lacks %q: %s", want, next)
+		}
+	}
+	if strings.Contains(next, "deploy_files") {
+		t.Errorf("next: %s", next)
 	}
 }

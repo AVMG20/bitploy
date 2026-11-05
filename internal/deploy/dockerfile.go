@@ -1070,7 +1070,7 @@ func (g *graph) databaseServers() []Finding {
 					Severity: sevWarning,
 					Line:     firstLine(run.Location()),
 					Message:  fmt.Sprintf("The Dockerfile installs %s, but an app is one container with one process: a database server in the image does not run next to the app.", p),
-					Hint:     "Remove the install and use SQLite with the file in /data, like /data/app.db (turn on saved files for the app). Instead of Redis, use an in-process cache or a SQLite-backed queue. Or use a hosted database and store its URL as an environment variable.",
+					Hint:     "Remove the install and use SQLite with the file in /data, like /data/app.db (turn on saved files for the app). Instead of Redis, use an in-process cache or a SQLite-backed queue. If the code needs the server, add it as an app of its own in the app's project (add_service, or Add an app or a database on the project page), or use a hosted database and store its URL as an environment variable.",
 				})
 			}
 		}
