@@ -8,7 +8,8 @@ import ProjectAppCard from '@/components/project/ProjectAppCard.vue'
 import { Button } from '@/components/ui/button'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
-import { routeLinks, spreadLabels } from '@/lib/canvas'
+import { projectRoute } from '@/lib/appLinks'
+import { labelRoom, routeLinks, spreadLabels } from '@/lib/canvas'
 import type { Box, RoutedLink } from '@/lib/canvas'
 import { formatMB } from '@/lib/format'
 import { aliasOf, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
@@ -21,7 +22,7 @@ import type { Lane } from '@/lib/projects'
 const props = defineProps<{ projectId: string }>()
 const route = useRoute()
 const router = useRouter()
-const { project, tpls, fallback, apps, links, roleOf } = useProjectData(() => props.projectId)
+const { list, project, tpls, fallback, apps, links, roleOf } = useProjectData(() => props.projectId)
 
 const LANES: { key: Lane; title: string; text: string }[] = [
   { key: 'public', title: 'Open to visitors', text: 'Has a web address' },
@@ -38,6 +39,17 @@ const selectedApp = computed(() => apps.value.find((a) => a.slug === selected.va
 function closePanel() {
   void router.push({ query: { ...route.query, app: undefined } })
 }
+// ?app= naming an app of another project opens it there; one that is gone is
+// dropped from the address. A list still loading may not have a new app yet.
+watch(
+  () => [selected.value, project.value, list.data.value, list.isFetching.value] as const,
+  ([slug, p, all, fetching]) => {
+    if (!slug || !p || !all || fetching || p.apps.some((a) => a.slug === slug)) return
+    const home = all.projects.find((x) => x.apps.some((a) => a.slug === slug))
+    void router.replace(home ? projectRoute(home.id, { app: slug }) : { query: { ...route.query, app: undefined } })
+  },
+  { immediate: true },
+)
 
 // ---------------------------------------------------------------- hover: light up an app and what it is linked to
 const hovered = ref<string | null>(null)
@@ -58,6 +70,7 @@ const onLine = (p: RoutedLink) => p.from === focus.value || p.to === focus.value
 // ---------------------------------------------------------------- the lines behind the cards
 const board = ref<HTMLElement>()
 const paths = ref<RoutedLink[]>([])
+const cards = ref<Box[]>([])
 const size = ref({ w: 0, h: 0 })
 /** Lines are drawn when the lanes sit side by side; stacked lanes show the names on the cards. */
 const routable = ref(false)
@@ -78,6 +91,7 @@ function measure() {
     const col = Number(card.closest<HTMLElement>('[data-lane]')?.dataset.lane ?? 0)
     boxes.push({ id: card.dataset.app!, col, l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top })
   }
+  cards.value = boxes
   paths.value = routeLinks(boxes, links.value)
 }
 const labels = computed(() => {
@@ -86,9 +100,10 @@ const labels = computed(() => {
   const shown = paths.value.flatMap((p) => {
     if (!onLine(p)) return []
     const l = links.value.find((x) => x.from === p.from && x.to === p.to)
-    return [{ key: p.key, x: p.endSide === 'l' ? p.end.x - 8 : p.end.x + 8, y: p.end.y, side: p.endSide, text: l?.vars.join(', ') ?? '' }]
+    return [{ key: p.key, x: p.endSide === 'l' ? p.end.x - 6 : p.end.x + 6, y: p.end.y, side: p.endSide, text: l?.vars.join(', ') ?? '' }]
   })
-  return spreadLabels(shown, 22)
+  // A label is cut short where a card starts, so it never covers one; the card and the panel name every variable.
+  return spreadLabels(shown, 22).map((lb) => ({ ...lb, room: Math.max(32, labelRoom(lb.x, lb.y, lb.side, cards.value, size.value.w) - 4) }))
 })
 
 let ro: ResizeObserver | undefined
@@ -184,7 +199,7 @@ const quickPicks = computed(() => {
         </g>
       </svg>
 
-      <div class="relative grid gap-6 lg:gap-16" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 17rem), 1fr))` }">
+      <div class="relative grid gap-6 lg:gap-x-20" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 14rem), 1fr))` }">
         <section v-for="(l, i) in lanes" :key="l.key" :data-lane="i" class="grid content-start gap-3" :aria-labelledby="`lane-${l.key}`">
           <div class="px-1">
             <h2 :id="`lane-${l.key}`" class="truncate text-xs font-medium text-foreground/80">{{ l.title }}</h2>
@@ -218,8 +233,8 @@ const quickPicks = computed(() => {
         <span
           v-for="lb in labels"
           :key="`${lb.key}-label`"
-          class="absolute rounded-md border border-primary/40 bg-card px-1.5 py-0.5 font-mono text-[10.5px] whitespace-nowrap text-foreground shadow-card"
-          :style="{ left: `${lb.x}px`, top: `${lb.y}px`, transform: lb.side === 'l' ? 'translate(-100%, -50%)' : 'translate(0, -50%)' }"
+          class="absolute truncate rounded-md border border-primary/40 bg-card px-1.5 py-0.5 font-mono text-[10.5px] whitespace-nowrap text-foreground shadow-card"
+          :style="{ left: `${lb.x}px`, top: `${lb.y}px`, maxWidth: `${lb.room}px`, transform: lb.side === 'l' ? 'translate(-100%, -50%)' : 'translate(0, -50%)' }"
         >{{ lb.text }}</span>
       </div>
     </div>
