@@ -468,14 +468,14 @@ flattened onto `scratch` to stay under the 2 GB image limit.
 
 ### Known gaps
 
-- `<alias>-<service>` names of a multi app are not checked against the other
-  aliases of the project; a clash makes Docker's DNS answer either container.
-- The restart of `connect_to` apps after the service goes live is kept in
-  memory; a bitploy restart before that loses it (the apps restart at their
-  next deploy or restart_app).
-- References are not filled into compose files (`${VAR}` only reads the app's
-  own variables, which may hold references).
-- No template upgrades: an app keeps the version it was made with.
-- Deleting a referenced app is allowed; the apps that refer to it then fail to
-  start with `variable_reference_unknown`.
+- Closed 2026-11-05 (see decisions.md, "Projects: closing the gaps"):
+  `<alias>-<service>` clashes are refused (`alias_taken`,
+  `network_name_taken`), the `connect_to` restarts are stored
+  (`deployment_restarts`), a `${{…}}` in a compose file is refused
+  (`compose_reference_unsupported`) with the way that works, apps show
+  `template_latest`/`template_update_available`, deleting a referenced app is
+  refused (`app_in_use`), `create_backup` covers every volume, and project
+  networks drop members that are no container of the project.
+- No template upgrades: an app keeps the version it was made with; the
+  dashboard and the AI see that a newer one exists.
 - Umami's `TWO_FACTOR_ENCRYPTION_KEY` is not set (two-factor login off).

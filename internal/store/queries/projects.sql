@@ -21,9 +21,6 @@ SELECT * FROM apps WHERE project_id = ? ORDER BY created_at, id;
 -- name: CountAppsByProject :one
 SELECT COUNT(*) FROM apps WHERE project_id = ?;
 
--- name: ProjectAliasTaken :one
-SELECT COUNT(*) FROM apps WHERE project_id = ? AND alias = ? AND id != sqlc.arg(except_id);
-
 -- name: SetAppProject :exec
 UPDATE apps SET project_id = ?, alias = ?, updated_at = ? WHERE id = ?;
 
@@ -41,3 +38,17 @@ UPDATE projects SET auto = 0, updated_at = ? WHERE id = ?;
 
 -- name: GetAppByProjectAlias :one
 SELECT * FROM apps WHERE project_id = ? AND alias = ?;
+
+-- name: InsertDeploymentRestart :exec
+INSERT OR IGNORE INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, ?);
+
+-- name: TakeDeploymentRestarts :many
+-- Claims the restarts of a deployment: whoever deletes them does them.
+DELETE FROM deployment_restarts WHERE deployment_id = ? RETURNING app_id;
+
+-- name: ListSettledDeploymentRestarts :many
+-- Deployments with restarts left whose outcome is known.
+SELECT DISTINCT r.deployment_id, d.state FROM deployment_restarts r
+JOIN deployments d ON d.id = r.deployment_id
+WHERE d.state IN ('running', 'superseded', 'failed', 'cancelled')
+ORDER BY r.deployment_id;

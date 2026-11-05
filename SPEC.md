@@ -275,7 +275,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
 | `validate_compose(compose, app?)` | Previews a compose file: services, volumes, totals, quota, warnings and errors (`{code, service, key, message, hint}`); a bad file is `ok: false`, never a tool error. Only for a project that already has a compose file | read | read-only |
 | `list_catalog` | The one-click apps (id, name, tagline, pinned version, memory, volume, category) | read | read-only |
-| `deploy_catalog_app(id, name?, slug?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes the app again if the deployment cannot be queued. An entry with services (like Umami with PostgreSQL) makes a project with the services and the app | deploy | — |
+| `deploy_catalog_app(id, name?, slug?, project?, alias?)` | Creates the app from the catalog, sets its env, deploys, returns app, deployment and `first_steps` with the URL filled in; removes what it made again if the deployment cannot be queued. An entry with services (like Umami with PostgreSQL) adds the services and the app to `project` (default: a new project named after the app); taken service aliases get a `-2` suffix | deploy | — |
 | `list_projects` / `get_project(project)` | Projects with their apps: alias, `internal_host`, template, connection variables, references | read | read-only |
 | `create_project(name)` | An empty project that stays when empty | deploy | — |
 | `list_service_templates` | The templates of `add_service` with image, port, sizes, `connection_vars` and `main_var` | read | read-only |
@@ -295,10 +295,10 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
 | `cancel_deployment(id or app)` | Cancels a queued or in-progress deployment (`app`: the app's open one; `no_deployment_to_cancel` 409 when there is none); the live version keeps running | deploy | write |
-| `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume | deploy | destructive |
+| `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume; refused with `app_in_use` while other apps refer to its variables | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
-| `create_backup(app)` / `list_backups(app)` | Back up /data in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
+| `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
 | `query_db(app, path, sql, write=false, volume?)` | Run SQL on a SQLite file in /data (`volume` picks another volume of a compose app) (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
 
 Also expose the rules as resource `bitploy://rules` and each template as `bitploy://templates/{stack}`, and add a prompt `deploy_project` that walks through the eight steps. Keep the tools anyway: many clients ignore resources and prompts.

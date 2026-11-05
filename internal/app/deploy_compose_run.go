@@ -33,6 +33,9 @@ func (p *pipeline) validateCompose(ctx context.Context, ch composeChoice, files 
 		return ae
 	}
 	specs := composeServiceSpecs(proj)
+	if ae := s.checkServiceHostNames(ctx, p.app, specs); ae != nil {
+		return ae
+	}
 	vols, notes, err := s.composeVolumes(ctx, p.app, specs, proj)
 	if err != nil {
 		return apperr.Internal(err)
@@ -451,4 +454,29 @@ func (p *pipeline) writeSingleFromCompose(ctx context.Context, q *db.Queries, no
 		}
 	}
 	return nil
+}
+
+// checkServiceHostNames refuses services whose name on the project network
+// (<alias>-<service>) another app of the project already has, as alias or
+// as the name of one of its services.
+func (s *Service) checkServiceHostNames(ctx context.Context, app db.App, specs []serviceSpec) *apperr.Error {
+	if app.ProjectID == "" || app.Alias == "" {
+		return nil
+	}
+	held, err := projectHostNames(ctx, s.Q, app.ProjectID, app.ID)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	names := make([]string, len(specs))
+	for i, sp := range specs {
+		names[i] = sp.Name
+	}
+	c, clash := firstClash(held, app.Alias, names)
+	if !clash {
+		return nil
+	}
+	ae := c.err(app.Alias)
+	return apperr.Unprocessable("network_name_taken", ae.Message,
+		"Rename the service "+c.service+" in the compose file, or give this app another short name with update_app alias=..., then deploy again.").
+		WithNext("update_app").WithDetail("service", c.service).WithDetail("name", c.name).WithDetail("app", c.holder.app.Slug)
 }

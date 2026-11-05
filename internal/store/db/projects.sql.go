@@ -122,6 +122,21 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 	return i, err
 }
 
+const insertDeploymentRestart = `-- name: InsertDeploymentRestart :exec
+INSERT OR IGNORE INTO deployment_restarts (deployment_id, app_id, created_at) VALUES (?, ?, ?)
+`
+
+type InsertDeploymentRestartParams struct {
+	DeploymentID string
+	AppID        string
+	CreatedAt    int64
+}
+
+func (q *Queries) InsertDeploymentRestart(ctx context.Context, arg InsertDeploymentRestartParams) error {
+	_, err := q.db.ExecContext(ctx, insertDeploymentRestart, arg.DeploymentID, arg.AppID, arg.CreatedAt)
+	return err
+}
+
 const insertProject = `-- name: InsertProject :exec
 
 INSERT INTO projects (id, user_id, name, auto, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -258,21 +273,40 @@ func (q *Queries) ListProjectsByUser(ctx context.Context, userID string) ([]Proj
 	return items, nil
 }
 
-const projectAliasTaken = `-- name: ProjectAliasTaken :one
-SELECT COUNT(*) FROM apps WHERE project_id = ? AND alias = ? AND id != ?3
+const listSettledDeploymentRestarts = `-- name: ListSettledDeploymentRestarts :many
+SELECT DISTINCT r.deployment_id, d.state FROM deployment_restarts r
+JOIN deployments d ON d.id = r.deployment_id
+WHERE d.state IN ('running', 'superseded', 'failed', 'cancelled')
+ORDER BY r.deployment_id
 `
 
-type ProjectAliasTakenParams struct {
-	ProjectID string
-	Alias     string
-	ExceptID  string
+type ListSettledDeploymentRestartsRow struct {
+	DeploymentID string
+	State        string
 }
 
-func (q *Queries) ProjectAliasTaken(ctx context.Context, arg ProjectAliasTakenParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, projectAliasTaken, arg.ProjectID, arg.Alias, arg.ExceptID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+// Deployments with restarts left whose outcome is known.
+func (q *Queries) ListSettledDeploymentRestarts(ctx context.Context) ([]ListSettledDeploymentRestartsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSettledDeploymentRestarts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSettledDeploymentRestartsRow{}
+	for rows.Next() {
+		var i ListSettledDeploymentRestartsRow
+		if err := rows.Scan(&i.DeploymentID, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const renameProject = `-- name: RenameProject :exec
@@ -345,4 +379,32 @@ type SetProjectManualParams struct {
 func (q *Queries) SetProjectManual(ctx context.Context, arg SetProjectManualParams) error {
 	_, err := q.db.ExecContext(ctx, setProjectManual, arg.UpdatedAt, arg.ID)
 	return err
+}
+
+const takeDeploymentRestarts = `-- name: TakeDeploymentRestarts :many
+DELETE FROM deployment_restarts WHERE deployment_id = ? RETURNING app_id
+`
+
+// Claims the restarts of a deployment: whoever deletes them does them.
+func (q *Queries) TakeDeploymentRestarts(ctx context.Context, deploymentID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, takeDeploymentRestarts, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var app_id string
+		if err := rows.Scan(&app_id); err != nil {
+			return nil, err
+		}
+		items = append(items, app_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -21,6 +21,17 @@ import (
 
 type emptyIn struct{}
 
+// backupIn is create_backup's input.
+type backupIn struct {
+	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Volume string `json:"volume,omitempty" jsonschema:"Only for an app with several volumes (a compose app): back up only this volume, from volumes in get_app. Leave it out to back up every volume of the app."`
+}
+
+var backupNext = []string{
+	"Call list_backups with this app in a few seconds, until the backup has status ready (or failed: then its error says why).",
+	"To restore a backup the user opens the app in the dashboard, Storage tab, and picks Restore. Do not try to do that for them.",
+}
+
 type appIn struct {
 	App string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Read it from the .bitploy file in the code folder, or call list_apps."`
 }
@@ -88,10 +99,12 @@ type deployFilesIn struct {
 }
 
 type catalogDeployIn struct {
-	ID     string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
-	Name   string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
-	Slug   string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
-	Domain string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
+	ID      string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
+	Name    string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
+	Slug    string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+	Domain  string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
+	Project string `json:"project,omitempty" jsonschema:"The project (id or name from list_projects) to add the app and its databases to. Leave out to make a new project named after the app."`
+	Alias   string `json:"alias,omitempty" jsonschema:"The app's short name in the project, like stats. Leave out to use the subdomain."`
 }
 
 type gitSourceIn struct {
@@ -441,10 +454,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_catalog_app", "Deploy a one-click app",
-		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind.",
+		"Creates a new app from a catalog entry (see list_catalog) and deploys it: no files to send. Returns the app, the deployment (poll get_deployment) and first_steps for the user, such as creating the admin account. Quotas and subdomain rules are the same as for create_app; if the deploy cannot be queued, no app is left behind. With project, the app and the databases it brings are added to that project (a database name that is taken there gets -2); without it they get a new project.",
 		write(), true, nil,
 		func(ctx context.Context, a app.Actor, in catalogDeployIn) (*result, error) {
-			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug, Domain: in.Domain})
+			res, err := svc.DeployCatalogApp(ctx, a, in.ID, app.CatalogDeployInput{Name: in.Name, Slug: in.Slug, Domain: in.Domain, Project: in.Project, Alias: in.Alias})
 			if err != nil {
 				return nil, err
 			}
@@ -768,7 +781,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "delete_app", "Delete an app",
-		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named.",
+		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): change those variables with set_env or delete those apps first.",
 		destructive(), true, nil,
 		func(ctx context.Context, a app.Actor, in deleteAppIn) (*result, error) {
 			if strings.TrimSpace(in.ConfirmSlug) == "" {
@@ -864,20 +877,38 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "create_backup", "Back up /data",
-		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. Returns a backup with status running: call list_backups until it is ready or failed. Backups count towards the account's storage allowance (whoami). Make one before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
+		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. An app with several volumes (a compose app) gets one backup per volume unless volume= picks one. Returns the backup (backups: all of them) with status running: call list_backups until each is ready or failed. Backups count towards the account's storage allowance (whoami). Make one before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
 		write(), true, nil,
-		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
-			b, err := svc.CreateBackup(ctx, a, in.App)
+		func(ctx context.Context, a app.Actor, in backupIn) (*result, error) {
+			if in.Volume != "" {
+				b, err := svc.CreateBackup(ctx, a, in.App, in.Volume)
+				if err != nil {
+					return nil, err
+				}
+				return &result{
+					Summary: "Started a backup of volume " + b.Volume + " of " + in.App + ".",
+					Data:    data("backup", b),
+					Next:    backupNext,
+				}, nil
+			}
+			bs, err := svc.CreateBackupAll(ctx, a, in.App)
 			if err != nil {
 				return nil, err
 			}
+			sum := "Started a backup of /data of " + in.App + "."
+			if len(bs) == 1 && bs[0].Volume != "" {
+				sum = "Started a backup of volume " + bs[0].Volume + " of " + in.App + "."
+			} else if len(bs) > 1 {
+				names := make([]string, len(bs))
+				for i, b := range bs {
+					names[i] = b.Volume
+				}
+				sum = fmt.Sprintf("Started %d backups of %s, one per volume: %s. They run one after the other.", len(bs), in.App, strings.Join(names, ", "))
+			}
 			return &result{
-				Summary: "Started a backup of /data of " + in.App + ".",
-				Data:    data("backup", b),
-				Next: []string{
-					"Call list_backups with this app in a few seconds, until the backup has status ready (or failed: then its error says why).",
-					"To restore a backup the user opens the app in the dashboard, Storage tab, and picks Restore. Do not try to do that for them.",
-				},
+				Summary: sum,
+				Data:    data("backup", bs[0], "backups", bs),
+				Next:    backupNext,
 			}, nil
 		})
 

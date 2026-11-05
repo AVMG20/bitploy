@@ -35,7 +35,8 @@ func (a *API) catalogRoutes() {
 		OperationID: "deployCatalogApp", Method: http.MethodPost, Path: "/catalog/{id}/deploy", Tags: []string{"Catalog"},
 		Summary: "Create an app from the catalog and deploy it",
 		Description: "Creates the app (the quotas and slug rules of POST /apps apply), sets its environment, deploys the catalog Dockerfile and returns the app, the deployment and the first steps to take. " +
-			"If anything fails, the app is removed again. Accepts an Idempotency-Key header.",
+			"With project, the app and the services the entry brings (databases) are added to that project, which must be yours (404 project_not_found otherwise); a service name that is taken there gets the next free one (db-2) and the app's references follow it. Without project, a new project named after the app is made. " +
+			"alias is the app's short name in the project (409 alias_taken when it is in use). If anything fails, what this call made is removed again. Accepts an Idempotency-Key header.",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		ID   string `path:"id" doc:"Catalog id, for example memos"`

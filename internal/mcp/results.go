@@ -233,6 +233,9 @@ func appLine(ap app.App) string {
 	}
 	if ap.Template != nil {
 		s += ", service template " + *ap.Template + " " + ap.TemplateVersion
+		if ap.TemplateUpdateAvailable {
+			s += " (" + ap.TemplateLatest + " is available; not applied automatically)"
+		}
 	}
 	if len(ap.Services) > 1 {
 		names := make([]string, len(ap.Services))

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 func TestProjectsCRUD(t *testing.T) {
@@ -222,8 +224,28 @@ func TestAddServiceAndReferences(t *testing.T) {
 	if _, err := e.s.UpdateApp(ctx, e.user, "shop", UpdateAppInput{Project: strp(other.ID)}); depCode(err) != "app_has_references" {
 		t.Errorf("move an app with references: %v", err)
 	}
-	// A referenced app that was deleted makes the start fail with the name.
-	if err := e.s.DeleteApp(ctx, e.user, pg.Slug, pg.Slug); err != nil {
+	// Deleting a referenced app is refused with the apps and variables that
+	// use it.
+	err = e.s.DeleteApp(ctx, e.user, pg.Slug, pg.Slug)
+	if depCode(err) != "app_in_use" {
+		t.Fatalf("delete a referenced app: %v", err)
+	}
+	ae = apperr.As(err)
+	deps, _ := ae.Details["dependents"].([]Dependent)
+	if ae.HTTPStatus != 409 || ae.Next != "set_env" || len(deps) != 1 || deps[0].Slug != "shop" || deps[0].Alias != "shop" ||
+		strings.Join(deps[0].Vars, ",") != "DATABASE_URL,V" || !strings.Contains(ae.Hint, "set_env") {
+		t.Fatalf("app_in_use = %+v", ae)
+	}
+	b, _ := json.Marshal(ae.Details)
+	if string(b) != `{"dependents":[{"slug":"shop","alias":"shop","vars":["DATABASE_URL","V"]}]}` {
+		t.Errorf("details = %s", b)
+	}
+	if _, err := e.s.GetApp(ctx, e.user, pg.Slug); err != nil {
+		t.Fatalf("the refused delete removed the app: %v", err)
+	}
+	// A dangling reference (here written straight into the database, as an
+	// older bitploy allowed) makes the start fail with the name.
+	if err := e.s.deleteApp(ctx, e.user, pg.Slug, pg.Slug, false); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = e.s.Q.GetApp(ctx, web.ID)
@@ -260,5 +282,51 @@ func TestReferenceChainsAndLoops(t *testing.T) {
 	}
 	if !strings.Contains(refUnknownApp("X", varRef{"q", "Y"}).Message, "${{q.Y}}") {
 		t.Error("the error names the reference")
+	}
+}
+
+// delete_app is refused while another app uses the app's variables, works
+// once they are gone, and delete_project with_apps removes both.
+func TestDeleteReferencedApp(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "Shop"})
+	e.mustApp(t, CreateAppInput{Name: "Shop", Slug: "shop", Project: p.ID})
+	e.mustApp(t, CreateAppInput{Name: "Back office", Slug: "office", Project: p.ID})
+	pg, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "postgres", Name: "db", ConnectTo: []string{"shop"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.SetEnv(ctx, e.user, "office", map[string]string{"PGHOST": "${{db.PGHOST}}", "X": "plain"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	err = e.s.DeleteApp(ctx, e.user, pg.Slug, pg.Slug)
+	deps, _ := apperr.As(err).Details["dependents"].([]Dependent)
+	if depCode(err) != "app_in_use" || len(deps) != 2 || deps[0].Slug != "office" || deps[0].Vars[0] != "PGHOST" || len(deps[0].Vars) != 1 || deps[1].Slug != "shop" {
+		t.Fatalf("delete = %v, dependents %+v", err, deps)
+	}
+	// A wrong confirmation is still the first answer.
+	if err := e.s.DeleteApp(ctx, e.user, pg.Slug, "nope"); depCode(err) != "confirm_mismatch" {
+		t.Errorf("confirm: %v", err)
+	}
+	if _, err := e.s.SetEnv(ctx, e.user, "office", nil, []string{"PGHOST"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.SetEnv(ctx, e.user, "shop", map[string]string{"DATABASE_URL": "postgres://elsewhere/db"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.DeleteApp(ctx, e.user, pg.Slug, pg.Slug); err != nil {
+		t.Fatalf("delete after the variables changed: %v", err)
+	}
+
+	// with_apps deletes referenced apps along with the apps that use them.
+	if _, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "valkey", Name: "cache", ConnectTo: []string{"office"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.DeleteProject(ctx, e.user, p.ID, "Shop", true); err != nil {
+		t.Fatalf("delete_project with_apps: %v", err)
+	}
+	if n := e.countApps(t); n != 0 {
+		t.Errorf("%d apps left", n)
 	}
 }

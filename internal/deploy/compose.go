@@ -48,6 +48,7 @@ const (
 	CodeComposeServiceNameInvalid = "compose_service_name_invalid"
 	CodeComposeFileMissing        = "compose_file_missing"
 	CodeComposeSourceMissing      = "compose_source_missing"
+	CodeComposeReference          = "compose_reference_unsupported"
 	// Warnings.
 	CodeComposeKeyIgnored     = "compose_key_ignored"
 	CodeComposeVariableUnset  = "compose_variable_unset"
@@ -350,6 +351,7 @@ func (p *composeParser) parse() {
 	}
 	p.order = serviceOrder(&doc)
 	p.scanTop(raw)
+	p.scanReferences(raw)
 	if len(p.out.Errors) > 0 {
 		return
 	}
@@ -378,6 +380,118 @@ func (p *composeParser) parse() {
 	}
 	p.unsetWarnings(raw)
 	p.translate(proj, refs)
+	p.checkFilledReferences()
+}
+
+// ---- references to other apps ----
+
+// A compose file cannot hold ${{<alias>.VAR}}: compose would read it as a
+// broken ${VAR}, and bitploy fills references only into the variables it
+// keeps (set_env), when a container starts. So the file is refused with the
+// way that works: a shared variable holding the reference, which reaches
+// every service and which ${VAR} in environment, command, entrypoint and
+// healthcheck can use.
+var composeRefRe = regexp.MustCompile(`\$\{\{\s*([a-z0-9][a-z0-9-]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
+
+func referenceHint(name, ref string) string {
+	return "Leave it out of the compose file and set it with set_env instead: set_env " + name + "=" + ref +
+		" (a shared variable reaches every service). To use it inside a command, write ${" + name + "} there."
+}
+
+// scanReferences refuses ${{alias.VAR}} anywhere in a service.
+func (p *composeParser) scanReferences(raw map[string]any) {
+	svcs, _ := raw["services"].(map[string]any)
+	for _, name := range p.order {
+		m, ok := svcs[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, k := range sortedKeys(m) {
+			key, val, found := findReference(k, m[k])
+			if !found {
+				continue
+			}
+			ref := composeRefRe.FindString(val)
+			if ref == "" {
+				ref = "${{...}}"
+			}
+			varName := "VAR"
+			if sm := composeRefRe.FindStringSubmatch(ref); sm != nil {
+				varName = sm[2]
+			}
+			if k == "environment" {
+				if strings.HasSuffix(key, "]") {
+					if n, _, ok := strings.Cut(val, "="); ok && !strings.Contains(n, "$") {
+						varName = strings.TrimSpace(n)
+					}
+				} else if strings.Contains(key, ".") {
+					varName = key[strings.LastIndex(key, ".")+1:]
+				}
+			}
+			p.errf(CodeComposeReference, name, key, referenceHint(varName, ref),
+				"%s%s refers to another app with %s; references are not read from compose files.", svcPrefix(name), key, ref)
+			break
+		}
+	}
+}
+
+// findReference finds the first string under v that holds "${{", with its
+// key path below key.
+func findReference(key string, v any) (string, string, bool) {
+	switch t := v.(type) {
+	case string:
+		if strings.Contains(t, "${{") {
+			return key, t, true
+		}
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			if kk, val, ok := findReference(key+"."+k, t[k]); ok {
+				return kk, val, ok
+			}
+		}
+	case []any:
+		for i, x := range t {
+			if kk, val, ok := findReference(fmt.Sprintf("%s[%d]", key, i), x); ok {
+				return kk, val, ok
+			}
+		}
+	}
+	return "", "", false
+}
+
+// checkFilledReferences refuses a ${VAR} whose shared variable holds a
+// reference in a setting that is fixed before the containers start (image,
+// build, user, working_dir): only environment, command, entrypoint and
+// healthcheck are filled in at start.
+func (p *composeParser) checkFilledReferences() {
+	for _, sv := range p.out.Services {
+		fields := []struct{ key, val string }{
+			{"image", sv.Image}, {"build.context", sv.Context}, {"build.dockerfile", sv.Dockerfile}, {"build.target", sv.Target},
+			{"user", sv.User}, {"working_dir", sv.WorkingDir},
+		}
+		args := make([]string, 0, len(sv.Args))
+		for k := range sv.Args {
+			args = append(args, k)
+		}
+		sort.Strings(args)
+		for _, k := range args {
+			fields = append(fields, struct{ key, val string }{"build.args." + k, sv.Args[k]})
+		}
+		for _, f := range fields {
+			if !strings.Contains(f.val, "${{") {
+				continue
+			}
+			ref := composeRefRe.FindString(f.val)
+			if ref == "" {
+				ref = "${{...}}"
+			}
+			p.errf(CodeComposeReference, sv.Name, f.key,
+				"Use a plain value there, or use the variable only in environment, command, entrypoint or healthcheck, which get the value when the container starts.",
+				"%s%s takes a variable that holds the reference %s; references are filled in only when a container starts, not in %s.",
+				svcPrefix(sv.Name), f.key, ref, f.key)
+			break
+		}
+	}
 }
 
 // refLookup returns the marker of a shared variable. An empty variable stays

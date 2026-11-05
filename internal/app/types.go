@@ -210,6 +210,11 @@ type App struct {
 	// valkey, ...; see list_service_templates), or nil.
 	Template        *string `json:"template" doc:"The service template the app was made from, or null"`
 	TemplateVersion string  `json:"template_version,omitempty" doc:"The version of the template's image the app runs"`
+	// TemplateLatest is the template's current version; it is newer than
+	// TemplateVersion when TemplateUpdateAvailable. bitploy never upgrades a
+	// data store by itself (a new major version can need a dump and restore).
+	TemplateLatest          string `json:"template_latest,omitempty" doc:"Template apps: the template's current version in this bitploy"`
+	TemplateUpdateAvailable bool   `json:"template_update_available" doc:"True when the template has a newer version than the app runs. Never applied automatically."`
 	// InternalHost is <alias>:<port>, the address the project's other apps use;
 	// empty when the app has no known port.
 	InternalHost string `json:"internal_host" doc:"<alias>:<port>, the address the other apps of the project use; empty when the port is not known"`

@@ -1301,7 +1301,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
-	s.forgetAfterLive(p.dep.ID)
+	s.forgetAfterLive(bg, p.dep.ID)
 	if ae == errCancelled || ae.Code == "cancelled" {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
 			return // bitploy is shutting down: the reconciler cleans up after restart

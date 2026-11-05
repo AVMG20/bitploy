@@ -963,3 +963,75 @@ func TestStaleBackupsAreCleaned(t *testing.T) {
 		t.Error("temp file still there")
 	}
 }
+
+// multiVolumes turns the test app into one with two services, each with its
+// own volume.
+func (e *bkEnv) multiVolumes(t *testing.T) {
+	t.Helper()
+	e.makeMulti(t, e.app.ID, "web", "db")
+	e.exec(t, `DELETE FROM app_volumes WHERE app_id = ?`, e.app.ID)
+	for _, v := range []db.InsertAppVolumeParams{
+		{AppID: e.app.ID, Name: "uploads", VolumeName: "bp-v-up", SizeMb: 50, Service: "web", MountPath: "/uploads", CreatedAt: 1},
+		{AppID: e.app.ID, Name: "pgdata", VolumeName: "bp-v-pg", SizeMb: 50, Service: "db", MountPath: "/var/lib/postgresql/data", CreatedAt: 2},
+	} {
+		if err := e.s.Q.InsertAppVolume(context.Background(), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A manual backup without a volume covers every volume of the app, like the
+// scheduled one; volume= picks one.
+func TestBackupEveryVolume(t *testing.T) {
+	e := newBkEnv(t)
+	ctx := context.Background()
+	e.multiVolumes(t)
+
+	bs, err := e.s.CreateBackupAll(ctx, e.user, e.app.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bs) != 2 || bs[0].Volume != "pgdata" || bs[1].Volume != "uploads" {
+		t.Fatalf("backups = %+v", bs)
+	}
+	e.wait()
+	manual := e.backupsOfKind(t, "manual")
+	if len(manual) != 2 {
+		t.Fatalf("manual backups = %+v", manual)
+	}
+	for _, it := range manual {
+		if it.Status != "ready" {
+			t.Errorf("backup %+v", it)
+		}
+	}
+
+	one, err := e.s.CreateBackup(ctx, e.user, e.app.Slug, "pgdata")
+	if err != nil || one.Volume != "pgdata" {
+		t.Fatalf("one volume: %+v %v", one, err)
+	}
+	e.wait()
+	if _, err := e.s.CreateBackup(ctx, e.user, e.app.Slug, "nope"); depCode(err) != "volume_not_found" {
+		t.Errorf("unknown volume: %v", err)
+	}
+
+	e.exec(t, `UPDATE apps SET backup_schedule = 'daily', backup_keep_mode = 'last', backup_keep = 5 WHERE id = ?`, e.app.ID)
+	e.runDue(ctx)
+	got := e.backupsOfKind(t, "scheduled")
+	ready := map[string]bool{}
+	for _, it := range got {
+		ready[it.Volume] = it.Status == "ready"
+	}
+	if len(got) != 2 || !ready["uploads"] || !ready["pgdata"] {
+		t.Errorf("scheduled = %+v", got)
+	}
+}
+
+// A single app has one volume: CreateBackupAll makes one backup of /data.
+func TestBackupAllSingle(t *testing.T) {
+	e := newBkEnv(t)
+	bs, err := e.s.CreateBackupAll(context.Background(), e.user, e.app.Slug)
+	e.wait()
+	if err != nil || len(bs) != 1 || bs[0].Volume != "" {
+		t.Fatalf("single app: %+v %v", bs, err)
+	}
+}

@@ -362,60 +362,129 @@ func (s *Service) UpdateBackupSettings(ctx context.Context, a Actor, ref string,
 // as "running" in the list until it is done. An optional volume name picks
 // the volume of an app with several; the default is the app's first volume.
 func (s *Service) CreateBackup(ctx context.Context, a Actor, ref string, volume ...string) (Backup, error) {
+	out, err := s.createBackups(ctx, a, ref, firstOpt(volume), false)
+	if err != nil {
+		return Backup{}, err
+	}
+	return out[0], nil
+}
+
+// CreateBackupAll starts a manual backup of every volume a service of the
+// app mounts (the one /data volume of a single app), one after the other.
+// Volumes that do not exist yet (their service never started) are left out.
+func (s *Service) CreateBackupAll(ctx context.Context, a Actor, ref string) ([]Backup, error) {
+	return s.createBackups(ctx, a, ref, "", true)
+}
+
+func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string, all bool) ([]Backup, error) {
 	row, owner, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
-		return Backup{}, err
+		return nil, err
 	}
-	vol, ok, err := s.pickVolume(ctx, row, firstOpt(volume))
-	if err != nil {
-		return Backup{}, err
-	}
-	if !ok {
-		return Backup{}, volumeOffErr()
+	var vols []volumeSpec
+	if all {
+		_, specs, err := s.appSpecs(ctx, row)
+		if err != nil {
+			return nil, apperr.Internal(err)
+		}
+		for _, v := range specs {
+			if v.Service != "" { // a volume kept from an earlier compose file: nothing writes to it
+				vols = append(vols, v)
+			}
+		}
+		if len(vols) == 0 {
+			return nil, volumeOffErr()
+		}
+	} else {
+		vol, ok, err := s.pickVolume(ctx, row, volume)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, volumeOffErr()
+		}
+		vols = []volumeSpec{vol}
 	}
 	vs, err := s.volumes()
 	if err != nil {
-		return Backup{}, err
+		return nil, err
 	}
-	if has, err := vs.HasVolume(ctx, vol.VolumeName); err != nil {
-		return Backup{}, apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute.")
-	} else if !has {
-		return Backup{}, volumeNotReadyErr()
+	ready := vols[:0:0]
+	for _, vol := range vols {
+		has, err := vs.HasVolume(ctx, vol.VolumeName)
+		if err != nil {
+			return nil, apperr.Unavailable("docker_unavailable", "bitploy could not read the files in /data.", "Try again in a minute.")
+		}
+		if has {
+			ready = append(ready, vol)
+		}
+	}
+	if len(ready) == 0 {
+		return nil, volumeNotReadyErr()
 	}
 	if s.appBusy(row.ID) {
-		return Backup{}, busyErr()
+		return nil, busyErr()
 	}
 	if err := s.checkBackupDisk(); err != nil {
-		return Backup{}, err
+		return nil, err
 	}
 	room, err := s.backupRoom(ctx, owner)
 	if err != nil {
-		return Backup{}, apperr.Internal(err)
+		return nil, apperr.Internal(err)
 	}
 	if room == 0 {
-		return Backup{}, s.noRoomErr(owner)
+		return nil, s.noRoomErr(owner)
 	}
 	lock := s.backupLock(row.ID)
 	if !lock.TryLock() {
-		return Backup{}, backupBusyErr()
+		return nil, backupBusyErr()
 	}
-	b, err := s.insertBackup(ctx, row.ID, BackupManual, vol.Name)
-	if err != nil {
-		lock.Unlock()
-		return Backup{}, err
+	rows := make([]db.AppBackup, 0, len(ready))
+	for _, vol := range ready {
+		b, err := s.insertBackup(ctx, row.ID, BackupManual, vol.Name)
+		if err != nil {
+			for _, r := range rows {
+				_ = s.Q.DeleteBackup(context.WithoutCancel(ctx), r.ID)
+			}
+			lock.Unlock()
+			return nil, err
+		}
+		rows = append(rows, b)
+		meta := map[string]any{"backup": b.ID, "kind": BackupManual}
+		if isMulti(row) {
+			meta["volume"] = b.Volume
+		}
+		s.Audit(ctx, a, "backup.create", "app", row.ID, meta)
 	}
-	s.Audit(ctx, a, "backup.create", "app", row.ID, map[string]any{"backup": b.ID, "kind": BackupManual})
 	s.backupGo(func() {
 		defer lock.Unlock()
 		ctx, cancel := s.backupCtx()
 		defer cancel()
-		if err := s.finishBackup(ctx, row, owner, b.ID, room, false); err != nil {
-			s.Log.Warn("backup failed", "app", row.Slug, "err", err)
+		for i, b := range rows {
+			left := room
+			if i > 0 {
+				// The backups before this one took storage.
+				var err error
+				if left, err = s.backupRoom(ctx, owner); err != nil || left == 0 {
+					_ = s.Q.FinishBackup(context.WithoutCancel(ctx), db.FinishBackupParams{
+						Status: backupFailed, Error: "Skipped: there is no storage left for a backup. Delete an old backup or lower the /data limit of an app.",
+						FinishedAt: nullInt(s.now(), true), ID: b.ID,
+					})
+					s.publishBackup(ctx, row.ID)
+					continue
+				}
+			}
+			if err := s.finishBackup(ctx, row, owner, b.ID, left, false); err != nil {
+				s.Log.Warn("backup failed", "app", row.Slug, "volume", b.Volume, "err", err)
+			}
 		}
 	})
-	out := backupView(b)
-	if isMulti(row) {
-		out.Volume = b.Volume
+	out := make([]Backup, len(rows))
+	for i, b := range rows {
+		out[i] = backupView(b)
+		if isMulti(row) {
+			out[i].Volume = b.Volume
+		}
 	}
 	return out, nil
 }
