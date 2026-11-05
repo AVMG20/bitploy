@@ -93,58 +93,103 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
   for (const p of plans) {
     for (const e of [p.ea, p.eb]) bySide.set(`${e.id}:${e.side}`, [...(bySide.get(`${e.id}:${e.side}`) ?? []), e])
   }
-  for (const ends of bySide.values()) {
-    const box = byId.get(ends[0]!.id)!
-    ends.sort((x, y) => x.toward - y.toward)
-    const room = box.b - box.t - PORT_TOP - 12
-    const step = Math.min(22, Math.max(10, room / Math.max(1, ends.length)))
-    ends.forEach((e, k) => (e.y = Math.min(box.b - 12, box.t + PORT_TOP + k * step)))
+  const placePorts = () => {
+    for (const ends of bySide.values()) {
+      const box = byId.get(ends[0]!.id)!
+      ends.sort((x, y) => x.toward - y.toward)
+      const room = box.b - box.t - PORT_TOP - 12
+      const step = Math.min(22, Math.max(10, room / Math.max(1, ends.length)))
+      ends.forEach((e, k) => (e.y = Math.min(box.b - 12, box.t + PORT_TOP + k * step)))
+    }
   }
 
   // Where each line runs up or down: the gaps between columns.
-  const verticals: Vertical[] = []
-  const corridors = new Map<string, number>()
-  const routes: { p: (typeof plans)[number]; start: Pt; end: Pt; parts: Vertical[] }[] = []
-  for (const p of plans) {
-    const { a, b, ea, eb } = p
-    const start = { x: ea.side === 'r' ? a.r : a.l, y: ea.y }
-    const end = { x: eb.side === 'r' ? b.r : b.l, y: eb.y }
-    const exit: Side = a.col <= b.col ? 'r' : 'l'
-    const parts: Vertical[] = []
-    const part = (gutter: number, y1: number, y2: number, dir: Side) => parts.push({ link: p.i, gutter, y1, y2, exit: dir, x: 0 })
-    if (a.col === b.col) {
-      part(a.col, start.y, end.y, 'l')
-    } else {
-      const lo = Math.min(a.col, b.col)
-      const hi = Math.max(a.col, b.col)
-      // The gap next to each card.
-      const first = a.col < b.col ? a.col : a.col - 1
-      const last = a.col < b.col ? b.col - 1 : b.col
-      const between = boxes.filter((x) => x.col > lo && x.col < hi)
-      const clear = (y: number) => between.every((x) => y < x.t - CLEAR || y > x.b + CLEAR)
-      if (!between.length) part(first, start.y, end.y, exit)
-      else if (clear(start.y)) part(last, start.y, end.y, exit)
-      else if (clear(end.y)) part(first, start.y, end.y, exit)
-      else {
-        // Below the columns in between.
-        const k = `${lo}-${hi}`
-        const n = corridors.get(k) ?? 0
-        corridors.set(k, n + 1)
-        const y = Math.max(...between.map((x) => x.b)) + 14 + n * 8
-        part(first, start.y, y, exit)
-        part(last, y, end.y, exit)
+  const plan = () => {
+    const verticals: Vertical[] = []
+    const corridors = new Map<string, number>()
+    const routes: { p: (typeof plans)[number]; start: Pt; end: Pt; parts: Vertical[]; below?: number; level?: 'start' | 'end' }[] = []
+    for (const p of plans) {
+      const { a, b, ea, eb } = p
+      const start = { x: ea.side === 'r' ? a.r : a.l, y: ea.y }
+      const end = { x: eb.side === 'r' ? b.r : b.l, y: eb.y }
+      const exit: Side = a.col <= b.col ? 'r' : 'l'
+      const parts: Vertical[] = []
+      let below: number | undefined
+      /** Which end the line runs level from, past the columns in between. */
+      let level: 'start' | 'end' | undefined
+      const part = (gutter: number, y1: number, y2: number, dir: Side) => parts.push({ link: p.i, gutter, y1, y2, exit: dir, x: 0 })
+      if (a.col === b.col) {
+        part(a.col, start.y, end.y, 'l')
+      } else {
+        const lo = Math.min(a.col, b.col)
+        const hi = Math.max(a.col, b.col)
+        // The gap next to each card.
+        const first = a.col < b.col ? a.col : a.col - 1
+        const last = a.col < b.col ? b.col - 1 : b.col
+        const between = boxes.filter((x) => x.col > lo && x.col < hi)
+        const clear = (y: number) => between.every((x) => y < x.t - CLEAR || y > x.b + CLEAR)
+        if (!between.length) part(first, start.y, end.y, exit)
+        else if (clear(start.y)) {
+          level = 'start'
+          part(last, start.y, end.y, exit)
+        } else if (clear(end.y)) {
+          level = 'end'
+          part(first, start.y, end.y, exit)
+        }
+        else {
+          // Below the columns in between.
+          const k = `${lo}-${hi}`
+          const n = corridors.get(k) ?? 0
+          corridors.set(k, n + 1)
+          below = Math.max(...between.map((x) => x.b)) + 14 + n * 8
+          part(first, start.y, below, exit)
+          part(last, below, end.y, exit)
+        }
       }
+      verticals.push(...parts)
+      routes.push({ p, start, end, parts, below, level })
     }
-    verticals.push(...parts)
-    routes.push({ p, start, end, parts })
+    return { verticals, routes }
   }
 
-  // Each line gets its own track in a gap. A line turning right toward a lower
-  // card runs left of one turning toward a higher card, so they do not cross.
+  placePorts()
+  let planned = plan()
+  // A line that passes the columns in between crosses a gap level, so it takes
+  // the outer place on that card side and the lines turning up or down in that
+  // gap stay clear of it. A line going below the columns leaves and enters its
+  // cards low. One running level out of a card leaves it at the top when it
+  // turns down later, at the bottom when it turns up. One running level into a
+  // card enters it at the bottom when it came down, at the top when it came up.
+  // That can change the routes, so they are planned again.
+  let moved = false
+  for (const r of planned.routes) {
+    const { a, b, ea, eb } = r.p
+    if (r.below !== undefined) ea.toward = eb.toward = r.below
+    else if (r.level === 'start') ea.toward = r.end.y > r.start.y ? a.t : a.b
+    else if (r.level === 'end') eb.toward = r.start.y < r.end.y ? b.b : b.t
+    else continue
+    moved = true
+  }
+  if (moved) {
+    placePorts()
+    planned = plan()
+  }
+  const { verticals, routes } = planned
+
+  // Each line gets its own track in a gap, in the order where fewer lines
+  // cross. Else a line turning right toward a lower card runs left of one
+  // turning toward a higher card.
+  const within = (y: number, v: Vertical) => y > Math.min(v.y1, v.y2) + 0.5 && y < Math.max(v.y1, v.y2) - 0.5
+  /** How often two lines cross with `x` on the left track and `y` on the right one. */
+  const crossings = (x: Vertical, y: Vertical) =>
+    x.exit === 'r' ? Number(within(y.y1, x)) + Number(within(x.y2, y)) : Number(within(x.y1, y)) + Number(within(y.y2, x))
   for (let g = 0; g < gaps.length; g++) {
     const inGap = verticals.filter((v) => v.gutter === g)
     if (!inGap.length) continue
-    inGap.sort((x, y) => (x.exit === y.exit ? (x.exit === 'r' ? y.y2 - x.y2 : x.y2 - y.y2) : x.exit === 'r' ? -1 : 1))
+    inGap.sort((x, y) => {
+      if (x.exit !== y.exit) return x.exit === 'r' ? -1 : 1
+      return crossings(x, y) - crossings(y, x) || (x.exit === 'r' ? y.y2 - x.y2 : x.y2 - y.y2)
+    })
     const { l, r } = gaps[g]!
     const width = r - l
     const step = inGap.length > 1 ? Math.min(10, Math.max(3, (width - 20) / (inGap.length - 1))) : 0
@@ -216,6 +261,20 @@ export function spreadLabels<T extends Label>(labels: readonly T[], height = 22)
     }
   }
   return out
+}
+
+/**
+ * How wide a label at (x, y) may be before it runs into a card: the room to
+ * the next card on its side at that height, else to the board's edge.
+ */
+export function labelRoom(x: number, y: number, side: Side, boxes: readonly Pick<Box, 'l' | 'r' | 't' | 'b'>[], width: number, height = 22): number {
+  let room = side === 'l' ? x : width - x
+  for (const b of boxes) {
+    if (y + height / 2 < b.t || y - height / 2 > b.b) continue
+    if (side === 'l' && b.r <= x + 0.5) room = Math.min(room, x - b.r)
+    if (side === 'r' && b.l >= x - 0.5) room = Math.min(room, b.l - x)
+  }
+  return Math.max(0, room)
 }
 
 /** Whether the line between two points runs through the box (its edges count as outside). */

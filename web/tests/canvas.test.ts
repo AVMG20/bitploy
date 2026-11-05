@@ -112,3 +112,68 @@ test('spreadLabels moves labels at one spot apart', () => {
   assert.equal(y.b, 72)
   assert.equal(y.c, 55)
 })
+
+/** Points where a level part of one line crosses an upright part of the other. */
+function crossingsBetween(a: RoutedLink, b: RoutedLink): number {
+  let n = 0
+  const parts = (r: RoutedLink) => r.points.slice(1).map((p, i) => [r.points[i]!, p] as const)
+  for (const [p1, p2] of parts(a)) {
+    for (const [q1, q2] of parts(b)) {
+      const [h, v] = p1.y === p2.y && q1.x === q2.x ? [[p1, p2], [q1, q2]] : q1.y === q2.y && p1.x === p2.x ? [[q1, q2], [p1, p2]] : [null, null]
+      if (!h || !v) continue
+      const x = v[0]!.x
+      const y = h[0]!.y
+      const inX = x > Math.min(h[0]!.x, h[1]!.x) + 0.5 && x < Math.max(h[0]!.x, h[1]!.x) - 0.5
+      const inY = y > Math.min(v[0]!.y, v[1]!.y) + 0.5 && y < Math.max(v[0]!.y, v[1]!.y) - 0.5
+      if (inX && inY) n++
+    }
+  }
+  return n
+}
+
+function assertNoCrossings(routes: readonly RoutedLink[]) {
+  for (let i = 0; i < routes.length; i++) {
+    for (let j = i + 1; j < routes.length; j++) assert.equal(crossingsBetween(routes[i]!, routes[j]!), 0, `${routes[i]!.key} crosses ${routes[j]!.key}`)
+  }
+}
+
+test('routeLinks: a line that goes below a column leaves the straight lines next to it straight', () => {
+  // web reads api and pg, api reads pg; api is taller than pg, so web>pg goes below api.
+  const w = box('web', 0, 40, 230)
+  const a = box('api', 1, 40, 256)
+  const p = box('pg', 2, 40, 230)
+  const routes = routeLinks([w, a, p], [
+    { from: 'web', to: 'api' },
+    { from: 'web', to: 'pg' },
+    { from: 'api', to: 'pg' },
+  ])
+  for (const r of routes.filter((x) => x.key !== 'web>pg')) assert.ok(r.points.every((pt) => pt.y === r.points[0]!.y), `${r.key} is one level line`)
+  assertNoCrossings(routes)
+})
+
+test('routeLinks: a line running level past a column enters below the lines turning in the last gap', () => {
+  // The Shop project: web reads api and postgres, api reads redis and postgres; postgres sits under redis.
+  const routes = routeLinks(
+    [box('web', 0, 311, 228), box('api', 1, 311, 256), box('redis', 2, 311, 230), box('pg', 2, 555, 230)],
+    [
+      { from: 'web', to: 'api' },
+      { from: 'web', to: 'pg' },
+      { from: 'api', to: 'redis' },
+      { from: 'api', to: 'pg' },
+    ],
+  )
+  assertNoCrossings(routes)
+})
+
+test('routeLinks orders the tracks in a gap so lines do not cross', () => {
+  const routes = routeLinks(
+    [box('web', 0, 40, 230), box('api', 1, 40, 256), box('worker', 1, 310, 200), box('pg', 2, 40, 230)],
+    [
+      { from: 'web', to: 'api' },
+      { from: 'web', to: 'pg' },
+      { from: 'worker', to: 'pg' },
+      { from: 'api', to: 'pg' },
+    ],
+  )
+  assertNoCrossings(routes)
+})
