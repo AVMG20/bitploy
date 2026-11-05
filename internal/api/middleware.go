@@ -327,12 +327,15 @@ const (
 // upload URL) are credentials and must never land in the database or backups.
 func idempotentPath(p string) bool {
 	rest := strings.TrimPrefix(p, prefix)
-	if rest == "/apps" {
+	if rest == "/apps" || rest == "/projects" {
 		return true
 	}
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
 	if len(parts) == 3 && parts[0] == "catalog" && parts[1] != "" && parts[2] == "deploy" {
 		return true // creates an app: a retry must not make a second one
+	}
+	if len(parts) == 3 && parts[0] == "projects" && parts[1] != "" && parts[2] == "services" {
+		return true // add_service creates an app too
 	}
 	if len(parts) == 3 && parts[0] == "apps" && parts[1] != "" {
 		switch parts[2] {
