@@ -70,7 +70,7 @@ const dep = computed(() => props.app.current_deployment)
 
     <section class="grid gap-3" aria-labelledby="services-title">
       <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id="services-title" class="text-sm font-medium">What runs in this project</h2>
+        <h2 id="services-title" class="text-sm font-medium">What runs in this app</h2>
         <p class="text-xs text-muted-foreground">Open a service to see its logs, usage and settings.</p>
       </div>
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

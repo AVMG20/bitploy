@@ -67,7 +67,7 @@ const to = computed(() => ({ query: { ...route.query, service: props.service.nam
       >
         <span class="truncate">{{ hostOf(app.url) }}</span><ExternalLink class="size-3 shrink-0 text-muted-foreground" />
       </a>
-      <span v-else-if="service.port" class="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" :title="`The other services of this project reach it at ${service.name}:${service.port}. Visitors cannot.`">
+      <span v-else-if="service.port" class="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" :title="`The other services of this app reach it at ${service.name}:${service.port}. Visitors cannot.`">
         <Lock class="size-3 shrink-0" /> Private, at <span class="truncate font-mono text-foreground/80">{{ service.name }}:{{ service.port }}</span>
       </span>
       <span v-else class="inline-flex items-center gap-1.5 text-muted-foreground"><Lock class="size-3 shrink-0" /> No web address</span>

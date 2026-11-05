@@ -55,7 +55,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
   <div v-if="data" class="grid gap-4">
     <!-- Without a running version the deploy card below shows the failure. -->
     <Alert v-if="(data.status === 'failed' && dep) || data.status === 'crashed'" variant="destructive">
-      <AlertTitle>{{ data.status === 'crashed' ? `This ${multi ? 'project' : 'app'} keeps crashing.` : `This ${multi ? 'project' : 'app'} stopped working.` }}</AlertTitle>
+      <AlertTitle>{{ data.status === 'crashed' ? `This app keeps crashing.` : `This app stopped working.` }}</AlertTitle>
       <AlertDescription>
         <p v-if="data.status_message">{{ data.status_message }}</p>
         <p v-if="dep?.error">{{ multi ? aboutService(dep.error.message, dep.error.service) : dep.error.message }} <span v-if="plainHint(dep.error.code, dep.error.hint)" class="font-medium">{{ plainHint(dep.error.code, dep.error.hint) }}</span></p>

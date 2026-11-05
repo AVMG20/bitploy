@@ -370,7 +370,7 @@ const kindLabel: Record<BackupKind, string> = {
         </Select>
       </CardHeader>
       <CardContent>
-        <EmptyState v-if="!vol" :icon="HardDrive" title="This project keeps no data." description="No service has a volume, so what they write is gone after a deploy or restart. Add a volume in your compose file to keep files." />
+        <EmptyState v-if="!vol" :icon="HardDrive" title="This app keeps no data." description="No service has a volume, so what they write is gone after a deploy or restart. Add a volume in your compose file to keep files." />
         <div v-else class="grid gap-2">
           <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
             <span class="text-muted-foreground">
@@ -543,7 +543,7 @@ const kindLabel: Record<BackupKind, string> = {
           title="No backups yet."
           :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover the first volume only.' : 'Back up now, or turn on automatic backups above.'"
         />
-        <p v-else-if="!list.items.length" class="text-sm text-muted-foreground">Nothing to back up: this project keeps no data.</p>
+        <p v-else-if="!list.items.length" class="text-sm text-muted-foreground">Nothing to back up: this app keeps no data.</p>
         <ul v-else class="divide-y rounded-lg border">
           <li v-for="b in list.items" :key="b.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
             <div class="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-x-3 gap-y-1">
