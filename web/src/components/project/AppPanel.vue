@@ -121,7 +121,7 @@ watch(
         <p v-if="role" class="truncate text-xs text-muted-foreground">{{ roleTitle(role) }}</p>
       </div>
       <Button v-if="data" variant="outline" size="sm" as-child>
-        <RouterLink :to="appRoute(data)"><Maximize2 /> Open full page</RouterLink>
+        <RouterLink :to="appRoute(data)" aria-label="Open full page"><Maximize2 /> <span class="hidden sm:inline">Open full page</span></RouterLink>
       </Button>
       <Button variant="ghost" size="icon" class="size-8" aria-label="Close" title="Close (Esc)" @click="emit('close')"><X /></Button>
     </div>
@@ -214,7 +214,8 @@ watch(
         </section>
 
         <!-- Who it talks to. -->
-        <section v-if="talks.length || users.length" class="grid gap-2 text-sm" aria-labelledby="panel-links">
+        <!-- A database or cache: the card below says who uses it, and connects more. -->
+        <section v-if="(talks.length || users.length) && !(data.template && !fallback)" class="grid gap-2 text-sm" aria-labelledby="panel-links">
           <h3 id="panel-links" class="text-xs font-medium text-muted-foreground">Connections</h3>
           <p v-if="talks.length" class="flex flex-wrap items-center gap-1.5">
             <Cable class="size-3.5 text-muted-foreground" /> <span class="text-muted-foreground">Talks to</span>
