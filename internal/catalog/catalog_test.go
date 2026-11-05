@@ -65,7 +65,8 @@ func TestEntries(t *testing.T) {
 			}
 			for _, line := range strings.Split(e.Dockerfile, "\n") {
 				f := strings.Fields(line)
-				if len(f) >= 2 && strings.EqualFold(f[0], "FROM") && (strings.HasSuffix(f[1], ":latest") || !strings.Contains(f[1], ":")) && !strings.EqualFold(f[len(f)-2], "AS") {
+				// scratch is the empty image: nothing to pin.
+				if len(f) >= 2 && strings.EqualFold(f[0], "FROM") && f[1] != "scratch" && (strings.HasSuffix(f[1], ":latest") || !strings.Contains(f[1], ":")) && !strings.EqualFold(f[len(f)-2], "AS") {
 					t.Errorf("unpinned base image: %s", line)
 				}
 			}

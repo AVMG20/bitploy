@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/catalog"
@@ -93,5 +94,76 @@ func TestDeployCatalogWithServices(t *testing.T) {
 	}
 	if ps, _ := e.s.ListProjects(ctx, e.user); len(ps) != 1 {
 		t.Errorf("projects after a refused deploy: %d", len(ps))
+	}
+}
+
+// Every multi-service entry deploys as a project with one app per service,
+// and the app's references resolve to concrete values when it starts.
+func TestDeployEveryMultiServiceEntry(t *testing.T) {
+	ctx := context.Background()
+	for _, ce := range catalog.All() {
+		if len(ce.Services) == 0 {
+			continue
+		}
+		t.Run(ce.ID, func(t *testing.T) {
+			e := depTestSvc(t)
+			res, err := e.s.DeployCatalogApp(ctx, e.user, ce.ID, CatalogDeployInput{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := e.s.GetProject(ctx, e.user, res.App.Project.ID)
+			if err != nil || len(p.Apps) != 1+len(ce.Services) {
+				t.Fatalf("project = %+v, %v", p, err)
+			}
+			want := map[string]string{}
+			for _, sv := range ce.Services {
+				want[sv.Name] = sv.Template
+			}
+			for _, a := range p.Apps {
+				if a.ID == res.App.ID {
+					continue
+				}
+				if a.Template == nil || want[a.Alias] != *a.Template {
+					t.Errorf("service %s: template %v, want %q", a.Alias, a.Template, want[a.Alias])
+				}
+			}
+			if len(res.App.References) != len(ce.Services) {
+				t.Errorf("references = %v", res.App.References)
+			}
+			row, err := e.s.LoadApp(ctx, e.user, res.App.Slug, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			env, ae := e.s.containerEnv(ctx, row, int64(ce.Port))
+			if ae != nil {
+				t.Fatal(ae)
+			}
+			got := map[string]string{}
+			for _, kv := range env {
+				k, v, _ := strings.Cut(kv, "=")
+				got[k] = v
+			}
+			for _, ev := range ce.Env {
+				v, ok := got[ev.Name]
+				if !ok || v == "" || strings.Contains(v, "${{") || strings.Contains(v, "{url}") {
+					t.Errorf("%s = %q at start", ev.Name, v)
+				}
+			}
+			// References inside a longer value, and the split connection fields.
+			switch ce.ID {
+			case "miniflux":
+				if v := got["DATABASE_URL"]; !strings.HasPrefix(v, "postgresql://app:") || !strings.HasSuffix(v, "@db:5432/app?sslmode=disable") {
+					t.Errorf("DATABASE_URL = %q", v)
+				}
+			case "ghost":
+				if got["database__connection__host"] != "db" || got["database__connection__port"] != "3306" || got["database__connection__user"] != "app" || len(got["database__connection__password"]) != 32 {
+					t.Errorf("ghost database = %q %q %q", got["database__connection__host"], got["database__connection__port"], got["database__connection__user"])
+				}
+			case "docmost":
+				if v := got["REDIS_URL"]; !strings.HasPrefix(v, "redis://default:") || !strings.HasSuffix(v, "@cache:6379") {
+					t.Errorf("REDIS_URL = %q", v)
+				}
+			}
+		})
 	}
 }

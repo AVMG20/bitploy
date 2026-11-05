@@ -456,6 +456,16 @@ on any failure the project and everything in it is removed. Example: `umami`
 (Umami 3.4.1, port 3000, 512 MB, no volume) with `{postgres, db}` and
 `DATABASE_URL=${{db.DATABASE_URL}}`, `APP_SECRET` generated.
 
+Also multi-service (2026-11-05): `docmost` (postgres db + valkey cache),
+`ghost` (mysql db; the `database__connection__*` fields from the split
+`MYSQL_*` variables), `linkwarden`, `miniflux` (`${{db.DATABASE_URL}}?sslmode=disable`:
+lib/pq asks for TLS by default), `listmonk` (postgres db through the `PG*`
+variables) and `karakeep` (meilisearch search; no headless Chrome, so the
+crawler uses plain HTTP). An image VOLUME on a path the app writes cannot be
+undone in a Dockerfile, so Docmost is copied onto its Node.js base image;
+Linkwarden's image keeps the app itself in /data, so it is moved to /app and
+flattened onto `scratch` to stay under the 2 GB image limit.
+
 ### Known gaps
 
 - `<alias>-<service>` names of a multi app are not checked against the other
