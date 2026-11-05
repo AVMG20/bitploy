@@ -79,7 +79,11 @@ async function runtimeLog(app: App, service?: string): Promise<Log> {
 }
 
 function appLine(app: App): string {
-  return `App: ${app.slug} ("${app.name}")${app.type === 'web' && app.url ? `, ${app.url}` : ', background worker'}`
+  const where = app.type === 'web' && app.url ? `, ${app.url}` : app.internal_host ? `, private at ${app.internal_host}` : ', background worker'
+  const lines = [`App: ${app.slug} ("${app.name}")${where}`]
+  // The project and short name: other apps reach it at the short name and use ${{short.VAR}} references.
+  if (app.project) lines.push(`Project: ${app.project.name} (${app.project.id}), short name ${app.alias || app.slug}${app.template ? `, from the ${app.template} template` : ''}`)
+  return lines.join('\n')
 }
 
 /** "Services: web (website, public), api (API), postgres (database, postgres:16)". */
