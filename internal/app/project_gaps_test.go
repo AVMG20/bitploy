@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
@@ -211,5 +213,30 @@ func TestConnectRestartsAreStored(t *testing.T) {
 	}
 	if count() != 0 {
 		t.Fatal("rows of a deleted app")
+	}
+}
+
+// A compose service's ${VAR} whose shared variable holds a reference gets
+// the resolved value when the container starts.
+func TestComposeVariableWithReference(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	p, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "P"})
+	web := e.mustApp(t, CreateAppInput{Name: "web", Slug: "web", Project: p.ID})
+	if _, err := e.s.AddService(ctx, e.user, p.ID, AddServiceInput{Template: "valkey", Name: "cache"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.SetEnv(ctx, e.user, "web", map[string]string{"CACHE": "${{cache.REDIS_URL}}"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.s.Q.GetApp(ctx, web.ID)
+	spec := &serviceSpec{Name: "api", Environment: map[string]string{"REDIS": "x-" + deploy.EnvRef("CACHE")}}
+	env, shared, ae := e.s.serviceEnv(ctx, row, spec, nil, 0)
+	if ae != nil {
+		t.Fatal(ae)
+	}
+	want := shared["CACHE"]
+	if !strings.HasPrefix(want, "redis://") || !containsStr(env, "REDIS=x-"+want) {
+		t.Errorf("REDIS not filled from the reference: %q", want)
 	}
 }

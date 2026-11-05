@@ -678,3 +678,30 @@ func TestComposeFirstError(t *testing.T) {
 		t.Fatalf("the first error counts the others: %q", e.Message)
 	}
 }
+
+// ${{alias.VAR}} cannot be written into a compose file; a shared variable
+// that holds one works in environment and command (filled in at start) but
+// not in settings fixed before that.
+func TestParseComposeReferences(t *testing.T) {
+	refEnv := map[string]string{"DBURL": "${{db.DATABASE_URL}}"}
+	cases := []composeCase{
+		{name: "in environment", file: "services:\n  web:\n    image: nginx\n    environment:\n      DATABASE_URL: ${{db.DATABASE_URL}}\n",
+			errCode: CodeComposeReference, errService: "web", errKey: "environment.DATABASE_URL", errText: "set_env DATABASE_URL=${{db.DATABASE_URL}}"},
+		{name: "list environment, escaped", file: "services:\n  web:\n    image: nginx\n    environment:\n      - URL=$${{ db.DATABASE_URL }}\n",
+			errCode: CodeComposeReference, errService: "web", errKey: "environment[0]", errText: "set_env URL="},
+		{name: "in command", file: "services:\n  web:\n    image: nginx\n    command: [\"run\", \"${{cache.REDIS_URL}}\"]\n",
+			errCode: CodeComposeReference, errService: "web", errKey: "command[1]", errText: "${REDIS_URL}"},
+		{name: "shared variable in environment", file: "services:\n  web:\n    image: nginx\n    environment:\n      DB: ${DBURL}\n    command: [\"x\", \"${DBURL}\"]\n",
+			env: refEnv, check: func(t *testing.T, p ComposeProject) {
+				if s := p.Services[0]; s.Environment["DB"] != EnvRef("DBURL") || s.Command[1] != EnvRef("DBURL") {
+					t.Errorf("markers: %v %v", s.Environment, s.Command)
+				}
+			}},
+		{name: "shared variable in build args", file: "services:\n  web:\n    build:\n      context: .\n      args:\n        DB: ${DBURL}\n",
+			env: refEnv, files: map[string]string{"Dockerfile": "FROM node:22\nEXPOSE 3000\n"},
+			errCode: CodeComposeReference, errService: "web", errKey: "build.args.DB", errText: "when a container starts"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { runComposeCase(t, c) })
+	}
+}
