@@ -21,6 +21,17 @@ import (
 
 type emptyIn struct{}
 
+// backupIn is create_backup's input.
+type backupIn struct {
+	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Volume string `json:"volume,omitempty" jsonschema:"Only for an app with several volumes (a compose app): back up only this volume, from volumes in get_app. Leave it out to back up every volume of the app."`
+}
+
+var backupNext = []string{
+	"Call list_backups with this app in a few seconds, until the backup has status ready (or failed: then its error says why).",
+	"To restore a backup the user opens the app in the dashboard, Storage tab, and picks Restore. Do not try to do that for them.",
+}
+
 type appIn struct {
 	App string `json:"app" jsonschema:"The app's slug (the part before the domain, like quiet-otter-3f9a) or its ID (app_...). Read it from the .bitploy file in the code folder, or call list_apps."`
 }
@@ -866,20 +877,38 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "create_backup", "Back up /data",
-		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. Returns a backup with status running: call list_backups until it is ready or failed. Backups count towards the account's storage allowance (whoami). Make one before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
+		"Makes a backup of the app's /data folder (needs the volume on and the app deployed once). It runs in the background: the app keeps running, frozen for a moment while the files are read. An app with several volumes (a compose app) gets one backup per volume unless volume= picks one. Returns the backup (backups: all of them) with status running: call list_backups until each is ready or failed. Backups count towards the account's storage allowance (whoami). Make one before a risky change to an app that keeps data in /data. Restoring is not available here: it replaces the app's files, so the user does it themselves in the dashboard (Storage tab of the app).",
 		write(), true, nil,
-		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
-			b, err := svc.CreateBackup(ctx, a, in.App)
+		func(ctx context.Context, a app.Actor, in backupIn) (*result, error) {
+			if in.Volume != "" {
+				b, err := svc.CreateBackup(ctx, a, in.App, in.Volume)
+				if err != nil {
+					return nil, err
+				}
+				return &result{
+					Summary: "Started a backup of volume " + b.Volume + " of " + in.App + ".",
+					Data:    data("backup", b),
+					Next:    backupNext,
+				}, nil
+			}
+			bs, err := svc.CreateBackupAll(ctx, a, in.App)
 			if err != nil {
 				return nil, err
 			}
+			sum := "Started a backup of /data of " + in.App + "."
+			if len(bs) == 1 && bs[0].Volume != "" {
+				sum = "Started a backup of volume " + bs[0].Volume + " of " + in.App + "."
+			} else if len(bs) > 1 {
+				names := make([]string, len(bs))
+				for i, b := range bs {
+					names[i] = b.Volume
+				}
+				sum = fmt.Sprintf("Started %d backups of %s, one per volume: %s. They run one after the other.", len(bs), in.App, strings.Join(names, ", "))
+			}
 			return &result{
-				Summary: "Started a backup of /data of " + in.App + ".",
-				Data:    data("backup", b),
-				Next: []string{
-					"Call list_backups with this app in a few seconds, until the backup has status ready (or failed: then its error says why).",
-					"To restore a backup the user opens the app in the dashboard, Storage tab, and picks Restore. Do not try to do that for them.",
-				},
+				Summary: sum,
+				Data:    data("backup", bs[0], "backups", bs),
+				Next:    backupNext,
 			}, nil
 		})
 
