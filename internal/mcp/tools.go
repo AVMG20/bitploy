@@ -46,6 +46,8 @@ type createAppIn struct {
 	VolumeMB    *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
 	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out for the usual app: one Dockerfile (keep data as SQLite in /data). compose: only when the project ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file just to deploy a simple app."`
 	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the project, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
+	Project     string `json:"project,omitempty" jsonschema:"Only to put the app next to apps that belong with it (like the app of a database added with add_service): the project id (prj_...) from list_projects. Leave out for a new project named after the app."`
+	Alias       string `json:"alias,omitempty" jsonschema:"The app's short name in its project: its host name for the project's other apps and the name in ${{<alias>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the slug."`
 }
 
 type validateComposeIn struct {
@@ -70,6 +72,8 @@ type updateAppIn struct {
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
 	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build the one Dockerfile (the usual app). compose: run every service of the project's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the project has one); check the file with validate_compose first."`
 	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the project, like deploy/compose.yaml. Empty string: the usual names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
+	Project        *string `json:"project,omitempty" jsonschema:"Move the app to another project (id prj_... from list_projects). Refused while other apps of its project refer to its variables, or its variables refer to apps of its project."`
+	Alias          *string `json:"alias,omitempty" jsonschema:"New short name in the project. References to the old name in the project's other apps are rewritten, and those apps restart."`
 }
 
 type fileIn struct {
@@ -334,7 +338,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "get_app", "Get an app",
-		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), static (a static site: fixed small size, not counted in the memory and CPU quota), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count, services and volumes (an app with several services lists each one; pass its name as service= to get_logs, get_metrics and restart_app). Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
+		"One app in full: url, status and status_message, protected (password prompt on) with its username, settings (port, health_path, volume, memory, cpu), static (a static site: fixed small size, not counted in the memory and CPU quota), git source (repo, branch, subdir, auto_deploy, push_ready: whether a push will deploy it, push_message, last_push_at), current deployment, domains, live CPU and memory, restart count, services and volumes (an app with several services lists each one; pass its name as service= to get_logs, get_metrics and restart_app), project and alias (its short name there), internal_host (the address the project's other apps use), template and connection_vars (a database added with add_service), references (aliases its variables refer to). Use it to check an app or to start diagnosing; if something is wrong follow with get_deployment (app=slug) and get_logs.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			ap, err := svc.GetApp(ctx, a, in.App)
@@ -354,7 +358,7 @@ func (s *srv) registerTools() {
 		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
 			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB,
-				BuildMode: in.BuildMode, ComposePath: in.ComposePath})
+				BuildMode: in.BuildMode, ComposePath: in.ComposePath, Project: in.Project, Alias: in.Alias})
 			if err != nil {
 				return nil, err
 			}
@@ -392,6 +396,7 @@ func (s *srv) registerTools() {
 				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis, BuildMode: in.BuildMode, ComposePath: in.ComposePath,
+				Project: in.Project, Alias: in.Alias,
 			})
 			if err != nil {
 				return nil, err
@@ -648,7 +653,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables.",
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project).",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
 			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)

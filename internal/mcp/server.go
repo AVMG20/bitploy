@@ -92,6 +92,7 @@ func NewServer(svc *app.Service) *mcp.Server {
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "bitploy", Title: "Bitploy", Version: "1.0.0"},
 		&mcp.ServerOptions{Instructions: Instructions(svc)})
 	s.registerTools()
+	s.registerProjectTools()
 	s.registerResources()
 	s.registerPrompts()
 	return s.mcp

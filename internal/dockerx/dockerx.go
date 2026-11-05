@@ -114,4 +114,5 @@ const (
 	LabelDeployment = "nl.bitploy.deployment_id"
 	LabelSeq        = "nl.bitploy.seq"
 	LabelService    = "nl.bitploy.service" // the app service a container runs; missing on containers from before services
+	LabelProject    = "nl.bitploy.project" // on project networks (bp-p-<id>): the project id
 )

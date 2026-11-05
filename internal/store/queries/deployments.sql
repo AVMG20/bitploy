@@ -59,7 +59,7 @@ UPDATE deployments SET state = ?, finished_at = ? WHERE id = ?;
 
 -- name: FailDeployment :exec
 UPDATE deployments
-SET state = 'failed', error_code = ?, error_message = ?, error_hint = ?, error_next = ?, log_tail = ?, finished_at = ?
+SET state = 'failed', error_code = ?, error_message = ?, error_hint = ?, error_next = ?, error_service = ?, log_tail = ?, finished_at = ?
 WHERE id = ?;
 
 -- name: InterruptDeployment :execrows

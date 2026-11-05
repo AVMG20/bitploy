@@ -83,6 +83,16 @@ func (s *Service) serviceEnv(ctx context.Context, app db.App, svc *serviceSpec, 
 			own[r.Name] = string(v)
 		}
 	}
+	// ${{alias.VAR}} references to the project's other apps (references.go).
+	if app.ProjectID != "" {
+		rv := s.newResolver(app)
+		if ae := rv.resolveAll(ctx, shared); ae != nil {
+			return nil, nil, ae
+		}
+		if ae := rv.resolveAll(ctx, own); ae != nil {
+			return nil, nil, ae
+		}
+	}
 	vars := map[string]string{}
 	for k, v := range extra {
 		vars[k] = v
@@ -162,10 +172,14 @@ func (s *Service) runSpec(ctx context.Context, p startPlan) (dockerx.RunSpec, *a
 	rs := dockerx.RunSpec{
 		Name: p.name(), Image: p.Image, Env: env, Labels: cl, Network: dockerx.NetworkName(app.Slug),
 		Aliases: []string{spec.Name}, MemoryMB: app.MemoryMb, CPUMillis: app.CpuMillis,
+		Extra: s.projectAttach(ctx, app, spec),
 	}
 	if !isMulti(app) {
 		if app.VolumeEnabled != 0 {
 			rs.Volume = appVolumeName(app)
+		}
+		if tp, ok := templateOf(app); ok {
+			rs.ShmMB = tp.ShmMB
 		}
 		return rs, nil
 	}
@@ -245,6 +259,19 @@ func (s *Service) startRunSpec(ctx context.Context, p startPlan, rs dockerx.RunS
 	if _, err := dk.CreateContainer(ctx, rs); err != nil {
 		return startFailed("Docker could not create the container: "+apperr.Redact(dockerx.DescribeError(err)),
 			"Check the Dockerfile's CMD and ENTRYPOINT, then deploy again. If this repeats, tell the bitploy admin.")
+	}
+	// The project network (bp-p-<id>), where the project's other apps reach
+	// this one at its short name.
+	for _, x := range rs.Extra {
+		err := dk.EnsureNetwork(ctx, x.Network, dk.ProjectLabels(app.ProjectID))
+		if err == nil {
+			err = dk.ConnectNetworkAliases(ctx, x.Network, name, x.Aliases)
+		}
+		if err != nil {
+			_ = dk.RemoveContainer(context.WithoutCancel(ctx), name)
+			return startFailed("Docker could not connect the app to its project's network: "+apperr.Redact(dockerx.DescribeError(err)),
+				"Try again in a minute. If it keeps happening, tell the bitploy admin (the Docker address pool may be full).")
+		}
 	}
 	if err := dk.StartContainer(ctx, name); err != nil {
 		_ = dk.RemoveContainer(context.WithoutCancel(ctx), name)

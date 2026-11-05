@@ -17,6 +17,10 @@
 #       would be dropped too).
 #     - the app's own /24: pass. Traefik is a member of every app network, so
 #       Traefik <-> app traffic stays inside one /24 and must keep working.
+#       A project network (bp-p-<id>, shared by the apps of one project once it
+#       has two) is a /24 from the same pool, so traffic between apps of one
+#       project passes by this rule too; Traefik never joins it. Apps of other
+#       projects have no address in that /24, and their traffic is dropped below.
 #     - 169.254.169.254 (Hetzner metadata service) and every private, link-local,
 #       loopback and multicast range: DROP. That covers the host's other
 #       networks, the "bitploy" network with bitploy and Traefik (10.201.0.0/24),

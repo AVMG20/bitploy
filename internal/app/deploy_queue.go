@@ -22,6 +22,7 @@ import (
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/deploy"
+	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/ids"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
@@ -385,7 +386,7 @@ func (s *Service) GetDeployment(ctx context.Context, a Actor, id string, wait ti
 		if err != nil {
 			return Deployment{}, err
 		}
-		v := s.deploymentView(d, app.Slug, app.Type, app.BaseDomain)
+		v := s.deploymentView(ctx, d, app)
 		left := time.Until(deadline)
 		if v.Terminal() || left <= 0 || ctx.Err() != nil {
 			return v, nil
@@ -452,7 +453,7 @@ func (s *Service) ListDeployments(ctx context.Context, a Actor, ref string, limi
 			page.NextCursor = strconv.FormatInt(rows[limit-1].Seq, 10)
 			break
 		}
-		page.Items = append(page.Items, s.deploymentView(d, row.Slug, row.Type, row.BaseDomain))
+		page.Items = append(page.Items, s.deploymentView(ctx, d, row))
 	}
 	return page, nil
 }
@@ -684,7 +685,7 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	if err != nil {
 		return Deployment{}, apperr.Internal(err)
 	}
-	return s.deploymentView(d, app.Slug, app.Type, app.BaseDomain), nil
+	return s.deploymentView(ctx, d, app), nil
 }
 
 func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.User) error {
@@ -721,7 +722,39 @@ func deployAgainIn(mins int64) string {
 
 // deploymentView builds the public Deployment. baseDomain is the app's
 // apps.base_domain (empty for the default domain), for its URL.
-func (s *Service) deploymentView(d db.Deployment, slug, appType, baseDomain string) Deployment {
+func (s *Service) deploymentView(ctx context.Context, d db.Deployment, app db.App) Deployment {
+	v := s.deploymentBase(d, app.Slug, app.Type, app.BaseDomain)
+	if isMulti(app) || d.ServicesSpec != "" {
+		if rows, err := s.Q.ListDeploymentServices(ctx, d.ID); err == nil {
+			v.Services = deploymentServices(v, rows, app, d.Seq)
+		}
+	}
+	return v
+}
+
+// deploymentServices is Deployment.services: one entry per service row, in
+// the order of the rows (by name).
+func deploymentServices(v Deployment, rows []db.DeploymentService, app db.App, seq int64) []DeploymentService {
+	out := make([]DeploymentService, 0, len(rows))
+	for _, r := range rows {
+		ds := DeploymentService{Service: r.Service, Image: strPtr(r.Image), State: v.State}
+		own := dockerx.ServiceContainerName(app.Slug, r.Service, seq)
+		ds.Reused = r.ContainerName.Valid && r.ContainerName.String != "" && r.ContainerName.String != own &&
+			r.ContainerName.String != dockerx.ContainerName(app.Slug, seq)
+		if v.State == "failed" && v.Error != nil && v.Error.Service != "" {
+			if v.Error.Service == r.Service {
+				ds.State, ds.Error = "failed", v.Error
+			} else {
+				ds.State = "cancelled"
+			}
+		}
+		out = append(out, ds)
+	}
+	return out
+}
+
+// deploymentBase is the Deployment without its per-service rows.
+func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain string) Deployment {
 	v := Deployment{
 		ID: d.ID, AppID: d.AppID, AppSlug: slug, Seq: d.Seq, State: d.State,
 		SourceKind: d.SourceKind, SourceRef: d.SourceRef, Channel: d.Channel,
@@ -743,7 +776,7 @@ func (s *Service) deploymentView(d db.Deployment, slug, appType, baseDomain stri
 		}
 	}
 	if d.ErrorCode.Valid {
-		v.Error = &DeployError{Code: d.ErrorCode.String, Message: d.ErrorMessage.String, Hint: d.ErrorHint.String, Next: d.ErrorNext.String}
+		v.Error = &DeployError{Code: d.ErrorCode.String, Message: d.ErrorMessage.String, Hint: d.ErrorHint.String, Next: d.ErrorNext.String, Service: d.ErrorService}
 	}
 	if d.LogTail.Valid && d.LogTail.String != "" {
 		v.LogTail = strings.Split(d.LogTail.String, "\n")
@@ -1044,7 +1077,7 @@ func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Dep
 		return Deployment{}, err
 	}
 	view := func(d db.Deployment) (Deployment, error) {
-		return s.deploymentView(d, app.Slug, app.Type, app.BaseDomain), nil
+		return s.deploymentView(ctx, d, app), nil
 	}
 	reload := func() error {
 		var err error

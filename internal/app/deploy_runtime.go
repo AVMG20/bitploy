@@ -23,6 +23,7 @@ type deployRuntime struct {
 	draining      map[string]bool               // container names that will be stopped after a swap
 	locks         map[string]*sync.Mutex        // per-app lifecycle lock
 	restore       map[string]int                // appID -> consecutive failed restore attempts
+	afterLive     map[string][]string           // deployment ID -> app IDs to restart once it is live (add_service connect_to)
 	foreignLogged bool
 	builderOnce   sync.Once
 	builder       *deploy.Builder
@@ -42,6 +43,7 @@ func (r *deployRuntime) init() {
 		r.draining = map[string]bool{}
 		r.locks = map[string]*sync.Mutex{}
 		r.restore = map[string]int{}
+		r.afterLive = map[string][]string{}
 	}
 }
 

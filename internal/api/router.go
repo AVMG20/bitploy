@@ -29,6 +29,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.backupRoutes()
 	a.filesRoutes()
 	a.catalogRoutes()
+	a.projectRoutes()
 	a.dbRoutes()
 	a.adminDBRoutes()
 	a.githubRoutes()

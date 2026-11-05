@@ -566,6 +566,11 @@ func (s *Service) serviceViews(ctx context.Context, a db.App) ([]AppService, []A
 				v.Port = &p
 			}
 		}
+		if isMulti(a) && a.DesiredState == "running" {
+			if p, ok := s.metricsMgr().LatestService(a.ID, sp.Name); ok {
+				v.Live = pointFromSample(p)
+			}
+		}
 		for _, m := range sp.Mounts {
 			v.Volumes = append(v.Volumes, m.Name)
 		}

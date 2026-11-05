@@ -116,6 +116,9 @@ type appBrief struct {
 	CPUPercent        *float64         `json:"cpu_percent,omitempty"`
 	MemoryMB          *float64         `json:"memory_mb,omitempty"`
 	MemoryLimitMB     int64            `json:"memory_limit_mb"`
+	Project           string           `json:"project,omitempty"`
+	Alias             string           `json:"alias,omitempty"`
+	Template          string           `json:"template,omitempty"`
 }
 
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
@@ -125,6 +128,10 @@ func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	}
 	if ap.Volume {
 		b.VolumeMB = ap.VolumeMB
+	}
+	b.Project, b.Alias = ap.Project.Name, ap.Alias
+	if ap.Template != nil {
+		b.Template = *ap.Template
 	}
 	if ap.Current != nil {
 		b.CurrentDeployment = briefOf(*ap.Current)
@@ -217,6 +224,15 @@ func appLine(ap app.App) string {
 	}
 	if ap.Current != nil {
 		s += ", deployment " + ap.Current.ID + " " + ap.Current.State
+	}
+	if ap.Project.ID != "" {
+		s += ", in project " + ap.Project.Name + " as " + ap.Alias
+		if ap.InternalHost != "" {
+			s += " (" + ap.InternalHost + ")"
+		}
+	}
+	if ap.Template != nil {
+		s += ", service template " + *ap.Template + " " + ap.TemplateVersion
 	}
 	if len(ap.Services) > 1 {
 		names := make([]string, len(ap.Services))

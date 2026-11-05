@@ -66,6 +66,10 @@ type App struct {
 	BaseDomain          string
 	ServiceLayout       string
 	ComposePath         string
+	ProjectID           string
+	Alias               string
+	Template            string
+	TemplateVersion     string
 }
 
 type AppBackup struct {
@@ -178,6 +182,7 @@ type Deployment struct {
 	BuildKind       string
 	CatalogVersion  string
 	ServicesSpec    string
+	ErrorService    string
 }
 
 type DeploymentService struct {
@@ -304,6 +309,15 @@ type MetricSample struct {
 	RxBytes  int64
 	TxBytes  int64
 	Service  string
+}
+
+type Project struct {
+	ID        string
+	UserID    string
+	Name      string
+	Auto      int64
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type Session struct {
