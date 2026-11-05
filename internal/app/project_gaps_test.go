@@ -270,3 +270,15 @@ func TestTemplateUpdateAvailable(t *testing.T) {
 		t.Errorf("plain app JSON: %s", b)
 	}
 }
+
+// Members of a project network that are no container of its apps are pruned.
+func TestProjectNetworkStrangers(t *testing.T) {
+	members := map[string]bool{"bp-web-1": true, "bp-gone-3": true, "bp-db-2": true, "bp-old-1": true}
+	owned := map[string]bool{"bp-web-1": true, "bp-db-2": true, "bp-web-2": true}
+	if got := strings.Join(strangers(members, owned), ","); got != "bp-gone-3,bp-old-1" {
+		t.Errorf("strangers = %s", got)
+	}
+	if got := strangers(map[string]bool{"a": true}, map[string]bool{"a": true}); len(got) != 0 {
+		t.Errorf("all owned: %v", got)
+	}
+}

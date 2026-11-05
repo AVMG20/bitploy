@@ -480,6 +480,7 @@ func (s *Service) wireProject(ctx context.Context, projectID string, realias ...
 	if err != nil {
 		return
 	}
+	s.pruneProjectNetwork(ctx, projectID, members)
 	again := map[string]bool{}
 	for _, id := range realias {
 		again[id] = true
@@ -512,6 +513,53 @@ func (s *Service) wireProject(ctx context.Context, projectID string, realias ...
 			}
 		}
 	}
+}
+
+// pruneProjectNetwork disconnects the members of a project network that are
+// no container of an app in the project: left behind when an app moved away
+// or was deleted and its unwiring failed (Docker down, a crash). Members
+// were read before the apps are listed here, so a container attached in
+// between belongs to an app that is in the list. The pruned names leave
+// members.
+func (s *Service) pruneProjectNetwork(ctx context.Context, projectID string, members map[string]bool) {
+	dk := s.Docker
+	if dk == nil || len(members) == 0 {
+		return
+	}
+	apps, err := s.Q.ListAppsByProject(ctx, projectID)
+	if err != nil {
+		return
+	}
+	owned := map[string]bool{}
+	for _, app := range apps {
+		cs, err := dk.ListAppContainers(ctx, app.ID)
+		if err != nil {
+			return // not sure what is ours: leave the network alone
+		}
+		for _, c := range cs {
+			owned[dockerx.SummaryName(c)] = true
+		}
+	}
+	name := dockerx.ProjectNetworkName(projectID)
+	for _, c := range strangers(members, owned) {
+		if err := dk.DisconnectNetwork(ctx, name, c); err != nil && !dockerx.IsNotFound(err) {
+			s.Log.Warn("disconnect from project network", "network", name, "container", c, "err", dockerx.DescribeError(err))
+			continue
+		}
+		delete(members, c)
+	}
+}
+
+// strangers are the members not in owned, sorted.
+func strangers(members, owned map[string]bool) []string {
+	var out []string
+	for c := range members {
+		if !owned[c] {
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // unwireApp takes the containers of an app off a project network (the app
