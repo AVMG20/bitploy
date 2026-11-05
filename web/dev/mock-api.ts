@@ -652,7 +652,8 @@ function composePreview(text: string): ComposeCheck {
   const memory = services.reduce((n, s) => n + s.memory_mb, 0)
   const cpu = services.reduce((n, s) => n + s.cpu_millis, 0)
   const vol = volumes.reduce((n, v) => n + v.size_mb, 0)
-  const left = 2048 - usedMemory()
+  // Like the server: what is left never goes below zero.
+  const left = Math.max(0, 4096 - usedMemory())
   const errors = services.length ? [] : [{ code: 'compose_invalid', message: 'The file has no services.', hint: 'Add a services: section with at least one service.' }]
   return {
     ok: errors.length === 0,
@@ -663,7 +664,7 @@ function composePreview(text: string): ComposeCheck {
     volume_mb_total: vol,
     quota: {
       memory_mb_left: left,
-      cpu_millis_left: 2000 - apps.reduce((n, a) => n + (a.static ? 0 : a.cpu_millis), 0),
+      cpu_millis_left: Math.max(0, 4000 - apps.reduce((n, a) => n + (a.static ? 0 : a.cpu_millis), 0)),
       storage_mb_left: 20480 - 4200,
       fits: memory <= left,
       message: `This needs ${memory} MB of memory of the ${left} MB you have left.`,
@@ -941,6 +942,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'POST /apps/:id/redeploy': {
       const a = needApp(id)
       return send(res, 202, startDeploy(a, route.endsWith('upload') ? 'upload' : route.endsWith('files') ? 'files' : 'git'))
+    }
+    case 'POST /apps/:id/rollback': {
+      const a = needApp(id)
+      if (!(deployments[a.slug] ?? []).some((d) => d.id === body.deployment_id))
+        throw new HttpError(404, 'not_found', 'That deployment is not one of this app.')
+      return send(res, 202, startDeploy(a, 'rollback'))
     }
     case 'PUT /apps/:id/git-source': {
       const a = needApp(id)
