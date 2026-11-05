@@ -3,7 +3,7 @@
 bitploy is a small, self-hosted deploy platform for one server. You give it a Dockerfile and some code, and it gives you back `https://<name>.yourdomain.nl`. Its main users are AI coding agents: they deploy through an MCP server or a REST API. People log in to a dashboard to create tokens, read logs and watch usage.
 
 - One Go binary with the Vue dashboard embedded, one SQLite file, Traefik in front, Docker underneath.
-- Every app is a Dockerfile. bitploy never guesses how to build code.
+- Every app is built from a Dockerfile: your own, a ready-made one, or one bitploy writes for a plain website or a Node.js app. It refuses code it cannot build instead of guessing.
 - User code is untrusted: each app runs in its own locked-down container on its own network.
 
 The full product spec is [SPEC.md](SPEC.md). Choices made where the spec was open are in [docs/decisions.md](docs/decisions.md). The rules for working on the code are in [docs/CONTRACT.md](docs/CONTRACT.md).
@@ -39,7 +39,7 @@ make build              # one binary in bin/bitploy with the dashboard embedded
 
 ## One-click apps and pre-built images
 
-bitploy ships a small catalog of popular self-hosted tools: Vaultwarden, Uptime Kuma, Memos, Arnotes, PocketBase, Actual Budget, IT-Tools and Umami. Each one is a Dockerfile with a pinned version that keeps its data in `/data`; Umami comes with its own PostgreSQL, which bitploy adds next to it in a project of its own. Pick one under **New app** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
+bitploy ships a catalog of 27 self-hosted tools, such as Vaultwarden, Uptime Kuma, n8n, Forgejo and Ghost. Each one is a Dockerfile with a pinned version that keeps its data in `/data`. Some, like Umami and Ghost, need a database server: bitploy adds it next to the app in a project of its own. Pick one under **Ready-made** in the dashboard, or deploy one from `GET /api/v1/catalog` and `POST /api/v1/catalog/{id}/deploy`, or let an AI assistant call `list_catalog` and `deploy_catalog_app`. An app made this way shows when the catalog has a newer version; update it with `POST /api/v1/apps/{app}/catalog-update`.
 
 Any other published image works too: deploy a Dockerfile that is only `FROM <image>:<tag>` with a pinned tag. `EXPOSE` is optional; when it is missing and the app has no port setting, bitploy reads the port from the built image (and asks you to set the port if the image declares none, several, or a reserved one). Keep the image's data under `/data`. The Dockerfile of an app deployed from files or a zip can be read and replaced with `GET` and `PUT /api/v1/apps/{app}/dockerfile`.
 
@@ -61,20 +61,20 @@ bitploy creates the app `db` from PostgreSQL 18.6, generates its passwords (stor
 
 A database counts as one app against your app limit, and is backed up, restarted and removed like any app.
 
-## Deploying a compose project
+## Deploying a compose file
 
-Most apps should **not** use compose. One Dockerfile with the data in SQLite under `/data` is simpler, starts faster, uses less memory, and backs up, restores and rolls back as one piece. That is what bitploy and its AI instructions recommend. Do not write a compose file just to deploy an app, do not split a small app into services, and do not add Postgres or Redis when SQLite and an in-process cache do the job.
+Most apps should **not** use compose. One Dockerfile with the data in SQLite under `/data` is simpler, starts faster, uses less memory, and backs up, restores and rolls back as one piece. That is what bitploy and its AI instructions recommend. Do not write a compose file for code that has none, do not split a small app into services, and do not add Postgres or Redis when SQLite and an in-process cache do the job.
 
-Use compose when the project **already has** a `compose.yaml` (or `docker-compose.yml`) and really needs what is in it: a web app next to Postgres, Redis or a worker, as the project's authors run it.
+Use compose when the code **already has** a `compose.yaml` (or `docker-compose.yml`) and needs what is in it: a web app next to Postgres, Redis or a worker, as its authors run it.
 
 1. Check the file: `POST /api/v1/compose/validate` with `{"compose": "<the file's text>"}` (or the MCP tool `validate_compose`). It answers 200 with what would run (services, volumes, memory and CPU totals, whether it fits your quota) and every warning and error, each with a `code`, the `service` and compose `key` at fault, and a `hint`.
 2. Create the app with `build_mode: "compose"` (`POST /api/v1/apps`, or `create_app` over MCP); `compose_path` when the file has another name or folder.
 3. Set the variables the file reads as `${VAR}` with `PUT /api/v1/apps/{app}/env` (bitploy never reads `.env` files). Add `"service": "<name>"` for a variable only one service gets.
-4. Send the project as usual (git, zip or files) with the compose file and every Dockerfile it builds. A file with only `image:` services can be sent alone.
+4. Send the code (git, zip or files) with the compose file and every Dockerfile it builds. A file with only `image:` services can be sent alone.
 
 What bitploy does with the file: `build:` services are built one at a time on the isolated builder, `image:` services are pulled (pin a tag), and each service runs as its own locked-down container, reachable by its service name on the app's private network (`postgres://db:5432/...`). One service is public: the one with `x-bitploy: {public: true}`, else the one with `ports`. It gets the address and the health check (`x-bitploy: {health_path: /health}`, its `healthcheck:`, or `GET /`). `ports` are never published. Named volumes are kept between deploys and backed up on the app's schedule; their size is `x-bitploy: {size_mb: 2048}` on the volume (default 5 GB). Memory and CPU come from `deploy.resources.limits` (default 256 MB per service, 512 MB for a public service built from the project, 0.25 CPU). Services that did not change keep running on a redeploy, so a database is not restarted on every push. At most 6 services. Refused: `privileged`, `cap_add`, `devices`, `network_mode`, host bind mounts, the Docker socket, custom networks and the like (`compose_forbidden`).
 
-An app that already runs from one Dockerfile keeps doing so even when a compose file appears in the project: the deploy warns `compose_ignored`. To switch, `PATCH /api/v1/apps/{app}` with `{"build_mode": "compose"}` and deploy again. The `/data` volume and its files are kept (they move to the compose volume mounted at `/data`). There is no way back to one container; create a new app for that. Only apps in **auto** mode (the dashboard's default) pick up a compose file by themselves, and only on their first deploy.
+An app that already runs from one Dockerfile keeps doing so even when a compose file appears in its code: the deploy warns `compose_ignored`. To switch, `PATCH /api/v1/apps/{app}` with `{"build_mode": "compose"}` and deploy again. The `/data` volume and its files are kept (they move to the compose volume mounted at `/data`). There is no way back to one container; create a new app for that. Only apps in **auto** mode (the dashboard's default) pick up a compose file by themselves, and only on their first deploy.
 
 ## Production on Hetzner
 
@@ -103,7 +103,7 @@ An admin can add more domains for app addresses under Admin, Domains (for exampl
 3. Optional, for **Full (strict)**: SSL/TLS, Origin Server, Create Certificate for `example.com` and `*.example.com`, and paste the certificate and private key into the form (now or later), then switch the mode to Full (strict). bitploy keeps the key encrypted in its database (with `BITPLOY_SECRET_KEY`, like env vars), writes both to `<data dir>/traefik/dynamic/certs/` (mode 0600) and lists them in `_certs.yml`, so Traefik picks the right certificate by name.
 4. Add the domain under Admin, Domains, then give people access with the domain menu next to their name under People. Admins may always use every domain; everyone may use the default one.
 
-Slugs stay unique across all domains. When a person may use more than one domain, New app, ready-made apps and the app's Settings show a domain menu next to the name; AI assistants pass `domain` to `create_app`, `update_app` or `deploy_catalog_app` (`whoami` lists them). Moving an app to another domain changes its address at once. A domain that apps still use cannot be removed; taking a domain away from a person leaves their apps where they are. No compose or install changes are needed: the certificate files sit in the folder Traefik already reads.
+Slugs stay unique across all domains. When a person may use more than one domain, New project, Ready-made and the app's Settings show a domain menu next to the name; AI assistants pass `domain` to `create_app`, `update_app` or `deploy_catalog_app` (`whoami` lists them). Moving an app to another domain changes its address at once. A domain that apps still use cannot be removed; taking a domain away from a person leaves their apps where they are. No compose or install changes are needed: the certificate files sit in the folder Traefik already reads.
 
 ### 2. Hetzner Cloud Firewall
 
@@ -148,14 +148,14 @@ sudo grep BITPLOY_SECRET_KEY /etc/bitploy/bitploy.env
 
 ### Connect GitHub (optional)
 
-With GitHub connected, people pick a repository (in an app's Settings, or right away in New app) and every push to its branch deploys the app. Uploading files keeps working for everyone, with or without GitHub.
+With GitHub connected, people pick a repository (in an app's Settings, or right away in New app) and every push to its branch deploys the app. Uploading files works for everyone, with or without GitHub.
 
-**Admin, once.** Bitploy uses one GitHub App for the whole server, and you create it from the dashboard:
+**Admin, once.** bitploy uses one GitHub App for the whole server, and you create it from the dashboard:
 
 1. Make sure `BITPLOY_PUBLIC_URL` is an address GitHub can reach over the internet. GitHub posts push events to `<public url>/api/v1/github/webhook`. On `localhost`, a private address or a name without a dot, the Admin page warns you, and the app is created without push events: private repositories work, but every deploy is by hand. To add push events later, fix the address, disconnect GitHub on the Admin page and create the app again.
 2. Open Admin, GitHub, choose a name (and an organization if the app should belong to one) and press Create GitHub App. GitHub shows what will be created. Confirm there, and you land back in bitploy.
 
-The app asks for read-only access to repository contents and metadata, and for push events when GitHub can reach the server. Bitploy keeps its private key, client secret and webhook secret encrypted with `BITPLOY_SECRET_KEY`. Disconnect on the same page removes them from bitploy; delete the app on GitHub too if you want it gone there.
+The app asks for read-only access to repository contents and metadata, and for push events when GitHub can reach the server. bitploy keeps its private key, client secret and webhook secret encrypted with `BITPLOY_SECRET_KEY`. Disconnect on the same page removes them from bitploy; delete the app on GitHub too if you want it gone there.
 
 **Everyone, once.** Settings, GitHub, Connect GitHub. GitHub asks which account and which repositories bitploy may read; pick the ones you want. If the app is already installed on GitHub, or you changed its access there, press Sync from GitHub. Then, in an app's Settings, under Source, pick a repository, a branch and optionally a folder. Press Redeploy for the first build; after that every push to that branch deploys by itself. A few quick pushes in a row end in one build of the newest commit.
 
@@ -163,9 +163,9 @@ The app asks for read-only access to repository contents and metadata, and for p
 
 - An app built from a repository does not accept uploaded files (the error says `git_source_linked`). Disconnect the repository in the app's Settings, or call `set_git_source` with `remove: true`, to upload again. The running app is not touched.
 - Private repositories need the app installed with access to that repository. Public repositories on any git host also work through a plain address, but only GitHub repositories deploy on push.
-- Bitploy clones with a short-lived token for that one repository, read-only, and never writes it to disk, a log or an image.
+- bitploy clones with a short-lived token for that one repository, read-only, and never writes it to disk, a log or an image.
 - For an organization, or someone else's account, bitploy only uses the repositories that you can open on GitHub yourself, and only those show up in the picker. This list is taken when you connect. Press Sync from GitHub after your access changes; someone who leaves the organization keeps the repositories they had until they disconnect, so remove them from bitploy too.
-- Bitploy does not poll GitHub. If a push is missed (the server was down for a long time, or the public URL was wrong), redeliver it from the GitHub App's Advanced tab, or press Redeploy.
+- bitploy does not poll GitHub. If a push is missed (the server was down for a long time, or the public URL was wrong), redeliver it from the GitHub App's Advanced tab, or press Redeploy.
 
 ### Configuration
 
@@ -207,7 +207,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 
 A root domain (`example.com`) cannot have a CNAME in DNS, so it gets A (and AAAA) records with the server IP instead. A name counts as a root domain when it is a registrable domain on the Public Suffix List (`example.com`, `example.co.uk`; not `www.example.com`).
 
-If the user's domain is on Cloudflare, the record must be **DNS only** (grey cloud). bitploy checks every 5 minutes for 48 hours through 1.1.1.1 and 8.8.8.8, and both must show the TXT token and a route to this server. Errors are readable, for example `CNAME points to parking.godaddy.com, expected edge.bitploy.nl`. When the checks pass, bitploy writes the route and Traefik gets the certificate.
+If the user's domain is on Cloudflare, the record must be **DNS only** (grey cloud). bitploy checks every 5 minutes for 48 hours through 1.1.1.1 and 8.8.8.8, and both must show the TXT token and a route to this server. Errors name the problem, for example `CNAME points to parking.godaddy.com, expected edge.bitploy.nl`. When the checks pass, bitploy writes the route and Traefik gets the certificate.
 
 ### Network isolation
 
@@ -226,7 +226,7 @@ Known limits: bridge networks are IPv4 only, so there are no IPv6 rules. An app 
 - Apps run with a memory/CPU/PID limit, `no-new-privileges`, no extra capabilities, no mounts except their own volume, and on their own network.
 - Builds run user code with the build container's privileges. That is acceptable for colleagues. Before opening bitploy to the public, follow the checklist at the end of "Security & limits" in [SPEC.md](SPEC.md).
 
-### Backups of an app's /data folder
+### Backups of an app's saved files (/data)
 
 Each app with `/data` turned on has a **Storage** tab in the dashboard with a Back up now button, an upload button, automatic backups and the list of backups (download, restore, delete).
 
@@ -285,7 +285,7 @@ Do this once a quarter, and once right after setting up backups.
    It restores the newest database to a temp folder, runs `PRAGMA integrity_check`, counts users and apps, and checks that volume tars can be read.
 2. **Restore for real on a new server** (or after a loss):
    ```bash
-   # a. Install bitploy as usual (deploy/install.sh), but put the OLD BITPLOY_SECRET_KEY into
+   # a. Install bitploy with deploy/install.sh, but put the OLD BITPLOY_SECRET_KEY into
    #    /etc/bitploy/bitploy.env before the first start, and the old backup.env in place.
    # b. Stop bitploy:
    docker compose --env-file /etc/bitploy/bitploy.env -f /opt/bitploy/docker-compose.yml stop bitploy
@@ -324,8 +324,8 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 - Crash loop: an app that dies 5 times in 5 minutes is stopped and marked `crashed` with its last log lines. Start it again after fixing the cause.
 - Out of memory: the app status says "Out of memory: raise the memory limit or use less".
 - Disk: builds are refused under 15% free disk. The nightly job prunes dangling bitploy images and caps the build cache at 10 GB.
-- Traffic: each web app has a Traffic tab (visitors, requests, errors, bots, top pages, countries, referrers, 404s; up to 30 days, compared with the period before). It reads Traefik's access log, `<data dir>/traefik/logs/access.log`, which bitploy keeps small by truncating it. No cookies, no stored IP addresses or user agents. Visitors are counted per UTC day. Country data is from [DB-IP.com](https://db-ip.com) (IP to Country Lite, CC BY 4.0). **Existing installs: run `install.sh` again** (it creates the log folder, installs the new `traefik.yml` and restarts Traefik); until then there are no stats. Without `install.sh`: create `<data dir>/traefik/logs`, copy the new `traefik.yml` and `docker-compose.yml` to `/opt/bitploy`, then `docker compose up -d` and `docker restart bitploy-traefik`.
-- Password protection: a web app can ask for a username and password (browser login prompt, set in the app's Settings tab or by the AI assistant when the user asks). Traefik checks it with a bcrypt hash in the app's route file; the password itself is never stored. It covers the app's address and its custom domains, not bitploy's own health checks. **Existing installs: run `install.sh` again** so Traefik's access log keeps `OriginStatus`; without it the login prompt's 401 responses are counted as errors in the Traffic tab. Protection itself works without that.
+- Traffic: each web app has a Traffic tab (visitors, requests, errors, bots, top pages, countries, referrers, 404s; up to 30 days, compared with the period before). It reads Traefik's access log, `<data dir>/traefik/logs/access.log`, which bitploy keeps small by truncating it. No cookies, no stored IP addresses or user agents. Visitors are counted per UTC day. Country data is from [DB-IP.com](https://db-ip.com) (IP to Country Lite, CC BY 4.0). **Servers installed before the Traffic tab existed: run `install.sh` again** (it creates the log folder, installs the current `traefik.yml` and restarts Traefik); until then there are no stats. Without `install.sh`: create `<data dir>/traefik/logs`, copy the current `traefik.yml` and `docker-compose.yml` to `/opt/bitploy`, then `docker compose up -d` and `docker restart bitploy-traefik`.
+- Password protection: a web app can ask for a username and password (browser login prompt, set in the app's Settings tab or by the AI assistant when the user asks). Traefik checks it with a bcrypt hash in the app's route file; the password itself is never stored. It covers the app's address and its custom domains, not bitploy's own health checks. **Servers installed before password protection existed: run `install.sh` again** so Traefik's access log keeps `OriginStatus`; without it the login prompt's 401 responses are counted as errors in the Traffic tab. The protection works either way.
 - Metrics: 15-second samples for 24 hours, 5-minute rollups for 30 days, audit log for 90 days.
 
 ## Architecture
