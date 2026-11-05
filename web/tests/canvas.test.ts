@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { crossesBox, roundedPath, routeLinks, spreadLabels } from '../src/lib/canvas.ts'
+import { crossesBox, placeLabels, roundedPath, routeLinks } from '../src/lib/canvas.ts'
 import type { Box, RoutedLink } from '../src/lib/canvas.ts'
 
 // Three lanes of 272px with 64px gaps, like the canvas at desktop width.
@@ -48,14 +48,15 @@ test('routeLinks runs between columns and never through a card', () => {
   assert.equal(wp.end.x, pg.l)
 })
 
-test('routeLinks gives each line its own track in a gap', () => {
+test('routeLinks gives upright runs side by side their own tracks in a gap', () => {
   const routes = routeLinks(boxes, [
     { from: 'api', to: 'pg' },
     { from: 'api', to: 'redis' },
     { from: 'worker', to: 'pg' },
   ])
   const xs = routes.map((r) => r.points[1]!.x)
-  assert.equal(new Set(xs).size, 3)
+  // api>redis and worker>pg run up and down beside each other; api>pg is straight, above both, and may share a track.
+  assert.notEqual(xs[1], xs[2])
   for (const x of xs) assert.ok(x > api.r && x < pg.l, 'the upright part is in the gap')
   // Two lines on one side of a card leave it at different heights.
   const ys = routes.filter((r) => r.from === 'api').map((r) => r.points[0]!.y)
@@ -98,19 +99,28 @@ test('roundedPath rounds the corners and drops straight runs', () => {
   assert.equal(roundedPath([]), '')
 })
 
-test('spreadLabels moves labels at one spot apart', () => {
-  const out = spreadLabels(
+test('placeLabels moves a label off a taken row, cuts it at a card, leaves it out without room', () => {
+  const card = { l: 200, r: 400, t: 0, b: 300 }
+  const out = placeLabels(
     [
-      { key: 'a', x: 100, y: 50, side: 'l' as const },
-      { key: 'b', x: 100, y: 60, side: 'l' as const },
-      { key: 'c', x: 300, y: 55, side: 'l' as const },
+      { key: 'a', x: 190, y: 50, side: 'l', width: 80 },
+      { key: 'b', x: 190, y: 55, side: 'l', width: 80 },
+      // Reads right toward the card 20px away: no room.
+      { key: 'c', x: 180, y: 200, side: 'r', width: 80 },
+      // Reads left from 150 toward the board's edge: cut to fit.
+      { key: 'd', x: 60, y: 250, side: 'l', width: 200 },
     ],
-    22,
+    [card],
+    { w: 600, h: 400 },
+    20,
   )
-  const y = Object.fromEntries(out.map((l) => [l.key, l.y]))
-  assert.equal(y.a, 50)
-  assert.equal(y.b, 72)
-  assert.equal(y.c, 55)
+  const at = Object.fromEntries(out.map((l) => [l.key, l]))
+  assert.equal(at.a!.top, 40)
+  assert.equal(at.b!.top, 67)
+  assert.equal(at.a!.left, 110)
+  assert.equal(at.c, undefined)
+  assert.equal(at.d!.left, 2)
+  assert.equal(at.d!.width, 58)
 })
 
 /** Points where a level part of one line crosses an upright part of the other. */
