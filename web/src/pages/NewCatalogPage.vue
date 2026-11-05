@@ -86,8 +86,23 @@ const showFile = ref(false)
 // ?project=<id>: add it to that project instead of starting a new one.
 const intoProject = computed(() => (typeof route.query.project === 'string' ? route.query.project : ''))
 
+// A ready-made app that brings its own database stays in the project it makes with them.
+const bringsServices = computed(() => !!entry.data.value?.services?.length)
 const deploy = useMutation({
-  mutationFn: (v: { name: string; slug: string }) => api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined, project: intoProject.value || undefined }),
+  mutationFn: async (v: { name: string; slug: string }) => {
+    const r = await api.deployCatalog(props.catalogId, { name: v.name, slug: v.slug, domain: domain.value || undefined })
+    // The server makes a project for it; move it to the one asked for, and drop the empty one.
+    const made = r.app.project
+    if (!intoProject.value || bringsServices.value || made?.id === intoProject.value) return r
+    try {
+      const moved = await api.updateApp(r.app.slug, { project: intoProject.value })
+      if (made) await api.deleteProject(made.id, made.name).catch(() => undefined)
+      return { ...r, app: moved }
+    } catch {
+      // It runs in a project of its own; Settings > Project moves it.
+      return r
+    }
+  },
   onSuccess: async (r) => {
     qc.setQueryData(keys.app(r.app.slug), r.app)
     void qc.invalidateQueries({ queryKey: keys.apps })
@@ -133,6 +148,13 @@ const submit = form.handleSubmit((v) => {
         <CatalogMonogram :name="entry.data.value.name" size="lg" />
         <PageHeader :title="entry.data.value.name" :description="entry.data.value.tagline" />
       </div>
+      <p v-if="bringsServices" class="-mt-3 text-sm text-muted-foreground" data-testid="catalog-services">
+        Comes with
+        <template v-for="(sv, i) in entry.data.value.services" :key="sv.name">
+          {{ i ? ', ' : '' }}<span class="font-mono text-foreground/85">{{ sv.name }}</span> ({{ sv.image }}, {{ formatMB(sv.memory_mb) }})
+        </template>.
+        They run next to it in a new project{{ intoProject ? ', not in the one you came from' : '' }}, and it connects to them by itself.
+      </p>
 
       <form novalidate class="grid gap-6" @submit.prevent="submit">
         <Card>

@@ -1,7 +1,7 @@
 import { api, fetchLogLines } from './api'
 import { describeSource, shortSha } from './format'
 import { isMulti, serviceRole, sortServices } from './services'
-import type { App, AppStatus, Deployment } from './types'
+import type { App, Deployment } from './types'
 
 // "Copy for AI": a short text about a failure to paste into an AI assistant.
 // It names the app and deployment the way bitploy's tools do (slug, dep_ id),
@@ -103,13 +103,6 @@ function failedService(app: App, d: Deployment): string | undefined {
   return d.error?.service ?? d.services?.find((s) => s.error || s.state === 'failed')?.service
 }
 
-const DOWN: AppStatus[] = ['crashed', 'failed', 'stopped']
-
-/** The services of a running project that are down. */
-function downServices(app: App): string[] {
-  if (!isMulti(app)) return []
-  return (app.services ?? []).filter((s) => s.status && DOWN.includes(s.status)).map((s) => s.name)
-}
 
 function logBlock(log: Log): string[] {
   if (!log.lines) return [`The ${log.title.toLowerCase()} could not be loaded. Read it with bitploy's get_logs tool.`]
@@ -138,12 +131,8 @@ function failedDeploymentText(app: App, d: Deployment, log: Log): string {
 
 function crashText(app: App, dep: Deployment | null, log: Log): string {
   const what = app.status === 'crashed' ? 'keeps crashing' : 'stopped working'
-  const down = downServices(app)
   const lines = [`My app on bitploy ${what}. Please find the cause, fix it, and deploy again.`, '', appLine(app)]
-  if (isMulti(app)) {
-    lines.push(servicesLine(app))
-    if (down.length) lines.push(`Not running: ${down.join(', ')}`)
-  }
+  if (isMulti(app)) lines.push(servicesLine(app))
   if (app.status_message) lines.push(`Status: ${app.status_message}`)
   if (app.restart_count > 0) lines.push(`Restarts: ${app.restart_count}`)
   if (dep) lines.push(`Current deployment: ${dep.id} (#${dep.seq})`, `Source: ${sourceLine(dep, app)}`)
@@ -171,5 +160,5 @@ export async function buildFailureText(app: App, deployment?: Deployment | null)
   }
   if (d) return failedDeploymentText(app, d, await deploymentLog(d))
   // In a project with several services, the log of the first one that is down; the public one otherwise.
-  return crashText(app, app.current_deployment, await runtimeLog(app, downServices(app)[0]))
+  return crashText(app, app.current_deployment, await runtimeLog(app))
 }

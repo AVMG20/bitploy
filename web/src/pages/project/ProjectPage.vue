@@ -197,7 +197,7 @@ const deleteText = computed(() => {
 
 // ---------------------------------------------------------------- one app: what to add next
 const quickPicks = computed(() => {
-  const want = ['postgres', 'redis', 'meilisearch']
+  const want = ['postgres', 'valkey', 'meilisearch']
   return want.map((id) => tpls.value.find((t) => t.id === id)).filter((t) => !!t)
 })
 const projectForAi = computed(() => {

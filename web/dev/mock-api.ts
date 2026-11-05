@@ -61,83 +61,90 @@ const user: User = { id: 'usr_ada', email: 'ada@example.com', name: 'Ada', role:
 
 // ---------------------------------------------------------------- templates
 
+// The shipped templates (internal/servicetpl). redis is hidden: only used when asked for by id.
 const templates: ServiceTemplate[] = [
   {
     id: 'postgres',
     name: 'PostgreSQL',
     category: 'database',
-    description: 'Relational SQL database for structured data.',
-    image: 'postgres:16-alpine',
-    version: '16',
+    description: 'The open-source SQL database most frameworks support. Other apps of the project connect with DATABASE_URL.',
+    image: 'postgres:18.6',
+    version: '18.6',
     port: 5432,
     memory_mb: 256,
+    cpu_millis: 500,
     volume_mb: 2048,
     connection_vars: ['DATABASE_URL', 'PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'],
     main_var: 'DATABASE_URL',
   },
   {
-    id: 'mysql',
-    name: 'MySQL',
+    id: 'pgvector',
+    name: 'PostgreSQL with pgvector',
     category: 'database',
-    description: 'Relational SQL database, needed by many PHP apps.',
-    image: 'mysql:8.4',
-    version: '8.4',
-    port: 3306,
-    memory_mb: 512,
+    description: 'PostgreSQL with the pgvector extension for embeddings and similarity search. Run CREATE EXTENSION vector; once in your database.',
+    image: 'pgvector/pgvector:0.8.7-pg18',
+    version: '0.8.7-pg18',
+    port: 5432,
+    memory_mb: 256,
+    cpu_millis: 500,
     volume_mb: 2048,
-    connection_vars: ['DATABASE_URL', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'],
+    connection_vars: ['DATABASE_URL', 'PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'],
     main_var: 'DATABASE_URL',
   },
   {
     id: 'mariadb',
     name: 'MariaDB',
     category: 'database',
-    description: 'Open-source MySQL-compatible SQL database.',
-    image: 'mariadb:11',
-    version: '11',
+    description: 'A MySQL-compatible SQL database. Apps written for MySQL connect to it with DATABASE_URL or the MYSQL_ variables.',
+    image: 'mariadb:11.8.9',
+    version: '11.8.9',
     port: 3306,
     memory_mb: 256,
+    cpu_millis: 500,
     volume_mb: 2048,
-    connection_vars: ['DATABASE_URL', 'MARIADB_HOST', 'MARIADB_PORT', 'MARIADB_USER', 'MARIADB_PASSWORD', 'MARIADB_DATABASE'],
+    connection_vars: ['DATABASE_URL', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'],
     main_var: 'DATABASE_URL',
   },
   {
-    id: 'redis',
-    name: 'Redis',
-    category: 'cache',
-    description: 'In-memory store for caches, sessions and job queues.',
-    image: 'redis:7-alpine',
-    version: '7',
-    port: 6379,
-    memory_mb: 64,
-    volume_mb: 512,
-    connection_vars: ['REDIS_URL'],
-    main_var: 'REDIS_URL',
+    id: 'mysql',
+    name: 'MySQL',
+    category: 'database',
+    description: "Oracle's MySQL server, for apps that need MySQL itself. MariaDB uses less memory and suits most apps that ask for MySQL.",
+    image: 'mysql:8.4.13',
+    version: '8.4.13',
+    port: 3306,
+    memory_mb: 512,
+    cpu_millis: 500,
+    volume_mb: 2048,
+    connection_vars: ['DATABASE_URL', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'],
+    main_var: 'DATABASE_URL',
   },
   {
     id: 'valkey',
-    name: 'Valkey',
+    name: 'Valkey (Redis-compatible)',
     category: 'cache',
-    description: 'Open-source Redis fork; works with every Redis client.',
-    image: 'valkey/valkey:8-alpine',
-    version: '8',
+    description: 'An in-memory key-value store that speaks the Redis protocol, for caches, sessions and job queues. Other apps connect with REDIS_URL.',
+    image: 'valkey/valkey:9.1.3',
+    version: '9.1.3',
     port: 6379,
-    memory_mb: 64,
+    memory_mb: 128,
+    cpu_millis: 250,
     volume_mb: 512,
-    connection_vars: ['REDIS_URL'],
+    connection_vars: ['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'VALKEY_URL'],
     main_var: 'REDIS_URL',
   },
   {
     id: 'meilisearch',
     name: 'Meilisearch',
     category: 'search',
-    description: 'Search engine with typo tolerance for your app’s content.',
-    image: 'getmeili/meilisearch:v1.10',
-    version: '1.10',
+    description: 'A search engine with typo tolerance and filters, for search boxes. Other apps connect with MEILI_URL and MEILI_MASTER_KEY.',
+    image: 'getmeili/meilisearch:v1.56.1',
+    version: 'v1.56.1',
     port: 7700,
-    memory_mb: 256,
-    volume_mb: 1024,
-    connection_vars: ['MEILI_URL', 'MEILI_MASTER_KEY'],
+    memory_mb: 512,
+    cpu_millis: 500,
+    volume_mb: 2048,
+    connection_vars: ['MEILI_URL', 'MEILI_HOST', 'MEILI_MASTER_KEY'],
     main_var: 'MEILI_URL',
   },
 ]
@@ -221,6 +228,7 @@ interface ProjectRow {
   id: string
   name: string
   created_at: string
+  updated_at?: string
 }
 
 const projects: ProjectRow[] = [
@@ -358,6 +366,8 @@ function makeApp(s: AppSeed): App {
     project: { id: proj.id, name: proj.name },
     alias: s.alias,
     template: s.template ?? null,
+    ...(s.template ? { template_version: templates.find((t) => t.id === s.template)?.version, connection_vars: templates.find((t) => t.id === s.template)?.connection_vars, main_var: templates.find((t) => t.id === s.template)?.main_var } : {}),
+    references: [],
     internal_host: s.port ? `${s.alias}:${s.port}` : '',
     created_at: ago(60 * 24 * s.createdDaysAgo),
     updated_at: ago(60),
@@ -374,8 +384,21 @@ function makeApp(s: AppSeed): App {
   return a
 }
 
-function seedEnv(slug: string, vars: { name: string; reference?: string; masked?: string; service?: string }[]) {
-  env[slug] = vars.map((v) => ({ name: v.name, masked: v.masked ?? MASK, reference: v.reference, service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
+/** The ${{alias.VAR}} tokens of a value, as EnvVar.references. */
+function refsOf(value: string | undefined): string[] | undefined {
+  const m = value?.match(/\$\{\{[^}]+\}\}/g)
+  return m ? [...new Set(m)] : undefined
+}
+
+/** App.references: the aliases its variables refer to. */
+function syncRefs(a: App) {
+  const aliases = new Set<string>()
+  for (const v of env[a.slug] ?? []) for (const r of v.references ?? []) aliases.add(r.slice(3, r.indexOf('.')).trim())
+  a.references = [...aliases]
+}
+
+function seedEnv(slug: string, vars: { name: string; value?: string; masked?: string; service?: string }[]) {
+  env[slug] = vars.map((v) => ({ name: v.name, masked: v.masked ?? MASK, references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
 }
 
 apps.push(
@@ -384,7 +407,7 @@ apps.push(
   makeApp({ slug: 'shop-api', name: 'api', project: 'prj_shop', alias: 'api', type: 'worker', port: 8080, repo: 'ada/api-go', memory: 256, cpu: 250, createdDaysAgo: 29, deploys: 3 }),
   makeApp({ slug: 'shop-postgres', name: 'postgres', project: 'prj_shop', alias: 'postgres', template: 'postgres', type: 'worker', port: 5432, memory: 256, cpu: 250, createdDaysAgo: 28, deploys: 1,
     volumes: [{ name: 'pgdata', service: 'app', mount_path: '/var/lib/postgresql/data', size_mb: 2048, used_mb: 184 }] }),
-  makeApp({ slug: 'shop-redis', name: 'redis', project: 'prj_shop', alias: 'redis', template: 'redis', type: 'worker', port: 6379, memory: 64, cpu: 100, createdDaysAgo: 28, deploys: 1 }),
+  makeApp({ slug: 'shop-redis', name: 'redis', project: 'prj_shop', alias: 'redis', template: 'valkey', type: 'worker', port: 6379, memory: 128, cpu: 250, createdDaysAgo: 28, deploys: 1 }),
   makeApp({
     slug: 'notes',
     name: 'Notes',
@@ -415,22 +438,25 @@ apps.push(
 
 seedEnv('portfolio', [])
 seedEnv('shop-web', [
-  { name: 'DATABASE_URL', reference: '${{postgres.DATABASE_URL}}' },
-  { name: 'API_URL', reference: 'http://${{api.HOST}}:8080' },
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
   { name: 'SESSION_SECRET' },
 ])
 seedEnv('shop-api', [
-  { name: 'DATABASE_URL', reference: '${{postgres.DATABASE_URL}}' },
-  { name: 'REDIS_URL', reference: '${{redis.REDIS_URL}}' },
+  { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
+  { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
   { name: 'STRIPE_KEY', masked: 'sk_l••••' },
 ])
 seedEnv('shop-postgres', ['DATABASE_URL', 'PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'].map((name) => ({ name })))
-seedEnv('shop-redis', [{ name: 'REDIS_URL' }])
+seedEnv('shop-redis', ['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'VALKEY_URL'].map((name) => ({ name })))
 seedEnv('notes', [{ name: 'POSTGRES_PASSWORD' }, { name: 'SECRET_KEY' }, { name: 'SMTP_URL', service: 'worker' }])
 seedEnv('uptime', [])
+for (const a of apps) syncRefs(a)
 
 function projectOf(row: ProjectRow): Project {
-  return { ...row, apps: apps.filter((a) => a.project?.id === row.id) }
+  const own = apps.filter((a) => a.project?.id === row.id)
+  for (const a of own) syncRefs(a)
+  return { ...row, updated_at: row.updated_at ?? row.created_at, network: `bp-p-${row.id.replace(/^prj_/, '')}`, apps: own }
 }
 
 function findApp(slug: string): App | undefined {
@@ -811,7 +837,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       const row = projects.find((p) => p.id === id)
       if (!row) throw new HttpError(404, 'project_not_found', `There is no project ${id}.`)
       const tpl = templates.find((t) => t.id === body.template)
-      if (!tpl) throw new HttpError(422, 'template_not_found', `There is no service template ${String(body.template)}.`, 'List them with list_service_templates.')
+      if (!tpl) throw new HttpError(404, 'service_template_unknown', `There is no service template ${String(body.template)}.`, `Use one of ${templates.map((x) => x.id).join(', ')}.`)
       const alias = slugish(String(body.name || tpl.id))
       if (apps.some((a) => a.project?.id === row.id && (a.alias || a.slug) === alias))
         throw new HttpError(409, 'alias_taken', `${row.name} already has an app called ${alias}.`, 'Pick another name, like ' + alias + '-2.')
@@ -823,8 +849,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         template: tpl.id,
         alias,
         internal_host: `${alias}:${tpl.port}`,
+        template_version: tpl.version,
+        connection_vars: tpl.connection_vars,
+        main_var: tpl.main_var,
         memory_mb: tpl.memory_mb,
-        cpu_millis: 250,
+        cpu_millis: tpl.cpu_millis ?? 250,
         volume_mb: tpl.volume_mb,
         services: [service({ name: 'app', kind: 'image', image: tpl.image, port: tpl.port, health_path: '', memory_mb: tpl.memory_mb, volumes: ['data'] })],
         volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: tpl.volume_mb, used_mb: null }],
@@ -836,12 +865,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         const list = (env[t.slug] ??= [])
         const ref = `\${{${alias}.${tpl.main_var}}}`
         const existing = list.find((v) => v.name === tpl.main_var && !v.service)
-        if (existing) Object.assign(existing, { masked: MASK, reference: ref, updated_at: new Date().toISOString() })
-        else list.push({ name: tpl.main_var, masked: MASK, reference: ref, service: '', updated_at: new Date().toISOString() })
+        if (existing) Object.assign(existing, { masked: MASK, references: [ref], updated_at: new Date().toISOString() })
+        else list.push({ name: tpl.main_var, masked: MASK, references: [ref], service: '', updated_at: new Date().toISOString() })
+        syncRefs(t)
         if (t.status === 'running') startDeploy(t, 'rollback')
       }
       startDeploy(a, 'files')
-      return send(res, 201, a)
+      return send(res, 202, a)
     }
 
     // ---------------------------------------------------------------- apps
@@ -935,7 +965,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       for (const [name, value] of Object.entries((body.set as Record<string, string>) ?? {})) {
         const isRef = /\$\{\{/.test(value)
         const v = list.find((x) => x.name === name && x.service === svc)
-        const next = { masked: isRef ? MASK : value.length > 4 ? `${value.slice(0, 2)}••••` : MASK, reference: isRef ? value : undefined, updated_at: new Date().toISOString() }
+        const next = { masked: isRef ? MASK : value.length > 4 ? `${value.slice(0, 2)}••••` : MASK, references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
         if (v) Object.assign(v, next)
         else list.push({ name, service: svc, ...next })
       }
@@ -943,6 +973,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         const i = list.findIndex((x) => x.name === name && x.service === svc)
         if (i >= 0) list.splice(i, 1)
       }
+      syncRefs(needApp(id))
       return send(res, 200, items(list))
     }
     case 'GET /apps/:id/metrics':

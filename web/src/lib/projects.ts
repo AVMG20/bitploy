@@ -259,17 +259,10 @@ export function referenceText(alias: string, variable: string): string {
   return `\${{${alias}.${variable}}}`
 }
 
-/** The references of one variable: from the server's `reference` field, else from what `masked` shows. */
-export function envReferences(v: Pick<EnvVar, 'reference' | 'masked'>): Reference[] {
-  const own = parseReferences(v.reference)
+/** The references of one variable: from the server's `references`, else from what `masked` shows. */
+export function envReferences(v: Pick<EnvVar, 'references' | 'masked'>): Reference[] {
+  const own = parseReferences((v.references ?? []).join(' '))
   return own.length ? own : parseReferences(v.masked)
-}
-
-/** A value is only a reference (no other text around it): the dashboard shows it as a chip. */
-export function isPureReference(v: Pick<EnvVar, 'reference' | 'masked'>): boolean {
-  const text = (v.reference || v.masked || '').trim()
-  const refs = parseReferences(text)
-  return refs.length === 1 && refs[0]!.raw === text
 }
 
 /** One app uses another: its variables point there. */
@@ -292,6 +285,13 @@ export function projectLinks(apps: readonly App[], envBySlug: Readonly<Record<st
   for (const a of apps) byAlias.set(aliasOf(a), a)
   const links = new Map<string, AppLink>()
   for (const a of apps) {
+    // App.references names the apps it reads from before its variables are loaded.
+    for (const alias of a.references ?? []) {
+      const to = byAlias.get(alias)
+      if (!to || to.id === a.id) continue
+      const key = `${a.id}>${to.id}`
+      if (!links.has(key)) links.set(key, { from: a.id, to: to.id, vars: [] })
+    }
     for (const v of envBySlug[a.slug] ?? []) {
       for (const r of envReferences(v)) {
         const to = byAlias.get(r.app)

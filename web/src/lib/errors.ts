@@ -19,6 +19,24 @@ const HINTS: Record<string, string> = {
   memory_quota_exceeded: 'Stop or delete another app, or ask your admin for more memory.',
   cpu_quota_exceeded: 'Stop or delete another app, or ask your admin for more CPU.',
   server_disk_full: 'Tell your admin that the server disk is full. Your running apps are not affected.',
+  // projects, service templates and ${{name.VAR}} references
+  project_not_found: 'The project was deleted or renamed. Open Projects to find it.',
+  project_name_invalid: 'Use 1 to 80 characters for the project name.',
+  project_required: 'Pick the project to put it in.',
+  project_ambiguous: 'Two projects have that name. Rename one of them first.',
+  projects_limit: 'You have 100 projects, the most there can be. Delete one you no longer need.',
+  project_not_empty: 'Move its apps to another project or delete them first, or tick the box that deletes them too.',
+  confirm_mismatch: 'Type the name exactly as shown to confirm.',
+  alias_invalid: 'Use lowercase letters, numbers and dashes for the short name, like db or api-2.',
+  alias_taken: 'Another app of the project has that short name. Pick another, like db-2.',
+  app_referenced: 'Other apps of the project use its variables. Remove those references first, or move them along.',
+  app_has_references: 'Its variables use other apps of the project. Remove those references first, or move those apps along.',
+  service_template_unknown: 'Pick one from the list under Add.',
+  connect_to_other_project: 'An app can only connect to databases and services of its own project.',
+  connect_to_var_set: 'That app already has this variable. Change it under its Variables, or untick it.',
+  variable_reference_unknown: 'A ${{name.VAR}} value names an app or variable the project does not have. Check the spelling under Variables.',
+  variable_reference_self: 'A variable cannot refer to its own app. Type the value instead.',
+  variable_reference_loop: 'Two variables refer to each other. Change one of them to a plain value.',
 }
 
 // Words like delete_app or volume_mb are names of AI tools and API fields.

@@ -262,24 +262,20 @@ export interface Deployment {
   duration_seconds: number | null
   url: string
   next_steps?: string[]
-  /**
-   * What happened to each service in this deployment, for an app with several.
-   * Not sent by the server yet: the dashboard shows per-service rows only when
-   * it is there.
-   */
+  /** What happened to each service in this deployment, for an app with several. */
   services?: DeploymentService[]
 }
 
 /** One service of a deployment (Deployment.services). */
 export interface DeploymentService {
   service: string
-  image?: string | null
-  /** Where this service got to; the deployment's state when missing. */
-  state?: DeploymentState
+  /** null until it is built or pulled. */
+  image: string | null
+  /** Where this service got to. */
+  state: DeploymentState
   /** The container of an earlier version kept running because nothing changed. */
-  reused?: boolean
-  error?: DeployError | null
-  duration_seconds?: number | null
+  reused: boolean
+  error: DeployError | null
 }
 
 export interface EnvVar {
@@ -289,12 +285,11 @@ export interface EnvVar {
   /** The service of the app it is for; "": shared by every service of the app. */
   service: string
   /**
-   * When the value points at another app of the project, the reference as
-   * typed, like ${{postgres.DATABASE_URL}}. A reference is not a secret, so the
-   * server may send it in full. Assumed field (projects, phase 4b); the
-   * dashboard also reads a reference out of `masked`.
+   * The ${{alias.VAR}} references in the value, like ${{postgres.DATABASE_URL}}.
+   * They name other apps' variables and are not secret; the rest of the value
+   * stays masked.
    */
-  reference?: string
+  references?: string[]
 }
 
 export interface DNSRecord {
@@ -380,7 +375,7 @@ export interface App {
   services: AppService[]
   /** The storage volumes of the app; /data of a normal app is named "data". */
   volumes: AppVolume[]
-  /** Not sent by the server (it is internal); an app with several services has more than one entry in `services`. */
+  /** single: one service whose settings are the app's fields; multi: several services from a compose file. */
   service_layout?: 'single' | 'multi'
   /** Where the compose file is in the source, for build_mode compose; "" means the usual names. */
   compose_path: string
@@ -391,10 +386,18 @@ export interface App {
    * (postgres, web) and the name in ${{alias.VAR}}. Missing: the slug.
    */
   alias?: string
-  /** The service template it was made from (postgres, redis, ...), or null. */
+  /** The service template it was made from (postgres, valkey, ...), or null. */
   template?: string | null
-  /** Where the other apps of the project reach it, like postgres:5432; "" or missing when it has no port. */
+  /** Template apps: the version of the template's image it runs, like 18.6. */
+  template_version?: string
+  /** Where the other apps of the project reach it, like postgres:5432; "" when the port is not known. */
   internal_host?: string
+  /** Template apps: the variables the other apps can reference, main one first. */
+  connection_vars?: string[]
+  /** Template apps: the variable connect_to sets in the connected apps, like DATABASE_URL. */
+  main_var?: string
+  /** Short names of the apps of the project this app's variables refer to. */
+  references?: string[]
   created_at: string
   updated_at: string
 }
@@ -411,6 +414,9 @@ export interface Project {
   id: string
   name: string
   created_at: string
+  updated_at?: string
+  /** The private Docker network the apps share (bp-p-<id>); made once the project has two apps. */
+  network?: string
   apps: App[]
 }
 
@@ -420,14 +426,15 @@ export interface ServiceTemplate {
   id: string
   /** PostgreSQL */
   name: string
-  /** database, cache, queue, search, ... */
+  /** database, cache or search */
   category: string
   description: string
-  /** postgres:16-alpine */
+  /** The image with its pinned version, like postgres:18.6 */
   image: string
   version: string
   port: number
   memory_mb: number
+  cpu_millis?: number
   volume_mb: number
   /** The variables it publishes, like DATABASE_URL, PGHOST, PGPASSWORD. */
   connection_vars: string[]
@@ -440,8 +447,11 @@ export interface AddServiceInput {
   template: string
   /** Its short name in the project; the template id when missing. */
   name?: string
-  /** Slugs of the apps that get ${{name.<main_var>}}, and are redeployed. */
+  /** Slugs of the apps that get <main_var>=${{name.<main_var>}}; they restart once the service runs. */
   connect_to?: string[]
+  /** Default: the template's. */
+  memory_mb?: number
+  volume_mb?: number
 }
 
 /** One container of an app (App.services). */
@@ -463,9 +473,7 @@ export interface AppService {
   depends_on: string[]
   /** The Docker container of the current deployment. */
   container?: string
-  /** The status of this one service. Not sent by the server yet: the app's status is used. */
-  status?: AppStatus
-  /** Latest 15-second sample of this service. Not sent by the server yet: the metrics endpoint is asked. */
+  /** Latest 15-second sample of this service, for a running app with several services. */
   live?: MetricPoint | null
 }
 
@@ -875,11 +883,23 @@ export interface CatalogApp {
   /** May contain "{url}", which stands for the app's address. */
   first_steps: string[]
   dockerfile: string
+  /** Databases (like PostgreSQL) deployed next to the app in its project; empty for a single-container app. */
+  services?: CatalogService[]
 }
 
+/** A service a catalog app brings along (CatalogApp.services). */
+export interface CatalogService {
+  /** The service template id, like postgres. */
+  template: string
+  /** Its short name in the project, like db. */
+  name: string
+  image: string
+  memory_mb: number
+  volume_mb: number
+}
+
+/** Deploying a catalog app always makes a project named after it. */
 export interface CatalogDeployInput {
-  /** The project to put it in (phase 4b, assumed); a new project when missing. */
-  project?: string
   name?: string
   slug?: string
   domain?: string

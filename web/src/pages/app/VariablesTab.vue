@@ -75,9 +75,9 @@ const scopes = computed(() => [
 // ---------------------------------------------------------------- references to the other apps of the project
 const { project } = useProject(() => (app.data.value ? projectIdOf(app.data.value) : ''))
 const byAlias = computed(() => new Map((project.value?.apps ?? []).map((a) => [aliasOf(a), a])))
-/** The value as text and chips: ${{postgres.DATABASE_URL}} shows as a chip naming postgres. */
+/** The references in a value as chips naming the other app: ${{postgres.DATABASE_URL}} shows as postgres.DATABASE_URL. */
 function valueParts(v: EnvVar) {
-  const parts = referenceParts(v.reference || v.masked)
+  const parts = referenceParts(v.references?.length ? v.references.join(' ') : v.masked).filter((p) => 'ref' in p || p.text.trim())
   return parts.some((p) => 'ref' in p) ? parts : null
 }
 // Quick picks under the form: the main variable of each database or cache in the project.
@@ -86,7 +86,7 @@ const suggestions = computed(() =>
     .filter((a) => a.template && a.slug !== props.slug)
     .map((a) => {
       const role = appRole(a)
-      const name = role.key === 'cache' ? 'REDIS_URL' : role.key === 'search' ? 'MEILI_URL' : 'DATABASE_URL'
+      const name = a.main_var || a.connection_vars?.[0] || (role.key === 'cache' ? 'REDIS_URL' : role.key === 'search' ? 'MEILI_URL' : 'DATABASE_URL')
       return { app: a, name, value: referenceText(aliasOf(a), name) }
     })
     .filter((sg) => !names.value.has(sg.name)),

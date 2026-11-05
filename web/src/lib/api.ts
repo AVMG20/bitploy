@@ -411,7 +411,7 @@ export const api = {
   /** null when this server has no projects yet (the endpoint is missing); the dashboard then makes one per app. */
   async projects(): Promise<Project[] | null> {
     try {
-      return listOf<Project>(await request<unknown>('GET', paths.projects), 'projects').map((p) => ({ ...p, apps: p.apps ?? [] }))
+      return (await listAll<Project>(paths.projects)).map((p) => ({ ...p, apps: p.apps ?? [] }))
     } catch (e) {
       if (missingEndpoint(e)) return null
       throw e
@@ -426,7 +426,7 @@ export const api = {
   /** The databases and other ready services; null when this server has none (the endpoint is missing). */
   async serviceTemplates(): Promise<ServiceTemplate[] | null> {
     try {
-      return listOf<ServiceTemplate>(await request<unknown>('GET', paths.serviceTemplates), 'templates')
+      return await listAll<ServiceTemplate>(paths.serviceTemplates)
     } catch (e) {
       if (missingEndpoint(e)) return null
       throw e

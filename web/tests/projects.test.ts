@@ -10,7 +10,6 @@ import {
   groupTemplates,
   internalHostOf,
   isPublicApp,
-  isPureReference,
   mainApp,
   parseReferences,
   pastedKind,
@@ -90,7 +89,14 @@ const POSTGRES: ServiceTemplate = {
 const REDIS: ServiceTemplate = { ...POSTGRES, id: 'redis', name: 'Redis', category: 'cache', image: 'redis:7-alpine', version: '7.4', port: 6379, connection_vars: ['REDIS_URL'], main_var: 'REDIS_URL' }
 const MEILI: ServiceTemplate = { ...POSTGRES, id: 'meilisearch', name: 'Meilisearch', category: 'search', image: 'getmeili/meilisearch:v1.10', version: '1.10', port: 7700 }
 
-const env = (name: string, masked: string, reference?: string): EnvVar => ({ name, masked, updated_at: '2026-11-04T10:00:00Z', service: '', reference })
+// The server sends the ${{...}} tokens of a value as `references`; the rest stays masked.
+const env = (name: string, masked: string, value?: string): EnvVar => ({
+  name,
+  masked,
+  updated_at: '2026-11-04T10:00:00Z',
+  service: '',
+  references: value?.match(/\$\{\{[^}]+\}\}/g) ?? undefined,
+})
 
 const db = (alias: string, template: string, image: string, port: number) =>
   app(alias, {
@@ -194,12 +200,24 @@ test('parseReferences reads ${{app.VAR}}', () => {
   assert.equal(referenceText('postgres', 'DATABASE_URL'), '${{postgres.DATABASE_URL}}')
 })
 
-test('envReferences prefers the reference field and falls back to masked', () => {
+test('envReferences reads the references field and falls back to masked', () => {
   assert.equal(envReferences(env('DATABASE_URL', '••••', '${{postgres.DATABASE_URL}}'))[0]?.app, 'postgres')
+  assert.deepEqual(
+    envReferences(env('URL', '••', 'redis://${{cache.REDIS_HOST}}:${{cache.REDIS_PORT}}')).map((r) => r.variable),
+    ['REDIS_HOST', 'REDIS_PORT'],
+  )
   assert.equal(envReferences(env('REDIS_URL', '${{redis.REDIS_URL}}'))[0]?.app, 'redis')
   assert.deepEqual(envReferences(env('API_KEY', 'sk-•••')), [])
-  assert.equal(isPureReference(env('DATABASE_URL', '••', '${{postgres.DATABASE_URL}}')), true)
-  assert.equal(isPureReference(env('URL', '••', 'redis://${{cache.HOST}}:6379')), false)
+})
+
+test('projectLinks uses App.references before the variables are loaded', () => {
+  const web = app('shop-web', { alias: 'web', references: ['postgres', 'gone'] })
+  const pg = db('postgres', 'postgres', 'postgres:18.6', 5432)
+  assert.deepEqual(projectLinks([web, pg], {}), [{ from: web.id, to: pg.id, vars: [] }])
+  // Once loaded, the variables name the link.
+  assert.deepEqual(projectLinks([web, pg], { 'shop-web': [env('DATABASE_URL', '••', '${{postgres.DATABASE_URL}}')] }), [
+    { from: web.id, to: pg.id, vars: ['DATABASE_URL'] },
+  ])
 })
 
 test('projectLinks finds who talks to whom', () => {
