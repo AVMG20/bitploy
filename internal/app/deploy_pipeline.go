@@ -254,6 +254,9 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if ae := p.settleResources(ctx); ae != nil {
 		return ae
 	}
+	if ae := p.waitForReferences(ctx); ae != nil {
+		return ae
+	}
 	if ae := p.setState(ctx, "starting"); ae != nil {
 		return ae
 	}
@@ -949,8 +952,9 @@ func (p *pipeline) checkPrimary(ctx context.Context) *apperr.Error {
 	app := p.app
 	start := time.Now()
 
-	// Workers: still running after 30 s.
-	if app.Type == "worker" {
+	// Workers: still running after 30 s. A service-template app (a database)
+	// has a HEALTHCHECK, which says more: it waits for that below.
+	if app.Type == "worker" && !(app.Template != "" && p.hcCfg != nil) {
 		p.logf("Worker: waiting %s to see that it keeps running.", workerAliveFor)
 		last, ok := deploy.Poll(ctx, workerAliveFor+10*time.Second, time.Second, func(c context.Context) deploy.PollResult {
 			if r := p.aliveCheck(c); r.Fail {
@@ -1292,10 +1296,12 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}()
 
 	if ae == nil {
+		s.runAfterLive(bg, p.dep.ID)
 		s.pruneApp(bg, p.app.ID)
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
+	s.forgetAfterLive(p.dep.ID)
 	if ae == errCancelled || ae.Code == "cancelled" {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
 			return // bitploy is shutting down: the reconciler cleans up after restart

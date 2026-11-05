@@ -199,9 +199,87 @@ type App struct {
 	// their sums.
 	Services []AppService `json:"services" doc:"The services of the app; one named app unless it has several"`
 	// Volumes are the app's storage volumes; the /data volume is named "data".
-	Volumes   []AppVolume `json:"volumes" doc:"The storage volumes of the app; /data is named data"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	Volumes []AppVolume `json:"volumes" doc:"The storage volumes of the app; /data is named data"`
+	// Project is the project the app is in; Alias is its short name there:
+	// the other apps of the project reach it at <alias> (and <alias>-<service>
+	// for each service of an app with several) and refer to its variables as
+	// ${{<alias>.VAR}}.
+	Project ProjectRef `json:"project" doc:"The project the app is in"`
+	Alias   string     `json:"alias" doc:"The app's short name in its project: its host name on the project network, and the name in ${{<alias>.VAR}} references"`
+	// Template is the service template the app was made from (postgres,
+	// valkey, ...; see list_service_templates), or nil.
+	Template        *string `json:"template" doc:"The service template the app was made from, or null"`
+	TemplateVersion string  `json:"template_version,omitempty" doc:"The version of the template's image the app runs"`
+	// InternalHost is <alias>:<port>, the address the project's other apps use;
+	// empty when the app has no known port.
+	InternalHost string `json:"internal_host" doc:"<alias>:<port>, the address the other apps of the project use; empty when the port is not known"`
+	// ConnectionVars are the variables a template app publishes to its
+	// project, like DATABASE_URL; MainVar is the one "connect to" sets.
+	ConnectionVars []string `json:"connection_vars,omitempty" doc:"Template apps: the variables other apps can reference, like DATABASE_URL"`
+	MainVar        string   `json:"main_var,omitempty" doc:"Template apps: the variable connect_to sets in the connected apps"`
+	// References are the aliases of the other apps of the project this app's
+	// variables refer to (${{<alias>.VAR}}).
+	References []string  `json:"references" doc:"Short names of the apps in the project this app's variables refer to"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// ProjectRef names a project (App.project).
+type ProjectRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Project is a space that holds apps: they share a private network and can
+// refer to each other's variables.
+type Project struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Network is the Docker network the apps share, created when the project
+	// has two apps or more.
+	Network string `json:"network" doc:"The private Docker network the project's apps share (bp-p-<id>)"`
+	Apps    []App  `json:"apps"`
+}
+
+// CreateProjectInput is POST /projects.
+type CreateProjectInput struct {
+	Name string `json:"name" doc:"1 to 80 characters"`
+}
+
+// UpdateProjectInput is PATCH /projects/{id}.
+type UpdateProjectInput struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// ServiceTemplate is GET /service-templates.
+type ServiceTemplate struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Category       string   `json:"category" doc:"database, cache or search"`
+	Description    string   `json:"description"`
+	Image          string   `json:"image" doc:"The image with its pinned version, like postgres:18.6"`
+	Version        string   `json:"version"`
+	Port           int64    `json:"port"`
+	MemoryMB       int64    `json:"memory_mb"`
+	CPUMillis      int64    `json:"cpu_millis"`
+	VolumeMB       int64    `json:"volume_mb"`
+	ConnectionVars []string `json:"connection_vars" doc:"Variables other apps can reference as ${{<name>.VAR}}"`
+	MainVar        string   `json:"main_var" doc:"The variable connect_to sets in the connected apps"`
+}
+
+// AddServiceInput is POST /projects/{id}/services.
+type AddServiceInput struct {
+	Template string `json:"template" doc:"A service template id from list_service_templates, like postgres or valkey"`
+	// Name is the alias in the project; default: the template id (postgres-2
+	// when that is taken).
+	Name string `json:"name,omitempty" doc:"The short name in the project, like db; default: the template id"`
+	// ConnectTo are slugs of apps in the project that get
+	// <main_var>=${{<name>.<main_var>}} and restart once the service runs.
+	ConnectTo []string `json:"connect_to,omitempty" doc:"Slugs of apps in the project that get <main_var>=${{<name>.<main_var>}} (like DATABASE_URL) and restart once the service runs"`
+	MemoryMB  *int64   `json:"memory_mb,omitempty" doc:"Default: the template's"`
+	VolumeMB  *int64   `json:"volume_mb,omitempty" doc:"Default: the template's"`
 }
 
 // AppService is one service of an app (App.services).
@@ -297,9 +375,12 @@ type EnvVar struct {
 	Name string `json:"name"`
 	// Service is the service the variable belongs to; "" for a variable every
 	// service of the app gets (always "" for an app with one service).
-	Service   string    `json:"service" doc:"The service it belongs to; empty when every service gets it"`
-	Masked    string    `json:"masked"` // e.g. "••••••••" — values are never returned
-	UpdatedAt time.Time `json:"updated_at"`
+	Service string `json:"service" doc:"The service it belongs to; empty when every service gets it"`
+	Masked  string `json:"masked"` // e.g. "••••••••" — values are never returned
+	// References are the ${{<alias>.VAR}} references in the value: names of
+	// other apps' variables, shown because they are not secret.
+	References []string  `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type DNSRecord struct {
@@ -493,6 +574,11 @@ type CreateAppInput struct {
 	OutputDir string `json:"output_dir,omitempty" doc:"Build modes auto and static_build: the folder the build writes to and nginx serves, relative to the project, like dist, build or out. Empty: the default of the detected framework."`
 	// HomePage is the page for "/" when a static site has no index.html and several pages.
 	HomePage string `json:"home_page,omitempty" doc:"Build modes auto and static only: the .html file at the top of the source to serve at / when there is no index.html and several pages. Empty: index.html, else the only page."`
+	// Project is the project id to create the app in; empty: a new project
+	// named after the app.
+	Project string `json:"project,omitempty" doc:"The project to put the app in (id from list_projects); empty: a new project named after the app"`
+	// Alias is the short name in the project; default: the slug.
+	Alias string `json:"alias,omitempty" doc:"The app's short name in the project (a DNS label); default: the subdomain"`
 }
 
 // UpdateAppInput: nil fields are left unchanged.
@@ -517,6 +603,9 @@ type UpdateAppInput struct {
 	VolumeMB   *int64 `json:"volume_mb,omitempty"`
 	MemoryMB   *int64 `json:"memory_mb,omitempty"`
 	CPUMillis  *int64 `json:"cpu_millis,omitempty"`
+	// Project moves the app to another project (id); Alias renames it there.
+	Project *string `json:"project,omitempty" doc:"Move the app to another of your projects (id). Refused while other apps in its project refer to its variables."`
+	Alias   *string `json:"alias,omitempty" doc:"The app's short name in its project. References to it in the project's other apps are rewritten, and those apps restart."`
 }
 
 type CreateTokenInput struct {

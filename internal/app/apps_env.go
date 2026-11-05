@@ -36,7 +36,14 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 	}
 	out := make([]EnvVar, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)})
+		ev := EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)}
+		// A reference names another app's variable, not a secret: it is shown.
+		if v, err := s.Crypto.Open(r.ValueEnc, envAADFor(appID, r.Service, r.Name)); err == nil {
+			for _, ref := range refsIn(string(v)) {
+				ev.References = append(ev.References, ref.String())
+			}
+		}
+		out = append(out, ev)
 	}
 	return out, nil
 }
@@ -86,6 +93,18 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 	for _, n := range unset {
 		if _, both := set[n]; both {
 			return nil, apperr.BadRequest("env_conflict", "The variable "+quote(n)+" is in both set and unset.", "Send each name in only one of them.")
+		}
+	}
+	// ${{alias.VAR}}: the app and the variable must exist in the project.
+	withRefs := map[string]string{}
+	for n, v := range set {
+		if strings.Contains(v, "${{") {
+			withRefs[n] = v
+		}
+	}
+	if len(withRefs) > 0 {
+		if ae := s.newResolver(row).check(ctx, withRefs); ae != nil {
+			return nil, ae
 		}
 	}
 	existing, err := s.Q.ListEnvVars(ctx, row.ID)

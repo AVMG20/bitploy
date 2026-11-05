@@ -112,6 +112,7 @@ func (s *Service) reconcileDocker(ctx context.Context) {
 		current[a.ID] = s.currentContainers(ctx, a)
 	}
 	s.reconcileTraefikNetworks(ctx, apps)
+	s.reconcileProjectNetworks(ctx, apps)
 	s.logForeignOnce(ctx)
 
 	// Containers: remove those without an app, or that are not the current

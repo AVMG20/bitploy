@@ -240,6 +240,25 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if len([]rune(name)) > 80 {
 		return App{}, apperr.BadRequest("app_name_invalid", "The app name is longer than 80 characters.", "Use a shorter name.")
 	}
+	projectID := ""
+	if strings.TrimSpace(in.Project) != "" {
+		p, err := s.loadProject(ctx, a, in.Project, true)
+		if err != nil {
+			return App{}, err
+		}
+		if p.UserID != user.ID {
+			return App{}, projectNotFound(in.Project)
+		}
+		projectID = p.ID
+	}
+	alias := ""
+	if strings.TrimSpace(in.Alias) != "" {
+		al, ae := normalizeAlias(in.Alias)
+		if ae != nil {
+			return App{}, ae
+		}
+		alias = al
+	}
 
 	now := s.now()
 	id := ids.New(ids.App)
@@ -258,10 +277,35 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		} else if n > 0 {
 			volName = dockerx.VolumeName(id)
 		}
+		// The project: the one given (it lasts from now on, also when empty), or
+		// a new one named after the app that goes with it.
+		pid := projectID
+		if pid == "" {
+			var err error
+			if pid, err = newAutoProject(ctx, q, user.ID, name, now); err != nil {
+				return err
+			}
+		} else if err := q.SetProjectManual(ctx, db.SetProjectManualParams{UpdatedAt: now, ID: pid}); err != nil {
+			return err
+		}
+		al := alias
+		if al != "" {
+			if n, err := q.ProjectAliasTaken(ctx, db.ProjectAliasTakenParams{ProjectID: pid, Alias: al, ExceptID: id}); err != nil {
+				return err
+			} else if n > 0 {
+				return aliasTaken(al)
+			}
+		} else {
+			var err error
+			if al, err = freeAlias(ctx, q, pid, slug, id); err != nil {
+				return err
+			}
+		}
 		if err := q.InsertApp(ctx, db.InsertAppParams{
 			ID: id, UserID: user.ID, Slug: slug, Name: name, Type: typ, Port: port,
 			VolumeEnabled: b2i(in.Volume), VolumeMb: volMB, VolumeName: volName,
-			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, BaseDomain: baseDomain, CreatedAt: now, UpdatedAt: now,
+			MemoryMb: mem, CpuMillis: cpu, BuildMode: buildMode, HomePage: homePage, OutputDir: outputDir, BaseDomain: baseDomain,
+			ProjectID: pid, Alias: al, CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
 			return err
 		}
@@ -284,17 +328,24 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: apps.slug") {
 			return App{}, slugTaken(slug)
 		}
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: apps.project_id, apps.alias") {
+			return App{}, aliasTaken(alias)
+		}
 		return App{}, apperr.Internal(err)
 	}
-	created := map[string]any{"slug": slug, "type": typ, "build_mode": buildMode}
-	if baseDomain != "" {
-		created["domain"] = baseDomain
-	}
-	s.Audit(ctx, a, "app.create", "app", id, created)
 	row, err := s.Q.GetApp(ctx, id)
 	if err != nil {
 		return App{}, apperr.Internal(err)
 	}
+	if projectID != "" {
+		// The project may have reached two apps: its network joins the others.
+		s.wireProject(context.WithoutCancel(ctx), projectID)
+	}
+	created := map[string]any{"slug": slug, "type": typ, "build_mode": buildMode, "project": row.ProjectID, "alias": row.Alias}
+	if baseDomain != "" {
+		created["domain"] = baseDomain
+	}
+	s.Audit(ctx, a, "app.create", "app", id, created)
 	return s.appView(ctx, a, row), nil
 }
 
@@ -339,6 +390,10 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		return App{}, suspendedErr()
 	}
 	if err := perServiceSettings(row, in); err != nil {
+		return App{}, err
+	}
+	pc, err := s.planProjectChange(ctx, a, row, in)
+	if err != nil {
 		return App{}, err
 	}
 	isStatic := s.appIsStatic(ctx, row)
@@ -586,6 +641,14 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["old_slug"] = row.Slug
 		s.Audit(ctx, a, "app.update", "app", row.ID, changed)
 	}
+	if pc != nil {
+		if cur, err := s.Q.GetApp(ctx, row.ID); err == nil {
+			row = cur
+		}
+		if err := s.applyProjectChange(ctx, a, row, pc); err != nil {
+			return App{}, err
+		}
+	}
 	// Port and health path changes apply to the route at once, and so does a
 	// new domain (the route file is named after the slug, only its Host changes).
 	if !renamed && (in.Port != nil || in.Type != nil || moved) {
@@ -760,6 +823,9 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 		if err := q.DeleteAppRow(ctx, row.ID); err != nil {
 			return err
 		}
+		if err := q.DeleteAutoProjectIfEmpty(ctx, row.ProjectID); err != nil {
+			return err
+		}
 		return q.UpsertSlugReservation(ctx, db.UpsertSlugReservationParams{
 			Slug: row.Slug, UserID: row.UserID, ExpiresAt: s.now() + slugReserveDays*86400,
 		})
@@ -775,7 +841,8 @@ func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 	for _, d := range deps {
 		s.NotifyDeployment(d.ID)
 	}
-	s.trafficMgr().Forget(row.ID) // the stored stats went with the app row (foreign key cascade)
+	s.trafficMgr().Forget(row.ID)    // the stored stats went with the app row (foreign key cascade)
+	s.wireProject(bg, row.ProjectID) // one app left: the project network goes
 	s.Audit(ctx, a, "app.delete", "app", row.ID, map[string]any{"slug": row.Slug})
 	s.metricsMgr().MeasureSoon()
 	return nil
@@ -1126,5 +1193,6 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		v.Live = s.LatestSample(r.ID)
 	}
 	v.Services, v.Volumes = s.serviceViews(ctx, r)
+	s.projectFields(ctx, &v, r)
 	return v
 }
