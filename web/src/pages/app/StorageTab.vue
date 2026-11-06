@@ -553,9 +553,8 @@ const restoreText = computed(() => {
           <CardTitle>Backups</CardTitle>
           <CardDescription v-if="hasData && list?.items.length">
             {{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.
-            <template v-if="dumpTool">Dumps made with <span class="font-mono">{{ dumpTool }}</span>.</template>
           </CardDescription>
-          <CardDescription v-else-if="dumpTool">Dumps of every database, made with <span class="font-mono">{{ dumpTool }}</span> while it runs, that you can download or restore.</CardDescription>
+          <CardDescription v-else-if="dumpTool">Dumps of every database that you can download or restore.</CardDescription>
           <CardDescription v-else>Copies of {{ multi && vol ? `the volume ${vol.name}` : 'the saved files' }} that you can download or restore.</CardDescription>
         </div>
         <div v-if="hasData" class="flex flex-wrap gap-2">
@@ -583,11 +582,6 @@ const restoreText = computed(() => {
             <button type="button" class="w-fit underline" :disabled="dismissRestore.isPending.value" @click="dismissRestore.mutate()">Dismiss</button>
           </AlertDescription>
         </Alert>
-
-        <p v-if="dumpTool && list?.items.length" class="text-sm text-muted-foreground" data-testid="backup-kinds">
-          <span class="font-medium text-foreground">Dump</span>: the databases written out by <span class="font-mono">{{ dumpTool }}</span> while it runs; restoring one does not stop the database.
-          <span class="font-medium text-foreground">Files</span>: a copy of its data folder, made while it was stopped.
-        </p>
 
         <FormScope v-if="hasData && list && (!multi || isFirstVolume)" :form="backupForm">
           <form class="grid gap-4 sm:grid-cols-2 sm:items-start" novalidate @submit.prevent="submitSettings">
@@ -630,7 +624,6 @@ const restoreText = computed(() => {
                 </FormField>
               </div>
               <p v-if="backupForm.errors.value.keep" class="text-[0.8rem] font-medium text-destructive">{{ backupForm.errors.value.keep }}</p>
-              <p v-else class="text-[0.8rem] text-muted-foreground">Applies to automatic backups. Others stay until you delete them.</p>
             </div>
             <div class="flex justify-end sm:col-span-2">
               <Button type="submit" :disabled="saveSettings.isPending.value || !backupForm.meta.value.dirty">
@@ -665,7 +658,7 @@ const restoreText = computed(() => {
               <span v-if="multi && b.volume" class="font-mono text-xs text-muted-foreground">{{ b.volume }}</span>
               <Badge variant="secondary">{{ kindLabel[b.kind] }}</Badge>
               <Badge v-if="b.format === 'dump'" variant="outline" :title="b.tool || undefined">Dump</Badge>
-              <Badge v-else-if="dumpTool" variant="outline" title="A copy of the database's files, made while it was stopped">Files</Badge>
+              <Badge v-else-if="dumpTool" variant="outline">Files</Badge>
               <span v-if="b.status === 'running'" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Loader2 class="size-3.5 animate-spin" /> Working...
               </span>
