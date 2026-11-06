@@ -16,6 +16,7 @@ import {
   parseReferences,
   pastedKind,
   projectHealth,
+  projectHealthText,
   projectLinks,
   projectsFromApps,
   referenceParts,
@@ -190,6 +191,17 @@ test('projectHealth shows the most urgent status', () => {
   assert.equal(projectHealth([{ status: 'running' }, { status: 'deploying' }]).status, 'deploying')
   assert.equal(projectHealth([{ status: 'running' }, { status: 'stopped' }]).status, 'running')
   assert.equal(projectHealth([{ status: 'stopped' }]).status, 'stopped')
+})
+
+test('projectHealthText says the same thing on the card and the page', () => {
+  const a = (slug: string, status: App['status']) => ({ slug, alias: '', status })
+  assert.equal(projectHealthText([]), 'Empty')
+  assert.equal(projectHealthText([a('web', 'running'), a('api', 'failed')]), 'api failed')
+  assert.equal(projectHealthText([a('web', 'running'), a('api', 'deploying')]), 'Deploying')
+  assert.equal(projectHealthText([a('web', 'running'), a('api', 'running')]), 'All 2 running')
+  assert.equal(projectHealthText([a('web', 'running'), a('api', 'stopped')]), '1 of 2 running')
+  assert.equal(projectHealthText([a('web', 'stopped')]), 'Stopped')
+  assert.equal(projectHealthText([a('web', 'new')]), 'Not deployed yet')
 })
 
 test('parseReferences reads ${{app.VAR}}', () => {

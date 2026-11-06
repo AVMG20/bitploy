@@ -80,7 +80,7 @@ watch(
   <Card v-else>
     <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
       <CardTitle>{{ failed ? 'The deploy failed' : cancelled ? 'The build was cancelled' : latest.state === 'running' ? 'Your app is online' : 'Putting your app online' }}</CardTitle>
-      <StatusBadge v-bind="deploymentStateInfo(latest.state)" />
+      <StatusBadge v-bind="deploymentStateInfo(latest.state, app?.status)" />
     </CardHeader>
     <CardContent class="grid gap-4">
       <ol v-if="!failed && !cancelled" class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 lg:grid-cols-7" aria-label="Deploy steps">

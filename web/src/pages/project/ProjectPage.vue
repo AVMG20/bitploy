@@ -14,7 +14,7 @@ import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
 import { appRoute } from '@/lib/appLinks'
 import { appStatusInfo, formatMB, hostOf } from '@/lib/format'
-import { aliasOf, isPublicApp, mainApp, projectHealth, projectUsage } from '@/lib/projects'
+import { aliasOf, isPublicApp, mainApp, projectHealth, projectHealthText, projectUsage } from '@/lib/projects'
 
 // A project: its name and health on top, then the canvas of its apps, the
 // variables and connections of all of them, and its settings.
@@ -74,7 +74,7 @@ const projectForAi = computed(() => {
         <template v-if="health.total" #badges>
           <span class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
             <StatusDot :status="health.status === 'empty' ? 'new' : health.status" />
-            {{ health.running === health.total ? (health.total === 1 ? 'Running' : `All ${health.total} running`) : `${health.running} of ${health.total} running` }}
+            {{ projectHealthText(apps) }}
           </span>
         </template>
         <template v-if="apps.length" #meta>

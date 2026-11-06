@@ -76,7 +76,8 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
           </RouterLink>
           <span v-if="aliasOf(app) !== app.name" class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ aliasOf(app) }}</span>
         </h3>
-        <p class="truncate text-xs text-muted-foreground">{{ roleTitle(role) }}</p>
+        <!-- A database or cache names its product on the bottom line. -->
+        <p class="truncate text-xs text-muted-foreground">{{ app.template ? role.label : roleTitle(role) }}</p>
       </div>
       <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
         <StatusDot :status="app.status" /> <span aria-hidden="true">{{ status.label }}</span>

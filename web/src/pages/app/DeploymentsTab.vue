@@ -87,6 +87,13 @@ function summary(d: Deployment): string {
   if (reused) parts.push(`${reused} unchanged`)
   return parts.join(', ')
 }
+// The version the app runs says Live (or Current while the app is stopped);
+// a finished one the app no longer runs says Replaced.
+function stateOf(d: Deployment) {
+  const current = app.data.value?.current_deployment?.id
+  if (d.state === 'running' && current && d.id !== current) return deploymentStateInfo('superseded')
+  return deploymentStateInfo(d.state, app.data.value?.status)
+}
 function serviceState(d: Deployment, s: DeploymentService) {
   if (s.reused) return { label: 'Unchanged', tone: 'muted' as const }
   return deploymentStateInfo(s.state ?? (s.error ? 'failed' : d.state))
@@ -112,8 +119,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
       <article v-for="d in list.data.value" :key="d.id" class="grid gap-2 rounded-xl border bg-card p-4 shadow-card">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span class="font-semibold">{{ versionLabel(d.seq) }}</span>
-          <StatusBadge v-bind="deploymentStateInfo(d.state)" />
-          <span v-if="d.id === app.data.value?.current_deployment?.id" class="rounded-md bg-success/10 px-1.5 py-0.5 text-xs font-medium text-success">Live</span>
+          <StatusBadge v-bind="stateOf(d)" />
           <span class="text-sm text-muted-foreground"><RelativeTime :date="d.queued_at" /> {{ deployedVia(d.channel) }}</span>
           <span v-if="d.duration_seconds !== null" class="text-sm text-muted-foreground">Took {{ formatDuration(d.duration_seconds) }}</span>
           <div class="ml-auto flex flex-wrap gap-2">

@@ -7,7 +7,7 @@ import ServiceIcon from '@/components/ServiceIcon.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { projectRoute } from '@/lib/appLinks'
 import { formatMB, hostOf } from '@/lib/format'
-import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, projectUsage, sortProjectApps } from '@/lib/projects'
+import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, projectHealthText, projectUsage, sortProjectApps } from '@/lib/projects'
 import type { Project, ServiceTemplate } from '@/lib/types'
 
 // A project on the home page: its name, whether everything runs, its address,
@@ -27,17 +27,7 @@ const lastAt = computed(() => {
   }
   return at
 })
-const healthText = computed(() => {
-  const h = health.value
-  if (h.status === 'empty') return 'Empty'
-  if (h.status === 'failed' || h.status === 'crashed') {
-    const bad = props.project.apps.filter((a) => a.status === 'failed' || a.status === 'crashed').map(aliasOf)
-    return `${bad.join(', ')} ${h.status === 'failed' ? 'failed' : 'crashed'}`
-  }
-  if (h.status === 'deploying') return 'Deploying'
-  if (h.running === h.total) return h.total === 1 ? 'Running' : `All ${h.total} running`
-  return `${h.running} of ${h.total} running`
-})
+const healthText = computed(() => projectHealthText(props.project.apps))
 </script>
 
 <template>

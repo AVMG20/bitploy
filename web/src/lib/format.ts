@@ -10,7 +10,7 @@ export function appStatusInfo(status: string): { label: string; tone: Tone } {
     case 'running':
       return { label: 'Running', tone: 'success' }
     case 'deploying':
-      return { label: 'Building', tone: 'info' }
+      return { label: 'Deploying', tone: 'info' }
     case 'failed':
       return { label: 'Failed', tone: 'danger' }
     case 'crashed':
@@ -30,7 +30,15 @@ export function canCancelDeployment(state: string): boolean {
   return CANCELLABLE.includes(state)
 }
 
-export function deploymentStateInfo(state: string): { label: string; tone: Tone } {
+/**
+ * A deployment's state in words. A finished deployment (`running`) is the
+ * version the app runs: "Live" while the app runs, "Current" when the app is
+ * stopped or crashed, so it never says "Running" next to a stopped app.
+ */
+export function deploymentStateInfo(state: string, appStatus?: string): { label: string; tone: Tone } {
+  if (state === 'running') {
+    return appStatus === 'stopped' || appStatus === 'crashed' || appStatus === 'failed' ? { label: 'Current', tone: 'muted' } : { label: 'Live', tone: 'success' }
+  }
   switch (state as DeploymentState) {
     case 'queued':
       return { label: 'Waiting', tone: 'info' }
@@ -46,8 +54,6 @@ export function deploymentStateInfo(state: string): { label: string; tone: Tone 
       return { label: 'Testing', tone: 'info' }
     case 'swapping':
       return { label: 'Going live', tone: 'info' }
-    case 'running':
-      return { label: 'Running', tone: 'success' }
     case 'failed':
       return { label: 'Failed', tone: 'danger' }
     case 'superseded':

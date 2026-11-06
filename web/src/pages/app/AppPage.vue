@@ -153,7 +153,7 @@ const deleteOpen = ref(false)
               <Button variant="outline" disabled>{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></Button>
             </span>
           </template>
-          <Button variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
+          <Button v-if="!canStart" variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
             <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
             <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>

@@ -181,7 +181,7 @@ watch(
             <Button v-if="isWeb && dep" size="sm" :variant="primary === 'open' ? 'default' : 'outline'" as-child>
               <a :href="data.url" target="_blank" rel="noopener noreferrer">{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></a>
             </Button>
-            <Button size="sm" variant="outline" :disabled="busy || !dep" @click="restart">
+            <Button v-if="!canStart" size="sm" variant="outline" :disabled="busy || !dep" @click="restart">
               <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
             </Button>
             <Button v-if="canStart" size="sm" variant="outline" :disabled="busy" @click="actions.start.mutate()">
@@ -206,7 +206,7 @@ watch(
           <p v-else-if="!latest" class="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">Not deployed yet.</p>
           <div v-else class="grid gap-2 rounded-lg border bg-card p-3">
             <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-              <StatusBadge v-bind="deploymentStateInfo(latest.state)" :pulse="building" />
+              <StatusBadge v-bind="deploymentStateInfo(latest.state, shownStatus)" :pulse="building" />
               <span class="text-muted-foreground">Version {{ latest.seq }}</span>
               <span v-if="latest.commit_sha" class="font-mono text-xs">{{ shortSha(latest.commit_sha) }}</span>
               <span class="ml-auto text-xs text-muted-foreground"><RelativeTime :date="latest.finished_at ?? latest.started_at ?? latest.queued_at" /> {{ deployedVia(latest.channel) }}</span>
@@ -268,8 +268,8 @@ watch(
           </p>
         </section>
 
-        <!-- Its variables. -->
-        <section class="grid gap-2" aria-labelledby="panel-vars">
+        <!-- Its variables. A database or cache lists them in the card above. -->
+        <section v-if="!(data.template && !fallback)" class="grid gap-2" aria-labelledby="panel-vars">
           <div class="flex items-center justify-between gap-2">
             <h3 id="panel-vars" class="text-xs font-medium text-muted-foreground">Variables</h3>
             <RouterLink :to="appRoute(data, 'app-variables')" class="text-xs font-medium hover:underline">Edit variables</RouterLink>

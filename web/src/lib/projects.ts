@@ -201,6 +201,24 @@ export function projectHealth(apps: readonly Pick<App, 'status'>[]): ProjectHeal
   return { status, running: apps.filter((a) => a.status === 'running').length, total: apps.length }
 }
 
+/**
+ * The project's state in a few words, the same on its card and its page:
+ * "api failed", "Deploying", "All 4 running", "2 of 4 running", "Stopped".
+ */
+export function projectHealthText(apps: readonly Pick<App, 'status' | 'slug' | 'alias'>[]): string {
+  const h = projectHealth(apps)
+  if (h.status === 'empty') return 'Empty'
+  if (h.status === 'failed' || h.status === 'crashed') {
+    const bad = apps.filter((a) => a.status === 'failed' || a.status === 'crashed').map(aliasOf)
+    return `${bad.join(', ')} ${h.status === 'failed' ? 'failed' : 'crashed'}`
+  }
+  if (h.status === 'deploying') return 'Deploying'
+  if (h.status === 'new') return 'Not deployed yet'
+  if (h.running === h.total) return h.total === 1 ? 'Running' : `All ${h.total} running`
+  if (h.running === 0) return 'Stopped'
+  return `${h.running} of ${h.total} running`
+}
+
 /** Memory and CPU the project's apps reserve, and what they use now. */
 export function projectUsage(apps: readonly App[]): { memoryMB: number; cpuMillis: number; memoryNowMB: number; cpuNowPercent: number } {
   let memoryMB = 0

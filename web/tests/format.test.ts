@@ -12,6 +12,13 @@ test('a cancelled build is neutral, not a failure', () => {
   assert.equal(deploymentStateInfo('failed').tone, 'danger')
 })
 
+test('the version an app runs never says Running next to a stopped app', () => {
+  assert.equal(deploymentStateInfo('running').label, 'Live')
+  assert.equal(deploymentStateInfo('running', 'running').label, 'Live')
+  assert.equal(deploymentStateInfo('running', 'deploying').label, 'Live')
+  for (const s of ['stopped', 'crashed', 'failed']) assert.deepEqual(deploymentStateInfo('running', s), { label: 'Current', tone: 'muted' }, s)
+})
+
 test('CPU is always shown in CPUs', async () => {
   const { formatCPU, formatCPUMillis, cpuFromPercent } = await import('../src/lib/format.ts')
   assert.equal(formatCPUMillis(500), '0.5 CPU')

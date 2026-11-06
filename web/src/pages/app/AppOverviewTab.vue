@@ -17,7 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { CPU_HINT, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCount, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
+import { CPU_HINT, appStatusInfo, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCount, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
 import FirstSteps from './FirstSteps.vue'
@@ -89,7 +89,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <div class="grid grid-cols-2 overflow-hidden rounded-xl border bg-card shadow-card lg:grid-cols-4">
         <div class="border-b p-4 lg:border-b-0">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Running for</p>
-          <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ running ? uptime(data.started_at, nowMs) : '-' }}</p>
+          <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums"><template v-if="running">{{ uptime(data.started_at, nowMs) }}</template><span v-else class="text-muted-foreground">{{ appStatusInfo(data.status).label }}</span></p>
           <p v-if="isWeb && data.restart_count > 0" class="mt-1 text-xs text-muted-foreground">
             Restarted {{ data.restart_count === 1 ? 'once' : data.restart_count + ' times' }} by itself
           </p>
@@ -97,7 +97,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
         <div class="border-b border-l p-4 lg:border-b-0">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Memory now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
-            {{ live ? formatMB(live.memory_mb) : '-' }}
+            {{ live ? formatMB(live.memory_mb) : running ? '...' : '0 MB' }}
             <span class="text-sm font-normal tracking-normal text-muted-foreground">of {{ formatMB(data.memory_mb) }}</span>
           </p>
           <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :model-value="live ? pct(live.memory_mb, data.memory_mb) : 0" />
@@ -105,7 +105,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
         <div class="p-4 lg:border-l">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">CPU now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
-            {{ live ? formatCPU(cpuFromPercent(live.cpu)).replace(' CPU', '') : '-' }}
+            {{ live ? formatCPU(cpuFromPercent(live.cpu)).replace(' CPU', '') : running ? '...' : '0' }}
             <span class="text-sm font-normal tracking-normal text-muted-foreground" :title="CPU_HINT">of {{ formatCPU(cpuLimit) }}</span>
           </p>
           <Progress class="mt-2" :model-value="live ? pct(cpuFromPercent(live.cpu), cpuLimit) : 0" />
@@ -161,7 +161,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
       <div class="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader class="flex flex-row items-center justify-between gap-2">
-            <CardTitle>Live version</CardTitle>
+            <CardTitle>{{ running ? 'Live version' : 'Current version' }}</CardTitle>
             <span class="text-xs text-muted-foreground">{{ versionLabel(dep.seq) }}</span>
           </CardHeader>
           <CardContent class="flex flex-1 flex-col">
@@ -190,7 +190,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
                   </TooltipTrigger>
                   <TooltipContent>Static sites do not count towards your memory and CPU allowance.</TooltipContent>
                 </Tooltip>
-                <template v-else>{{ data.type === 'worker' ? 'Worker' : 'App' }}</template>
+                <template v-else>{{ data.type === 'worker' ? 'In the background, no web address' : 'Open to visitors' }}</template>
               </dd>
               <dt class="text-muted-foreground">Size</dt>
               <dd>{{ formatMB(data.memory_mb) }} memory, {{ formatCPUMillis(data.cpu_millis) }}</dd>
