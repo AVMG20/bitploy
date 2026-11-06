@@ -84,6 +84,10 @@ type Service struct {
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no
 	// network is needed.
 	lsRemote func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)
+
+	// hookRunner runs deploy commands (deploy_commands.go); tests replace
+	// it, nil means Docker.
+	hookRunner deployHooks
 }
 
 func New(cfg *config.Config, st *store.Store, crypto *store.Crypto, dk *dockerx.Client, routes *proxy.Writer, log *slog.Logger) *Service {

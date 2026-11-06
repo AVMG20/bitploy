@@ -509,7 +509,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
-		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: target.Warnings, buildKind: target.BuildKind,
+		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: withoutAfterDeployWarning(target.Warnings), buildKind: target.BuildKind,
 		catalogVersion: target.CatalogVersion, servicesSpec: target.ServicesSpec,
 	})
 }
@@ -769,7 +769,7 @@ func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain stri
 	v := Deployment{
 		ID: d.ID, AppID: d.AppID, AppSlug: slug, Seq: d.Seq, State: d.State,
 		SourceKind: d.SourceKind, SourceRef: d.SourceRef, Channel: d.Channel,
-		Warnings: []deploy.Finding{}, QueuedAt: ts(d.QueuedAt),
+		Warnings: []deploy.Finding{}, QueuedAt: ts(d.QueuedAt), AfterDeploy: d.AfterDeploy,
 		StartedAt: tsPtr(d.StartedAt), FinishedAt: tsPtr(d.FinishedAt),
 		CommitSHA: strPtr(d.CommitSha), CommitMessage: strPtr(d.CommitMessage), Image: strPtr(d.Image),
 	}
@@ -801,6 +801,12 @@ func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain stri
 func (s *Service) nextSteps(d Deployment, appType string) []string {
 	switch d.State {
 	case "running":
+		if afterDeployBusy(d.AfterDeploy) {
+			return []string{"The new version is live and its after-deploy command still runs. Call get_deployment with wait_seconds=30 until after_deploy is succeeded or failed."}
+		}
+		if d.AfterDeploy == afterDeployFailed {
+			return []string{"The new version is live, but its after-deploy command failed (see warnings). Read the [after-deploy] lines with get_logs kind=build, fix the command (update_app after_deploy_command=...) or the code, and tell the user."}
+		}
 		if appType == "worker" {
 			return []string{"The worker is running. Call get_logs with kind=runtime to see what it prints."}
 		}
