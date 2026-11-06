@@ -99,7 +99,7 @@ watch(
         </li>
       </ol>
 
-      <DeployFailure v-if="latest.error && !cancelled" alert :error="latest.error" :log-tail="latest.log_tail" />
+      <DeployFailure v-if="latest.error && !cancelled" alert :error="latest.error" :log-tail="latest.log_tail" :slug="slug" />
 
       <div v-if="log.length" class="grid gap-1.5">
         <p class="text-xs font-medium text-muted-foreground">{{ failed ? 'The last lines of the log' : 'Log' }}</p>

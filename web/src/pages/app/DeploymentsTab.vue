@@ -150,7 +150,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
             <span v-if="d.commit_message" class="ml-1.5">{{ d.commit_message }}</span>
           </span>
         </div>
-        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi">
+        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi" :slug="slug">
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
             <div class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs leading-relaxed text-foreground"><LogLines :lines="d.log_tail" /></div>
