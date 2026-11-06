@@ -349,6 +349,15 @@ func TestAfterDeployPendingIsNotTerminal(t *testing.T) {
 		t.Errorf("after reconcile: %s %+v", v.AfterDeploy, v.Warnings)
 	}
 
+	// The reconciler listed a deployment whose pipeline then finished the
+	// command and ended: the result stays.
+	r := e.pipelineFor(t, a, deploy.BuildKindDockerfile)
+	e.exec(t, `UPDATE deployments SET state = 'running', after_deploy = 'succeeded' WHERE id = ?`, r.dep.ID)
+	e.s.settleAfterDeploy(ctx, r.dep.ID)
+	if d, _ := e.s.Q.GetDeployment(ctx, r.dep.ID); d.AfterDeploy != afterDeploySucceeded || d.Warnings.Valid {
+		t.Errorf("finished command: %q %v", d.AfterDeploy, d.Warnings)
+	}
+
 	// A deployment that never went live: nothing pending is left.
 	q := e.pipelineFor(t, a, deploy.BuildKindDockerfile)
 	e.exec(t, `UPDATE deployments SET state = 'failed', after_deploy = 'pending' WHERE id = ?`, q.dep.ID)

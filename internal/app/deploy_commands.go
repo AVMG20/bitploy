@@ -484,30 +484,39 @@ func (s *Service) reconcileAfterDeploy(ctx context.Context) {
 		return
 	}
 	for _, id := range ids {
-		if s.activeDeployment(id) {
-			continue
-		}
-		d, err := s.Q.GetDeployment(ctx, id)
-		if err != nil {
-			continue
-		}
-		p := &pipeline{s: s, dep: d, ring: deploy.NewLineRing(1)}
-		if d.State != "running" && d.State != "superseded" {
-			p.markAfterDeploy(ctx, "")
-			continue
-		}
-		if a, err := s.Q.GetApp(ctx, d.AppID); err == nil {
-			p.app = a
-		}
-		if f, err := os.OpenFile(s.Cfg.BuildLog(d.ID), os.O_APPEND|os.O_WRONLY, 0o640); err == nil {
-			p.logFile = f
-		}
-		p.afterDeployFailed(ctx, "bitploy restarted while it ran.")
-		if p.logFile != nil {
-			p.logFile.Close()
-		}
-		s.events.flushBuild(d.ID)
+		s.settleAfterDeploy(ctx, id)
 	}
+}
+
+// settleAfterDeploy settles the after-deploy command of one deployment that
+// ListAfterDeployBusy returned, unless a pipeline still runs it.
+func (s *Service) settleAfterDeploy(ctx context.Context, id string) {
+	if s.activeDeployment(id) {
+		return
+	}
+	// Read again now that no pipeline runs it: the pipeline may have
+	// finished the command (and ended) since the list was read, and its
+	// result must stay.
+	d, err := s.Q.GetDeployment(ctx, id)
+	if err != nil || !afterDeployBusy(d.AfterDeploy) {
+		return
+	}
+	p := &pipeline{s: s, dep: d, ring: deploy.NewLineRing(1)}
+	if d.State != "running" && d.State != "superseded" {
+		p.markAfterDeploy(ctx, "")
+		return
+	}
+	if a, err := s.Q.GetApp(ctx, d.AppID); err == nil {
+		p.app = a
+	}
+	if f, err := os.OpenFile(s.Cfg.BuildLog(d.ID), os.O_APPEND|os.O_WRONLY, 0o640); err == nil {
+		p.logFile = f
+	}
+	p.afterDeployFailed(ctx, "bitploy restarted while it ran.")
+	if p.logFile != nil {
+		p.logFile.Close()
+	}
+	s.events.flushBuild(d.ID)
 }
 
 // durationText is a duration in plain words: 3 s, 2 min 5 s, 10 min.
