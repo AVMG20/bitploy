@@ -20,7 +20,7 @@ func TestInternalEntryPointOnlyOnTheBitployNetwork(t *testing.T) {
 	root := filepath.Join("..", "..", "deploy")
 	var compose struct {
 		Services map[string]struct {
-			Ports    []string `yaml:"ports"`
+			Ports    []string  `yaml:"ports"`
 			Networks yaml.Node `yaml:"networks"` // a list for bitploy, a mapping for traefik
 		} `yaml:"services"`
 		Networks map[string]struct {
