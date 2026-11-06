@@ -776,6 +776,21 @@ func TestParseComposeImageVariables(t *testing.T) {
 				}
 			}},
 		{name: "empty, default used", file: "services:\n  web:\n    image: postgres:${EMPTY:-16}\n", env: env},
+		// Without a value or default the tag would be empty, and the unset
+		// warning would ask for set_env, which the case above refuses.
+		{name: "unset, no default", file: "services:\n  web:\n    image: ghcr.io/acme/shop:${TAG}\n", env: env,
+			errCode: CodeComposeImageVariable, errService: "web", errKey: "image", errText: "TAG", check: func(t *testing.T, p ComposeProject) {
+				for _, w := range p.Warnings {
+					if w.Code == CodeComposeVariableUnset {
+						t.Errorf("also warns to set it: %+v", w)
+					}
+				}
+				if !strings.Contains(p.Errors[0].Hint, "Do not set TAG") {
+					t.Errorf("hint: %q", p.Errors[0].Hint)
+				}
+			}},
+		{name: "empty, no default", file: "services:\n  web:\n    image: nginx:${EMPTY}\n", env: env,
+			errCode: CodeComposeImageVariable, errService: "web"},
 		{name: "a build service ignores image", file: "services:\n  web:\n    build: .\n    image: \"acme/${TOKEN}\"\n", env: env,
 			files: map[string]string{"Dockerfile": "FROM node:22\nEXPOSE 3000\n"}, warn: []string{CodeComposeKeyIgnored}},
 		{name: "elsewhere is fine", file: "services:\n  web:\n    image: nginx\n    environment:\n      T: ${TOKEN}\n", env: env},

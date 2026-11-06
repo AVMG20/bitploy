@@ -461,8 +461,12 @@ func (p *composeParser) scanReferences(raw map[string]any) {
 // in errors and in the app's services, which read-only tokens and admins
 // can read, while variable values are never shown. ${TAG:-latest} with TAG
 // not set (or empty) is fine: the image then holds only the file's text.
+// A variable without a value and without a default is refused too: the
+// image would lose its name or tag, and setting the variable (what the
+// unset warning would ask for) is refused above.
 func (p *composeParser) scanImageVariables(raw map[string]any) {
 	svcs, _ := raw["services"].(map[string]any)
+	const hint = "Write the image and its tag in the compose file itself, like postgres:16-alpine. A ${VAR:-default} there works only while VAR is not set."
 	for _, name := range p.order {
 		m, ok := svcs[name].(map[string]any)
 		if !ok || m["build"] != nil {
@@ -472,19 +476,25 @@ func (p *composeParser) scanImageVariables(raw map[string]any) {
 		if !ok {
 			continue
 		}
-		var set []string
-		for v := range template.ExtractVariables(map[string]any{"image": img}, template.DefaultPattern) {
-			if p.in.Env[v] != "" {
-				set = append(set, v)
+		var set, empty []string
+		for n, v := range template.ExtractVariables(map[string]any{"image": img}, template.DefaultPattern) {
+			switch {
+			case p.in.Env[n] != "":
+				set = append(set, n)
+			case v.DefaultValue == "" && v.PresenceValue == "":
+				empty = append(empty, n)
 			}
 		}
-		if len(set) == 0 {
-			continue
-		}
 		sort.Strings(set)
-		p.errf(CodeComposeImageVariable, name, "image",
-			"Write the image and its tag in the compose file itself, like postgres:16-alpine. A ${VAR:-default} there works only while VAR is not set.",
-			"%simage: takes the value of %s; variables are kept secret, but the image name is shown in the deploy log.", svcPrefix(name), strings.Join(set, ", "))
+		sort.Strings(empty)
+		switch {
+		case len(set) > 0:
+			p.errf(CodeComposeImageVariable, name, "image", hint,
+				"%simage: takes the value of %s; variables are kept secret, but the image name is shown in the deploy log.", svcPrefix(name), strings.Join(set, ", "))
+		case len(empty) > 0:
+			p.errf(CodeComposeImageVariable, name, "image", hint+" Do not set "+strings.Join(empty, " or ")+" with set_env for this: bitploy does not fill image: from variables.",
+				"%simage: uses %s, which has no value and no default, so the image has no complete name.", svcPrefix(name), strings.Join(empty, ", "))
+		}
 	}
 }
 
