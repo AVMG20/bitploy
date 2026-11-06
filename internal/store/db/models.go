@@ -326,6 +326,17 @@ type Project struct {
 	UpdatedAt int64
 }
 
+type PublicPort struct {
+	AppID     string
+	Port      int64
+	Service   string
+	AllowFrom string
+	ExpiresAt sql.NullInt64
+	LastError string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type Session struct {
 	IDHash            string
 	UserID            string

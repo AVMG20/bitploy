@@ -736,6 +736,9 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 
 	// 3. Remove everything named after the old slug.
 	_ = s.Routes.Remove(oldSlug)
+	// The forwarder of a public port is on the old network; it comes back on
+	// the new one below (same port).
+	s.dropPublicPortForwarder(context.WithoutCancel(ctx), row.ID)
 	if s.Docker != nil {
 		bg := context.WithoutCancel(ctx)
 		if cs, err := s.Docker.ListAppContainers(bg, row.ID); err == nil {
@@ -758,6 +761,11 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 	if fresh.DesiredState == "running" && fresh.CurrentDeploymentID.Valid && s.Docker != nil {
 		if rerr := s.startCurrentLocked(ctx, fresh); rerr != nil {
 			s.Log.Warn("start after rename failed; the reconciler will retry", "app", newSlug, "err", rerr)
+		}
+	}
+	if _, err := s.Q.GetPublicPort(ctx, row.ID); err == nil {
+		if ae := s.ensurePublicPort(context.WithoutCancel(ctx), row.ID); ae != nil {
+			s.Log.Warn("public port after rename; the reconciler will retry", "app", newSlug, "err", ae.Message)
 		}
 	}
 	return nil
@@ -807,6 +815,12 @@ func (s *Service) deleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 	bg := context.WithoutCancel(ctx)
 	deps, _ := s.Q.ListAllDeploymentsByApp(bg, row.ID)
 	_ = s.Routes.Remove(row.Slug)
+	// The public port first: its forwarder is on the app network. When the
+	// forwarder cannot be removed now, the row goes with the app and the
+	// reconciler removes the forwarder that nobody wants.
+	if err := s.closePublicPort(bg, a, row, "app_deleted"); err != nil {
+		s.Log.Warn("close public port of a deleted app", "app", row.Slug, "err", err)
+	}
 	if s.Docker != nil {
 		if cs, err := s.Docker.ListAppContainers(bg, row.ID); err == nil {
 			for _, c := range cs {
@@ -1184,6 +1198,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		p := r.Port.Int64
 		v.Port = &p
 	}
+	v.PublicPort = s.publicPortView(ctx, r)
 	v.CatalogID, v.CatalogVersion = r.CatalogID, r.CatalogVersion
 	v.CatalogUpdate = catalogUpdateFor(r)
 	v.GitSource = s.gitSourceState(ctx, a, r)

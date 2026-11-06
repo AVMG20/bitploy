@@ -79,6 +79,8 @@ type Service struct {
 
 	appDomains appDomainCache // names of the extra app domains (app_domains.go)
 
+	pub publicPortState // forwarders of public ports (public_ports.go)
+
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no
 	// network is needed.
 	lsRemote func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)
