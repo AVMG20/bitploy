@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import ProjectSettings from './ProjectSettings.vue'
+import RunSettings from './RunSettings.vue'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
@@ -498,6 +499,8 @@ const deleteText = computed(() => {
             </template>
           </FormCard>
         </form>
+
+        <RunSettings v-if="!multi && app.data.value" :app="app.data.value" />
       </div>
     </SettingsSection>
 

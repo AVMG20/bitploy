@@ -502,6 +502,28 @@ func setEnvNext(slug string, cur *app.App) []string {
 	}
 }
 
+// setEnvBuildNext is setEnvNext for a call that may change what the build
+// gets: the build only sees it on a deploy, never on a restart.
+func setEnvBuildNext(slug string, cur *app.App, set, build map[string]string, vars []app.EnvVar) []string {
+	buildChanged := len(build) > 0
+	for _, v := range vars {
+		if v.Build != "" {
+			if _, changed := set[v.Name]; changed {
+				buildChanged = true
+			}
+		}
+	}
+	if !buildChanged {
+		return setEnvNext(slug, cur)
+	}
+	if cur != nil && cur.Status == "new" {
+		return []string{"Nothing is deployed yet; the first deploy builds with these variables. Send the code with deploy_files, or set_git_source and deploy."}
+	}
+	return []string{
+		"Build variables reach the build only on the next deploy: call deploy with only app=" + slug + " (rebuilds the last source; for a linked repository it builds the branch again), then get_deployment with wait_seconds=30. restart_app does not rebuild.",
+	}
+}
+
 // ---- deployments ----
 
 func redoStep(d app.Deployment) string {
@@ -531,6 +553,9 @@ func failureSteps(d app.Deployment) []string {
 	switch e.Code {
 	case "dockerfile_missing":
 		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore in the code folder, then "+redo+".")
+		if d.SourceKind == "git" {
+			out = append(out, "Cannot change the repository (not the user's, or no checkout) and it is a Node.js app or a front end? Call update_app with build_mode=auto and deploy with only app="+slug+": bitploy then builds it without a Dockerfile.")
+		}
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
 	case "build_failed":

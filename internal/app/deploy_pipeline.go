@@ -100,6 +100,10 @@ type pipeline struct {
 	singleFrom *deploy.ComposeService
 	extraEnv   map[string]string
 	enableData int64 // MB: /data is turned on when the deployment goes live
+
+	// buildSecrets are the values of the build's secret variables, masked
+	// in the build log (applyBuildVars).
+	buildSecrets []string
 }
 
 // serviceRun is one service of a deployment on its way to running.
@@ -166,7 +170,7 @@ func (p *pipeline) logf(format string, args ...any) {
 }
 
 func (p *pipeline) writeLog(line string) {
-	line = apperr.Redact(line)
+	line = apperr.Redact(maskSecrets(line, p.buildSecrets))
 	p.logMu.Lock()
 	defer p.logMu.Unlock()
 	p.ring.Add(line)
@@ -543,8 +547,14 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	labels[dockerx.LabelDeployment] = p.dep.ID
 	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
 	p.builtHere = true
+	spec := deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}
+	cleanup, ae := p.applyBuildVars(ctx, &spec, singleService, p.kind != deploy.BuildKindDockerfile)
+	defer cleanup()
+	if ae != nil {
+		return ae
+	}
 	p.logf("Building %s with docker buildx.", p.image)
-	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}, p.writeLog)
+	err := deploy.RunBuild(ctx, spec, p.writeLog)
 	if err != nil {
 		return p.buildFailed(ctx, err, bld)
 	}

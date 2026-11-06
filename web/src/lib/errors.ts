@@ -12,6 +12,8 @@ export interface FriendlyError {
 const HINTS: Record<string, string> = {
   github_access_missing: 'Check which repositories bitploy may read in Settings > GitHub, then try again.',
   dockerfile_missing: 'Add a Dockerfile at the top of your code folder. For a site of HTML files, set the type to Plain website.',
+  port_unknown: 'Fill in the port your app listens on under Settings, How it runs, or add one EXPOSE line with that port to the Dockerfile. Then deploy again. A bot without a web address: choose Worker there.',
+  port_ambiguous: 'Fill in the one port visitors should reach under Settings, How it runs, or keep only that EXPOSE line in the Dockerfile. Then deploy again.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
   server_app_limit: 'Delete an app you no longer need, or ask your admin to raise the limit.',
   slug_taken: 'Pick another name for the address.',

@@ -36,7 +36,7 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 	}
 	out := make([]EnvVar, 0, len(rows))
 	for _, r := range rows {
-		ev := EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)}
+		ev := EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, Build: r.Build, UpdatedAt: ts(r.UpdatedAt)}
 		// A reference names another app's variable, not a secret: it is shown.
 		if v, err := s.Crypto.Open(r.ValueEnc, envAADFor(appID, r.Service, r.Name)); err == nil {
 			for _, ref := range refsIn(string(v)) {
@@ -75,6 +75,15 @@ func reservedEnvName(n string) bool {
 	return u == "PORT" || strings.HasPrefix(u, "BITPLOY_")
 }
 
+// Values of EnvVar.Build: the image build gets the variable too.
+const (
+	// BuildPublic: a --build-arg (deploy.BuildSpec.Args), and an ARG before
+	// the build script in bitploy's own Node builds.
+	BuildPublic = "public"
+	// BuildSecret: a BuildKit secret (deploy.BuildSpec.Secrets).
+	BuildSecret = "secret"
+)
+
 // SetEnv sets and unsets the app's shared env vars; they apply on the next
 // deploy or restart.
 func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[string]string, unset []string) ([]EnvVar, error) {
@@ -86,6 +95,16 @@ func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[strin
 // own variable wins over a shared one of the same name. A single-service app
 // accepts its own service name (app) and stores shared variables.
 func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service string, set map[string]string, unset []string) ([]EnvVar, error) {
+	return s.SetServiceEnvBuild(ctx, a, ref, service, set, unset, nil)
+}
+
+// SetServiceEnvBuild is SetServiceEnv that also says, per variable, whether
+// the image build gets it (docs/decisions.md, "Build-time variables are app
+// variables with a build flag"): build maps a name in set, or one the app
+// already has, to BuildPublic, BuildSecret or "none" (also "") for only the
+// running app. A variable keeps its flag when its value changes; a new one
+// starts without. The build sees the change on the next deploy.
+func (s *Service) SetServiceEnvBuild(ctx context.Context, a Actor, ref, service string, set map[string]string, unset []string, build map[string]string) ([]EnvVar, error) {
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, err
@@ -137,6 +156,10 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 	for _, e := range existing {
 		names[e.Service+"/"+e.Name] = true
 	}
+	flags, ae := checkBuildFlags(build, set, unset, func(n string) bool { return names[service+"/"+n] })
+	if ae != nil {
+		return nil, ae
+	}
 	for n := range set {
 		names[service+"/"+n] = true
 	}
@@ -161,6 +184,11 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 				return err
 			}
 		}
+		for n, f := range flags {
+			if _, err := q.SetEnvVarBuild(ctx, db.SetEnvVarBuildParams{Build: f, UpdatedAt: now, AppID: row.ID, Service: service, Name: n}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -172,9 +200,46 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 	}
 	sort.Strings(setNames)
 	meta := map[string]any{"set": setNames, "unset": unset}
+	if len(flags) > 0 {
+		meta["build"] = flags // names and flags, never values
+	}
 	if service != "" {
 		meta["service"] = service
 	}
 	s.Audit(ctx, a, "env.set", "app", row.ID, meta)
 	return s.listEnv(ctx, row.ID)
+}
+
+// checkBuildFlags validates the build argument of SetServiceEnvBuild and
+// returns it with "none" as "". exists tells a variable the app already has.
+func checkBuildFlags(build, set map[string]string, unset []string, exists func(string) bool) (map[string]string, *apperr.Error) {
+	if len(build) == 0 {
+		return nil, nil
+	}
+	gone := map[string]bool{}
+	for _, n := range unset {
+		gone[n] = true
+	}
+	out := make(map[string]string, len(build))
+	for n, f := range build {
+		f = strings.ToLower(strings.TrimSpace(f))
+		switch f {
+		case BuildPublic, BuildSecret:
+		case "", "none":
+			f = ""
+		default:
+			return nil, apperr.BadRequest("env_build_invalid", "The build setting "+quote(f)+" of "+quote(n)+" is not valid.",
+				"Use public (the build may show it, like VITE_API_URL), secret (an API key the build needs) or none (only the running app gets it).")
+		}
+		_, inSet := set[n]
+		switch {
+		case gone[n]:
+			return nil, apperr.BadRequest("env_conflict", "The variable "+quote(n)+" is in both unset and build.", "Send each name in only one of them.")
+		case !inSet && !exists(n):
+			return nil, apperr.NotFound("env_not_found", "The app has no variable "+quote(n)+".",
+				"Set it in the same call: put the value in set and the build setting in build.")
+		}
+		out[n] = f
+	}
+	return out, nil
 }

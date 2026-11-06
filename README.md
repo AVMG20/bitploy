@@ -3,7 +3,7 @@
 bitploy is a small, self-hosted deploy platform for one server. You give it a Dockerfile and some code, and it gives you back `https://<name>.yourdomain.nl`. Its main users are AI coding agents: they deploy through an MCP server or a REST API. People log in to a dashboard to create tokens, read logs and watch usage.
 
 - One Go binary with the Vue dashboard embedded, one SQLite file, Traefik in front, Docker underneath.
-- Every app is built from a Dockerfile: your own, a ready-made one, or one bitploy writes for a plain website or a Node.js app. It refuses code it cannot build instead of guessing.
+- Every app is built from a Dockerfile: your own, a ready-made one, or one bitploy writes itself for a plain website, a front end that builds to files, or (with build mode auto, in the dashboard or through MCP) a Node.js app. It refuses code it cannot build instead of guessing.
 - User code is untrusted: each app runs in its own locked-down container on its own network.
 
 The full product spec is [SPEC.md](SPEC.md). Choices made where the spec was open are in [docs/decisions.md](docs/decisions.md). The rules for working on the code are in [docs/CONTRACT.md](docs/CONTRACT.md).

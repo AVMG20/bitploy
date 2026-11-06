@@ -132,3 +132,7 @@ UPDATE apps SET catalog_id = ?, catalog_version = ?, updated_at = ? WHERE id = ?
 
 -- name: SetAppCatalogVersion :exec
 UPDATE apps SET catalog_version = ?, updated_at = ? WHERE id = ? AND catalog_id != '';
+
+-- name: SetEnvVarBuild :execrows
+-- build: '' (only at run time), 'public' or 'secret' (see 00310_env_build.sql).
+UPDATE env_vars SET build = ?, updated_at = ? WHERE app_id = ? AND service = ? AND name = ?;

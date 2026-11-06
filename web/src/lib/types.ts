@@ -295,7 +295,11 @@ export interface EnvVar {
    * stays masked.
    */
   references?: string[]
+  /** The image build gets it too: as a build argument, or as a secret. Left out: only the running app. */
+  build?: EnvBuild
 }
+
+export type EnvBuild = 'public' | 'secret'
 
 export interface DNSRecord {
   type: 'CNAME' | 'A' | 'AAAA' | 'TXT'
