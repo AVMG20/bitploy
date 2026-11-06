@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/app"
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 type createProjectIn struct {
@@ -25,6 +26,17 @@ type addServiceIn struct {
 
 type projectIn struct {
 	Project string `json:"project" jsonschema:"The project's id (prj_...) or its name."`
+}
+
+type renameProjectIn struct {
+	Project string `json:"project" jsonschema:"The project's id (prj_...) or its current name."`
+	Name    string `json:"name" jsonschema:"The new name, 1-80 characters, like Shop or Family photos."`
+}
+
+type deleteProjectIn struct {
+	Project  string `json:"project" jsonschema:"The project's id (prj_...) or its name."`
+	Confirm  string `json:"confirm" jsonschema:"The project's name typed out again, exactly as get_project shows it. Ask the user before deleting."`
+	WithApps bool   `json:"with_apps,omitempty" jsonschema:"true: also delete the project's apps with their data and backups. Default false: a project with apps is refused (project_not_empty lists them)."`
 }
 
 // projectBrief is a project as list_projects shows it.
@@ -119,6 +131,51 @@ func (s *srv) registerProjectTools() {
 				Data:    data("project", p),
 				Next:    []string{"Create apps in it with create_app project=" + p.ID + ", or add a database with add_service project=" + p.ID + "."},
 			}, nil
+		})
+
+	addTool(s, "rename_project", "Rename a project",
+		"Gives a project another name (1-80 characters). Its apps, their addresses and the aliases they use for each other stay as they are.",
+		idempotent(), true, nil,
+		func(ctx context.Context, a app.Actor, in renameProjectIn) (*result, error) {
+			p, err := svc.UpdateProject(ctx, a, in.Project, app.UpdateProjectInput{Name: &in.Name})
+			if err != nil {
+				return nil, err
+			}
+			return &result{
+				Summary: fmt.Sprintf("The project %s is now called %s.", p.ID, p.Name),
+				Data:    data("project", p),
+				Next:    []string{"Tell the user the new name. delete_project needs this name as confirm from now on."},
+			}, nil
+		})
+
+	addTool(s, "delete_project", "Delete a project",
+		"Permanently deletes a project. Needs confirm equal to the project's name (get_project). A project with apps is refused with project_not_empty, which lists them; "+
+			"with_apps=true deletes those apps too, with their /data, databases and backups. Cannot be undone. Ask the user first and name the apps that would go; "+
+			"only set with_apps=true when they said those apps may be deleted.",
+		destructive(), true, nil,
+		func(ctx context.Context, a app.Actor, in deleteProjectIn) (*result, error) {
+			if strings.TrimSpace(in.Confirm) == "" {
+				return nil, apperr.BadRequest("confirm_required", "delete_project needs confirm, the project's name typed out again.",
+					"Ask the user to confirm, then call delete_project again with confirm set to the project's name.").WithNext("delete_project")
+			}
+			p, err := svc.GetProject(ctx, a, in.Project)
+			if err != nil {
+				return nil, err
+			}
+			if err := svc.DeleteProject(ctx, a, p.ID, in.Confirm, in.WithApps); err != nil {
+				return nil, err
+			}
+			sum := "Deleted the project " + p.Name + "."
+			next := []string{"Tell the user the project is gone."}
+			if in.WithApps && len(p.Apps) > 0 {
+				slugs := make([]string, len(p.Apps))
+				for i, ap := range p.Apps {
+					slugs[i] = ap.Slug
+				}
+				sum = fmt.Sprintf("Deleted the project %s and its %d app(s): %s.", p.Name, len(slugs), strings.Join(slugs, ", "))
+				next = []string{"Tell the user the project, its apps and their data are gone. If a code folder has a .bitploy file for one of those apps, delete that file too."}
+			}
+			return &result{Summary: sum, Data: data("deleted", p.ID), Next: next}, nil
 		})
 
 	addTool(s, "list_service_templates", "List service templates",

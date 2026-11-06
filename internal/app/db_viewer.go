@@ -472,7 +472,7 @@ func (s *Service) dbServerTarget(ctx context.Context, app db.App, engine, path s
 		database = vars[login.dbVar]
 	}
 	if database == "" || len(database) > 64 || strings.ContainsRune(database, 0) {
-		return nil, "", apperr.BadRequest("db_not_found", "That is not the name of a database.", "Pick one of the databases in the list.")
+		return nil, "", apperr.BadRequest("db_not_found", "That is not the name of a database.", "Use the name of a database on this server, or leave it out for the one the app was made with.")
 	}
 	req.Path = database
 	req.Server = &dbview.ServerConn{Engine: engine, Port: int(t.Port), User: user, Password: vars[login.passVar], Database: database}

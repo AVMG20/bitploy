@@ -198,11 +198,10 @@ type metricsIn struct {
 }
 
 type queryDBIn struct {
-	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps. The app needs the /data volume (volume=true)."`
-	Path   string `json:"path" jsonschema:"The SQLite file inside /data, relative to /data, like app.db or db/main.sqlite. Look in the app's code for where it opens its database."`
-	SQL    string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20. To see the tables use SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view')."`
-	Write  bool   `json:"write,omitempty" jsonschema:"false (default): the database is opened read-only and any change fails with db_read_only. true: INSERT, UPDATE, DELETE, CREATE and so on are allowed and committed at once; this needs a deploy token. Use true only when the user asked for the change."`
-	Volume string `json:"volume,omitempty" jsonschema:"Only for an app with several volumes (a compose app): the volume the SQLite file is in, from volumes in get_app. Default: the first. path is then relative to that volume's folder."`
+	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Path   string `json:"path,omitempty" jsonschema:"For an app with SQLite: the database file, relative to /data, like app.db or db/main.sqlite (look in the app's code for where it opens its database, or ask the user). For a PostgreSQL, MySQL or MariaDB service from add_service: the database name; leave it out for the database the service was made with."`
+	SQL    string `json:"sql" jsonschema:"One or more SQL statements separated by semicolons, at most 64 KB, like SELECT id, email FROM users LIMIT 20."`
+	Volume string `json:"volume,omitempty" jsonschema:"Only for SQLite in an app with several volumes (a compose app): the volume the file is in, from volumes in get_app. Default: the first. path is then relative to that volume's folder."`
 }
 
 // enums limits string arguments to the values the tool understands, so the
@@ -995,7 +994,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "list_backups", "List backups",
-		"The /data backups of an app, newest first: id, kind (manual, scheduled, uploaded, before_restore), format (volume: a .tar.gz of the files; dump: a .sql.gz of every database of a database service, with tool and version), status (running, ready, failed), size, error. dump_tool is set for a database service whose backups are dumps. Valkey, Redis and Meilisearch have no backups. Also the automatic backup settings, whether a backup or restore is running (busy) and how the latest restore went (restore: running, done or failed, with the reason). Use it to follow create_backup, or to tell the user what backups exist. Downloading and restoring are done by the user in the dashboard.",
+		"The /data backups of an app, newest first: id, kind (manual, scheduled, uploaded, before_restore), format (volume: a .tar.gz of the files; dump: a .sql.gz of every database of a database service, with tool and version), status (running, ready, failed), size, error. dump_tool is set for a database service whose backups are dumps. Valkey, Redis and Meilisearch have no backups. Also the automatic backup settings (schedule off, daily or weekly at time_utc; keep_mode and keep; next_at), whether a backup or restore is running (busy) and how the latest restore went (restore: running, done or failed, with the reason). Use it to follow create_backup, or to tell the user what backups exist. Downloading and restoring are done by the user in the dashboard.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			l, err := svc.ListBackups(ctx, a, in.App)
@@ -1019,50 +1018,80 @@ func (s *srv) registerTools() {
 					next = []string{"bitploy makes no backups of this app: its data can be rebuilt. Do not offer create_backup for it."}
 				}
 			}
+			sum := fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App)
+			if ap, err := svc.GetApp(ctx, a, in.App); err != nil || ap.BackupsSupported {
+				sum += " " + scheduleLine(l.Settings)
+				next = append(next, "To change when automatic backups run or how long they are kept: set_backup_schedule.")
+			}
 			return &result{
-				Summary: fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App),
+				Summary: sum,
 				Data:    toMap(l),
 				Next:    next,
 			}, nil
 		})
 
-	addTool(s, "query_db", "Query a SQLite database",
-		"Runs SQL on a SQLite file in the app's /data volume (apps keep their database there: create_app volume=true). Read-only unless write=true, so it is safe to look around: SELECT name, sql FROM sqlite_schema lists the tables with their definitions, then SELECT with LIMIT. Results come back as compact text tables (at most 200 rows and about 50 KB per call, so use WHERE, LIMIT and few columns; values over 200 characters and blobs are cut). With write=true (deploy token) each statement is committed at once: take a create_backup first for anything risky such as DELETE, DROP or UPDATE without a tight WHERE, and only change data when the user asked. The app keeps running, SQLite's locking keeps it safe; a busy app can give db_busy, try again. Statements that reach outside the database (ATTACH, load_extension, VACUUM INTO) are refused. For a file or folder other than a database the user uses the Storage tab of the app in the dashboard, which also has a database viewer.",
-		destructive(), false, nil,
+	addTool(s, "query_db", "Query a database",
+		"Runs read-only SQL on an app's database: a SQLite file in /data, or a PostgreSQL, MySQL or MariaDB service from add_service (path is then the database name; leave it out for the service's own database). "+
+			"Nothing can change: the database is opened read-only and a change fails with db_read_only (write_db makes changes, only when the user asks). "+
+			"To see the tables: SQLite SELECT name, sql FROM sqlite_schema WHERE type IN ('table','view'); PostgreSQL SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema'); MySQL and MariaDB SHOW TABLES. "+
+			"The databases of a server: SELECT datname FROM pg_database, or SHOW DATABASES. "+
+			"Results come back as compact text tables (at most 200 rows and about 50 KB per call, so use WHERE, LIMIT and few columns; values over 200 characters and blobs are cut). "+
+			"The app keeps running; a busy SQLite app can give db_busy, try again. Statements that reach outside the database (ATTACH, load_extension, VACUUM INTO) are refused. "+
+			"Use it instead of set_public_port when the user wants to look at their data.",
+		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in queryDBIn) (*result, error) {
-			r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: in.Write, Volume: in.Volume})
-			if err != nil {
-				return nil, queryDBError(err)
-			}
-			text, shown, total, cut := formatSQLResults(r.Results)
-			var affected int64
-			for _, st := range r.Results {
-				if st.RowsAffected != nil {
-					affected += *st.RowsAffected
-				}
-			}
-			mode := "read-only"
-			if in.Write {
-				mode = "write"
-			}
-			next := []string{"Use WHERE and LIMIT to keep results small. To see the tables: SELECT name, sql FROM sqlite_schema."}
-			if cut {
-				next = []string{"Some rows are not shown. Narrow the query with WHERE or LIMIT, or select fewer columns."}
-			}
-			if in.Write {
-				next = append(next, "Tell the user what you changed. create_backup before the next risky change.")
-			}
-			// The table is part of the data, not only of the summary: some
-			// clients hand the model only structuredContent when a tool has
-			// it, and then saw rows_shown=1 without the row.
-			return &result{
-				Summary: fmt.Sprintf("Ran %d statement(s) on %s in %s (%s); %d row(s) shown of %d.", len(r.Results), in.Path, in.App, mode, shown, total),
-				Data: data("statements", len(r.Results), "rows_shown", shown, "rows_returned", total, "rows_affected", affected,
-					"truncated", cut, "took_ms", r.TookMS, "table", text),
-				Next:    next,
-				TextKey: "table",
-			}, nil
+			return runSQL(ctx, svc, a, in, false)
 		})
+
+	addTool(s, "write_db", "Change data in a database",
+		"Runs SQL that changes an app's database (INSERT, UPDATE, DELETE, CREATE TABLE and so on), with the same app, path, sql and volume as query_db. Each statement is committed at once, unless you open a transaction with BEGIN. "+
+			"Only when the user asked for the change. Take a create_backup first for anything risky (DELETE, DROP, UPDATE without a tight WHERE): restoring is something only the user can do, in the dashboard. "+
+			"Look first with query_db. Every call is in the audit log.",
+		destructive(), true, nil,
+		func(ctx context.Context, a app.Actor, in queryDBIn) (*result, error) {
+			return runSQL(ctx, svc, a, in, true)
+		})
+}
+
+// runSQL is query_db (read-only, through the read-only path of the database
+// viewer) and write_db.
+func runSQL(ctx context.Context, svc *app.Service, a app.Actor, in queryDBIn, write bool) (*result, error) {
+	r, err := svc.DBSQL(ctx, a, in.App, app.DBSQLBody{Path: in.Path, SQL: in.SQL, Write: write, Volume: in.Volume})
+	if err != nil {
+		return nil, queryDBError(ctx, svc, a, in, write, err)
+	}
+	text, shown, total, cut := formatSQLResults(r.Results)
+	var affected int64
+	for _, st := range r.Results {
+		if st.RowsAffected != nil {
+			affected += *st.RowsAffected
+		}
+	}
+	mode := "read-only"
+	if write {
+		mode = "write"
+	}
+	next := []string{"Use WHERE and LIMIT to keep results small."}
+	if cut {
+		next = []string{"Some rows are not shown. Narrow the query with WHERE or LIMIT, or select fewer columns."}
+	}
+	if write {
+		next = append(next, "Tell the user what you changed. create_backup before the next risky change.")
+	}
+	where := in.App
+	if in.Path != "" {
+		where = in.Path + " in " + in.App
+	}
+	// The table is part of the data, not only of the summary: some
+	// clients hand the model only structuredContent when a tool has
+	// it, and then saw rows_shown=1 without the row.
+	return &result{
+		Summary: fmt.Sprintf("Ran %d statement(s) on %s (%s); %d row(s) shown of %d.", len(r.Results), where, mode, shown, total),
+		Data: data("statements", len(r.Results), "rows_shown", shown, "rows_returned", total, "rows_affected", affected,
+			"truncated", cut, "took_ms", r.TookMS, "table", text),
+		Next:    next,
+		TextKey: "table",
+	}, nil
 }
 
 // ---- result helpers ----

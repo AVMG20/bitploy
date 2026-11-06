@@ -364,14 +364,18 @@ func appNext(ap app.App) []string {
 	if ap.Template != nil {
 		return templateNext(ap)
 	}
-	url := ap.URL
+	url, traffic := ap.URL, ", and get_traffic for failing or slow requests"
 	if url == "" {
-		url = "(worker, no web address)"
+		url, traffic = "(worker, no web address)", ""
 	}
-	return []string{
+	out := []string{
 		"The app is running at " + url + ". To publish changes: " + appUpdateHow(ap) + ".",
-		"If the user reports a problem: get_logs with kind=runtime; for usage: get_metrics.",
+		"If the user reports a problem: get_logs with kind=runtime" + traffic + "; for usage: get_metrics.",
 	}
+	if ap.CatalogUpdate != nil {
+		out = append(out, "The catalog has version "+*ap.CatalogUpdate+" of this one-click app. Mention it; update_catalog_app installs it when the user wants (create_backup first).")
+	}
+	return out
 }
 
 // templateNext is what to do with a running database (or cache) added with

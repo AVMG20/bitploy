@@ -237,7 +237,7 @@ func filesErr(err error) error {
 	case errors.Is(err, dockerx.ErrNoVolume):
 		return volumeNotReadyErr()
 	case errors.Is(err, dockerx.ErrNotFound):
-		return apperr.NotFound("file_not_found", "There is no such file or folder in /data.", "Reload the list: it may have been deleted.")
+		return apperr.NotFound("file_not_found", "There is no such file or folder in /data.", "Check the path: the file or folder may have been deleted or moved.")
 	case errors.Is(err, dockerx.ErrNotDir):
 		return apperr.Conflict("not_a_folder", "This is a file, not a folder.", "Choose a folder.")
 	case errors.Is(err, dockerx.ErrLinkInPath):

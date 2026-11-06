@@ -186,7 +186,7 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 }
 
 const listRestoringApps = `-- name: ListRestoringApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version FROM apps WHERE restore_backup_id != ''
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE restore_backup_id != ''
 `
 
 func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
@@ -246,6 +246,8 @@ func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
 			&i.Alias,
 			&i.Template,
 			&i.TemplateVersion,
+			&i.BackupScheduleSet,
+			&i.BackupDefaultAt,
 		); err != nil {
 			return nil, err
 		}
@@ -272,6 +274,36 @@ type SetBackupToolParams struct {
 func (q *Queries) SetBackupTool(ctx context.Context, arg SetBackupToolParams) error {
 	_, err := q.db.ExecContext(ctx, setBackupTool, arg.Tool, arg.ID)
 	return err
+}
+
+const setDefaultBackupSchedule = `-- name: SetDefaultBackupSchedule :execrows
+UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, backup_schedule_set = 1, backup_default_at = ?, updated_at = ?
+WHERE id = ? AND backup_schedule_set = 0
+`
+
+type SetDefaultBackupScheduleParams struct {
+	BackupSchedule  string
+	BackupKeepMode  string
+	BackupKeep      int64
+	BackupDefaultAt int64
+	UpdatedAt       int64
+	ID              string
+}
+
+// Turns on the default automatic backups of an app whose schedule was never set.
+func (q *Queries) SetDefaultBackupSchedule(ctx context.Context, arg SetDefaultBackupScheduleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setDefaultBackupSchedule,
+		arg.BackupSchedule,
+		arg.BackupKeepMode,
+		arg.BackupKeep,
+		arg.BackupDefaultAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setRestoreMarker = `-- name: SetRestoreMarker :exec
@@ -319,22 +351,25 @@ func (q *Queries) SumBackupBytesByUser(ctx context.Context, userID string) (int6
 }
 
 const updateAppBackupSettings = `-- name: UpdateAppBackupSettings :exec
-UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, updated_at = ? WHERE id = ?
+UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, backup_schedule_set = 1, backup_default_at = ?, updated_at = ? WHERE id = ?
 `
 
 type UpdateAppBackupSettingsParams struct {
-	BackupSchedule string
-	BackupKeepMode string
-	BackupKeep     int64
-	UpdatedAt      int64
-	ID             string
+	BackupSchedule  string
+	BackupKeepMode  string
+	BackupKeep      int64
+	BackupDefaultAt int64
+	UpdatedAt       int64
+	ID              string
 }
 
+// The user's own settings: the schedule counts as set from now on.
 func (q *Queries) UpdateAppBackupSettings(ctx context.Context, arg UpdateAppBackupSettingsParams) error {
 	_, err := q.db.ExecContext(ctx, updateAppBackupSettings,
 		arg.BackupSchedule,
 		arg.BackupKeepMode,
 		arg.BackupKeep,
+		arg.BackupDefaultAt,
 		arg.UpdatedAt,
 		arg.ID,
 	)

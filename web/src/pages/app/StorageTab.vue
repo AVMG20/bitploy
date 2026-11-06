@@ -206,7 +206,7 @@ const backupForm = useForm({
         if (v.keep > max) ctx.addIssue({ code: 'custom', path: ['keep'], message: `At most ${max}.` })
       }),
   ),
-  initialValues: { schedule: 'off' as const, keep_mode: 'last' as const, keep: 7 },
+  initialValues: { schedule: 'daily' as const, keep_mode: 'days' as const, keep: 14 },
 })
 
 let settingsLoadedFor = ''
@@ -232,11 +232,13 @@ const saveSettings = useMutation({
 })
 const submitSettings = backupForm.handleSubmit((v) => saveSettings.mutate(v))
 
-// The server backs up at 03:00 UTC (Sundays for weekly). Backup times in the
-// list are in the browser's time, so the schedule is too, with the zone named.
+// Each app has its own backup time between 02:00 and 06:00 UTC. Backup times
+// in the list are in the browser's time, so the schedule is too, with the zone named.
+const backupTime = computed(() => list.value?.settings.time_utc ?? '03:00')
 function scheduleAt(weekly: boolean): string {
+  const [h, m] = backupTime.value.split(':').map(Number)
   const d = new Date()
-  d.setUTCHours(3, 0, 0, 0)
+  d.setUTCHours(h ?? 3, m ?? 0, 0, 0)
   if (weekly) d.setUTCDate(d.getUTCDate() - d.getUTCDay()) // a Sunday
   const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
   if (!weekly) return `Every night at ${time}.`
@@ -249,7 +251,7 @@ const scheduleHint = computed(() => {
     case 'weekly':
       return scheduleAt(true)
     default:
-      return 'Only when you press Back up now.'
+      return 'Only when you press Back up now. bitploy keeps it off until you turn it on again.'
   }
 })
 const nextAt = computed(() => {
@@ -652,7 +654,7 @@ const restoreText = computed(() => {
           v-else-if="!list.items.length && hasData"
           :icon="Archive"
           title="No backups yet."
-          :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover the first volume only.' : 'Back up now, or turn on automatic backups above.'"
+          :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover every volume.' : 'Back up now, or let the automatic backups above make one.'"
         />
         <p v-else-if="!list.items.length" class="text-sm text-muted-foreground">Nothing to back up: this app has no saved files.</p>
         <ul v-else class="divide-y rounded-lg border">

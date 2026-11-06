@@ -59,7 +59,7 @@ func TestBackupEndpoints(t *testing.T) {
 	}
 
 	l := decode[app.BackupList](t, e.asSession("GET", base, nil))
-	if len(l.Items) != 0 || l.Settings.Schedule != "off" || l.Settings.Keep != 7 {
+	if len(l.Items) != 0 || l.Settings.Schedule != "daily" || l.Settings.KeepMode != "days" || l.Settings.Keep != 14 || l.Settings.TimeUTC == "" { // on by default
 		t.Errorf("empty list = %+v", l)
 	}
 

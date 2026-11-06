@@ -163,6 +163,9 @@ func newBkEnv(t *testing.T) *bkEnv {
 	e.s.ops.diskHasRoom = func() (bool, error) { return true, nil }
 	e.app = e.mustApp(t, CreateAppInput{Slug: "bk-app", Volume: true, VolumeMB: ptr(int64(100))})
 	e.exec(t, `UPDATE apps SET current_deployment_id = 'dep_seed' WHERE id = ?`, e.app.ID)
+	// The tests below start from automatic backups that are off, as if the
+	// user turned them off; TestDefaultBackups covers the default.
+	e.exec(t, `UPDATE apps SET backup_schedule = 'off', backup_keep_mode = 'last', backup_keep = 7, backup_default_at = 0 WHERE id = ?`, e.app.ID)
 	return e
 }
 
@@ -777,8 +780,11 @@ func TestBackupSettings(t *testing.T) {
 	if err != nil || st.Schedule != "daily" || st.Keep != 7 || st.NextAt == nil {
 		t.Fatalf("daily: %+v, %v", st, err)
 	}
-	if !st.NextAt.Equal(time.Date(2026, 10, 29, 3, 0, 0, 0, time.UTC)) { // never ran: due at once
-		t.Errorf("next = %v", st.NextAt)
+	if want := latestSlot("daily", backupMinute(e.app.ID), e.clock); !st.NextAt.Equal(want) { // never ran: due at once
+		t.Errorf("next = %v, want %v", st.NextAt, want)
+	}
+	if st.TimeUTC != backupClock(backupMinute(e.app.ID)) {
+		t.Errorf("time_utc = %q", st.TimeUTC)
 	}
 	st, err = e.s.UpdateBackupSettings(ctx, e.user, e.app.Slug, BackupSettingsInput{KeepMode: ptr("days"), Keep: ptr(int64(30))})
 	if err != nil || st.KeepMode != "days" || st.Keep != 30 || st.Schedule != "daily" {
@@ -825,7 +831,7 @@ func TestScheduledBackups(t *testing.T) {
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 1 || got[0].Status != "ready" {
 		t.Fatalf("first run: %+v", got)
 	}
-	// Not due again until the next 03:00.
+	// Not due again until the app's next backup time.
 	e.runDue(ctx)
 	if got := e.backupsOfKind(t, "scheduled"); len(got) != 1 {
 		t.Fatalf("second run made another: %+v", got)

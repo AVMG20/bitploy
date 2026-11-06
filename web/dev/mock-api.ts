@@ -1635,7 +1635,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         : []
       return send(res, 200, {
         items: dumps,
-        settings: { schedule: 'daily', keep_mode: 'last', keep: 7, next_at: ago(-300) },
+        settings: { schedule: 'daily', keep_mode: 'days', keep: 14, time_utc: '03:20', next_at: ago(-300) },
         restore: null,
         busy: false,
         total_bytes: dumps.reduce((n, b) => n + b.size_bytes, 0),

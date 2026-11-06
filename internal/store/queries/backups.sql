@@ -38,7 +38,13 @@ SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM app_backups WHERE app_
 UPDATE app_backups SET status = 'failed', error = ?, interrupted = 1, finished_at = ? WHERE status = 'running';
 
 -- name: UpdateAppBackupSettings :exec
-UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, updated_at = ? WHERE id = ?;
+-- The user's own settings: the schedule counts as set from now on.
+UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, backup_schedule_set = 1, backup_default_at = ?, updated_at = ? WHERE id = ?;
+
+-- name: SetDefaultBackupSchedule :execrows
+-- Turns on the default automatic backups of an app whose schedule was never set.
+UPDATE apps SET backup_schedule = ?, backup_keep_mode = ?, backup_keep = ?, backup_schedule_set = 1, backup_default_at = ?, updated_at = ?
+WHERE id = ? AND backup_schedule_set = 0;
 
 -- name: SetRestoreMarker :exec
 UPDATE apps SET restore_backup_id = ?, restore_safe_id = ?, restore_resume = ? WHERE id = ?;

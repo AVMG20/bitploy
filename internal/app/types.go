@@ -696,6 +696,10 @@ type BackupSettings struct {
 	Schedule string `json:"schedule"`  // off | daily | weekly
 	KeepMode string `json:"keep_mode"` // last (keep the newest N) | days (keep N days)
 	Keep     int64  `json:"keep"`
+	// TimeUTC is the app's backup time (HH:MM, UTC), every day or on Sunday.
+	// Each app has its own, between 02:00 and 06:00, so that the apps of a
+	// server do not all back up at once.
+	TimeUTC string `json:"time_utc"`
 	// NextAt is when the next automatic backup is due; nil when they are off.
 	NextAt *time.Time `json:"next_at,omitempty"`
 }

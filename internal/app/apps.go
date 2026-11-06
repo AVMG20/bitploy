@@ -111,7 +111,24 @@ func normalizeHomePage(p string) (string, error) {
 
 // ---- apps ----
 
+// CreateApp makes an app. One with /data on gets the default automatic
+// backups (defaultBackups).
 func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (App, error) {
+	created, err := s.createApp(ctx, a, in)
+	if err != nil || !in.Volume {
+		return created, err
+	}
+	s.defaultBackups(ctx, created.ID)
+	row, err := s.Q.GetApp(ctx, created.ID)
+	if err != nil {
+		return created, nil
+	}
+	return s.appView(ctx, a, row), nil
+}
+
+// createApp is CreateApp without the default backups, for AddService: those
+// depend on the service template, which is set after the app is made.
+func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (App, error) {
 	if err := RequireDeploy(a); err != nil {
 		return App{}, err
 	}
@@ -650,6 +667,9 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	// new domain (the route file is named after the slug, only its Host changes).
 	if !renamed && (in.Port != nil || in.Type != nil || moved) {
 		_ = s.SyncRoute(ctx, row.ID)
+	}
+	if in.Volume != nil && *in.Volume {
+		s.defaultBackups(ctx, row.ID) // /data was turned on
 	}
 	fresh, err := s.Q.GetApp(ctx, row.ID)
 	if err != nil {

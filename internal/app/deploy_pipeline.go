@@ -1238,6 +1238,8 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 		return apperr.Internal(err)
 	}
 	p.dep.State = "running"
+	// A compose file may have given the app its volumes.
+	s.defaultBackups(context.WithoutCancel(ctx), p.app.ID)
 	s.deployRT.mu.Lock()
 	s.deployRT.init()
 	delete(s.deployRT.restore, p.app.ID)

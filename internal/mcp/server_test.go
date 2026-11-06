@@ -178,7 +178,8 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	wantTools := strings.Fields(`whoami get_deploy_rules get_template validate_dockerfile validate_compose list_apps get_app create_app update_app
 		deploy_files list_catalog deploy_catalog_app create_upload set_git_source deploy get_deployment list_deployments get_logs set_env
 		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics create_backup list_backups set_password_protection query_db cancel_deployment
-		list_projects get_project create_project list_service_templates add_service set_public_port`)
+		list_projects get_project create_project list_service_templates add_service set_public_port
+		write_db list_env get_traffic set_backup_schedule update_catalog_app rename_project delete_project`)
 	for _, n := range wantTools {
 		if got[n] == nil {
 			t.Errorf("tool %s missing", n)
@@ -187,23 +188,23 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	if len(got) != len(wantTools) {
 		t.Errorf("got %d tools, want %d", len(got), len(wantTools))
 	}
-	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile validate_compose list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups list_projects get_project list_service_templates")
+	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile validate_compose list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups list_projects get_project list_service_templates query_db list_env get_traffic")
 	for _, n := range readOnly {
 		if a := got[n].Annotations; a == nil || !a.ReadOnlyHint {
 			t.Errorf("%s should be readOnly", n)
 		}
 	}
-	for _, n := range []string{"stop_app", "rollback", "delete_app"} {
+	for _, n := range []string{"stop_app", "rollback", "delete_app", "write_db", "delete_project"} {
 		if a := got[n].Annotations; a == nil || a.DestructiveHint == nil || !*a.DestructiveHint {
 			t.Errorf("%s should be destructive", n)
 		}
 	}
-	for _, n := range []string{"update_app", "set_git_source", "set_env", "set_password_protection"} {
+	for _, n := range []string{"update_app", "set_git_source", "set_env", "set_password_protection", "set_backup_schedule", "rename_project"} {
 		if a := got[n].Annotations; a == nil || !a.IdempotentHint {
 			t.Errorf("%s should be idempotent", n)
 		}
 	}
-	for _, n := range []string{"create_app", "deploy", "deploy_files", "restart_app", "create_backup"} {
+	for _, n := range []string{"create_app", "deploy", "deploy_files", "restart_app", "create_backup", "update_catalog_app"} {
 		a := got[n].Annotations
 		if a == nil || a.ReadOnlyHint || a.DestructiveHint == nil || *a.DestructiveHint {
 			t.Errorf("%s should be a non-destructive write: %+v", n, a)

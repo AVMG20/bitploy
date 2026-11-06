@@ -131,7 +131,7 @@ func TestBackupsRunAtMostTwoAtATime(t *testing.T) {
 		a := e.smallApp(t, slug, 100)
 		e.exec(t, `UPDATE apps SET current_deployment_id = 'dep_seed' WHERE id = ?`, a.ID)
 	}
-	e.exec(t, `UPDATE apps SET backup_schedule = 'daily'`)
+	e.exec(t, `UPDATE apps SET backup_schedule = 'daily', backup_default_at = 0`)
 	e.s.runDueBackups(ctx) // returns at once, the jobs run on their own
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
