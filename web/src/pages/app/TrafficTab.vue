@@ -18,7 +18,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useAppTraffic } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { countryName, formatCount } from '@/lib/format'
-import { change, formatSeconds, share } from '@/lib/traffic'
+import { change, formatSeconds, pointChange, share, timeChange } from '@/lib/traffic'
 import type { Change } from '@/lib/traffic'
 import { cn } from '@/lib/utils'
 import type { Traffic, TrafficCountry, TrafficItem, TrafficListName, TrafficWindow } from '@/lib/types'
@@ -104,12 +104,12 @@ const tiles = computed<Tile[]>(() => {
     },
     {
       field: 'speed',
-      label: 'Speed',
+      label: 'Answer time',
       value: t.median_ms === null ? '-' : formatSeconds(t.median_ms),
-      sub: t.median_ms === null ? 'Not measured yet' : 'Typical answer time',
+      sub: t.median_ms === null ? 'Not measured yet' : 'Typical: half were faster',
       hint: 'How long your app took to answer people. Half of the answers were faster than this.',
-      // Lower is better: slower answers are the bad direction.
-      change: change(t.median_ms, p?.median_ms, true),
+      // Slower or faster, not up or down: slower is the bad direction.
+      change: timeChange(t.median_ms, p?.median_ms),
     },
     {
       field: 'errors',
@@ -118,7 +118,8 @@ const tiles = computed<Tile[]>(() => {
       sub: t.errors === 0 ? 'No failed requests' : `${formatCount(t.errors)} failed ${t.errors === 1 ? 'request' : 'requests'}`,
       hint: 'The share of requests your app failed to answer (status 500 and up).',
       // The rate, not the count: more errors from more traffic is no change.
-      change: p && p.errors > 0 ? change(rate(t.errors, t.requests), rate(p.errors, p.requests), true) : null,
+      // In percentage points, so 1% to 2% reads "↑ 1 pt" and not "↑ 100%".
+      change: p && p.requests > 0 ? pointChange(rate(t.errors, t.requests), rate(p.errors, p.requests)) : null,
     },
   ]
 })
@@ -140,7 +141,7 @@ const chart = computed(() => {
       }
     case 'speed':
       return {
-        title: `Speed ${per.value}`,
+        title: `Answer time ${per.value}`,
         about: 'How long your app took to answer people, for pages and data (not images or other files). Typical: half of the answers were faster. Slowest 1 in 20: the other 19 were faster.',
       }
     default:
@@ -215,7 +216,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
     >
       <Button v-if="windowSel !== '30d'" variant="outline" @click="windowSel = '30d'">Show the last 30 days</Button>
       <Button v-else-if="appUrl" as-child variant="outline">
-        <a :href="appUrl" target="_blank" rel="noopener noreferrer"><ExternalLink /> Open app</a>
+        <a :href="appUrl" target="_blank" rel="noopener noreferrer"><ExternalLink /> Open website</a>
       </Button>
     </EmptyState>
 
@@ -231,7 +232,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
             :class="
               cn(
                 'relative flex flex-col justify-start bg-card p-4 text-left transition-colors outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                field === t.field && 'bg-accent/60 hover:bg-accent/60',
+                field === t.field && 'ring-1 ring-primary/40 ring-inset',
               )
             "
             @click="field = t.field"

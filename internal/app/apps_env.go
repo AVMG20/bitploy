@@ -42,10 +42,32 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 			for _, ref := range refsIn(string(v)) {
 				ev.References = append(ev.References, ref.String())
 			}
+			if ev.References != nil {
+				ev.Masked = maskAroundRefs(string(v))
+			}
 		}
 		out = append(out, ev)
 	}
 	return out, nil
+}
+
+// maskAroundRefs keeps the references of a value and masks the text around
+// them, so "http://${{api.HOST}}:8080" reads "••••${{api.HOST}}••••": the
+// list shows where the reference sits without showing the rest.
+func maskAroundRefs(v string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range refRe.FindAllStringIndex(v, -1) {
+		if m[0] > last {
+			b.WriteString("••••")
+		}
+		b.WriteString(v[m[0]:m[1]])
+		last = m[1]
+	}
+	if last < len(v) {
+		b.WriteString("••••")
+	}
+	return b.String()
 }
 
 func reservedEnvName(n string) bool {

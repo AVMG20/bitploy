@@ -35,7 +35,8 @@ interface Datum {
 const errorColor = 'var(--destructive)'
 // Bots: a quiet grey next to the orange of people, so people stand out.
 const botColor = 'color-mix(in oklch, var(--muted-foreground) 45%, transparent)'
-const slowColor = 'var(--chart-2)'
+// The slow answers in amber, next to the orange of the typical ones: never green, which reads as good.
+const slowColor = 'var(--chart-3)'
 
 interface Series {
   key: string
