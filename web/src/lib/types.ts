@@ -685,10 +685,15 @@ export type BackupKind = 'manual' | 'scheduled' | 'uploaded' | 'before_restore'
 export type BackupStatus = 'running' | 'ready' | 'failed'
 export type BackupSchedule = 'off' | 'daily' | 'weekly'
 export type BackupKeepMode = 'last' | 'days'
+/** volume: a .tar.gz of the files. dump: a .sql.gz of every database of a database service. */
+export type BackupFormat = 'volume' | 'dump'
 
 export interface Backup {
   id: string
   kind: BackupKind
+  format: BackupFormat
+  /** Dumps: the tool and its version, like "pg_dumpall (PostgreSQL) 18.1". */
+  tool?: string
   status: BackupStatus
   size_bytes: number
   /** Why a failed backup failed, in plain words. */
@@ -726,6 +731,8 @@ export interface BackupList {
   total_bytes: number
   /** The biggest backup file that can be uploaded right now. */
   upload_max_bytes: number
+  /** Database services: backups are dumps made with this tool while the database runs. */
+  dump_tool?: string
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 -- Backups of an app's /data folder (internal/app/backups*.go).
 
 -- name: InsertBackup :exec
-INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at, volume)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at, volume, format)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetBackup :one
 SELECT * FROM app_backups WHERE id = ? AND app_id = ?;
@@ -12,6 +12,9 @@ SELECT * FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC;
 
 -- name: FinishBackup :exec
 UPDATE app_backups SET status = ?, size_bytes = ?, error = ?, interrupted = ?, finished_at = ? WHERE id = ?;
+
+-- name: SetBackupTool :exec
+UPDATE app_backups SET tool = ? WHERE id = ?;
 
 -- name: DeleteBackup :exec
 DELETE FROM app_backups WHERE id = ?;

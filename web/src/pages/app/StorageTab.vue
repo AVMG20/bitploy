@@ -348,6 +348,28 @@ const kindLabel: Record<BackupKind, string> = {
   uploaded: 'Uploaded',
   before_restore: 'Before restore',
 }
+
+// ---------------------------------------------------------------- database dumps
+// A PostgreSQL, MySQL or MariaDB service is backed up as a dump made by its own
+// tool while it runs. A dump is replayed into the running database: the app is
+// not stopped, and a stopped database cannot take one.
+const dumpTool = computed(() => list.value?.dump_tool)
+const dbRunning = computed(() => data.value?.status === 'running')
+const restoringDump = computed(() => {
+  const id = list.value?.restore?.backup_id
+  return !!id && list.value?.items.find((b) => b.id === id)?.format === 'dump'
+})
+function restoreTitle(b: Backup) {
+  if (!hasData.value) return 'Turn on saved files to restore'
+  if (b.format === 'dump' && !dbRunning.value) return 'Start the database to restore a dump'
+  return undefined
+}
+const restoreText = computed(() => {
+  if (toRestore.value?.format === 'dump') {
+    return 'Every database is dropped and made again from this dump. The database keeps running; apps connected to it lose their connection for a moment. The current databases are dumped first, so you can undo this.'
+  }
+  return `The saved files are replaced by this backup.${appWillRestart.value ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`
+})
 </script>
 
 <template>
@@ -446,7 +468,11 @@ const kindLabel: Record<BackupKind, string> = {
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>
-          <CardDescription v-if="hasData && list?.items.length">{{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.</CardDescription>
+          <CardDescription v-if="hasData && list?.items.length">
+            {{ list.items.length }} {{ list.items.length === 1 ? 'backup' : 'backups' }}, {{ formatBytes(list.total_bytes) }} in total.
+            <template v-if="dumpTool">Dumps made with <span class="font-mono">{{ dumpTool }}</span>.</template>
+          </CardDescription>
+          <CardDescription v-else-if="dumpTool">Dumps of every database, made with <span class="font-mono">{{ dumpTool }}</span> while it runs, that you can download or restore.</CardDescription>
           <CardDescription v-else>Copies of {{ multi && vol ? `the volume ${vol.name}` : 'the saved files' }} that you can download or restore.</CardDescription>
         </div>
         <div v-if="hasData" class="flex flex-wrap gap-2">
@@ -465,7 +491,7 @@ const kindLabel: Record<BackupKind, string> = {
         <Alert v-if="restoring">
           <Loader2 class="animate-spin" />
           <AlertTitle>Restoring a backup...</AlertTitle>
-          <AlertDescription>{{ list?.restore?.app_restarts ? 'The app restarts when it is done. ' : '' }}This can take a few minutes.</AlertDescription>
+          <AlertDescription>{{ restoringDump ? 'The databases are made again from the dump. ' : list?.restore?.app_restarts ? 'The app restarts when it is done. ' : '' }}This can take a few minutes.</AlertDescription>
         </Alert>
         <Alert v-else-if="failedRestore" variant="destructive">
           <AlertTitle>The backup was not restored.</AlertTitle>
@@ -551,6 +577,8 @@ const kindLabel: Record<BackupKind, string> = {
               <span class="hidden text-sm text-muted-foreground sm:inline">{{ formatDateTime(b.created_at) }}</span>
               <span v-if="multi && b.volume" class="font-mono text-xs text-muted-foreground">{{ b.volume }}</span>
               <Badge variant="secondary">{{ kindLabel[b.kind] }}</Badge>
+              <Badge v-if="b.format === 'dump'" variant="outline" :title="b.tool || undefined">Dump</Badge>
+              <Badge v-else-if="dumpTool" variant="outline" title="A copy of the database's files, made while it was stopped">Files</Badge>
               <span v-if="b.status === 'running'" class="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Loader2 class="size-3.5 animate-spin" /> Working...
               </span>
@@ -565,8 +593,8 @@ const kindLabel: Record<BackupKind, string> = {
                 <Button
                   size="sm"
                   variant="ghost"
-                  :disabled="working || !hasData"
-                  :title="hasData ? undefined : 'Turn on saved files to restore'"
+                  :disabled="working || !!restoreTitle(b)"
+                  :title="restoreTitle(b)"
                   :aria-label="`Restore the backup from ${formatDateTime(b.created_at)}`"
                   @click="toRestore = b"
                 >
@@ -594,7 +622,7 @@ const kindLabel: Record<BackupKind, string> = {
     <ConfirmDialog
       v-model:open="restoreOpen"
       :title="`Restore the backup from ${toRestore ? formatDateTime(toRestore.created_at) : ''}?`"
-      :description="`The saved files are replaced by this backup.${appWillRestart ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`"
+      :description="restoreText"
       confirm-label="Restore"
       :destructive="false"
       :loading="restore.isPending.value"

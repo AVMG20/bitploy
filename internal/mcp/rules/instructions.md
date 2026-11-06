@@ -30,7 +30,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
-   reads DATABASE_URL (or REDIS_URL, ...) from its environment. When the
+   reads DATABASE_URL (or REDIS_URL, ...) from its environment.
+   create_backup of the service dumps its databases while it runs. When the
    code already has a compose file (compose.yaml, docker-compose.yml) whose
    services it needs, deploy that file instead: validate_compose, then
    create_app build_mode=compose.

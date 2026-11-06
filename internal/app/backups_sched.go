@@ -266,7 +266,7 @@ func (s *Service) runScheduledBackup(ctx context.Context, app db.App, owner db.U
 // scheduledBackupOf makes the automatic backup of one volume and reports
 // whether it was made.
 func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.User, volume string) bool {
-	b, err := s.insertBackup(ctx, app.ID, BackupScheduled, volume)
+	b, err := s.insertBackup(ctx, app.ID, BackupScheduled, volume, s.backupFormatFor(ctx, app, volume))
 	if err != nil {
 		return false
 	}
@@ -331,7 +331,7 @@ func (s *Service) recoverAfterCrash(ctx context.Context) {
 	for _, d := range dirs {
 		tmps, _ := filepath.Glob(filepath.Join(d, "*.tmp"))
 		for _, t := range tmps {
-			if strings.HasSuffix(t, ".tar.gz.tmp") {
+			if strings.HasSuffix(t, ".tar.gz.tmp") || strings.HasSuffix(t, ".sql.gz.tmp") {
 				_ = os.Remove(t)
 			}
 		}

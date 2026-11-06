@@ -29,14 +29,15 @@ func (a *API) backupRoutes() {
 		OperationID: "listBackups", Method: http.MethodGet, Path: "/apps/{app}/backups", Tags: []string{"Backups"},
 		Summary: "List /data backups and the automatic backup settings",
 		Description: "Newest first. `restore` tells how the latest restore is going. " +
-			"A backup file is downloaded with GET /apps/{app}/backups/{id}/download and an archive is uploaded as the raw body of POST /apps/{app}/backups/upload (a .tar.gz).",
+			"A backup file is downloaded with GET /apps/{app}/backups/{id}/download and an archive is uploaded as the raw body of POST /apps/{app}/backups/upload (a .tar.gz). A database service's dumps (format dump) download as .sql.gz.",
 	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.BackupList], error) {
 		return okOrNil(a.svc.ListBackups(ctx, act, in.App))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "createBackup", Method: http.MethodPost, Path: "/apps/{app}/backups", Tags: []string{"Backups"},
-		Summary:       "Back up /data now",
-		Description:   "Returns at once with a backup in status running; poll the list until it is ready or failed.",
+		Summary: "Back up /data now",
+		Description: "Returns at once with a backup in status running; poll the list until it is ready or failed. " +
+			"A running PostgreSQL, MySQL or MariaDB service is dumped with its own tool (format dump) and keeps serving; other apps are frozen for a moment while the files are read.",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
@@ -57,6 +58,7 @@ func (a *API) backupRoutes() {
 		OperationID: "restoreBackup", Method: http.MethodPost, Path: "/apps/{app}/backups/{id}/restore", Tags: []string{"Backups"},
 		Summary: "Restore a backup into /data",
 		Description: "Makes a backup of the current data first, stops the app, replaces the files and starts the app again. " +
+			"A dump (format dump) is replayed into the running database instead: its databases are dropped and made again from the dump, with a dump of the current ones made first; the app is not stopped and must run (database_not_running). " +
 			"Returns at once; follow it in `restore` of the backup list.",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *backupRef) (*Out[app.BackupRestore], error) {
@@ -95,7 +97,7 @@ func (a *API) backupFileRoutes(mux *http.ServeMux, wrap func(http.Handler) http.
 		wrap(readDeadline(backupUploadTimeout, http.HandlerFunc(a.backupUpload))))
 }
 
-// backupDownload streams the .tar.gz as an attachment, so a plain link works
+// backupDownload streams the .tar.gz (or a dump's .sql.gz) as an attachment, so a plain link works
 // in the browser (cookie) and curl (bearer token). Range requests work too.
 func (a *API) backupDownload(w http.ResponseWriter, r *http.Request) {
 	act, err := auth.Require(r.Context())

@@ -253,7 +253,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
-   reads DATABASE_URL (or REDIS_URL, ...) from its environment. When the
+   reads DATABASE_URL (or REDIS_URL, ...) from its environment.
+   create_backup of the service dumps its databases while it runs. When the
    code already has a compose file (compose.yaml, docker-compose.yml) whose
    services it needs, deploy that file instead: validate_compose, then
    create_app build_mode=compose.
@@ -299,7 +300,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume; refused with `app_in_use` while other apps refer to its variables | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
-| `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings and restore state. Restoring is dashboard-only on purpose | deploy / read | — / read-only |
+| `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings and restore state. A database service gets a dump (`format: dump`). Restoring is dashboard-only on purpose | deploy / read | — / read-only |
 | `query_db(app, path, sql, write=false, volume?)` | Run SQL on a SQLite file in /data (`volume` picks another volume of a compose app) (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
 
 Also expose the rules as resource `bitploy://rules` and each template as `bitploy://templates/{stack}`, and add a prompt `deploy_project` that walks through the eight steps. Keep the tools anyway: many clients ignore resources and prompts.
@@ -740,7 +741,7 @@ Traefik needs no Docker socket: it reads only files. Bitploy attaches the Traefi
 **Not in v1**
 
 - More than one server: no clustering, Swarm or Kubernetes.
-- Managed databases with backups, failover or upgrades run by bitploy: a service-template app is a container with a volume, backed up like any `/data`. Its image version stays at the one it was made with.
+- Managed databases with backups, failover or upgrades run by bitploy: a service-template app is a container with a volume. PostgreSQL, MySQL and MariaDB are backed up as a dump made by their own tool while they run (a copy of the files while stopped), the others like any `/data`. Its image version stays at the one it was made with.
 - Any build path without a Dockerfile: no buildpacks, no Nixpacks.
 - Raw TCP or UDP ports; only HTTP(S) through Traefik.
 - Billing, teams and shared apps.

@@ -16,6 +16,7 @@ import type {
   AppDomain,
   AppVolume,
   AuditEntry,
+  Backup,
   BackupList,
   CatalogApp,
   ComposeCheck,
@@ -1252,12 +1253,23 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       return send(res, 200, items([]))
     case 'GET /apps/:id/backups': {
       const a = needApp(id)
+      // A database service is backed up as a dump made by its own tool.
+      const dumpTool = ({ postgres: 'pg_dumpall', pgvector: 'pg_dumpall', mariadb: 'mariadb-dump', mysql: 'mysqldump' } as Record<string, string>)[a.template ?? '']
+      const version = dumpTool === 'pg_dumpall' ? `pg_dumpall (PostgreSQL) ${a.template_version || '18.4'}` : `${dumpTool} ${a.template_version ?? ''}`.trim()
+      const dumps: Backup[] = dumpTool
+        ? [
+            { id: `bak_${id}_3`, kind: 'scheduled', format: 'dump', tool: version, status: 'ready', size_bytes: 3_412_000, created_at: ago(60 * 9) },
+            { id: `bak_${id}_2`, kind: 'manual', format: 'dump', tool: version, status: 'ready', size_bytes: 3_350_000, created_at: ago(60 * 26) },
+            { id: `bak_${id}_1`, kind: 'scheduled', format: 'volume', status: 'ready', size_bytes: 41_900_000, created_at: ago(60 * 33) },
+          ]
+        : []
       return send(res, 200, {
-        items: [],
+        items: dumps,
         settings: { schedule: 'daily', keep_mode: 'last', keep: 7, next_at: ago(-300) },
         restore: null,
         busy: false,
-        total_bytes: 0,
+        total_bytes: dumps.reduce((n, b) => n + b.size_bytes, 0),
+        dump_tool: dumpTool,
         upload_max_bytes: 512 * 1024 * 1024,
         volumes: a.volumes.map((v) => ({ ...v, upload_max_bytes: 512 * 1024 * 1024 })),
       } satisfies BackupList & { volumes: unknown[] })
