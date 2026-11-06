@@ -43,7 +43,7 @@ const dep = computed(() => props.app.current_deployment)
         <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Memory now</p>
         <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
           {{ live ? formatMB(live.memory_mb) : '-' }}
-          <span class="text-sm font-normal tracking-normal text-muted-foreground">of {{ formatMB(memoryMB) }}</span>
+          <span class="text-sm whitespace-nowrap font-normal tracking-normal text-muted-foreground">of {{ formatMB(memoryMB) }}</span>
         </p>
         <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :model-value="live ? pct(live.memory_mb, memoryMB) : 0" />
       </div>

@@ -18,16 +18,20 @@ import {
   projectHealth,
   projectHealthText,
   projectLinks,
+  projectHasRole,
   projectsFromApps,
+  publicPortText,
   referenceParts,
   referenceText,
   roleTitle,
+  sharedVar,
   sortProjectApps,
   talksTo,
   templateLabel,
   templateRole,
   templateUpdate,
   usedBy,
+  varSource,
 } from '../src/lib/projects.ts'
 import type { App, AppService, EnvVar, ServiceTemplate } from '../src/lib/types.ts'
 
@@ -329,4 +333,42 @@ test('templateUpdate notes a newer template version, and nothing otherwise', () 
   assert.equal(templateUpdate({ template_version: '18.6', template_latest: '18.6', template_update_available: false }), null)
   // An older server sends neither field.
   assert.equal(templateUpdate({}), null)
+})
+
+test('a template app names the version it runs, the same as its Database tab', () => {
+  const pg = { ...db('postgres', 'postgres', 'postgres:16-alpine', 5432), template_version: '16.2' }
+  assert.equal(roleTitle(appRole(pg, [POSTGRES])), 'Database · PostgreSQL 16.2')
+})
+
+test('defaultConnect leaves out an app that already has the variable', () => {
+  const web = app('web10')
+  const vars = [env('DATABASE_URL', '••••', '${{postgres.DATABASE_URL}}'), { ...env('API_KEY', '••••'), service: 'worker' }]
+  assert.equal(sharedVar(vars, 'DATABASE_URL')?.name, 'DATABASE_URL')
+  assert.equal(sharedVar(vars, 'API_KEY'), undefined, 'a variable of one service is not shared')
+  assert.equal(varSource(sharedVar(vars, 'DATABASE_URL')), 'postgres')
+  assert.equal(varSource(env('DATABASE_URL', 'po••••')), '')
+  assert.deepEqual(defaultConnect({ apps: [web] }, ['web10']), [])
+  assert.deepEqual(defaultConnect({ apps: [web] }, []), ['web10'])
+})
+
+test('projectHasRole sees a database in a compose file', () => {
+  const svc = (name: string, image: string) => ({ name, kind: 'image' as const, image, public: false, port: 5432, health_path: '', memory_mb: 256, cpu_millis: 250, volumes: [], depends_on: [] })
+  const stack = app('notes', { build_mode: 'compose', service_layout: 'multi', services: [{ ...svc('web', 'nginx'), public: true, port: 80 }, svc('db', 'postgres:16')] })
+  assert.equal(projectHasRole([stack], 'database'), true)
+  assert.equal(projectHasRole([stack], 'search'), false)
+  assert.equal(projectHasRole([app('web11'), db('cache', 'valkey', 'valkey/valkey:8', 6379)], 'cache', [REDIS, { ...REDIS, id: 'valkey', image: 'valkey/valkey:8' }]), true)
+})
+
+test('publicPortText says where and for how long a port is open', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z')
+  const closed = { public_port: { available: true, enabled: false, running: false, allow_from: [], expires_at: null } }
+  assert.equal(publicPortText(closed, now), null)
+  const open = { public_port: { available: true, enabled: true, running: true, address: '203.0.113.5:30001', allow_from: [], expires_at: '2026-11-06T12:57:00Z' } }
+  assert.equal(publicPortText(open, now)?.text, 'Public at 203.0.113.5:30001, closes in 57 min')
+  assert.match(publicPortText(open, now)!.title, /Anyone/)
+  const mine = { public_port: { ...open.public_port, allow_from: ['198.51.100.7/32'], expires_at: null } }
+  assert.equal(publicPortText(mine, now)?.text, 'Public at 203.0.113.5:30001, open until you close it')
+  assert.match(publicPortText(mine, now)!.title, /Only 198\.51\.100\.7\/32/)
+  const later = { public_port: { ...open.public_port, expires_at: '2026-11-06T15:10:00Z' } }
+  assert.equal(publicPortText(later, now)?.text, 'Public at 203.0.113.5:30001, closes in 3 h')
 })

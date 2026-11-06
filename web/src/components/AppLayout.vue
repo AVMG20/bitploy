@@ -45,8 +45,10 @@ const crumbs = computed(() => {
   if (slug.value) return [{ label: 'Projects', to: '/' }, { label: appName }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   if (route.name === 'admin-database') return [{ label: 'Admin', to: '/admin' }, { label: String(route.meta.title ?? '') }]
-  if (route.name === 'new-app' || route.name === 'ready-made') return [{ label: 'Projects', to: '/' }, { label: String(route.meta.title ?? '') }]
-  if (route.name === 'new-catalog') return [{ label: 'Projects', to: '/' }, { label: 'Ready-made', to: '/ready-made' }, { label: String(route.meta.title ?? '') }]
+  if (route.name === 'new-app') return [{ label: 'Projects', to: '/' }, { label: String(route.meta.title ?? '') }]
+  // Ready-made sits next to Projects in the sidebar, not under it.
+  if (route.name === 'ready-made') return [{ label: String(route.meta.title ?? '') }]
+  if (route.name === 'new-catalog') return [{ label: 'Ready-made', to: '/ready-made' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
 })
 

@@ -11,7 +11,7 @@ import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { toastError, toastOk } from '@/lib/notify'
-import { aliasOf, appRole, connectable, projectIdOf, projectLinks, referenceText, usedBy } from '@/lib/projects'
+import { aliasOf, appRole, connectable, projectIdOf, projectLinks, referenceText, sharedVar, usedBy, varSource } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
 // How the other apps of the project use a database (or cache, or search
@@ -30,7 +30,16 @@ const apps = computed(() => project.value?.apps ?? [props.app])
 const env = useProjectEnv(apps)
 const links = computed(() => projectLinks(apps.value, env.value))
 const users = computed(() => usedBy(props.app, apps.value, links.value))
-const others = computed(() => connectable(apps.value).filter((a) => a.id !== props.app.id && !users.value.some((u) => u.id === a.id)))
+const notConnected = computed(() => connectable(apps.value).filter((a) => a.id !== props.app.id && !users.value.some((u) => u.id === a.id)))
+// An app with its own DATABASE_URL (or one from another database) is not offered:
+// connecting would replace a working connection. It is named below instead.
+const others = computed(() => notConnected.value.filter((a) => !sharedVar(env.value[a.slug], mainVar.value)))
+const elsewhere = computed(() =>
+  notConnected.value.flatMap((a) => {
+    const v = sharedVar(env.value[a.slug], mainVar.value)
+    return v ? [{ app: a, from: varSource(v) }] : []
+  }),
+)
 
 const alias = computed(() => aliasOf(props.app))
 // "database", "cache", "search engine": what this app is, in the sentences below.
@@ -87,6 +96,11 @@ const connect = useMutation({
           </Button>
           <span class="text-xs text-muted-foreground">Adds <span class="font-mono">{{ mainVar }}</span> to that app.</span>
         </div>
+        <p v-for="e in elsewhere" :key="e.app.id" class="text-xs text-muted-foreground">
+          <RouterLink :to="appRoute(e.app, 'app-variables')" class="font-mono text-foreground/85 hover:underline">{{ aliasOf(e.app) }}</RouterLink>
+          already has <span class="font-mono">{{ mainVar }}</span>{{ e.from ? `, from ${e.from}` : '' }}. To switch it to {{ alias }}, set it to
+          <span class="font-mono">{{ referenceText(alias, mainVar) }}</span> in its Variables.
+        </p>
       </div>
 
       <!-- Shortcuts, not settings: a dashed box, and lines written as they go into the other app. -->

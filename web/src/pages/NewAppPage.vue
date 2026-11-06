@@ -22,14 +22,15 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { keys, useMe, useProject } from '@/composables/queries'
+import { keys, useApps, useMe, useProject } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
 import { api } from '@/lib/api'
 import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastError } from '@/lib/notify'
-import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
+import { composeFit } from '@/lib/quota'
+import { addressParts as toAddressParts, freeSlug, slugify, slugSchema } from '@/lib/slug'
 import type { BuildMode, ComposeCheck, DockerfileFinding, GitHubRepo, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
 
@@ -60,15 +61,39 @@ const form = useForm({
   initialValues: { name: '', slug: '' },
 })
 
-// The address follows the name until the person edits it.
+// The address follows the name until the person edits it. An address one of
+// your apps has already gets the next free number (portfolio-2); the server
+// still decides for addresses of other people.
 const editingAddress = ref(false)
 const addressEdited = ref(false)
+const myApps = useApps()
+const takenSlugs = computed(() => new Set((myApps.data.value ?? []).map((a) => a.slug)))
 watch(
-  () => form.values.name,
-  (name) => {
-    if (!addressEdited.value) form.setFieldValue('slug', slugify(name ?? ''), !!form.values.slug)
+  [() => form.values.name, takenSlugs],
+  ([name]) => {
+    if (addressEdited.value || busy.value) return
+    const next = freeSlug(slugify(name ?? ''), takenSlugs.value)
+    if (next !== form.values.slug) form.setFieldValue('slug', next, !!form.values.slug)
   },
 )
+/** The app that has the address the name asks for, when the address moved to a free one. */
+const slugBumpedFrom = computed(() => {
+  const base = slugify(form.values.name ?? '')
+  if (addressEdited.value || !base || base === form.values.slug || !takenSlugs.value.has(base)) return null
+  return myApps.data.value?.find((a) => a.slug === base) ?? null
+})
+/** A typed address that one of your apps has: the free one to offer instead. */
+const slugClash = computed(() => {
+  const s = (form.values.slug ?? '').trim().toLowerCase()
+  if (!addressEdited.value || !s || !takenSlugs.value.has(s)) return null
+  return { app: myApps.data.value?.find((a) => a.slug === s) ?? null, free: freeSlug(s, takenSlugs.value) }
+})
+// A project of the same name makes two of them in the sidebar.
+const sameNameProject = computed(() => {
+  const n = (form.values.name ?? '').trim().toLowerCase()
+  if (intoProject.value || fallback.value || !n) return null
+  return projects.data.value?.projects.find((p) => p.name.trim().toLowerCase() === n) ?? null
+})
 function editAddress() {
   editingAddress.value = true
   addressEdited.value = true
@@ -97,19 +122,35 @@ function fromQuery(q: unknown): Source | null {
   if (q === 'docker') return 'dockerfile'
   return SOURCES.includes(q as Source) ? (q as Source) : null
 }
-// ?source= skips the first step, e.g. from "+ Add" on a project.
+// The step is in the address (?source=): "+ Add" on a project can skip the
+// first step, and the browser's Back button returns to the source picker.
 const chosenSource = ref<Source | null>(fromQuery(route.query.source))
 watch(
   () => route.query.source,
   (q) => (chosenSource.value = fromQuery(q)),
 )
+function sourceQuery(s: Source | null) {
+  const rest = { ...route.query }
+  delete rest.source
+  return s ? { ...rest, source: s } : rest
+}
 const source = computed<Source>({
   get: () => chosenSource.value ?? 'github',
-  set: (v) => (chosenSource.value = v),
+  // Dockerfile and compose share one box: switching between them is the same step.
+  set: (v) => {
+    chosenSource.value = v
+    void router.replace({ query: sourceQuery(v) })
+  },
 })
 function pick(s: Source) {
   chosenSource.value = s
   error.value = null
+  void router.push({ query: sourceQuery(s) })
+}
+function pickAnother() {
+  chosenSource.value = null
+  startRepo.value = null
+  void router.push({ query: sourceQuery(null) })
 }
 // The Docker box's text: a compose file has a top-level services: key, anything else is a Dockerfile.
 const pasted = ref('')
@@ -170,7 +211,20 @@ const composeMode = computed(
 const previewText = computed(() => (source.value === 'compose' ? composeText.value : uploadCompose.value && useUploadCompose.value ? uploadCompose.value.text : ''))
 const previewFrom = computed(() => (source.value === 'compose' ? '' : uploadCompose.value ? uploadCompose.value.path : ''))
 // Known problems keep Deploy off; a server without a preview leaves it to the deploy.
-const composeBlocked = computed(() => !!previewText.value && (composeCheck.value === undefined || !!composeCheck.value?.errors?.length))
+// Over the allowance is one of them, by the rule the Add dialog uses (lib/quota.ts).
+const composeOver = computed(() => !!composeCheck.value && !composeFit(composeCheck.value, me.data.value).fits)
+// A pasted file comes without code, so a service with build: cannot be built.
+const composeNeedsImage = computed(() => source.value === 'compose' && (composeCheck.value?.services ?? []).some((s) => s.kind === 'build'))
+const composeBlocked = computed(
+  () => !!previewText.value && (composeCheck.value === undefined || !!composeCheck.value?.errors?.length || composeOver.value || composeNeedsImage.value),
+)
+const composeWaiting = computed(() => {
+  if (composeCheck.value === undefined) return 'Checking the compose file...'
+  if (composeCheck.value?.errors?.length) return ''
+  if (composeNeedsImage.value) return 'Give every service an image: line to continue.'
+  if (composeOver.value) return 'It does not fit in what is left of your allowance.'
+  return ''
+})
 const previewAddress = computed(() => `${addressParts.value.before}${form.values.slug || 'your-app'}${addressParts.value.after}`.replace(/^https?:\/\//, ''))
 
 // A pasted Dockerfile: the text is the whole source.
@@ -233,8 +287,8 @@ const waitingFor = computed(() => {
   if (source.value === 'dockerfile') return dockerfile.value.trim() ? '' : 'Paste a Dockerfile or a compose file to continue.'
   if (source.value === 'image') return !image.value.trim() ? 'Type the image name to continue.' : imagePrivate.value && !port.value.trim() ? 'Type the port the other apps connect to.' : ''
   if (source.value === 'ready-made') return ''
-  if (source.value === 'compose') return composeText.value.trim() ? (composeCheck.value === undefined ? 'Checking the compose file...' : composeBlocked.value ? 'Fix the problems above to continue.' : '') : 'Paste a compose file to continue.'
-  if (uploadCompose.value && useUploadCompose.value && composeBlocked.value) return composeCheck.value === undefined ? 'Checking the compose file...' : 'Fix the compose file, or run one container instead.'
+  if (source.value === 'compose') return composeText.value.trim() ? (composeBlocked.value ? composeWaiting.value || 'Fix the problems above to continue.' : '') : 'Paste a compose file to continue.'
+  if (uploadCompose.value && useUploadCompose.value && composeBlocked.value) return composeWaiting.value || 'Fix the compose file, or run one container instead.'
   return upload.value ? '' : 'Add your files to continue.'
 })
 
@@ -470,7 +524,7 @@ const submit = form.handleSubmit(run)
         <CardContent class="grid gap-4">
           <div class="flex items-center justify-between gap-3">
             <Label class="text-sm">{{ SOURCE_LABEL[source] }}</Label>
-            <Button type="button" variant="ghost" size="sm" class="-my-1 h-7 px-2 text-xs" :disabled="busy" @click="(chosenSource = null), (startRepo = null)">Pick another source</Button>
+            <Button type="button" variant="ghost" size="sm" class="-my-1 h-7 px-2 text-xs" :disabled="busy" @click="pickAnother">Pick another source</Button>
           </div>
 
           <RepoPicker v-show="source === 'github'" v-model="repo" compact :show-folder="false" id-prefix="new" :start="startRepo" />
@@ -551,7 +605,7 @@ const submit = form.handleSubmit(run)
                 </li>
               </ul>
             </div>
-            <ComposePreview v-if="source === 'compose' && composeText.trim()" v-model:check="composeCheck" :text="composeText" :address="previewAddress" />
+            <ComposePreview v-if="source === 'compose' && composeText.trim()" v-model:check="composeCheck" :text="composeText" :address="previewAddress" pasted />
           </div>
 
           <div v-if="source === 'image'" class="grid gap-4">
@@ -606,6 +660,9 @@ const submit = form.handleSubmit(run)
               <FormLabel>Name</FormLabel>
               <FormControl><Input :placeholder="intoProject ? 'api' : 'My website'" autocomplete="off" :disabled="busy" v-bind="componentField" /></FormControl>
               <FormDescription v-if="intoProject">Also its short name in {{ project?.name ?? 'the project' }}: the other apps reach it at this name.</FormDescription>
+              <p v-else-if="sameNameProject" class="text-[0.8rem] text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" data-testid="same-name-project">
+                You already have a project called {{ sameNameProject.name }}. Deploying makes a second one; give this one another name to tell them apart.
+              </p>
               <FormMessage />
             </FormItem>
           </FormField>
@@ -626,7 +683,16 @@ const submit = form.handleSubmit(run)
               <p v-else class="truncate rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[13px] text-muted-foreground" data-testid="address-preview">
                 {{ addressParts.before }}<span class="font-medium text-foreground">{{ form.values.slug || 'your-app' }}</span>{{ addressParts.after }}
               </p>
-              <FormDescription v-if="privateApp">No web address. The ID is used in the dashboard's links to it.</FormDescription>
+              <p v-if="slugClash" class="text-[0.8rem] text-destructive" data-testid="slug-clash">
+                Your app {{ slugClash.app?.name ?? form.values.slug }} has this {{ privateApp ? 'ID' : 'address' }}.
+                <button v-if="slugClash.free" type="button" class="font-medium underline underline-offset-2" :disabled="busy" @click="form.setFieldValue('slug', slugClash.free)">
+                  Use {{ slugClash.free }}
+                </button>
+              </p>
+              <FormDescription v-else-if="slugBumpedFrom" data-testid="slug-bumped">
+                Your app {{ slugBumpedFrom.name }} has {{ slugBumpedFrom.slug }}, so this one gets {{ form.values.slug }}.
+              </FormDescription>
+              <FormDescription v-else-if="privateApp">No web address. The ID is used in the dashboard's links to it.</FormDescription>
               <FormDescription v-else-if="!editingAddress">Where people open your app. It follows the name until you change it.</FormDescription>
               <FormMessage />
             </FormItem>
@@ -659,7 +725,7 @@ const submit = form.handleSubmit(run)
       </Alert>
 
       <div v-if="source !== 'ready-made'" class="flex flex-wrap items-center gap-3">
-        <Button type="submit" :disabled="busy || !sourceReady">{{ buttonLabel }}</Button>
+        <Button type="submit" :disabled="busy || !sourceReady || !!slugClash">{{ buttonLabel }}</Button>
         <Button as-child variant="ghost" :disabled="busy"><RouterLink :to="backTo">Cancel</RouterLink></Button>
         <p v-if="!sourceReady && !busy && waitingFor" class="text-xs text-muted-foreground">{{ waitingFor }}</p>
       </div>

@@ -138,19 +138,106 @@ func BuildOutOfMemory(lines []string) bool {
 func (b *Builder) MemoryLimit() string { return b.memory() }
 
 // BuildFailureSummary picks the most useful single line from a failed build's
-// output: the last line that looks like an error, else the last line.
+// output: the cause, like a compiler message, rather than Docker's wrapper
+// around it ("process ... did not complete successfully: exit code: 1").
+//
+// It looks in the step that failed first (buildkit prefixes every line of
+// step N with "#N " and ends a failed step with "#N ERROR: process ..."), for
+// the first line that names an error; a header like "error during build:"
+// gives way to the line after it. With no such line it takes the last output
+// of that step, then the first error line before the wrapper, then the last
+// line that looks like an error, else the last line.
 func BuildFailureSummary(lines []string) string {
+	clean := make([]string, len(lines))
+	for i, l := range lines {
+		clean[i] = buildStepPrefixRe.ReplaceAllString(strings.TrimSpace(l), "")
+	}
+	end, step := len(lines), ""
+	for i, l := range lines {
+		if isBuildWrapper(l) {
+			end = i
+			if m := buildStepRe.FindStringSubmatch(strings.TrimSpace(l)); m != nil {
+				step = m[1]
+			}
+			break
+		}
+	}
+	inStep := func(i int) bool { return step == "" || strings.HasPrefix(strings.TrimSpace(lines[i]), "#"+step+" ") }
+	firstError := func(stepOnly bool) string {
+		for i := 0; i < end; i++ {
+			if (stepOnly && !inStep(i)) || !isBuildErrorLine(clean[i]) {
+				continue
+			}
+			if strings.HasSuffix(clean[i], ":") {
+				for j := i + 1; j < end; j++ {
+					if stepOnly && !inStep(j) || clean[j] == "" {
+						continue
+					}
+					if !isBuildNoise(clean[j]) {
+						return shortLine(clean[j])
+					}
+					break
+				}
+			}
+			return shortLine(clean[i])
+		}
+		return ""
+	}
+	if step != "" {
+		if l := firstError(true); l != "" {
+			return l
+		}
+		for i := end - 1; i >= 0; i-- {
+			if inStep(i) && clean[i] != "" && !isBuildNoise(clean[i]) && !buildStepHeaderRe.MatchString(clean[i]) {
+				return shortLine(clean[i])
+			}
+		}
+	}
+	if l := firstError(false); l != "" {
+		return l
+	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := strings.TrimSpace(lines[i])
 		low := strings.ToLower(l)
 		if strings.Contains(low, "error") || strings.Contains(low, "failed") || strings.Contains(low, "not found") {
-			return strings.TrimLeft(l, "#0123456789. ")
+			return shortLine(strings.TrimLeft(l, "#0123456789. "))
 		}
 	}
 	if len(lines) > 0 {
-		return strings.TrimSpace(lines[len(lines)-1])
+		return shortLine(strings.TrimSpace(lines[len(lines)-1]))
 	}
 	return ""
+}
+
+var (
+	// "#9 " or "#9 3.950 " in front of a buildkit line.
+	buildStepPrefixRe = regexp.MustCompile(`^#\d+ (?:\d+\.\d+ )?`)
+	buildStepRe       = regexp.MustCompile(`^#(\d+) `)
+	// "[build 6/6] RUN npm run build", the first line of a step.
+	buildStepHeaderRe = regexp.MustCompile(`^\[[^\]]*\d+/\d+\] `)
+	buildErrorRe      = regexp.MustCompile(`(?i)(error\b|err!|\bfailed\b|\bfatal\b|\bpanic\b|\bcannot\b|\bcan't\b|\bcould not\b|\bunable to\b|\bnot found\b|\bnot exported\b|\bno such file\b|\bundefined\b|permission denied)`)
+	buildNoiseRe      = regexp.MustCompile(`(?i)^(at |-{3,}$|> \[|dockerfile\S*:\d+$|(>>>\s*)?\d+\s*\|| *\^|(npm )?warn(ing)?\b|debconf:|npm (error|err!)( (code|path|errno|syscall|command|workspace|location|signal|cwd|a complete log|lifecycle script|exit status|failed at)\b|$)|done \d|cached$)`)
+	buildExitCodeRe   = regexp.MustCompile(`exit code: \d+$`)
+)
+
+// isBuildWrapper tells Docker's line about a failed step, which only repeats
+// the command and its exit code.
+func isBuildWrapper(l string) bool {
+	return strings.Contains(l, "did not complete successfully") || strings.Contains(l, "executor failed running") || buildExitCodeRe.MatchString(strings.TrimSpace(l))
+}
+
+func isBuildNoise(l string) bool { return isBuildWrapper(l) || buildNoiseRe.MatchString(l) }
+
+func isBuildErrorLine(l string) bool {
+	return l != "" && !isBuildNoise(l) && buildErrorRe.MatchString(l)
+}
+
+// shortLine keeps a summary line under 300 characters.
+func shortLine(l string) string {
+	if r := []rune(l); len(r) > 300 {
+		return string(r[:299]) + "…"
+	}
+	return l
 }
 
 var goRequiresRe = regexp.MustCompile(`requires go >= ?(\d+)\.(\d+)`)

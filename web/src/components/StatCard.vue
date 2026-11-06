@@ -5,8 +5,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 // One number, what it is out of, and a bar for that same fraction. `sub` adds a
-// second, smaller fact (like what is in use right now).
-defineProps<{ title: string; value?: string; suffix?: string; sub?: string; progress?: number; loading?: boolean; hint?: string }>()
+// second, smaller fact (like what is in use right now); `alert` says what is wrong and what to do.
+defineProps<{ title: string; value?: string; suffix?: string; sub?: string; progress?: number; loading?: boolean; hint?: string; alert?: string }>()
 </script>
 
 <template>
@@ -22,7 +22,7 @@ defineProps<{ title: string; value?: string; suffix?: string; sub?: string; prog
       <template v-else>
         <div class="flex flex-wrap items-baseline gap-x-1.5">
           <span class="text-2xl leading-tight sm:text-[1.65rem] font-semibold tracking-tight tabular-nums">{{ value }}</span>
-          <span v-if="suffix" class="text-sm text-muted-foreground">{{ suffix }}</span>
+          <span v-if="suffix" class="text-sm whitespace-nowrap text-muted-foreground">{{ suffix }}</span>
         </div>
         <Progress
           v-if="progress !== undefined"
@@ -30,6 +30,7 @@ defineProps<{ title: string; value?: string; suffix?: string; sub?: string; prog
           :class="cn(progress >= 90 && '[&>[data-slot=progress-indicator]]:bg-destructive', progress >= 75 && progress < 90 && '[&>[data-slot=progress-indicator]]:bg-warning')"
         />
         <p v-if="sub" class="text-xs text-muted-foreground">{{ sub }}</p>
+        <p v-if="alert" class="text-xs font-medium text-destructive" role="status">{{ alert }}</p>
       </template>
     </CardContent>
   </Card>

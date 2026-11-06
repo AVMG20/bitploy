@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
@@ -20,8 +19,8 @@ const props = defineProps<{ app: App }>()
 const qc = useQueryClient()
 
 const isProtected = computed(() => props.app.protected)
-// The switch can be on before anything is saved: the form is then open and the
-// app stays public until Save.
+// The form can be open before anything is saved: the app stays public until
+// Turn on. A button opens it, so nothing looks on while it is not.
 const wantOn = ref(props.app.protected)
 const showPassword = ref(false)
 
@@ -116,19 +115,16 @@ const worker = computed(() => props.app.type !== 'web')
     <CardContent class="grid gap-4">
       <p v-if="worker" class="text-sm text-muted-foreground">A worker has no web address, so there is nothing to protect.</p>
       <template v-else>
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="password-state">
           <div class="min-w-0 text-sm">
-            <p class="font-medium">{{ isProtected ? 'On' : 'Off' }}</p>
+            <p class="font-medium">{{ isProtected ? 'On' : wantOn ? 'Not on yet' : 'Off' }}</p>
             <p class="text-xs text-muted-foreground">
-              {{ isProtected ? `Visitors sign in as ${app.protected_username}.` : wantOn ? 'The app stays public until you click Turn on.' : 'Anyone with the address can open the app.' }}
+              {{ isProtected ? `Visitors sign in as ${app.protected_username}.` : wantOn ? 'Choose a username and password, then press Turn on. Until then anyone with the address can open the app.' : 'Anyone with the address can open the app.' }}
             </p>
           </div>
-          <Switch
-            :model-value="wantOn"
-            :disabled="disable.isPending.value || save.isPending.value"
-            aria-label="Password protection"
-            @update:model-value="(v) => toggle(v === true)"
-          />
+          <Button v-if="isProtected" variant="outline" size="sm" :disabled="disable.isPending.value || save.isPending.value" @click="toggle(false)">Turn off</Button>
+          <Button v-else-if="wantOn" variant="ghost" size="sm" :disabled="save.isPending.value" @click="toggle(false)">Cancel</Button>
+          <Button v-else variant="outline" size="sm" @click="toggle(true)">Set a password</Button>
         </div>
 
         <form v-if="wantOn" class="grid gap-4" novalidate @submit.prevent="submit">

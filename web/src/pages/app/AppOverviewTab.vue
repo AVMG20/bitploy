@@ -49,6 +49,10 @@ const running = computed(() => data.value?.status === 'running')
 const live = computed(() => (running.value ? (metrics.data.value?.latest ?? data.value?.live ?? null) : null))
 const cpuLimit = computed(() => (data.value?.cpu_millis ?? 0) / 1000) // in CPUs
 const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.value?.memory_mb ?? 0)
+// Where the saved files are: /data, or the folder a ready-made database keeps its data in.
+const mountPath = computed(() => data.value?.volumes?.[0]?.mount_path || '/data')
+// Going back to an earlier version starts its kept image: there is no build.
+const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
 </script>
 
 <template>
@@ -98,7 +102,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Memory now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
             {{ live ? formatMB(live.memory_mb) : running ? '...' : '0 MB' }}
-            <span class="text-sm font-normal tracking-normal text-muted-foreground">of {{ formatMB(data.memory_mb) }}</span>
+            <span class="text-sm whitespace-nowrap font-normal tracking-normal text-muted-foreground">of {{ formatMB(data.memory_mb) }}</span>
           </p>
           <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :model-value="live ? pct(live.memory_mb, data.memory_mb) : 0" />
         </div>
@@ -178,7 +182,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               </template>
               <dt class="text-muted-foreground">Deployed</dt>
               <dd><RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</dd>
-              <template v-if="dep.duration_seconds !== null">
+              <template v-if="dep.duration_seconds !== null && !rolledBack">
                 <dt class="text-muted-foreground">Build took</dt>
                 <dd>{{ formatDuration(dep.duration_seconds) }}</dd>
               </template>
@@ -215,7 +219,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
             </div>
             <div v-if="data.volume" class="grid gap-2">
               <div class="flex items-baseline justify-between gap-4">
-                <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">/data</span></span>
+                <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">{{ mountPath }}</span></span>
                 <span class="shrink-0 font-semibold tabular-nums">
                   <template v-if="data.volume_used_mb !== null">{{ formatMB(data.volume_used_mb) }} <span class="font-normal text-muted-foreground">of {{ formatMB(data.volume_mb) }}</span></template>
                   <template v-else><span class="font-normal text-muted-foreground">Limit</span> {{ formatMB(data.volume_mb) }}</template>
@@ -224,7 +228,7 @@ const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.v
               <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
             </div>
             <div v-else class="flex items-baseline justify-between gap-4">
-              <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">/data</span></span>
+              <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">{{ mountPath }}</span></span>
               <span class="text-muted-foreground">Off</span>
             </div>
             <div class="flex items-baseline justify-between gap-4">

@@ -66,3 +66,70 @@ func TestBuildFailureHint(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildFailureSummary(t *testing.T) {
+	cases := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{
+			name: "the compiler message, not the docker wrapper",
+			lines: []string{
+				"#7 [build 5/6] RUN apt-get install -y curl",
+				"#7 1.200 debconf: unable to initialize frontend: Dialog",
+				"#7 DONE 2.1s",
+				"#9 [build 6/6] RUN npm run build",
+				"#9 0.499 > vite build",
+				"#9 3.950 error during build:",
+				`#9 3.950 src/pages/Checkout.tsx (14:9): "formatPrice" is not exported by "src/lib/money.ts", imported by "src/pages/Checkout.tsx".`,
+				"#9 3.951     at getRollupError (file:///app/node_modules/rollup/dist/es/shared/parseAst.js:395:41)",
+				`#9 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1`,
+				"------",
+				" > [build 6/6] RUN npm run build:",
+				"------",
+				"Dockerfile:11",
+				`ERROR: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1`,
+			},
+			want: `src/pages/Checkout.tsx (14:9): "formatPrice" is not exported by "src/lib/money.ts", imported by "src/pages/Checkout.tsx".`,
+		},
+		{
+			name: "a typescript error",
+			lines: []string{
+				"#8 [4/5] RUN npx tsc",
+				"#8 2.1 src/app.ts(3,5): error TS2304: Cannot find name 'foo'.",
+				"#8 2.2 npm error code 2",
+				`#8 ERROR: process "/bin/sh -c npx tsc" did not complete successfully: exit code: 2`,
+			},
+			want: "src/app.ts(3,5): error TS2304: Cannot find name 'foo'.",
+		},
+		{
+			name: "the last output of the step when no line says error",
+			lines: []string{
+				"#6 [3/4] RUN go build -o /app .",
+				"#6 0.9 # example.com/app",
+				"#6 0.9 ./main.go:5:2: x declared and not used",
+				`#6 ERROR: process "/bin/sh -c go build -o /app ." did not complete successfully: exit code: 1`,
+			},
+			want: "./main.go:5:2: x declared and not used",
+		},
+		{
+			name:  "a dockerfile mistake is the error itself",
+			lines: []string{"#1 [internal] load build definition from Dockerfile", "ERROR: failed to solve: dockerfile parse error on line 3: unknown instruction: RUNN"},
+			want:  "ERROR: failed to solve: dockerfile parse error on line 3: unknown instruction: RUNN",
+		},
+		{name: "only the wrapper", lines: []string{"ERROR: failed to solve"}, want: "ERROR: failed to solve"},
+		{name: "nothing", lines: nil, want: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := BuildFailureSummary(c.lines); got != c.want {
+				t.Errorf("got  %q\nwant %q", got, c.want)
+			}
+		})
+	}
+	long := BuildFailureSummary([]string{"error: " + strings.Repeat("x", 400)})
+	if n := len([]rune(long)); n != 300 {
+		t.Errorf("long line has %d runes", n)
+	}
+}

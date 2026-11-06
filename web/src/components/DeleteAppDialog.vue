@@ -8,13 +8,15 @@ import { keys, useProject, useProjectEnv } from '@/composables/queries'
 import { ApiError, api } from '@/lib/api'
 import { appPath, appRoute, projectRoute } from '@/lib/appLinks'
 import { toastError, toastOk } from '@/lib/notify'
-import { dependentsFromError, dependentsOf, projectIdOf, projectLinks } from '@/lib/projects'
+import { markRestartNeeded } from '@/composables/useRestartNeeded'
+import { aliasOf, dependentsFromError, dependentsOf, projectIdOf, projectLinks } from '@/lib/projects'
 import type { Dependent } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
 // Deleting an app. When other apps of the project read its variables, the
-// dialog lists them (with the variables) and the delete waits until they are
-// removed: the server refuses with app_in_use, so nobody has to try first.
+// dialog lists them (with the variables): the server refuses the delete with
+// app_in_use while they are there. The dialog offers to remove those variables
+// first and then delete, or to open each app's variables and change them.
 const props = defineProps<{ app: App }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ deleted: [] }>()
@@ -31,7 +33,23 @@ const known = computed(() => dependentsOf(props.app, apps.value, projectLinks(ap
 const refused = ref<Dependent[] | null>(null)
 watch(open, (o) => o && (refused.value = null))
 const dependents = computed(() => refused.value ?? known.value)
-const blocked = computed(() => dependents.value.length > 0)
+const inUse = computed(() => dependents.value.length > 0)
+
+// Removes the variables of one app that read from this one: per service, since
+// a compose app can have the same name in several services. Only the ones that
+// refer to this app go; a variable of the same name that does not stays.
+async function unsetVars(d: Dependent) {
+  const prefix = `\${{${aliasOf(props.app)}.`
+  const byService = new Map<string, string[]>()
+  for (const v of await api.env(d.slug)) {
+    const reads = v.references ? v.references.some((r) => r.startsWith(prefix)) : d.vars.includes(v.name)
+    if (reads) byService.set(v.service, [...(byService.get(v.service) ?? []), v.name])
+  }
+  for (const [service, names] of byService) await api.setEnv(d.slug, {}, names, service || undefined)
+  const a = apps.value.find((x) => x.slug === d.slug)
+  markRestartNeeded(a, 'variables')
+  void qc.invalidateQueries({ queryKey: keys.env(d.slug) })
+}
 
 function linkTo(d: Dependent) {
   const a = apps.value.find((x) => x.slug === d.slug)
@@ -39,10 +57,18 @@ function linkTo(d: Dependent) {
 }
 
 const del = useMutation({
-  mutationFn: () => api.deleteApp(props.app.slug),
-  onSuccess: async () => {
+  mutationFn: async () => {
+    const changed = dependents.value
+    for (const d of changed) await unsetVars(d)
+    await api.deleteApp(props.app.slug)
+    return changed
+  },
+  onSuccess: async (changed) => {
     const slug = props.app.slug
-    toastOk(`${props.app.name} deleted`)
+    toastOk(
+      `${props.app.name} deleted`,
+      changed.length ? `Removed its variables from ${changed.map((d) => d.alias).join(', ')}. Restart ${changed.length === 1 ? 'that app' : 'those apps'} to stop using them.` : undefined,
+    )
     open.value = false
     emit('deleted')
     // Leave the app's own page first: removing its cache while the page polls would flash a 404.
@@ -68,23 +94,23 @@ const del = useMutation({
 
 const description = computed(() => {
   const n = dependents.value.length
-  if (!n) return `Everything about ${props.app.name} is removed, including its saved files and its backups. This cannot be undone.`
-  return `${n === 1 ? 'Another app reads' : `${n} apps read`} its variables and would stop working. Remove those variables from ${n === 1 ? 'it' : 'them'} first, then delete ${props.app.name}.`
+  const gone = props.app.template ? 'its data and its backups' : 'its saved files and its backups'
+  if (!n) return `Everything about ${props.app.name} is removed, including ${gone}. This cannot be undone.`
+  return `${n === 1 ? 'Another app reads' : `${n} apps read`} its variables, listed below. Deleting removes those variables from ${n === 1 ? 'that app' : 'them'} and then ${props.app.name} with ${gone}; ${n === 1 ? 'it stops' : 'they stop'} reaching ${props.app.name}. To point ${n === 1 ? 'it' : 'them'} somewhere else instead, open ${n === 1 ? 'its' : 'their'} variables. This cannot be undone.`
 })
 </script>
 
 <template>
   <ConfirmDialog
     v-model:open="open"
-    :title="blocked ? `${app.name} is in use` : `Delete ${app.name} for good?`"
+    :title="inUse ? `${app.name} is in use` : `Delete ${app.name} for good?`"
     :description="description"
-    confirm-label="Delete app"
+    :confirm-label="inUse ? 'Remove these variables and delete' : 'Delete app'"
     :type-to-confirm="app.slug"
-    :blocked="blocked"
     :loading="del.isPending.value"
     @confirm="del.mutate()"
   >
-    <ul v-if="blocked" class="divide-y rounded-lg border text-sm" data-testid="app-dependents">
+    <ul v-if="inUse" class="divide-y rounded-lg border text-sm" data-testid="app-dependents">
       <li v-for="d in dependents" :key="d.slug" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
         <Cable class="size-3.5 shrink-0 text-muted-foreground" />
         <span class="font-mono font-medium">{{ d.alias }}</span>

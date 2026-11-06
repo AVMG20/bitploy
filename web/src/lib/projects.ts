@@ -90,7 +90,8 @@ export function appRole(app: App, templates: readonly ServiceTemplate[] = []): A
   if (app.template) {
     const fromImage = serviceRole({ name: aliasOf(app), kind: 'image', image: tpl?.image ?? first?.image ?? app.template, public: false, port: app.port })
     const key = (tpl && CATEGORY_ROLE[tpl.category]) || fromImage.key
-    const v = major(tpl?.version ?? '') || major(imageParts(first?.image ?? tpl?.image).tag)
+    // The version it runs (18.4), the same one its Database tab shows; a newer template version shows as "18.6 available".
+    const v = app.template_version || major(tpl?.version ?? '') || major(imageParts(first?.image ?? tpl?.image).tag)
     const product = tpl ? `${tpl.name}${v ? ` ${v}` : ''}` : fromImage.product
     return { key, ...labelOf(key), product, lane: laneOf(key, false) }
   }
@@ -369,10 +370,65 @@ export function connectable(apps: readonly App[]): App[] {
   return apps.filter((a) => !a.template)
 }
 
-/** Ticked at first: the project's main public app. */
-export function defaultConnect(project: Pick<Project, 'apps'>): string[] {
+/** Ticked at first: the project's main public app, unless it already has the variable (`skip`). */
+export function defaultConnect(project: Pick<Project, 'apps'>, skip: readonly string[] = []): string[] {
   const main = mainApp({ apps: connectable(project.apps) })
-  return main && isPublicApp(main) ? [main.slug] : []
+  return main && isPublicApp(main) && !skip.includes(main.slug) ? [main.slug] : []
+}
+
+/**
+ * The variable an app already sets for all its services, like DATABASE_URL:
+ * connecting a new database to it would have to replace it, so the server
+ * refuses (connect_to_var_set) and the dialog does not tick it.
+ */
+export function sharedVar(vars: readonly EnvVar[] | undefined, name: string): EnvVar | undefined {
+  if (!name) return undefined
+  return vars?.find((v) => v.name === name && !v.service)
+}
+
+/**
+ * Where a variable of the app points, in words: "postgres" for
+ * ${{postgres.DATABASE_URL}}, else "" (its own value, or not loaded).
+ */
+export function varSource(v: Pick<EnvVar, 'references' | 'masked'> | undefined): string {
+  if (!v) return ''
+  return [...new Set(envReferences(v).map((r) => r.app))].join(', ')
+}
+
+/**
+ * The project already runs this kind of service: a template app or a compose
+ * service that is a database (or cache, or search engine). The canvas does not
+ * suggest adding a second one.
+ */
+export function projectHasRole(apps: readonly App[], key: RoleKey, templates: readonly ServiceTemplate[] = []): boolean {
+  return apps.some((a) => appRole(a, templates).key === key || (isMulti(a) && a.services.some((s) => serviceRole(s).key === key)))
+}
+
+// ---------------------------------------------------------------- public port
+
+/** "57 min", "3 h", "2 days": how long until a time, for "closes in ...". */
+function untilText(at: string, now: number): string {
+  const min = Math.max(1, Math.round((Date.parse(at) - now) / 60_000))
+  if (min < 60) return `${min} min`
+  const h = Math.round(min / 60)
+  if (h < 48) return `${h} h`
+  return `${Math.round(h / 24)} days`
+}
+
+/**
+ * An open public port in a few words, for the card and the header:
+ * "Public at 203.0.113.5:30001, closes in 57 min". null while it is closed.
+ */
+export function publicPortText(app: Pick<App, 'public_port'>, now = Date.now()): { text: string; title: string } | null {
+  const p = app.public_port
+  if (!p?.enabled) return null
+  const at = p.address || (p.host && p.port ? `${p.host}:${p.port}` : '')
+  const closes = p.expires_at ? (Date.parse(p.expires_at) > now ? `closes in ${untilText(p.expires_at, now)}` : 'closing') : 'open until you close it'
+  const who = p.allow_from.length ? `Only ${p.allow_from.join(', ')} can connect.` : 'Anyone on the internet can try to connect.'
+  return {
+    text: `Public${at ? ` at ${at}` : ''}, ${closes}`,
+    title: `A public port is open${at ? ` at ${at}` : ''}. ${who}${p.running ? '' : ' It is not forwarding connections right now.'} Close it in Settings when you are done.`,
+  }
 }
 
 // ---------------------------------------------------------------- the Docker box

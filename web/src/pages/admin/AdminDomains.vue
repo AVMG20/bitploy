@@ -102,7 +102,7 @@ function who(d: AppDomain): string {
 }
 function certInfo(d: AppDomain): { label: string; tone: string } {
   if (d.certificate === 'install') return { label: 'Set up with bitploy', tone: 'text-muted-foreground' }
-  if (d.certificate === 'none' || !d.cert_expires_at) return { label: 'None, fine for Full', tone: 'text-muted-foreground' }
+  if (d.certificate === 'none' || !d.cert_expires_at) return { label: 'No certificate needed for Full', tone: 'text-muted-foreground' }
   const until = new Date(d.cert_expires_at)
   const soon = until.getTime() - Date.now() < 30 * 86_400_000
   return { label: `Valid until ${until.toLocaleDateString()}`, tone: soon ? 'text-destructive' : 'text-muted-foreground' }

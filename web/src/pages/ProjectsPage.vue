@@ -26,6 +26,31 @@ const templates = useServiceTemplates()
 const usage = computed(() => me.data.value?.usage)
 const quota = computed(() => me.data.value?.quota)
 const storageTaken = computed(() => (usage.value ? usage.value.files_mb + usage.value.backups_mb + usage.value.volume_reserved_mb : 0))
+// An admin can let someone use more memory and CPU than the limits: nothing is checked, so there is no "of" and no bar.
+const unlimited = computed(() => !!quota.value?.overallocate)
+const isAdmin = computed(() => me.data.value?.user.role === 'admin')
+/** What to do when over a limit: an admin raises their own, everyone else asks. */
+function overText(what: string, fix: string): string {
+  return `Over your ${what} limit. ${fix}, or ${isAdmin.value ? 'raise your limit in Admin, People' : 'ask your admin for more'}.`
+}
+const memAlert = computed(() =>
+  usage.value && quota.value && !unlimited.value && usage.value.memory_reserved_mb > quota.value.memory_mb
+    ? overText('memory', 'New deploys that need more memory fail. Lower the memory of an app or stop one')
+    : '',
+)
+const cpuAlert = computed(() =>
+  usage.value && quota.value && !unlimited.value && usage.value.cpu_reserved_millis > quota.value.cpu_millis
+    ? overText('CPU', 'New deploys that need more CPU fail. Lower the CPU of an app or stop one')
+    : '',
+)
+const storageAlert = computed(() =>
+  usage.value && quota.value && storageTaken.value > quota.value.volume_mb ? overText('storage', 'Delete old backups or saved files') : '',
+)
+const appsAlert = computed(() =>
+  usage.value && quota.value && usage.value.apps > quota.value.apps ? overText('apps', 'Delete the apps you no longer need before adding one') : '',
+)
+// A first visit with no projects: the cards would only show zeros.
+const showStats = computed(() => projects.isPending.value || all.value.length > 0)
 
 const search = useQueryParam('q', '')
 const all = computed(() => projects.data.value?.projects ?? [])
@@ -53,11 +78,13 @@ function openOnly() {
   if (shown.value.length === 1) void router.push(projectRoute(shown.value[0]!.id))
 }
 
+// The same choices, names and words as the first step of New project.
 const SOURCES = [
-  { key: 'github', icon: Github, title: 'GitHub repository', text: 'Pick a repository. bitploy works out how to build it.' },
-  { key: 'upload', icon: Upload, title: 'Upload a folder', text: 'Drop a folder or a .zip with your code.' },
-  { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste one, or a Docker image name.' },
-  { key: 'ready-made', icon: Boxes, title: 'Ready-made app', text: 'Open-source apps, set up for you.' },
+  { key: 'github', icon: Github, title: 'GitHub', text: 'Pick a repository. bitploy works out how to build it.' },
+  { key: 'upload', icon: Upload, title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.' },
+  { key: 'dockerfile', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.' },
+  { key: 'image', icon: Container, title: 'Docker image', text: 'A published image, like nginx:1.27 or ghcr.io/owner/app.' },
+  { key: 'ready-made', icon: Boxes, title: 'Ready-made', text: 'Well-known apps set up for you, like Uptime Kuma, Vaultwarden or PocketBase.' },
 ] as const
 function sourceTo(key: string) {
   return key === 'ready-made' ? { name: 'ready-made' } : { name: 'new-app', query: { source: key } }
@@ -70,32 +97,36 @@ function sourceTo(key: string) {
       <Button v-if="all.length" as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New project</RouterLink></Button>
     </PageHeader>
 
-    <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <!-- Memory and CPU count the limits of all your apps (what each may use at most), not what they use right now. -->
+    <div v-if="showStats" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       <StatCard
         title="Memory"
         :loading="me.isPending.value"
         :value="usage ? formatMB(usage.memory_reserved_mb) : ''"
-        :suffix="quota ? `of ${formatMB(quota.memory_mb)} reserved` : ''"
-        :progress="usage && quota ? pct(usage.memory_reserved_mb, quota.memory_mb) : undefined"
-        :sub="usage ? `Your apps use ${formatMB(usage.memory_used_mb)} right now.` : ''"
-        hint="Each app reserves its own memory limit, databases included."
+        :suffix="quota && !unlimited ? `of ${formatMB(quota.memory_mb)} allowed` : ''"
+        :progress="usage && quota && !unlimited ? pct(usage.memory_reserved_mb, quota.memory_mb) : undefined"
+        :sub="usage ? `${unlimited ? 'No limit on memory and CPU for you. ' : ''}Your apps use ${formatMB(usage.memory_used_mb)} right now.` : ''"
+        :alert="memAlert"
+        hint="The memory limits of all your apps added up, databases included. Each app can use up to its limit."
       />
       <StatCard
         title="CPU"
         :loading="me.isPending.value"
         :value="usage ? formatCPUMillis(usage.cpu_reserved_millis).replace(' CPU', '') : ''"
-        :suffix="quota ? `of ${formatCPUMillis(quota.cpu_millis)} reserved` : ''"
-        :progress="usage && quota ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
-        :sub="usage ? `Your apps use ${formatCPU(cpuFromPercent(usage.cpu_now_percent))} right now.` : ''"
-        :hint="`Each app reserves its own CPU limit. ${CPU_HINT}`"
+        :suffix="quota && !unlimited ? `of ${formatCPUMillis(quota.cpu_millis)} allowed` : 'CPU'"
+        :progress="usage && quota && !unlimited ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
+        :sub="usage ? `${unlimited ? 'No limit on memory and CPU for you. ' : ''}Your apps use ${formatCPU(cpuFromPercent(usage.cpu_now_percent))} right now.` : ''"
+        :alert="cpuAlert"
+        :hint="`The CPU limits of all your apps added up. ${CPU_HINT}`"
       />
       <StatCard
         title="Storage"
         :loading="me.isPending.value"
         :value="usage ? formatMB(storageTaken) : ''"
-        :suffix="quota ? `of ${formatMB(quota.volume_mb)} taken` : ''"
+        :suffix="quota ? `of ${formatMB(quota.volume_mb)} allowed` : ''"
         :progress="usage && quota ? pct(storageTaken, quota.volume_mb) : undefined"
-        :sub="usage ? (usage.volume_reserved_mb ? `Includes ${formatMB(usage.volume_reserved_mb)} set aside for saved files.` : 'App files and backups.') : ''"
+        :sub="usage ? (usage.volume_reserved_mb ? `Includes ${formatMB(usage.volume_reserved_mb)} kept free for saved files.` : 'App files and backups.') : ''"
+        :alert="storageAlert"
       />
       <StatCard
         title="Apps"
@@ -104,6 +135,7 @@ function sourceTo(key: string) {
         :suffix="quota ? `of ${quota.apps} allowed` : ''"
         :progress="usage && quota ? pct(usage.apps, quota.apps) : undefined"
         :sub="usage ? `${usage.apps_running} running, ${usage.deploys_week} deploys this week` : ''"
+        :alert="appsAlert"
         hint="Databases and caches count as apps."
       />
     </div>
@@ -120,7 +152,7 @@ function sourceTo(key: string) {
         <h2 id="first-project" class="text-xl font-semibold tracking-tight">Deploy your first project</h2>
         <p class="text-sm text-muted-foreground">Where is your code? You can add a database or more apps to the project afterwards.</p>
       </div>
-      <div class="grid w-full max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid w-full max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <RouterLink
           v-for="s in SOURCES"
           :key="s.key"

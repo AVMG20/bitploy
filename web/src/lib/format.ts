@@ -255,8 +255,11 @@ export function hostOf(url: string): string {
   }
 }
 
-/** Plain-words description of where a deployment's code came from. */
-export function describeSource(d: Deployment, app?: App | null): string {
+/**
+ * Plain-words description of where a deployment's code came from. With the
+ * app's deployments, a step back names the version it went back to.
+ */
+export function describeSource(d: Deployment, app?: App | null, list?: Deployment[]): string {
   switch (d.source_kind) {
     case 'git': {
       const gs = app?.git_source
@@ -268,8 +271,10 @@ export function describeSource(d: Deployment, app?: App | null): string {
       return 'Uploaded folder (zip)'
     case 'files':
       return 'Files sent by an assistant'
-    case 'rollback':
-      return d.source_ref ? `Rollback to ${d.source_ref}` : 'Rollback to an earlier version'
+    case 'rollback': {
+      const to = d.source_ref ? list?.find((x) => x.id === d.source_ref) : undefined
+      return to ? `Went back to ${versionLabel(to.seq).toLowerCase()}` : 'Went back to an earlier version'
+    }
     default:
       return d.source_kind
   }

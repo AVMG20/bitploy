@@ -25,15 +25,18 @@ import UserDomainsSelect from './UserDomainsSelect.vue'
 // The server does not let an admin suspend their own account, so that row has no Suspend.
 const { user: self } = useSession()
 
+// Memory and storage are entered in GB, the unit the tables show; the API takes MB.
 interface QuotaForm {
   apps: number
-  memory_mb: number
+  memory_gb: number
   cpus: number
   deploys_per_hour: number
   domains_per_app: number
-  volume_mb: number
+  volume_gb: number
   overallocate: boolean
 }
+const toGB = (mb: number) => Math.round((mb / 1024) * 100) / 100
+const toMB = (gb: number) => Math.round(gb * 1024)
 
 const qc = useQueryClient()
 const users = useQuery({ queryKey: keys.adminUsers, queryFn: api.adminUsers, refetchInterval: 15_000 })
@@ -51,36 +54,38 @@ const form = useForm({
   validationSchema: toTypedSchema(
     z.object({
       apps: whole('Apps', 0),
-      memory_mb: whole('Memory', 64),
-      cpus: z.coerce.number({ invalid_type_error: 'CPU: enter a number.' }).min(0.1, 'CPU: at least 0.1.'),
+      memory_gb: z.coerce.number({ invalid_type_error: 'Memory: enter a number.' }).min(0.0625, 'Memory: at least 0.0625 GB (64 MB).'),
+      cpus: z.coerce.number({ invalid_type_error: 'CPU cores: enter a number.' }).min(0.1, 'CPU cores: at least 0.1.'),
       deploys_per_hour: whole('Deploys per hour', 1),
       domains_per_app: whole('Domains', 0),
-      volume_mb: whole('Storage', 0),
+      volume_gb: z.coerce.number({ invalid_type_error: 'Storage: enter a number.' }).min(0, 'Storage: at least 0.'),
       overallocate: z.boolean(),
     }),
   ),
-  initialValues: { apps: 10, memory_mb: 2048, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600, overallocate: false },
+  initialValues: { apps: 10, memory_gb: 2, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_gb: 25, overallocate: false },
 })
 
+// Memory and CPU come last, next to the switch that turns their check off.
 const fields = [
-  { name: 'apps', label: 'Apps' },
-  { name: 'memory_mb', label: 'Memory in total (MB)' },
-  { name: 'cpus', label: 'CPU in total' },
-  { name: 'deploys_per_hour', label: 'Deploys per hour' },
-  { name: 'domains_per_app', label: 'Custom domains per app' },
-  { name: 'volume_mb', label: 'Storage in total (MB)' },
+  { name: 'apps', label: 'Apps', hint: '' },
+  { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
+  { name: 'domains_per_app', label: 'Custom domains per app', hint: '' },
+  { name: 'volume_gb', label: 'Storage in total (GB)', hint: '' },
+  { name: 'memory_gb', label: 'Memory in total (GB)', hint: '' },
+  { name: 'cpus', label: 'CPU cores in total', hint: '1 is one processor core; 0.5 is half of one.' },
 ] as const
+const unchecked = (name: string) => !!form.values.overallocate && (name === 'memory_gb' || name === 'cpus')
 
 function edit(u: AdminUser) {
   editing.value = u
   form.resetForm({
     values: {
       apps: u.quota.apps,
-      memory_mb: u.quota.memory_mb,
+      memory_gb: toGB(u.quota.memory_mb),
       cpus: u.quota.cpu_millis / 1000,
       deploys_per_hour: u.quota.deploys_per_hour,
       domains_per_app: u.quota.domains_per_app,
-      volume_mb: u.quota.volume_mb,
+      volume_gb: toGB(u.quota.volume_mb),
       overallocate: !!u.quota.overallocate,
     },
   })
@@ -91,11 +96,11 @@ const saveQuota = useMutation({
     api.updateUser(v.id, {
       quota: {
         apps: v.values.apps,
-        memory_mb: v.values.memory_mb,
+        memory_mb: toMB(v.values.memory_gb),
         cpu_millis: Math.round(v.values.cpus * 1000),
         deploys_per_hour: v.values.deploys_per_hour,
         domains_per_app: v.values.domains_per_app,
-        volume_mb: v.values.volume_mb,
+        volume_mb: toMB(v.values.volume_gb),
         overallocate: v.values.overallocate,
       },
     }),
@@ -139,7 +144,7 @@ const setStatus = useMutation({
           <TableRow>
             <TableHead>Person</TableHead>
             <TableHead>Apps</TableHead>
-            <TableHead>Memory reserved</TableHead>
+            <TableHead>Memory for apps</TableHead>
             <TableHead class="hidden md:table-cell">This month</TableHead>
             <TableHead class="w-0" />
           </TableRow>
@@ -155,7 +160,10 @@ const setStatus = useMutation({
               <p class="text-xs text-muted-foreground">{{ u.email }}</p>
             </TableCell>
             <TableCell class="tabular-nums">{{ u.app_count }} / {{ u.quota.apps }}<span class="block text-xs text-muted-foreground">{{ u.usage.apps_running }} running</span></TableCell>
-            <TableCell class="tabular-nums">{{ formatMB(u.usage.memory_reserved_mb) }} / {{ formatMB(u.quota.memory_mb) }}</TableCell>
+            <TableCell class="tabular-nums">
+              <span class="whitespace-nowrap">{{ formatMB(u.usage.memory_reserved_mb) }}<template v-if="!u.quota.overallocate"> / {{ formatMB(u.quota.memory_mb) }}</template></span>
+              <Badge v-if="u.quota.overallocate" variant="secondary" class="ml-1.5" title="Memory and CPU are not checked for this person: not against a limit and not against what the server has free.">No limit</Badge>
+            </TableCell>
             <TableCell class="hidden text-xs text-muted-foreground md:table-cell">
               {{ u.usage.deploys_month }} deploys<br />
               {{ Math.round(u.usage.build_minutes_month) }} build min<br />
@@ -184,8 +192,10 @@ const setStatus = useMutation({
         <form id="quota-form" class="grid gap-3 sm:grid-cols-2" novalidate @submit.prevent="submit">
           <FormField v-for="f in fields" :key="f.name" v-slot="{ componentField }" :name="f.name">
             <FormItem>
-              <FormLabel>{{ f.label }}</FormLabel>
-              <FormControl><Input type="number" step="any" inputmode="decimal" v-bind="componentField" /></FormControl>
+              <FormLabel :class="unchecked(f.name) && 'text-muted-foreground'">{{ f.label }}</FormLabel>
+              <FormControl><Input type="number" step="any" inputmode="decimal" v-bind="componentField" :disabled="unchecked(f.name)" /></FormControl>
+              <FormDescription v-if="unchecked(f.name)">Not checked: overallocating is on.</FormDescription>
+              <FormDescription v-else-if="f.hint">{{ f.hint }}</FormDescription>
               <FormMessage />
             </FormItem>
           </FormField>

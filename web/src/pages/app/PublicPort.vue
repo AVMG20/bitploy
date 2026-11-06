@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
@@ -47,7 +46,7 @@ const description = computed(() =>
 // ---------------------------------------------------------------- the form (opening, or changing while open)
 const formOpen = ref(false)
 const closeAfter = ref<CloseAfter>('1h')
-const who = ref<'anyone' | 'me' | 'list'>('anyone')
+const who = ref<'anyone' | 'me' | 'list'>('me')
 const allowText = ref('')
 const service = ref('')
 const CLOSE_CHOICES: { value: CloseAfter; label: string }[] = [
@@ -56,15 +55,16 @@ const CLOSE_CHOICES: { value: CloseAfter; label: string }[] = [
   { value: 'never', label: 'Never' },
 ]
 const WHO_CHOICES = [
-  { value: 'anyone', label: 'Anyone' },
   { value: 'me', label: 'Only my IP' },
   { value: 'list', label: 'These addresses' },
+  { value: 'anyone', label: 'Anyone' },
 ] as const
 
 function resetForm() {
   const p = pp.value
   closeAfter.value = isOpen.value && !p?.expires_at ? 'never' : '1h'
-  who.value = p?.allow_from.length ? 'list' : 'anyone'
+  // Opening: only this computer by default, the safest choice. Open: what is set now.
+  who.value = p?.allow_from.length ? 'list' : isOpen.value ? 'anyone' : 'me'
   allowText.value = (p?.allow_from ?? []).join(', ')
   service.value = p?.service || candidates.value[0]?.name || ''
 }
@@ -176,17 +176,18 @@ const visible = computed(() => !!pp.value && (pp.value.enabled || pp.value.avail
         None of its services has a known port. Add one with expose in the compose file and deploy.
       </p>
       <template v-else>
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="public-port-state">
           <div class="min-w-0 text-sm">
-            <p class="font-medium">{{ isOpen ? 'Open' : 'Off' }}</p>
+            <p class="font-medium">{{ isOpen ? 'Open' : formOpen ? 'Not open yet' : 'Closed' }}</p>
             <p class="text-xs text-muted-foreground">
               <template v-if="isOpen && pp.expires_at">Closes by itself <RelativeTime :date="pp.expires_at" />.</template>
               <template v-else-if="isOpen">Stays open until you close it.</template>
-              <template v-else-if="formOpen">Nothing is open until you click Open port.</template>
+              <template v-else-if="formOpen">Pick who can connect, then press Open port. Until then only the apps of its project can reach it.</template>
               <template v-else>Only the apps of its project can reach it.</template>
             </p>
           </div>
-          <Switch :model-value="isOpen || formOpen" :disabled="busy" aria-label="Public port" @update:model-value="(v) => toggle(v === true)" />
+          <Button v-if="!isOpen && formOpen" variant="ghost" size="sm" :disabled="busy" @click="toggle(false)">Cancel</Button>
+          <Button v-else-if="!isOpen" variant="outline" size="sm" :disabled="busy" @click="toggle(true)">Open a port</Button>
         </div>
 
         <!-- Open: where to connect. -->

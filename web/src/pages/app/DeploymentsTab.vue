@@ -19,8 +19,9 @@ import { commitUrl, deployedVia, deploymentStateInfo, describeSource, formatDura
 import { toastError, toastOk } from '@/lib/notify'
 import type { Deployment, DeploymentService } from '@/lib/types'
 import ServiceIcon from '@/components/ServiceIcon.vue'
-import { aboutService, isMulti, serviceRole } from '@/lib/services'
+import { isMulti, serviceRole } from '@/lib/services'
 import CancelBuildButton from './CancelBuildButton.vue'
+import DeployFailure from './DeployFailure.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
@@ -53,6 +54,14 @@ const rollback = useMutation({
     void qc.invalidateQueries({ queryKey: keys.apps })
   },
   onError: (e) => toastError(e),
+})
+
+// What going back does, and that a push to the linked branch builds the newest code again.
+const goBackText = computed(() => {
+  const gs = app.data.value?.git_source
+  const base = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again. You can switch back to the current version later.`
+  if (gs?.auto_deploy) return `${base} The next push to ${gs.branch} on GitHub builds and deploys your newest code again.`
+  return base
 })
 
 // Every new version shows up here; how you send one depends on where the code is.
@@ -134,22 +143,20 @@ function serviceState(d: Deployment, s: DeploymentService) {
           </div>
         </div>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span>{{ describeSource(d, app.data.value) }}</span>
+          <span>{{ describeSource(d, app.data.value, list.data.value) }}</span>
           <span v-if="d.commit_sha">
             <a v-if="commitUrl(app.data.value, d.commit_sha)" :href="commitUrl(app.data.value, d.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-foreground hover:underline">{{ shortSha(d.commit_sha) }}</a>
             <span v-else class="font-mono">{{ shortSha(d.commit_sha) }}</span>
             <span v-if="d.commit_message" class="ml-1.5">{{ d.commit_message }}</span>
           </span>
         </div>
-        <div v-if="d.error && d.state !== 'cancelled'" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-          <p class="font-medium">{{ multi ? aboutService(d.error.message, d.error.service) : d.error.message }}</p>
-          <p v-if="plainHint(d.error.code, d.error.hint)" class="mt-1">{{ plainHint(d.error.code, d.error.hint) }}</p>
+        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi">
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
             <div class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs leading-relaxed text-foreground"><LogLines :lines="d.log_tail" /></div>
           </details>
           <CopyForAiButton v-if="d.state === 'failed' && app.data.value" class="mt-3" :app="app.data.value" :deployment="d" />
-        </div>
+        </DeployFailure>
         <details v-if="multi && d.services?.length" class="group rounded-lg border" :open="d.services.some((s) => !!s.error) || undefined">
           <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
             <ChevronRight class="size-4 transition-transform group-open:rotate-90" aria-hidden="true" />
@@ -186,7 +193,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
     <ConfirmDialog
       v-model:open="confirmOpen"
       title="Go back to this version?"
-      :description="`Your app runs ${versionLabel(target?.seq).toLowerCase()} again. You can switch back to the current version later.`"
+      :description="goBackText"
       confirm-label="Go back"
       :loading="rollback.isPending.value"
       @confirm="target && rollback.mutate(target)"

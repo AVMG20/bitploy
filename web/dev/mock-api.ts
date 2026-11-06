@@ -592,7 +592,12 @@ function makeApp(s: AppSeed): App {
     if (a.slug === 'shop-web' && i === n - 1) {
       list.unshift(
         deployment(a, i, 'failed', 60 * 24 * (n - i) + 90, {
-          error: { code: 'build_failed', message: 'The build failed.', hint: 'The last log lines say which step went wrong.' },
+          // As the server words it: BuildFailureSummary puts the cause after "The build failed: ".
+          error: {
+            code: 'build_failed',
+            message: 'The build failed: src/pages/Checkout.tsx (14:9): "formatPrice" is not exported by "src/lib/money.ts", imported by "src/pages/Checkout.tsx".',
+            hint: 'Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again.',
+          },
           log_tail: FAILED_BUILD_LOG.slice(-14),
         }),
       )
@@ -619,8 +624,14 @@ function syncRefs(a: App) {
   a.references = [...aliases]
 }
 
-function seedEnv(slug: string, vars: { name: string; value?: string; masked?: string; service?: string }[]) {
-  env[slug] = vars.map((v) => ({ name: v.name, masked: v.masked ?? MASK, references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
+/** EnvVar.masked as the server words it: all dots, or the references with dots for the text around them. */
+function maskOf(value: string | undefined): string {
+  if (!value || !refsOf(value)) return MASK
+  return value.split(/(\$\{\{[^}]+\}\})/).map((p) => (p.startsWith('${{') ? p : p ? '••••' : '')).join('')
+}
+
+function seedEnv(slug: string, vars: { name: string; value?: string; service?: string }[]) {
+  env[slug] = vars.map((v) => ({ name: v.name, masked: maskOf(v.value), references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
 }
 
 apps.push(
@@ -719,7 +730,7 @@ seedEnv('shop-web', [
 seedEnv('shop-api', [
   { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
   { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
-  { name: 'STRIPE_KEY', masked: 'sk_l••••' },
+  { name: 'STRIPE_KEY' },
 ])
 seedEnv('shop-postgres', ['DATABASE_URL', 'PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE'].map((name) => ({ name })))
 seedEnv('shop-redis', ['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'VALKEY_URL'].map((name) => ({ name })))
@@ -751,7 +762,8 @@ function uniqueSlug(base: string): string {
 function startDeploy(app: App, kind: Deployment['source_kind'] = 'upload'): Deployment {
   const list = deployments[app.slug] ?? (deployments[app.slug] = [])
   const seq = (list[0]?.seq ?? 0) + 1
-  const d = deployment(app, seq, 'queued', 0, { source_kind: kind, finished_at: null, duration_seconds: null, started_at: null })
+  // Going back is done from the dashboard (or by an assistant), never by a push.
+  const d = deployment(app, seq, 'queued', 0, { source_kind: kind, finished_at: null, duration_seconds: null, started_at: null, ...(kind === 'rollback' ? { channel: 'dashboard' } : {}) })
   list.unshift(d)
   app.status = 'deploying'
   const steps: [number, DeploymentState][] = [
@@ -1121,6 +1133,8 @@ const sessions: Session[] = [
   { id: 'ses_phone', current: false, ip: '198.51.100.23', user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', created_at: ago(60 * 24 * 3), last_seen_at: ago(60 * 7) },
 ]
 
+// What PATCH /admin/users/{id} changed (adminUsers() builds the list fresh each time).
+const userEdits: Record<string, { status?: AdminUser['status']; quota?: Partial<AdminUser['quota']> }> = {}
 function adminUsers(): AdminUser[] {
   const m = me()
   const people: [string, string, string, 'user' | 'admin', 'active' | 'suspended', number][] = [
@@ -1134,10 +1148,10 @@ function adminUsers(): AdminUser[] {
     email,
     name,
     role,
-    status,
+    status: userEdits[id]?.status ?? status,
     created_at: ago(60 * 24 * (90 - i * 20)),
     // The admin runs the demo projects and has room for them.
-    quota: role === 'admin' ? { ...m.quota, apps: 30, memory_mb: 8192 } : m.quota,
+    quota: { ...(role === 'admin' ? { ...m.quota, apps: 30, memory_mb: 8192 } : m.quota), ...userEdits[id]?.quota },
     usage: {
       ...m.usage,
       apps: count,
@@ -1291,6 +1305,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
 
   if (noProjects && (parts[0] === 'projects' || parts[0] === 'service-templates')) throw new HttpError(404, 'not_found', 'Not found.')
 
+  if (method === 'PATCH' && parts[0] === 'admin' && parts[1] === 'users' && parts[2] && !parts[3]) {
+    if (!adminUsers().some((u) => u.id === parts[2])) throw new HttpError(404, 'not_found', 'No such person.')
+    const e = (userEdits[parts[2]] ??= {})
+    if (body.status === 'active' || body.status === 'suspended') e.status = body.status
+    if (body.quota && typeof body.quota === 'object') e.quota = { ...e.quota, ...(body.quota as Partial<AdminUser['quota']>) }
+    return send(res, 200, adminUsers().find((u) => u.id === parts[2]))
+  }
+
   // DELETE /admin/public-ports/{app}: the router only knows ids after apps, projects, catalog and deployments.
   if (method === 'DELETE' && parts[0] === 'admin' && parts[1] === 'public-ports' && parts[2]) {
     const a = needApp(parts[2])
@@ -1397,6 +1419,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       const alias = slugish(String(body.name || tpl.id))
       if (apps.some((a) => a.project?.id === row.id && (a.alias || a.slug) === alias))
         throw new HttpError(409, 'alias_taken', `${row.name} already has an app called ${alias}.`, 'Pick another name, like ' + alias + '-2.')
+      // Like the server: connecting never replaces a variable the app already has.
+      for (const target of (body.connect_to as string[] | undefined) ?? []) {
+        const t = findApp(target)
+        if (t && (env[t.slug] ?? []).some((v) => v.name === tpl.main_var && !v.service))
+          throw new HttpError(409, 'connect_to_var_set', `The app ${t.slug} already has a variable ${tpl.main_var}.`, `Remove it with set_env unset=[${tpl.main_var}] and add the service again, or set ${tpl.main_var}=\${{${alias}.${tpl.main_var}}} yourself after adding it.`)
+      }
       const slug = uniqueSlug(`${slugish(row.name)}-${alias}`)
       const a = blankApp(alias, slug, row.id, {
         type: 'worker',
@@ -1422,8 +1450,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         const list = (env[t.slug] ??= [])
         const ref = `\${{${alias}.${tpl.main_var}}}`
         const existing = list.find((v) => v.name === tpl.main_var && !v.service)
-        if (existing) Object.assign(existing, { masked: MASK, references: [ref], updated_at: new Date().toISOString() })
-        else list.push({ name: tpl.main_var, masked: MASK, references: [ref], service: '', updated_at: new Date().toISOString() })
+        if (existing) Object.assign(existing, { masked: ref, references: [ref], updated_at: new Date().toISOString() })
+        else list.push({ name: tpl.main_var, masked: ref, references: [ref], service: '', updated_at: new Date().toISOString() })
         syncRefs(t)
         if (t.status === 'running') startDeploy(t, 'rollback')
       }
@@ -1572,7 +1600,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       for (const [name, value] of Object.entries((body.set as Record<string, string>) ?? {})) {
         const isRef = /\$\{\{/.test(value)
         const v = list.find((x) => x.name === name && x.service === svc)
-        const next = { masked: isRef ? MASK : value.length > 4 ? `${value.slice(0, 2)}••••` : MASK, references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
+        const next = { masked: maskOf(value), references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
         if (v) Object.assign(v, next)
         else list.push({ name, service: svc, ...next })
       }

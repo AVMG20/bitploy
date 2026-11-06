@@ -22,7 +22,8 @@ const busy = ref(false)
 const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
     z.object({
-      email: z.string().trim().min(1, 'Enter your email address.').email('That does not look like an email address.'),
+      // Only the shape: the server knows which addresses have an account (a@b.c can be one).
+      email: z.string().trim().min(1, 'Enter your email address.').regex(/^[^\s@]+@[^\s@]+$/, 'An email address has an @ in it, like ada@example.com.'),
       password: z.string().min(1, 'Enter your password.'),
     }),
   ),
@@ -45,7 +46,7 @@ const submit = handleSubmit(async (values) => {
 </script>
 
 <template>
-  <AuthShell title="Log in" description="Log in to see your projects.">
+  <AuthShell title="Log in" description="With the email address and password of your bitploy account.">
     <form class="grid gap-4" novalidate @submit.prevent="submit">
       <Alert v-if="failure" variant="destructive">
         <AlertTitle>{{ failure.message }}</AlertTitle>

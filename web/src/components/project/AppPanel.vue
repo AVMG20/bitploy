@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { Archive, ArrowUpCircle, ArrowUpRight, Cable, ExternalLink, Lock, Maximize2, Play, RefreshCw, RotateCw, Trash2, X } from 'lucide-vue-next'
+import { Archive, ArrowUpCircle, ArrowUpRight, Cable, ExternalLink, Globe, Lock, Maximize2, Play, RefreshCw, RotateCw, Trash2, X } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { keys, liveMs, useApp } from '@/composables/queries'
 import { liveBuildLogs } from '@/composables/useEvents'
 import { useAppControls } from '@/composables/useAppControls'
+import { nowMs } from '@/composables/useNow'
 import { isTyping } from '@/composables/useShortcuts'
 import { useProjectData } from '@/composables/useProjectData'
 import { api, fetchLogEntries } from '@/lib/api'
@@ -24,7 +25,8 @@ import { appRoute, projectRoute } from '@/lib/appLinks'
 import { plainHint } from '@/lib/errors'
 import { toastError } from '@/lib/notify'
 import { deploymentStateInfo, deployedVia, hostOf, shortSha } from '@/lib/format'
-import { aliasOf, envReferences, internalHostOf, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
+import { isServerDb } from '@/lib/dbvalue'
+import { aliasOf, envReferences, internalHostOf, publicPortText, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
 import CatalogUpdateDialog from '@/pages/app/CatalogUpdateDialog.vue'
 import PublicPort from '@/pages/app/PublicPort.vue'
 import UploadVersionButton from '@/pages/app/UploadVersionButton.vue'
@@ -32,7 +34,8 @@ import UploadVersionButton from '@/pages/app/UploadVersionButton.vue'
 // One app of the canvas, in a panel over it (?app=<slug>): whether it runs and
 // where, the buttons of its page, the latest deployment and the last lines of
 // its log, its variables and who it talks to. The full page has the rest.
-const props = defineProps<{ slug: string; projectId: string }>()
+// side: the canvas puts it on the left when it would cover the selected card on the right.
+const props = withDefaults(defineProps<{ slug: string; projectId: string; side?: 'left' | 'right' }>(), { side: 'right' })
 const emit = defineEmits<{ close: [] }>()
 
 const app = useApp(() => props.slug)
@@ -44,6 +47,7 @@ const talks = computed(() => (data.value ? talksTo(data.value, apps.value, links
 const users = computed(() => (data.value ? usedBy(data.value, apps.value, links.value) : []))
 const vars = computed(() => env.value[props.slug])
 const panelOf = (slug: string) => projectRoute(props.projectId, { app: slug })
+const openPort = computed(() => (data.value ? publicPortText(data.value, nowMs.value) : null))
 
 // ---------------------------------------------------------------- the latest deployment
 const deployments = useQuery({
@@ -102,8 +106,9 @@ const TABS = computed(() =>
     { name: 'app-variables', label: 'Variables' },
     { name: 'app-domains', label: 'Domains', web: true },
     { name: 'app-storage', label: 'Storage' },
+    { name: 'app-database-default', label: 'Database', db: true },
     { name: 'app-settings', label: 'Settings' },
-  ].filter((t) => !t.web || isWeb.value),
+  ].filter((t) => (!t.web || isWeb.value) && (!t.db || isServerDb(data.value))),
 )
 
 const updateOpen = ref(false)
@@ -129,7 +134,10 @@ watch(
     tabindex="-1"
     :aria-label="data ? `${data.name}, on the canvas` : 'App'"
     data-testid="app-panel"
-    class="fixed inset-0 z-40 flex flex-col overflow-hidden bg-background outline-none md:inset-y-2 md:right-2 md:left-auto md:w-[min(34rem,calc(100vw-1rem))] md:rounded-xl md:border md:shadow-2xl"
+    :class="[
+      'fixed inset-0 z-40 flex flex-col overflow-hidden bg-background outline-none md:inset-y-2 md:w-[min(34rem,calc(100vw-1rem))] md:rounded-xl md:border md:shadow-2xl',
+      side === 'left' ? 'md:right-auto md:left-2' : 'md:right-2 md:left-auto',
+    ]"
   >
     <!-- Header -->
     <div class="flex shrink-0 items-start gap-3 border-b px-4 py-3">
@@ -168,6 +176,9 @@ watch(
               <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="size-7 text-muted-foreground" />
               <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Lock class="size-3.5" /> Private</span>
             </template>
+            <span v-else-if="openPort" class="inline-flex min-w-0 items-center gap-1.5 font-medium text-primary" :title="openPort.title" data-testid="panel-public-port">
+              <Globe class="size-3.5 shrink-0" /> <span class="truncate">{{ openPort.text }}</span>
+            </span>
             <span v-else-if="internalHostOf(data)" class="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
               <Lock class="size-3.5 shrink-0" /> Private, at <span class="truncate font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
             </span>
@@ -180,10 +191,10 @@ watch(
             <UploadVersionButton v-else-if="primary === 'upload'" :slug="slug" variant="default" :label="dep ? 'Upload new version' : 'Upload files'" />
             <Button v-else-if="primary === 'update'" size="sm" @click="updateOpen = true"><ArrowUpCircle /> Update to {{ data.catalog_update }}</Button>
             <Button v-if="isWeb && dep" size="sm" :variant="primary === 'open' ? 'default' : 'outline'" as-child>
-              <a :href="data.url" target="_blank" rel="noopener noreferrer">{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></a>
+              <a :href="data.url" target="_blank" rel="noopener noreferrer">Open website <ExternalLink /></a>
             </Button>
-            <Button v-if="!canStart" size="sm" variant="outline" :disabled="busy || !dep" @click="restart">
-              <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
+            <Button v-if="!canStart" size="sm" variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
+              <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
             </Button>
             <Button v-if="canStart" size="sm" variant="outline" :disabled="busy" @click="actions.start.mutate()">
               <Play /> {{ actions.start.isPending.value ? 'Starting...' : 'Start' }}

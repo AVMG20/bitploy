@@ -430,7 +430,7 @@ Serve the generated spec at `/api/v1/openapi.json` and a read-only reference pag
 
 ### SQLite viewer
 
-Apps keep their data in SQLite files in /data, so the Storage tab can open one: tables and views with their columns and indexes, a data grid (paging, sorting, filters, insert, edit and delete of rows) and a SQL console. The access rules are those of the /data file browser: only the owner's own app, /data on and created, writes need the deploy scope, nothing while a backup restore runs. The dashboard offers Open for the names `.db`, `.sqlite`, `.sqlite3` and `.db3` (not the `-wal`, `-shm` and `-journal` files); the backend decides by the 16-byte header on every call (`not_sqlite`, 422). `path` is relative to /data and refused when it contains `..` or goes through a symbolic link.
+Apps keep their data in SQLite files in /data, so the Storage tab can open one: tables and views with their columns and indexes, a data grid (paging, sorting, filters, insert, edit and delete of rows) and a SQL console. The access rules are those of the /data file browser: only the owner's own app, /data on and created, writes need the deploy scope, nothing while a backup restore runs. The dashboard opens every database read-only: one "Allow changes" switch (confirmed, kept for that browser tab) turns on editing in the grid and writes in the SQL console together. The dashboard offers Open for the names `.db`, `.sqlite`, `.sqlite3` and `.db3` (not the `-wal`, `-shm` and `-journal` files); the backend decides by the 16-byte header on every call (`not_sqlite`, 422). `path` is relative to /data and refused when it contains `..` or goes through a symbolic link.
 
 | Endpoint | Body | Answer |
 | --- | --- | --- |

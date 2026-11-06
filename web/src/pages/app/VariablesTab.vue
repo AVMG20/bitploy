@@ -91,9 +91,14 @@ const serverBlurb = computed(() =>
 // ---------------------------------------------------------------- references to the other apps of the project
 const { project } = useProject(() => (app.data.value ? projectIdOf(app.data.value) : ''))
 const byAlias = computed(() => new Map((project.value?.apps ?? []).map((a) => [aliasOf(a), a])))
-/** The references in a value as chips naming the other app: ${{postgres.DATABASE_URL}} shows as postgres.DATABASE_URL. */
+/**
+ * The references in a value as chips naming the other app: ${{postgres.DATABASE_URL}}
+ * shows as postgres.DATABASE_URL. The server masks the text around them
+ * ("••••${{api.HOST}}••••"), so the row shows that there is more to the value.
+ */
 function valueParts(v: EnvVar) {
-  const parts = referenceParts(v.references?.length ? v.references.join(' ') : v.masked).filter((p) => 'ref' in p || p.text.trim())
+  const src = v.masked.includes('${{') ? v.masked : v.references?.length ? v.references.join(' ') : v.masked
+  const parts = referenceParts(src).filter((p) => 'ref' in p || p.text.trim())
   return parts.some((p) => 'ref' in p) ? parts : null
 }
 // Quick picks under the form: the main variable of each database or cache in the project.
@@ -116,7 +121,10 @@ function changed() {
   void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
 }
 const willRestart = computed(() => app.data.value?.status === 'running')
-const appliesWhen = computed(() => (willRestart.value ? 'Restart the app to use it.' : 'The app uses it the next time it starts.'))
+// On the app page the banner above the tabs asks for the restart (and the
+// Restart button shows a dot); the toast only repeats it in the service panel,
+// which covers that banner.
+const appliesWhen = computed(() => (!willRestart.value ? 'The app uses it the next time it starts.' : props.service !== undefined ? 'Restart the app to use it.' : undefined))
 
 // ---------------------------------------------------------------- search (only worth it for a longer list)
 const search = ref('')
@@ -360,6 +368,7 @@ const importAll = useMutation({
                       :title="`${part.ref.variable} of ${part.ref.app}, kept up to date by bitploy`"
                     ><span class="text-primary">{{ part.ref.app }}</span><span class="text-muted-foreground">.</span>{{ part.ref.variable }}</RouterLink>
                     <span v-else-if="'ref' in part" class="rounded-md border border-dashed px-1.5 py-0.5 text-xs" :title="`No app called ${part.ref.app} in this project`">{{ part.ref.raw }}</span>
+                    <span v-else-if="part.text.includes('•')" class="tracking-tight" title="The rest of the value is hidden, like every saved value">{{ part.text }}</span>
                     <span v-else>{{ part.text }}</span>
                   </template>
                 </span>

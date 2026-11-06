@@ -111,6 +111,11 @@ const aliasError = computed(() => {
   return ''
 })
 
+// Its own id is taken in that project: say why it is called kuma-2.
+const renamed = computed(() => {
+  const id = entry.data.value?.id ?? ''
+  return !!target.value && !aliasError.value && alias.value.trim() !== id && target.value.apps.some((x) => aliasOf(x) === id)
+})
 const bringsServices = computed(() => !!entry.data.value?.services?.length)
 const deploy = useMutation({
   mutationFn: (v: { name: string; slug: string }) =>
@@ -193,7 +198,9 @@ const submit = form.handleSubmit((v) => {
               <Label for="catalog-alias">Short name</Label>
               <Input id="catalog-alias" v-model="alias" class="font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :disabled="deploy.isPending.value" :aria-invalid="!!aliasError || undefined" @input="aliasTouched = true" />
               <p v-if="aliasError" class="text-[0.8rem] text-destructive">{{ aliasError }}</p>
-              <p v-else class="text-[0.8rem] text-muted-foreground">The other apps of {{ target.name }} reach it at this name.</p>
+              <p v-else class="text-[0.8rem] text-muted-foreground">
+                <template v-if="renamed">Named <span class="font-mono">{{ alias.trim() }}</span> because {{ target.name }} already has an app called <span class="font-mono">{{ entry.data.value.id }}</span>. </template>The other apps of {{ target.name }} reach it at this name.
+              </p>
             </div>
             <FormField v-slot="{ componentField }" name="name">
               <FormItem>

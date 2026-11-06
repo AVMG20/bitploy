@@ -47,3 +47,28 @@ export function change(cur: number | null, prev: number | null | undefined, upIs
     tone: pct > 0 !== upIsBad ? 'good' : 'bad',
   }
 }
+
+/**
+ * The change of an answer time in words people use for time: "7% slower",
+ * "3% faster". Slower is the bad direction.
+ */
+export function timeChange(cur: number | null, prev: number | null | undefined): Change | null {
+  const c = change(cur, prev, true)
+  if (!c || c.tone === 'same') return c
+  const n = c.words.replace(/^(up|down) /, '')
+  const words = `${n} ${c.words.startsWith('up') ? 'slower' : 'faster'}`
+  return { text: words, words, tone: c.tone }
+}
+
+/**
+ * The change of a rate (0.02 is 2%) in percentage points: from 1% to 2% is
+ * "↑ 1 pt", not "↑ 100%". Up is bad: it is for error rates.
+ */
+export function pointChange(cur: number, prev: number | null | undefined): Change | null {
+  if (prev === null || prev === undefined) return null
+  const pts = Math.round((cur - prev) * 1000) / 10
+  if (pts === 0) return { text: '0 pt', words: 'no change', tone: 'same' }
+  const n = `${Math.abs(pts)}`
+  const unit = Math.abs(pts) === 1 ? 'percentage point' : 'percentage points'
+  return { text: `${pts > 0 ? '↑' : '↓'} ${n} pt`, words: `${pts > 0 ? 'up' : 'down'} ${n} ${unit}`, tone: pts > 0 ? 'bad' : 'good' }
+}

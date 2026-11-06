@@ -47,3 +47,15 @@ export function addressParts(
 export function appAddress(template: string | undefined, slug: string): string {
   return (template || 'https://{slug}.example.com').replace('{slug}', slug || 'your-app')
 }
+
+/** The first address not in taken: portfolio, else portfolio-2, portfolio-3... Within the 40 characters of a subdomain. */
+export function freeSlug(base: string, taken: ReadonlySet<string> | readonly string[]): string {
+  const used = taken instanceof Set ? taken : new Set(taken)
+  if (!base || !used.has(base)) return base
+  for (let i = 2; i < 1000; i++) {
+    const end = `-${i}`
+    const c = `${base.slice(0, 40 - end.length).replace(/-+$/, '')}${end}`
+    if (!used.has(c)) return c
+  }
+  return base
+}

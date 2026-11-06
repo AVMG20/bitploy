@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { change, formatSeconds, share } from '../src/lib/traffic.ts'
+import { change, formatSeconds, pointChange, share, timeChange } from '../src/lib/traffic.ts'
+
+test('an answer time gets slower or faster, not up or down', () => {
+  assert.deepEqual(timeChange(107, 100), { text: '7% slower', words: '7% slower', tone: 'bad' })
+  assert.deepEqual(timeChange(90, 100), { text: '10% faster', words: '10% faster', tone: 'good' })
+  assert.deepEqual(timeChange(100, 100), { text: '0%', words: 'no change', tone: 'same' })
+  assert.equal(timeChange(100, null), null)
+})
+
+test('an error rate changes in percentage points', () => {
+  assert.deepEqual(pointChange(0.02, 0.01), { text: '↑ 1 pt', words: 'up 1 percentage point', tone: 'bad' })
+  assert.deepEqual(pointChange(0.005, 0.02), { text: '↓ 1.5 pt', words: 'down 1.5 percentage points', tone: 'good' })
+  assert.deepEqual(pointChange(0.0101, 0.01), { text: '0 pt', words: 'no change', tone: 'same' })
+  assert.equal(pointChange(0.01, undefined), null)
+})
 
 test('answer times read as seconds, with the slowest bucket open-ended', () => {
   assert.equal(formatSeconds(4), 'under 0.01 s')

@@ -25,12 +25,13 @@ const health = computed(() => projectHealth(apps.value))
 const usage = computed(() => projectUsage(apps.value))
 const main = computed(() => (project.value ? mainApp(project.value) : undefined))
 
+// route.fullPath too: the router sets its own title after every navigation, also when only ?app= changes.
 watch(
-  () => [project.value?.name, route.meta.title] as const,
+  () => [project.value?.name, route.meta.title, route.fullPath] as const,
   ([n, tab]) => {
     if (n) document.title = `${tab ? `${tab} - ` : ''}${n} - bitploy`
   },
-  { immediate: true },
+  { immediate: true, flush: 'post' },
 )
 
 const TABS = [
@@ -82,7 +83,7 @@ const projectForAi = computed(() => {
             {{ hostOf(main.url) }} <ArrowUpRight class="size-3 text-muted-foreground" />
           </a>
           <span v-else>No web address yet</span>
-          <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, {{ formatMB(usage.memoryMB) }} memory reserved</template></span>
+          <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, up to {{ formatMB(usage.memoryMB) }} memory</template></span>
         </template>
         <CopyForAiButton v-if="apps.length" :text="projectForAi" />
         <Button v-if="fallback && main" variant="outline" as-child><RouterLink :to="appRoute(main, 'app-settings')"><Settings2 /> Settings</RouterLink></Button>
