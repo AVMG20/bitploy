@@ -1,23 +1,20 @@
-# Left to do (written 2026-11-06)
+# Left to do (updated 2026-11-06)
 
-The 2026-11-06 audit reports are copied to `docs/audit-2026-11-06/` (security.md, ui.md, features.md).
-Three agents worked on it: backend bugs/security, UI fixes, backups + MCP tools. Their work is merged.
-Check `git log` for what landed and the notes below for anything they skipped.
+The 2026-11-06 audit reports are in `docs/audit-2026-11-06/` (security.md, ui.md, features.md).
+Everything from the earlier list has landed: app moves removed, the smaller audit fixes, the leftover UI items,
+build-time variables, MCP `build_mode: auto`, dashboard build fields, before/after-deploy commands,
+and one audit round covering a code review, the MCP flows and a beginner UI pass. Check `git log` for details.
 
-## Not started
+## Open
 
-0. **Remove moving apps between projects**: drop update_app `project` and its UI, MCP and docs. The backend agent was stopped before this.
-   Also left from the audits, unverified: compose CPU/memory upper bounds, portproxy per-IP limit and idle timeout, MySQL `--no-data` database name in dumps, `${VAR}` in compose image leaking into logs, and SPEC/README drift.
-   Check `docs/audit-2026-11-06/` against `git log` for any other gaps. The UI agent was also stopped before it finished.
-
-1. **Build-time variables**: `VITE_*` / `NEXT_PUBLIC_*` for static sites and auto builds. Pass them as build args, and use BuildKit secrets for secret values. Add them to the API, MCP and dashboard.
-2. **MCP `build_mode: auto`**: the MCP schema leaves out `auto`, which the dashboard supports.
-3. **Dashboard build fields**: port, health path, type, Dockerfile path, context dir.
-4. **Before/after-deploy hooks**: a command run in the app's container.
-   - Before: runs in the new container before the swap, e.g. migrations. A failure stops the deploy.
-   - After: runs once the swap is live.
-   - Show the output in the deploy log. Add them to the API, MCP and dashboard.
-5. **Audit rounds**: up to 3. Run an Opus audit+fix on main each time, covering the UI as a beginner, an MCP flow and a code review. Stop when a round comes back clean.
+- **Compose deploy commands**: before/after-deploy commands are refused for compose apps (`deploy_commands_unsupported`). Per-service commands would need an `x-bitploy` key and an order across services.
+- **Database tab for a compose `db` service**: the `/apps/{app}/db` endpoints only reach SQLite files in volumes and template database servers.
+- **After-deploy timeout**: Docker can't kill an exec. At 5 minutes bitploy stops waiting, but a hung command keeps running in the live container until it is replaced.
+- **Build secrets reach only the build script** in bitploy's own Node builds, not the dependency install (a private npm token isn't covered).
+- **Laravel template** still sets `DB_CONNECTION=sqlite` in the image. Its README says to override it with `set_env` when using a database service.
+- **`query_db` with a service alias** (`postgres`) instead of its slug gives a plain `app_not_found`.
+- **Dashboard leftovers from the UI audit**: the secret build variable help still says `RUN --mount=type=secret` (shown only for apps with their own Dockerfile); deploy progress on the Overview has no step for deploy commands; phone-light and desktop-dark were only spot-checked after the last fixes; mk-worker's overview showed blank once while the mock restarted (not reproduced).
+- **More audit rounds**: only one was run this time, by choice.
 
 ## Decided against or postponed
 
@@ -28,4 +25,4 @@ Check `git log` for what landed and the notes below for anything they skipped.
 
 ## Known limits
 
-- Docker paths are not integration-tested. This box can't run Docker, and GitHub CI has no minutes. Run `make test-integration` and `deploy/probe-test.sh` on a VPS.
+- Docker paths are not integration-tested. This box can't run Docker, and GitHub CI has no minutes. Run `make test-integration` and `deploy/probe-test.sh` on a VPS. This now matters more: the before-deploy one-off container, after-deploy exec output, BuildKit `--secret` builds and the public-port forwarder limits were all unit-tested only.

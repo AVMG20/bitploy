@@ -1199,8 +1199,22 @@ func TestReconcileInterruptedDeployments(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(e.s.Cfg.BuildDir("dep_building"), "f"), []byte("x"), 0o640)
 	// A pipeline that is really running in this process is left alone.
 	e.s.tryBusy("app_other", "dep_swapping", func() {})
+	// So are the files its build keeps next to its folder: the Dockerfile
+	// with the build-secret fingerprint and the folder of an image service.
+	builds := e.s.Cfg.BuildsDir()
+	for _, f := range []string{"dep_swapping-app.Dockerfile", "dep_swapping-app.Dockerfile.dockerignore", "dep_building-app.Dockerfile"} {
+		_ = os.WriteFile(filepath.Join(builds, f), []byte("x"), 0o640)
+	}
+	_ = os.MkdirAll(filepath.Join(builds, "dep_swapping-image-db"), 0o750)
 
 	e.s.Reconcile(ctx)
+
+	for f, keep := range map[string]bool{"dep_swapping-app.Dockerfile": true, "dep_swapping-app.Dockerfile.dockerignore": true,
+		"dep_swapping-image-db": true, "dep_building-app.Dockerfile": false} {
+		if _, err := os.Stat(filepath.Join(builds, f)); (err == nil) != keep {
+			t.Errorf("%s: kept=%v, want %v", f, err == nil, keep)
+		}
+	}
 
 	states := map[string]string{}
 	rows, _ := e.s.Store.DB.Query(`SELECT id, state, COALESCE(error_code, '') FROM deployments`)

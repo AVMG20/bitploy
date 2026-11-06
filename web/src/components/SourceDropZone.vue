@@ -379,7 +379,6 @@ onBeforeUnmount(() => abort?.abort())
           </p>
         </template>
       </div>
-      <p v-else-if="!composeChosen" class="text-xs text-muted-foreground">bitploy checks what is inside this zip when you deploy.</p>
     </template>
   </div>
 </template>

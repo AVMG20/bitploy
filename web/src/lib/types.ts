@@ -266,6 +266,9 @@ export interface Deployment {
   next_steps?: string[]
   /** What happened to each service in this deployment, for an app with several. */
   services?: DeploymentService[]
+
+  /** The after-deploy command of this deployment; absent when none ran. A failure is also in warnings. */
+  after_deploy?: 'pending' | 'running' | 'succeeded' | 'failed'
 }
 
 /** One service of a deployment (Deployment.services). */
@@ -292,7 +295,11 @@ export interface EnvVar {
    * stays masked.
    */
   references?: string[]
+  /** The image build gets it too: as a build argument, or as a secret. Left out: only the running app. */
+  build?: EnvBuild
 }
+
+export type EnvBuild = 'public' | 'secret'
 
 export interface DNSRecord {
   type: 'CNAME' | 'A' | 'AAAA' | 'TXT'
@@ -410,6 +417,11 @@ export interface App {
   references?: string[]
   created_at: string
   updated_at: string
+
+  /** Shell command run before each new version takes traffic (database migrations); "" when none. */
+  before_deploy_command?: string
+  /** Shell command run in the live container after each new version takes traffic; "" when none. */
+  after_deploy_command?: string
 }
 
 /**
@@ -600,8 +612,6 @@ export interface CreateAppInput {
 
 export interface UpdateAppInput {
   name?: string
-  /** Move it to another project (phase 4b). */
-  project?: string
   /** Its short name in the project (phase 4b). */
   alias?: string
   slug?: string
@@ -622,6 +632,10 @@ export interface UpdateAppInput {
   memory_mb?: number
   cpu_millis?: number
   compose_path?: string
+
+  /** "" removes it. Applies on the next deploy. */
+  before_deploy_command?: string
+  after_deploy_command?: string
 }
 
 export interface CreateTokenInput {

@@ -49,6 +49,9 @@ const pid = computed(() => props.projectId || (data.value ? projectIdOf(data.val
 const { list: projectList, project } = useProject(pid)
 const templates = useServiceTemplates()
 const role = computed(() => (data.value ? appRole(data.value, templates.data.value ?? []) : null))
+// Several services (a compose file): the overview is the service grid, actions act on all of them.
+// Before the tab bar below, which reads isWeb and multi at once.
+const { actions, isWeb, multi, dep, canRebuild, canStart, canStop, busy, shownStatus, primary, pending, restart, rebuild: startRebuild } = useAppControls(() => props.slug, data)
 // The address names the project; an old link with the wrong one is put right.
 watch(
   () => data.value,
@@ -114,8 +117,6 @@ useResizeObserver(tabBar, updateFade)
 useEventListener(tabBar, 'scroll', updateFade, { passive: true })
 
 // ---------------------------------------------------------------- actions (in the header, so every tab has them)
-// Several services (a compose file): the overview is the service grid, actions act on all of them.
-const { actions, isWeb, multi, dep, canRebuild, canStart, canStop, busy, shownStatus, primary, pending, restart, rebuild: startRebuild } = useAppControls(() => props.slug, data)
 // Show the new deployment's progress where it is listed.
 function rebuild() {
   startRebuild(() => void router.push({ name: 'app-deployments', params: { slug: props.slug } }))
@@ -192,7 +193,7 @@ const deleteOpen = ref(false)
           </template>
           <Button v-if="!canStart" variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
             <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
-            <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
+            <span v-if="pending.reasons.value.length && !pending.needsBuild.value" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>
           <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
             <Play /> {{ actions.start.isPending.value ? 'Starting...' : 'Start' }}
@@ -237,10 +238,15 @@ const deleteOpen = ref(false)
       >
         <RotateCw class="size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" aria-hidden="true" />
         <p class="min-w-0 flex-1">
-          <span class="font-medium">Restart to apply your changes.</span>
-          <span class="text-muted-foreground"> Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.</span>
+          <span class="font-medium">{{ pending.needsBuild.value ? 'Deploy again to apply your changes.' : 'Restart to apply your changes.' }}</span>
+          <span class="text-muted-foreground">
+            Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.
+          </span>
         </p>
-        <Button size="sm" :disabled="busy" @click="restart">
+        <Button v-if="pending.needsBuild.value" size="sm" :disabled="busy || !canRebuild" @click="rebuild">
+          <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Deploy again
+        </Button>
+        <Button v-else size="sm" :disabled="busy" @click="restart">
           <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
         </Button>
       </div>

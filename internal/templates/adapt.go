@@ -81,6 +81,17 @@ const (
 	bunCopyFromOfficial = "COPY --from=" + bunImage + " /usr/local/bin/bun /usr/local/bin/bun"
 )
 
+// BuildScriptLines are the lines of the Node templates that run the project's
+// build script, one per package manager: the step that bakes build-time
+// variables (VITE_*, NEXT_PUBLIC_*) into the site.
+func BuildScriptLines() []string {
+	out := []string{nodeBuildLine}
+	for _, lock := range []string{"pnpm-lock.yaml", "bun.lock", "yarn.lock"} {
+		out = append(out, detectNode(map[string]bool{lock: true}).build)
+	}
+	return out
+}
+
 type pkgManager struct {
 	name       string
 	copyLine   string // replaces nodeCopyLine

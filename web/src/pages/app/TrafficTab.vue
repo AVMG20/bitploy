@@ -249,7 +249,6 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           </button>
         </div>
         <p class="mt-2 text-xs text-muted-foreground">
-          A visitor is one person (one browser on one device), counted once a day. Requests are everything loaded: every page, image and file, by people and by bots.
           {{ data.previous ? `Arrows compare with ${windowInfo.previous}.` : `No arrows yet: there are no complete numbers for ${windowInfo.previous}.` }}
         </p>
       </div>
@@ -333,7 +332,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
     </template>
 
     <p class="text-xs text-muted-foreground">
-      Counted from the requests that reach your app. Bots are recognised by how they introduce themselves and count as requests only. Days are UTC days. Country data by
+      Days are UTC days. Country data by
       <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline">DB-IP.com</a>.
     </p>
   </div>

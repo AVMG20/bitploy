@@ -2,9 +2,11 @@ package dockerx
 
 import (
 	"context"
+	"io"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
@@ -60,6 +62,9 @@ type RunSpec struct {
 	Extra []NetworkAttach `json:",omitempty"`
 	// ShmMB is the size of /dev/shm; 0 keeps Docker's default (64 MB).
 	ShmMB int64 `json:",omitempty"`
+	// OneOff is a container that runs one command and stops, like the
+	// before-deploy command: Docker never restarts it.
+	OneOff bool `json:",omitempty"`
 }
 
 // NetworkAttach is a network a container joins, with its DNS aliases there.
@@ -95,6 +100,9 @@ func (c *Client) CreateContainer(ctx context.Context, s RunSpec) (string, error)
 		CapAdd:        append([]string(nil), AppCapabilities...),
 		LogConfig:     container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m", "max-file": "3"}},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+	}
+	if s.OneOff {
+		hc.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyDisabled}
 	}
 	if s.ShmMB > 0 {
 		hc.ShmSize = s.ShmMB * 1024 * 1024
@@ -255,4 +263,36 @@ func DescribeError(err error) string {
 	msg := err.Error()
 	msg = strings.TrimPrefix(msg, "Error response from daemon: ")
 	return msg
+}
+
+// WaitWithOutput copies what the started container name prints (stdout and
+// stderr) to out until it stops, and returns its exit code and whether it
+// was killed for using too much memory. When ctx ends first, ctx's error is
+// returned; the caller removes the container, which stops it.
+func (c *Client) WaitWithOutput(ctx context.Context, name string, out io.Writer) (code int64, oom bool, err error) {
+	rc, err := c.API.ContainerLogs(ctx, name, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
+	if err != nil {
+		return 0, false, err
+	}
+	// A failed copy (the stream broke) does not decide anything: the exit
+	// code below does.
+	_, _ = stdcopy.StdCopy(out, out, rc)
+	rc.Close()
+	if ctx.Err() != nil {
+		return 0, false, ctx.Err()
+	}
+	w := c.API.ContainerWait(ctx, name, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case res := <-w.Result:
+		code = res.StatusCode
+	case err := <-w.Error:
+		if ctx.Err() != nil {
+			return 0, false, ctx.Err()
+		}
+		return 0, false, err
+	}
+	if info, err := c.InspectContainer(ctx, name); err == nil && info.State != nil {
+		oom = info.State.OOMKilled
+	}
+	return code, oom, nil
 }

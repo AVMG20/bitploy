@@ -7,7 +7,9 @@
 //
 // It refuses connections from addresses outside the allow list, and at the
 // expiry time it closes its listener and every open connection by itself, so
-// the port closes on time even when bitploy is not running.
+// the port closes on time even when bitploy is not running. One address may
+// hold only a few of the connections, and a connection without traffic is
+// closed after a while, so nobody can take every slot and lock the owner out.
 package portproxy
 
 import (
@@ -17,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -34,7 +37,13 @@ const (
 	MaxAllow = 20
 	// DefaultMaxConns is how many connections run at the same time.
 	DefaultMaxConns = 64
-	dialTimeout     = 5 * time.Second
+	// DefaultMaxPerAddr is how many of them may come from one address.
+	DefaultMaxPerAddr = 8
+	// DefaultIdleTimeout closes a connection that sent no bytes either way
+	// for that long. A database client keeps a pool open; 30 minutes leaves
+	// it alone during work and frees the slot once it is forgotten.
+	DefaultIdleTimeout = 30 * time.Minute
+	dialTimeout        = 5 * time.Second
 )
 
 // ParseAllow reads an allow list: IPv4 addresses (1.2.3.4) and networks
@@ -101,7 +110,13 @@ type Options struct {
 	Allow    []netip.Prefix // empty: every address
 	Until    time.Time      // zero: no expiry
 	MaxConns int            // 0: DefaultMaxConns
-	Log      *slog.Logger
+	// MaxPerAddr caps the connections from one source address; 0:
+	// DefaultMaxPerAddr.
+	MaxPerAddr int
+	// IdleTimeout closes a connection without bytes in either direction for
+	// that long; 0: DefaultIdleTimeout.
+	IdleTimeout time.Duration
+	Log         *slog.Logger
 	// Dial connects to the target; nil uses a net.Dialer with a 5 s timeout.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
@@ -112,6 +127,12 @@ type Options struct {
 func Serve(ctx context.Context, ln net.Listener, o Options) error {
 	if o.MaxConns <= 0 {
 		o.MaxConns = DefaultMaxConns
+	}
+	if o.MaxPerAddr <= 0 {
+		o.MaxPerAddr = DefaultMaxPerAddr
+	}
+	if o.IdleTimeout <= 0 {
+		o.IdleTimeout = DefaultIdleTimeout
 	}
 	if o.Log == nil {
 		o.Log = slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -137,8 +158,27 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 	var (
 		mu    sync.Mutex
 		conns = map[net.Conn]struct{}{}
+		perIP = map[netip.Addr]int{}
 		wg    sync.WaitGroup
 	)
+	// take counts a connection from addr, or reports false when that address
+	// has its share already.
+	take := func(addr netip.Addr) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if perIP[addr] >= o.MaxPerAddr {
+			return false
+		}
+		perIP[addr]++
+		return true
+	}
+	release := func(addr netip.Addr) {
+		mu.Lock()
+		defer mu.Unlock()
+		if perIP[addr]--; perIP[addr] <= 0 {
+			delete(perIP, addr)
+		}
+	}
 	slots := make(chan struct{}, o.MaxConns)
 	track := func(c net.Conn, on bool) {
 		mu.Lock()
@@ -180,9 +220,15 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 			_ = c.Close()
 			continue
 		}
+		if !take(from) {
+			o.Log.Warn("refused: too many connections from this address", "from", from.String(), "max", o.MaxPerAddr)
+			_ = c.Close()
+			continue
+		}
 		select {
 		case slots <- struct{}{}:
 		default:
+			release(from)
 			o.Log.Warn("refused: too many connections", "from", from.String(), "max", o.MaxConns)
 			_ = c.Close()
 			continue
@@ -192,6 +238,7 @@ func Serve(ctx context.Context, ln net.Listener, o Options) error {
 		go func() {
 			defer wg.Done()
 			defer func() { <-slots }()
+			defer release(from)
 			defer track(c, false)
 			forward(ctx, c, from, o, track)
 		}()
@@ -227,19 +274,65 @@ func forward(ctx context.Context, c net.Conn, from netip.Addr, o Options, track 
 	defer track(up, false)
 	defer up.Close()
 	o.Log.Info("connected", "from", from.String())
+	idle := newIdleWatch(o.IdleTimeout, func() {
+		o.Log.Info("closed: no traffic", "from", from.String(), "idle_seconds", int(o.IdleTimeout.Seconds()))
+		_ = c.Close()
+		_ = up.Close()
+	})
+	defer idle.stop()
 	var in, out int64
 	done := make(chan struct{}, 2)
-	go func() { in = pipe(up, c); done <- struct{}{} }()
-	go func() { out = pipe(c, up); done <- struct{}{} }()
+	go func() { in = pipe(up, c, idle); done <- struct{}{} }()
+	go func() { out = pipe(c, up, idle); done <- struct{}{} }()
 	<-done
 	<-done
 	o.Log.Info("disconnected", "from", from.String(), "bytes_in", in, "bytes_out", out, "seconds", int(time.Since(start).Seconds()))
 }
 
+// idleWatch calls fire once no bytes went either way for d. Reads only
+// store the time; the timer checks it when it goes off and waits the rest.
+type idleWatch struct {
+	d    time.Duration
+	last atomic.Int64 // unix nanoseconds of the last bytes
+	t    *time.Timer
+}
+
+func newIdleWatch(d time.Duration, fire func()) *idleWatch {
+	w := &idleWatch{d: d}
+	w.touch()
+	// Made stopped and started once w.t is set, so check never sees it nil.
+	w.t = time.AfterFunc(time.Duration(math.MaxInt64), func() {
+		if rest := w.d - time.Since(time.Unix(0, w.last.Load())); rest > 0 {
+			w.t.Reset(rest)
+			return
+		}
+		fire()
+	})
+	w.t.Reset(d)
+	return w
+}
+
+func (w *idleWatch) touch() { w.last.Store(time.Now().UnixNano()) }
+func (w *idleWatch) stop()  { w.t.Stop() }
+
+// activeReader marks the watch each time bytes come in.
+type activeReader struct {
+	r io.Reader
+	w *idleWatch
+}
+
+func (a activeReader) Read(p []byte) (int, error) {
+	n, err := a.r.Read(p)
+	if n > 0 {
+		a.w.touch()
+	}
+	return n, err
+}
+
 // pipe copies src to dst and then closes the writing side of dst, so the
 // other end sees the end of the stream while the other direction goes on.
-func pipe(dst, src net.Conn) int64 {
-	n, _ := io.Copy(dst, src)
+func pipe(dst, src net.Conn, idle *idleWatch) int64 {
+	n, _ := io.Copy(dst, activeReader{r: src, w: idle})
 	if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite()
 	} else {
@@ -258,6 +351,8 @@ func Main(args []string) int {
 	allow := fs.String("allow", "", "addresses that may connect, comma-separated; empty: everyone")
 	until := fs.String("until", "", "unix time at which the port closes; empty: never")
 	maxConns := fs.Int("max-conns", DefaultMaxConns, "connections at the same time")
+	maxPerAddr := fs.Int("max-per-addr", DefaultMaxPerAddr, "connections at the same time from one address")
+	idle := fs.Duration("idle", DefaultIdleTimeout, "close a connection without traffic for this long")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -266,7 +361,7 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: bitploy port-proxy --listen :PORT --target HOST:PORT [--allow CIDR,...] [--until UNIX]")
 		return 2
 	}
-	o := Options{Target: *target, MaxConns: *maxConns, Log: log}
+	o := Options{Target: *target, MaxConns: *maxConns, MaxPerAddr: *maxPerAddr, IdleTimeout: *idle, Log: log}
 	var err error
 	if *allow != "" {
 		if o.Allow, err = ParseAllow(strings.Split(*allow, ",")); err != nil {

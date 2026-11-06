@@ -7,10 +7,15 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    the memory and CPU quota). Every other app is built from a Dockerfile;
    bitploy refuses to deploy a server without one. If the code has none, call
    get_template with the stack and file_list, adapt it, and add a .dockerignore.
+   Only for a repository you cannot change (not the user's, or no checkout)
+   that holds a Node.js app without a Dockerfile: create_app build_mode=auto,
+   and bitploy builds it by itself.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.
-4. Never put secrets in the Dockerfile or the source. Use set_env.
+4. Never put secrets in the Dockerfile or the source. Use set_env. A value
+   the build bakes in (VITE_*, NEXT_PUBLIC_*) also needs build={NAME:
+   "public"} in set_env and applies on the next deploy.
 5. Send the code. If it has a GitHub remote, prefer git: commit and push, then
    set_git_source with the remote's HTTPS URL and deploy once; after that
    every push to the branch deploys by itself. No GitHub remote, or the
@@ -34,7 +39,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
-   reads DATABASE_URL (or REDIS_URL, ...) from its environment.
+   reads DATABASE_URL (or REDIS_URL, ...) from its environment. Database
+   migrations go in before_deploy_command (update_app), like
+   php artisan migrate --force, not in the Dockerfile CMD.
    create_backup of a database service dumps its databases while it runs;
    Redis and Meilisearch hold data that can be rebuilt and get no backups.
    When the code already has a compose file (compose.yaml,

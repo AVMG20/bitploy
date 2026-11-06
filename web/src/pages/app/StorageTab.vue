@@ -251,7 +251,7 @@ const scheduleHint = computed(() => {
     case 'weekly':
       return scheduleAt(true)
     default:
-      return 'Only when you press Back up now. bitploy keeps it off until you turn it on again.'
+      return 'Only when you press Back up now.'
   }
 })
 const nextAt = computed(() => {
@@ -312,7 +312,7 @@ async function onFile(e: Event) {
       () => (processing.value = true),
       volName.value,
     )
-    toastOk('Backup uploaded', 'You can restore it from the list.')
+    toastOk('Backup uploaded')
     refreshBackups()
   } catch (err) {
     toastError(err)
@@ -458,7 +458,7 @@ const restoreText = computed(() => {
       <form novalidate data-testid="service-storage" @submit.prevent="submitLimit">
         <FormCard title="Saved data">
           <template #description>
-            {{ serviceName }} keeps its data in <span class="font-mono">{{ serviceMount }}</span>. It stays when the app restarts or is updated.
+            {{ serviceName }} keeps its data in <span class="font-mono">{{ serviceMount }}</span>.
           </template>
           <div class="grid gap-4">
             <div class="grid gap-2">
@@ -573,7 +573,7 @@ const restoreText = computed(() => {
         <Alert v-if="restoring">
           <Loader2 class="animate-spin" />
           <AlertTitle>Restoring a backup...</AlertTitle>
-          <AlertDescription>{{ restoringDump ? 'The databases are made again from the dump. ' : list?.restore?.app_restarts ? 'The app restarts when it is done. ' : '' }}This can take a few minutes.</AlertDescription>
+          <AlertDescription>{{ !restoringDump && list?.restore?.app_restarts ? 'The app restarts when it is done. ' : '' }}This can take a few minutes.</AlertDescription>
         </Alert>
         <Alert v-else-if="failedRestore" variant="destructive">
           <AlertTitle>The backup was not restored.</AlertTitle>

@@ -89,6 +89,13 @@ type AppBackup struct {
 	Tool        string
 }
 
+type AppDeployCommand struct {
+	AppID        string
+	BeforeDeploy string
+	AfterDeploy  string
+	UpdatedAt    int64
+}
+
 type AppDisk struct {
 	AppID       string
 	ImageBytes  int64
@@ -187,6 +194,7 @@ type Deployment struct {
 	CatalogVersion  string
 	ServicesSpec    string
 	ErrorService    string
+	AfterDeploy     string
 }
 
 type DeploymentRestart struct {
@@ -224,6 +232,7 @@ type EnvVar struct {
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
+	Build     string
 }
 
 type GithubApp struct {

@@ -71,7 +71,6 @@ const connect = useMutation({
       <!-- Where it is reached (Private, at postgres:5432) is in the header above. -->
       <CardDescription>
         Other apps of {{ project?.name ?? 'this project' }} reach this {{ what }} through a variable like <span class="font-mono">{{ mainVar || 'DATABASE_URL' }}</span>.
-        bitploy fills in the address and password when that app starts, so you never copy the password itself.
       </CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">
@@ -109,7 +108,7 @@ const connect = useMutation({
           <div class="grid gap-0.5">
             <p class="flex items-center gap-1.5 text-sm font-medium"><ClipboardCopy class="size-4 text-muted-foreground" /> Shortcuts to copy</p>
             <p class="text-xs text-muted-foreground">
-              Ready-made variables for your other apps. They are not settings of this {{ what }}: nothing here changes it.
+              Ready-made variables for your other apps.
               Paste one as a variable in the other app, or copy them all into its Paste .env.
             </p>
           </div>

@@ -100,6 +100,10 @@ type pipeline struct {
 	singleFrom *deploy.ComposeService
 	extraEnv   map[string]string
 	enableData int64 // MB: /data is turned on when the deployment goes live
+
+	// buildSecrets are the values of the build's secret variables, masked
+	// in the build log (applyBuildVars).
+	buildSecrets []string
 }
 
 // serviceRun is one service of a deployment on its way to running.
@@ -166,7 +170,7 @@ func (p *pipeline) logf(format string, args ...any) {
 }
 
 func (p *pipeline) writeLog(line string) {
-	line = apperr.Redact(line)
+	line = apperr.Redact(maskSecrets(line, p.buildSecrets))
 	p.logMu.Lock()
 	defer p.logMu.Unlock()
 	p.ring.Add(line)
@@ -269,10 +273,31 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if ae := p.healthCheck(ctx); ae != nil {
 		return ae
 	}
-	if ae := p.setState(ctx, "swapping"); ae != nil {
+	return p.goLive(ctx)
+}
+
+// goLive swaps the new version in, then runs the after-deploy command in the
+// live container. Waiting for the deployment includes that command
+// (after_deploy pending, then running).
+func (p *pipeline) goLive(ctx context.Context) *apperr.Error {
+	after := p.deployCommand(ctx, "after")
+	if after != "" {
+		p.markAfterDeploy(ctx, afterDeployPending)
+	}
+	ae := p.setState(ctx, "swapping")
+	if ae == nil {
+		ae = p.swap(ctx)
+	}
+	if ae != nil {
+		if after != "" {
+			p.markAfterDeploy(ctx, "")
+		}
 		return ae
 	}
-	return p.swap(ctx)
+	if after != "" {
+		p.afterDeploy(ctx, after)
+	}
+	return nil
 }
 
 // ---- fetching ----
@@ -522,8 +547,14 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 	labels[dockerx.LabelDeployment] = p.dep.ID
 	labels[dockerx.LabelSeq] = fmt.Sprint(p.dep.Seq)
 	p.builtHere = true
+	spec := deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}
+	cleanup, ae := p.applyBuildVars(ctx, &spec, singleService, p.kind != deploy.BuildKindDockerfile)
+	defer cleanup()
+	if ae != nil {
+		return ae
+	}
 	p.logf("Building %s with docker buildx.", p.image)
-	err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: p.image, Labels: labels, Builder: bld}, p.writeLog)
+	err := deploy.RunBuild(ctx, spec, p.writeLog)
 	if err != nil {
 		return p.buildFailed(ctx, err, bld)
 	}
@@ -644,6 +675,11 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	if ae := p.planRuns(ctx); ae != nil {
 		return ae
 	}
+	// Before the new container starts, and before a /data app's old one is
+	// stopped (deploy_commands.go).
+	if ae := p.beforeDeploy(ctx); ae != nil {
+		return ae
+	}
 	if ae := p.startRuns(ctx); ae != nil {
 		return ae
 	}
@@ -751,6 +787,9 @@ func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
 // deploying a list of services: planRuns fills p.runs, startRuns brings them up.
 func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 	s := p.s
+	if s.Docker == nil {
+		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
+	}
 	multi := isMulti(p.app)
 	var prevHash map[string]string
 	if multi && p.prev != nil {

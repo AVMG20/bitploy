@@ -69,15 +69,20 @@ func TestProjectsCRUD(t *testing.T) {
 		t.Fatalf("rename = %+v, %v", renamed, err)
 	}
 
-	// Moving the blog into the store: its own project goes, its alias stays.
-	moved, err := e.s.UpdateApp(ctx, e.user, "blog", UpdateAppInput{Project: strp(shop.ID)})
-	if err != nil || moved.Project.ID != shop.ID || moved.Alias != "blog" {
-		t.Fatalf("move = %+v, %v", moved.Project, err)
+	// Apps do not move between projects: project is refused, with or without
+	// other fields, and nothing changes.
+	_, err = e.s.UpdateApp(ctx, e.user, "blog", UpdateAppInput{Project: strp(shop.ID), Alias: strp("news"), Name: strp("News")})
+	if ae := apperr.As(err); depCode(err) != "project_move_unsupported" || ae.HTTPStatus != 422 || ae.Next != "create_app" {
+		t.Fatalf("move = %v", err)
 	}
-	if _, err := e.s.GetProject(ctx, e.user, solo.Project.ID); depCode(err) != "project_not_found" {
-		t.Errorf("the blog's own project should be gone: %v", err)
+	if got, _ := e.s.GetApp(ctx, e.user, "blog"); got.Project.ID != solo.Project.ID || got.Alias != "blog" || got.Name != "Blog" {
+		t.Errorf("a refused move changed the app: %+v %q %q", got.Project, got.Alias, got.Name)
 	}
-	if _, err := e.s.UpdateApp(ctx, e.user, "blog", UpdateAppInput{Alias: strp("web")}); depCode(err) != "alias_taken" {
+	if err := e.s.DeleteApp(ctx, e.user, "blog", "blog"); err != nil {
+		t.Fatal(err)
+	}
+	e.mustApp(t, CreateAppInput{Name: "Shop blog", Slug: "shop-blog", Project: shop.ID})
+	if _, err := e.s.UpdateApp(ctx, e.user, "shop-blog", UpdateAppInput{Alias: strp("web")}); depCode(err) != "alias_taken" {
 		t.Errorf("alias clash: %v", err)
 	}
 
@@ -216,14 +221,6 @@ func TestAddServiceAndReferences(t *testing.T) {
 		t.Errorf("resolved after rename: %v", ae)
 	}
 
-	// Moving is refused while references cross the projects.
-	other, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "Other"})
-	if _, err := e.s.UpdateApp(ctx, e.user, pg.Slug, UpdateAppInput{Project: strp(other.ID)}); depCode(err) != "app_referenced" {
-		t.Errorf("move a referenced app: %v", err)
-	}
-	if _, err := e.s.UpdateApp(ctx, e.user, "shop", UpdateAppInput{Project: strp(other.ID)}); depCode(err) != "app_has_references" {
-		t.Errorf("move an app with references: %v", err)
-	}
 	// Deleting a referenced app is refused with the apps and variables that
 	// use it.
 	err = e.s.DeleteApp(ctx, e.user, pg.Slug, pg.Slug)

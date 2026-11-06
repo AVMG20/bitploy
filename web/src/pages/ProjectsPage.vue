@@ -107,7 +107,7 @@ function sourceTo(key: string) {
         :progress="usage && quota && !unlimited ? pct(usage.memory_reserved_mb, quota.memory_mb) : undefined"
         :sub="usage ? `${unlimited ? 'No limit on memory and CPU for you. ' : ''}Your apps use ${formatMB(usage.memory_used_mb)} right now.` : ''"
         :alert="memAlert"
-        hint="The memory limits of all your apps added up, databases included. Each app can use up to its limit."
+        hint="The memory limits of all your apps added up, databases included."
       />
       <StatCard
         title="CPU"
@@ -150,7 +150,7 @@ function sourceTo(key: string) {
     <section v-else-if="!all.length" class="canvas-dots grid justify-items-center gap-6 rounded-xl border px-4 py-14 text-center" aria-labelledby="first-project">
       <div class="grid max-w-lg gap-2">
         <h2 id="first-project" class="text-xl font-semibold tracking-tight">Deploy your first project</h2>
-        <p class="text-sm text-muted-foreground">Where is your code? You can add a database or more apps to the project afterwards.</p>
+        <p class="text-sm text-muted-foreground">Where is your code?</p>
       </div>
       <div class="grid w-full max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <RouterLink

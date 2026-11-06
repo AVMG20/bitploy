@@ -42,6 +42,8 @@ type envRequest struct {
 	Unset []string          `json:"unset,omitempty" doc:"Variable names to remove"`
 	// Service limits the change to one service of an app with several services.
 	Service string `json:"service,omitempty" doc:"For an app with several services: set or unset the variables of this service only (they win over shared ones of the same name). Leave it out for variables every service gets."`
+	// Build flags variables for the image build (app.SetServiceEnvBuild).
+	Build map[string]string `json:"build,omitempty" doc:"Whether the image build gets a variable too, by name (one in set or one the app has): public (a build argument; bitploy's own Node builds hand it to the build script, so Vite and Next.js bake it in; a Dockerfile needs ARG NAME), secret (a BuildKit secret, never in the image: a Dockerfile reads it in RUN --mount=type=secret,id=NAME,env=NAME) or none (only the running app). Variables you leave out keep theirs. Applies on the next deploy."`
 }
 
 type domainRequest struct {
@@ -320,12 +322,12 @@ func (a *API) appRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "setEnv", Method: http.MethodPut, Path: "/apps/{app}/env", Tags: []string{"Environment"},
-		Summary: "Set and unset environment variables", Description: "They apply on the next deploy or restart.",
+		Summary: "Set and unset environment variables", Description: "They apply on the next deploy or restart. build makes a variable reach the image build too (public or secret); that applies on the next deploy.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
 		Body envRequest
 	}) (*Out[app.Page[app.EnvVar]], error) {
-		items, err := a.svc.SetServiceEnv(ctx, act, in.App, in.Body.Service, in.Body.Set, in.Body.Unset)
+		items, err := a.svc.SetServiceEnvBuild(ctx, act, in.App, in.Body.Service, in.Body.Set, in.Body.Unset, in.Body.Build)
 		return pageOut(items, err, PageParams{Limit: 100})
 	})
 

@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import ProjectSettings from './ProjectSettings.vue'
+import RunSettings from './RunSettings.vue'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
@@ -38,6 +39,8 @@ import { queryClient } from '@/lib/queryClient'
 import type { BuildMode, UpdateAppInput } from '@/lib/types'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
+import DeployCommands from './DeployCommands.vue'
+import { offersDeployCommands } from '@/lib/deployCommands'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
@@ -47,6 +50,7 @@ const sections = computed(() => [
   { id: 'general', label: 'General' },
   ...(inProjects.value ? [{ id: 'project', label: 'Project' }] : []),
   { id: 'build', label: app.data.value?.template ? 'Image' : 'Build' },
+  ...(showDeployCommands.value ? [{ id: 'deploy-commands', label: 'Deploy commands' }] : []),
   { id: 'size', label: 'Size' },
   { id: 'danger', label: 'Danger zone' },
 ])
@@ -59,7 +63,8 @@ const me = useMe()
 const quota = computed(() => me.data.value?.quota)
 // Several services: build and size come from the compose file, one per service.
 const multi = computed(() => isMulti(app.data.value))
-// Without projects on the server each app is its own project: nothing to move or rename.
+const showDeployCommands = computed(() => offersDeployCommands(app.data.value))
+// Without projects on the server each app is its own project: no short name to rename.
 const projectList = useProjects()
 const templates = useServiceTemplates()
 // A database, cache or search engine: no web address, nothing to protect with a password.
@@ -162,7 +167,7 @@ const submitGeneral = generalForm.handleSubmit((v) => {
 const renameDescription = computed(() => {
   if (isPrivate.value) return 'Links to this page and API calls that use the old ID stop working. The other apps keep reaching it by its short name.'
   const to = `${pendingRename.value?.slug ?? ''}.${domain.value || me.data.value?.apps_domain || ''}`
-  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Saved files are kept.`
+  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break.`
 })
 
 // ---------------------------------------------------------------- type
@@ -347,10 +352,10 @@ const deleteOpen = ref(false)
 const deleteText = computed(() => {
   const a = app.data.value
   if (a?.template) {
-    return `Removes ${templateOf.value?.name ?? 'the service'} with all its data and backups. The other apps of the project stay. Download a backup first if you may need its data.`
+    return `Removes ${templateOf.value?.name ?? 'the service'} with all its data and backups. Download a backup first if you may need its data.`
   }
   const address = a?.type === 'worker' ? '' : ' its address,'
-  return `Removes the app${multi.value ? ' with all its services' : ''},${address} its saved files, its backups and all old versions. The other apps of the project stay. Download a backup first if you may need its saved files.`
+  return `Removes the app${multi.value ? ' with all its services' : ''},${address} its saved files, its backups and all old versions. Download a backup first if you may need its saved files.`
 })
 </script>
 
@@ -418,7 +423,7 @@ const deleteText = computed(() => {
       </div>
     </SettingsSection>
 
-    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one, and which project it is in.">
+    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one.">
       <ProjectSettings :app="app.data.value" />
     </SettingsSection>
 
@@ -429,7 +434,6 @@ const deleteText = computed(() => {
             Runs <span class="font-mono">{{ templateOf?.image ?? app.data.value.template }}</span>
             <template v-if="templateOf">, the ready-made {{ templateOf.name }}</template>.
           </p>
-          <p class="text-muted-foreground">Its data is kept when it restarts or redeploys.</p>
         </CardContent>
       </Card>
     </SettingsSection>
@@ -460,7 +464,7 @@ const deleteText = computed(() => {
             <CardTitle>Compose file</CardTitle>
             <CardDescription>
               This app runs {{ services.length }} services from <span class="font-mono">{{ app.data.value?.compose_path || 'compose.yaml' }}</span>.
-              Each one is built from your code or pulled as a ready-made image. To add a service or change one, edit the file and deploy again.
+              To add a service or change one, edit the file and deploy again.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -468,7 +472,7 @@ const deleteText = computed(() => {
         <Card v-if="showDockerfile && !multi">
           <CardHeader>
             <CardTitle>Dockerfile</CardTitle>
-            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it. Saved files are kept.</CardDescription>
+            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it.</CardDescription>
             <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
           </CardHeader>
           <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
@@ -494,8 +498,12 @@ const deleteText = computed(() => {
             </template>
           </FormCard>
         </form>
+
+        <RunSettings v-if="!multi && app.data.value" :app="app.data.value" />
       </div>
     </SettingsSection>
+
+    <DeployCommands v-if="showDeployCommands && app.data.value" :app="app.data.value" />
 
     <SettingsSection
       v-if="multi"
@@ -509,8 +517,8 @@ const deleteText = computed(() => {
           <ul class="divide-y">
             <li v-for="s in services" :key="s.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
               <ServiceIcon :role="serviceRole(s).key" size="sm" />
-              <span class="font-medium">{{ serviceRole(s).label }}</span>
-              <span class="font-mono text-xs text-muted-foreground">{{ s.name }}</span>
+              <span class="font-mono font-medium">{{ s.name }}</span>
+              <span class="text-xs text-muted-foreground">{{ serviceRole(s).label }}</span>
               <span class="ml-auto tabular-nums">{{ formatMB(s.memory_mb) }} <span class="text-muted-foreground">memory,</span> {{ formatCPUMillis(s.cpu_millis) }}</span>
             </li>
             <li class="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-2.5 text-sm">
@@ -533,7 +541,8 @@ const deleteText = computed(() => {
                 <FormLabel>Memory (MB)</FormLabel>
                 <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
                 <FormDescription v-if="room && quota && !isStatic">
-                  Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
+                  <template v-if="room.mem === 0">Your other running apps already have all of your {{ formatMB(quota.memory_mb) }}, so this app cannot get more. Stop one, or ask your admin for more.</template>
+                  <template v-else>Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template></template>
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -543,7 +552,8 @@ const deleteText = computed(() => {
                 <FormLabel>CPU</FormLabel>
                 <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
                 <FormDescription v-if="room && quota && !isStatic">
-                  Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template>
+                  <template v-if="room.cpus === 0">Your other running apps already have all of your {{ formatCPUMillis(quota.cpu_millis) }}, so this app cannot get more. Stop one, or ask your admin for more.</template>
+                  <template v-else>Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template></template>
                 </FormDescription>
                 <FormMessage />
               </FormItem>

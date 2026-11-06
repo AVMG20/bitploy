@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { ChevronRight, History, ScrollText, Undo2 } from 'lucide-vue-next'
+import { ChevronRight, History, Loader2, ScrollText, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import LogLines from '@/components/LogLines.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
@@ -46,7 +46,7 @@ const rollback = useMutation({
   onSuccess: (_r, d) => {
     toastOk(
       `Going back to ${versionLabel(d.seq).toLowerCase()}`,
-      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : 'Your app keeps running while the old version starts.',
+      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : undefined,
     )
     target.value = null
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
@@ -59,18 +59,20 @@ const rollback = useMutation({
 // What going back does, and that a push to the linked branch builds the newest code again.
 const goBackText = computed(() => {
   const gs = app.data.value?.git_source
-  const base = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again. You can switch back to the current version later.`
-  if (gs?.auto_deploy) return `${base} The next push to ${gs.branch} on GitHub builds and deploys your newest code again.`
-  return base
+  let text = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again.`
+  // Migrations are not undone: the older version must work with the database as it is now.
+  if (app.data.value?.before_deploy_command || app.data.value?.after_deploy_command)
+    text += ' Your deploy commands do not run when you go back, so changes they made, like database migrations, stay.'
+  if (gs?.auto_deploy) text += ` The next push to ${gs.branch} on GitHub builds and deploys your newest code again.`
+  return text
 })
 
 // Every new version shows up here; how you send one depends on where the code is.
 const emptyText = computed(() => {
   const a = app.data.value
-  const end = 'Every version shows up here, and you can go back to an earlier one.'
-  if (a?.git_source) return `Push to ${a.git_source.branch} to build the first version. ${end}`
-  if (a?.catalog_id) return `The first version is being prepared. ${end}`
-  return `Upload your files, or ask your AI assistant to deploy to this app. ${end}`
+  if (a?.git_source) return `Push to ${a.git_source.branch} to build the first version.`
+  if (a?.catalog_id) return 'The first version is being prepared.'
+  return 'Upload your files, or ask your AI assistant to deploy to this app.'
 })
 
 function canRollback(d: Deployment): boolean {
@@ -150,7 +152,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
             <span v-if="d.commit_message" class="ml-1.5">{{ d.commit_message }}</span>
           </span>
         </div>
-        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi">
+        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi" :slug="slug">
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
             <div class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs leading-relaxed text-foreground"><LogLines :lines="d.log_tail" /></div>
@@ -184,9 +186,20 @@ function serviceState(d: Deployment, s: DeploymentService) {
             :key="i"
             :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]'"
           >
-            {{ w.message }}<template v-if="w.hint">&nbsp;{{ w.hint }}</template>
+            {{ w.message }}<template v-if="plainHint(w.code, w.hint)">&nbsp;{{ plainHint(w.code, w.hint) }}</template>
+            <RouterLink
+              v-if="w.code === 'after_deploy_failed'"
+              :to="{ name: 'app-settings', params: { slug }, hash: '#deploy-commands' }"
+              class="ml-1 font-medium underline underline-offset-2"
+            >
+              Change the deploy commands
+            </RouterLink>
           </li>
         </ul>
+        <p v-if="d.after_deploy === 'pending' || d.after_deploy === 'running'" class="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 class="size-3.5 animate-spin" aria-hidden="true" />
+          This version is live. Running its after-deploy command now (up to 5 minutes).
+        </p>
       </article>
     </template>
 

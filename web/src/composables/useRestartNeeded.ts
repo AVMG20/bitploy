@@ -1,5 +1,6 @@
 import { computed, ref, toValue, watch } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
+import { isServedSite } from '@/lib/buildVars'
 import type { App, EnvVar } from '@/lib/types'
 
 /**
@@ -11,7 +12,8 @@ import type { App, EnvVar } from '@/lib/types'
  * Variables changed elsewhere (an AI assistant, the API) are caught from their
  * own timestamps.
  */
-export type RestartReason = 'variables' | 'size' | 'storage'
+// build: a variable the image build reads changed, so it needs a new build (a deploy), not only a restart.
+export type RestartReason = 'variables' | 'size' | 'storage' | 'build'
 
 interface Entry {
   /** started_at of the container that was running when the change was saved. */
@@ -68,6 +70,7 @@ const LABELS: Record<RestartReason, string> = {
   variables: 'environment variables',
   size: 'size',
   storage: 'storage',
+  build: 'build variables',
 }
 
 /** What waits for a restart of this app, in words; empty when nothing does. */
@@ -79,7 +82,12 @@ export function useRestartNeeded(app: MaybeRefOrGetter<App | null | undefined>, 
     const e = store.value[a.id]
     if (e && e.started === a.started_at) e.what.forEach((w) => out.add(w))
     const started = new Date(a.started_at).getTime()
-    if ((toValue(env) ?? []).some((v) => new Date(v.updated_at).getTime() > started)) out.add('variables')
+    for (const v of toValue(env) ?? []) {
+      if (new Date(v.updated_at).getTime() <= started) continue
+      // A site served by bitploy reads variables only while it is built.
+      if (v.build) out.add('build')
+      else if (!isServedSite(a)) out.add('variables')
+    }
     return [...out]
   })
 
@@ -98,5 +106,7 @@ export function useRestartNeeded(app: MaybeRefOrGetter<App | null | undefined>, 
     if (!words.length) return ''
     return words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
   })
-  return { reasons, text }
+  /** A new build is needed (a deploy), which also restarts: the banner offers that instead of a restart. */
+  const needsBuild = computed(() => reasons.value.includes('build'))
+  return { reasons, text, needsBuild }
 }

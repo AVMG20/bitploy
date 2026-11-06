@@ -8,6 +8,7 @@ import type {
   AuditEntry,
   CreateAppInput,
   CreateTokenInput,
+  EnvBuild,
   Backup,
   ComposeCheck,
   BackupList,
@@ -515,9 +516,13 @@ export const api = {
    * several; without one they are shared by every service. `service` in the body
    * is an assumption about the compose phase 2 API: it is only sent when set, so
    * a server without it answers with an error instead of saving a shared value.
+   * `build` says, per name, whether the image build gets the variable too
+   * ('none' takes that away); names left out keep what they have.
    */
-  setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string) =>
-    request<unknown>('PUT', paths.appEnv(slug), { body: service ? { set, unset, service } : { set, unset } }),
+  setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string, build?: Record<string, EnvBuild | 'none'>) =>
+    request<unknown>('PUT', paths.appEnv(slug), {
+      body: { set, unset, ...(service ? { service } : {}), ...(build && Object.keys(build).length ? { build } : {}) },
+    }),
   /** Without a service: the sum over all services. */
   metrics: (slug: string, window: MetricWindow, service?: string) =>
     request<Metrics>('GET', paths.appMetrics(slug), { query: { window, service } }),

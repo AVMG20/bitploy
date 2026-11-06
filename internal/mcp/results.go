@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/app"
@@ -319,6 +320,45 @@ func gitStatusNext(ap app.App, settingsURL, adminURL string) []string {
 	return []string{"Pushes do not deploy by themselves yet: " + g.PushMessage + " Tell the user to open Settings > GitHub (" + settingsURL + "). Until then call deploy with app=" + ap.Slug + " after each push."}
 }
 
+// gitFirstDeployStep is what set_git_source says about the first deploy:
+// what the repository must hold depends on the build mode.
+func gitFirstDeployStep(ap app.App) string {
+	step := "Call deploy with app=" + ap.Slug + " once to build the latest commit now. "
+	switch ap.BuildMode {
+	case "auto":
+		return step + "Build mode auto: a Dockerfile in the repository is built; without one bitploy builds a Node.js app, a front end or plain HTML by itself."
+	case "compose":
+		return step + "The repository must have the compose file and every Dockerfile it builds."
+	}
+	return step + "The repository must have a Dockerfile (in the subfolder, if you set one), unless it is a static site (plain HTML, or a front end that builds to files). A server without one: add one to the repository (get_template) and push it; if you cannot change the repository, call update_app with build_mode=auto first."
+}
+
+// rollbackNote says what a rollback does not take back.
+const rollbackNote = "Only the code goes back: variables, settings, files in /data and database contents stay as they are, and the before- and after-deploy commands do not run. If the newer version changed the data (a migration), the older code may not fit it: check the app and tell the user."
+
+// publicBuildPrefixes are the names front-end builds put into the files
+// they build, whatever bitploy passes them as.
+var publicBuildPrefixes = []string{"VITE_", "NEXT_PUBLIC_", "PUBLIC_", "REACT_APP_", "NUXT_PUBLIC_", "EXPO_PUBLIC_"}
+
+// secretButPublic lists the names flagged secret that a front-end build
+// would still put into the site's files when its code reads them.
+func secretButPublic(build map[string]string) []string {
+	var out []string
+	for n, f := range build {
+		if !strings.EqualFold(strings.TrimSpace(f), app.BuildSecret) {
+			continue
+		}
+		for _, p := range publicBuildPrefixes {
+			if strings.HasPrefix(strings.ToUpper(n), p) {
+				out = append(out, n)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func bitployFileStep(ap app.App) string {
 	content := fmt.Sprintf(`{"app":%q}`, ap.Slug)
 	if ap.URL != "" {
@@ -470,6 +510,9 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 			out = append(out, "These settings apply at the first deploy.")
 		}
 	}
+	if (in.BeforeDeployCommand != nil && *in.BeforeDeployCommand != "") || (in.AfterDeployCommand != nil && *in.AfterDeployCommand != "") {
+		out = append(out, "The deploy commands run from the next deploy on (deploy with only app="+ap.Slug+" rebuilds the last source); its log shows their output in the lines marked [before-deploy] and [after-deploy]. Remove migrations from the Dockerfile CMD if they ran there.")
+	}
 	if in.Volume != nil && *in.Volume {
 		out = append(out, "The app must save files it needs to keep in /data, and its user must own that folder: in the Dockerfile add RUN mkdir /data && chown <user> /data before USER. Anything outside /data is lost on redeploy.")
 	}
@@ -496,6 +539,40 @@ func setEnvNext(slug string, cur *app.App) []string {
 	return []string{
 		"Call restart_app with app=" + slug + " to apply the variables (no rebuild, a few seconds). The running app does not see them until then.",
 		"Then call get_app, or get_logs with kind=runtime if it does not come up.",
+	}
+}
+
+// setEnvBuildNext is setEnvNext for a call that may change what the build
+// gets: the build only sees it on a deploy, never on a restart.
+func setEnvBuildNext(slug string, cur *app.App, set, build map[string]string, vars []app.EnvVar) []string {
+	if names := secretButPublic(build); len(names) > 0 {
+		warn := "Careful: " + strings.Join(names, ", ") + " has a name the front-end build puts into the site's files when the code reads it, so every visitor can read the value even though it is a secret build variable. " +
+			"If the site's code reads it, tell the user the value is public (fine for keys meant to be public, like a Supabase anon key); a real secret belongs in a server app, not in the site. If only a build tool reads it, give it a name without that prefix."
+		rest := map[string]string{}
+		for n, f := range build {
+			rest[n] = f
+		}
+		for _, n := range names {
+			rest[n] = "public" // same next steps, without this warning again
+		}
+		return append([]string{warn}, setEnvBuildNext(slug, cur, set, rest, vars)...)
+	}
+	buildChanged := len(build) > 0
+	for _, v := range vars {
+		if v.Build != "" {
+			if _, changed := set[v.Name]; changed {
+				buildChanged = true
+			}
+		}
+	}
+	if !buildChanged {
+		return setEnvNext(slug, cur)
+	}
+	if cur != nil && cur.Status == "new" {
+		return []string{"Nothing is deployed yet; the first deploy builds with these variables. Send the code with deploy_files, or set_git_source and deploy."}
+	}
+	return []string{
+		"Build variables reach the build only on the next deploy: call deploy with only app=" + slug + " (rebuilds the last source; for a linked repository it builds the branch again), then get_deployment with wait_seconds=30. restart_app does not rebuild.",
 	}
 }
 
@@ -528,6 +605,9 @@ func failureSteps(d app.Deployment) []string {
 	switch e.Code {
 	case "dockerfile_missing":
 		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore in the code folder, then "+redo+".")
+		if d.SourceKind == "git" {
+			out = append(out, "Cannot change the repository (not the user's, or no checkout) and it is a Node.js app or a front end? Call update_app with build_mode=auto and deploy with only app="+slug+": bitploy then builds it without a Dockerfile.")
+		}
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
 	case "build_failed":
@@ -547,6 +627,10 @@ func failureSteps(d app.Deployment) []string {
 		default:
 			out = append(out, "The app started but did not answer. Read log_tail. If it listens on another port, call update_app with port=<number>; if the health path returns 500, call update_app with health_path=/healthz (any path below 500); then deploy with only app="+slug+".")
 		}
+	case "before_deploy_failed", "before_deploy_timeout":
+		out = append(out, "The version that was live keeps running. The before-deploy command's output is in log_tail (lines marked [before-deploy]; get_logs kind=build has all of it). "+
+			"A missing or wrong database variable (list_env; the database service must be running) or a wrong command: fix it with set_env or update_app before_deploy_command=..., then deploy with only app="+slug+" (no files needed). "+
+			"A migration in the code that fails: fix the code, then "+redo+".")
 	case "image_too_large":
 		out = append(out, "Shrink the image (smaller base, multi-stage build, a .dockerignore), then "+redo+".")
 	case "deploy_rate_limited":
@@ -581,6 +665,14 @@ func deploymentResult(verb string, d app.Deployment) *result {
 	summary := fmt.Sprintf("%s %s of %s (#%d): %s", verb, d.ID, d.AppSlug, d.Seq, d.State)
 	switch d.State {
 	case "running":
+		if d.AfterDeploy == "pending" || d.AfterDeploy == "running" {
+			summary += ". Live; its after-deploy command still runs"
+			next = []string{"Call get_deployment with id=" + d.ID + " and wait_seconds=30 until after_deploy is succeeded or failed."}
+			break
+		}
+		if d.AfterDeploy == "failed" {
+			summary += ". Its after-deploy command failed (a warning: the new version stays live)"
+		}
 		if d.URL != "" {
 			summary += ". Live at " + d.URL
 		} else {
@@ -591,7 +683,7 @@ func deploymentResult(verb string, d app.Deployment) *result {
 			who = "that the worker is running"
 		}
 		if d.SourceKind == "rollback" {
-			next = []string{"The previous version is live again. Tell the user " + who + " and that it is the older version."}
+			next = []string{"The previous version is live again. Tell the user " + who + " and that it is the older version.", rollbackNote}
 		} else {
 			next = []string{"Give the user " + who + " and one or two plain sentences on what you did."}
 		}
@@ -601,6 +693,9 @@ func deploymentResult(verb string, d app.Deployment) *result {
 		)
 		if len(d.Warnings) > 0 {
 			next = append(next, "Mention the warnings only if they matter to the user.")
+		}
+		if d.AfterDeploy == "failed" {
+			next = append([]string{"The after-deploy command failed: read the [after-deploy] lines with get_logs kind=build, fix after_deploy_command (update_app) or the code, and tell the user. It runs again on the next deploy."}, next...)
 		}
 	case "failed":
 		if d.Error != nil {
@@ -626,7 +721,7 @@ func deploymentResult(verb string, d app.Deployment) *result {
 			next = append(next, "While waiting there is nothing else to do; do not call deploy again.")
 		}
 	}
-	if len(d.NextSteps) > 0 && !d.Terminal() {
+	if len(d.NextSteps) > 0 && !d.Terminal() && d.State != "running" {
 		next = append(next, d.NextSteps...)
 	}
 	d.NextSteps = nil

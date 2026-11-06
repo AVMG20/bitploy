@@ -189,6 +189,10 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if err := validVolumeMB(volMB); err != nil {
 		return App{}, err
 	}
+	cmds, err := checkDeployCommands(in.Slug, buildMode, in.BeforeDeployCommand, in.AfterDeployCommand)
+	if err != nil {
+		return App{}, err
+	}
 
 	// The app-count limits are checked here for a quick answer and again inside
 	// the insert transaction, so parallel create_app calls cannot all pass.
@@ -331,6 +335,13 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 				return err
 			}
 		}
+		if cmds != (deployCommands{}) {
+			if err := q.SetAppDeployCommands(ctx, db.SetAppDeployCommandsParams{
+				AppID: id, BeforeDeploy: cmds.Before, AfterDeploy: cmds.After, UpdatedAt: now,
+			}); err != nil {
+				return err
+			}
+		}
 		// The slug is now really in use; the owner's old reservation is spent.
 		return q.DeleteSlugReservation(ctx, slug)
 	})
@@ -406,7 +417,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if err := perServiceSettings(row, in); err != nil {
 		return App{}, err
 	}
-	pc, err := s.planProjectChange(ctx, a, row, in)
+	ac, err := s.planAliasChange(ctx, row, in)
 	if err != nil {
 		return App{}, err
 	}
@@ -508,6 +519,10 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		}
 		outputDir = od
 		changed["output_dir"] = od
+	}
+	cmds, err := s.planDeployCommands(ctx, row, buildMode, in.BeforeDeployCommand, in.AfterDeployCommand, changed)
+	if err != nil {
+		return App{}, err
 	}
 	turningOff := in.Volume != nil && !*in.Volume && row.VolumeEnabled != 0
 	if in.Volume != nil {
@@ -646,6 +661,13 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			return App{}, apperr.Internal(err)
 		}
 	}
+	if cmds != nil {
+		if err := s.Q.SetAppDeployCommands(ctx, db.SetAppDeployCommandsParams{
+			AppID: row.ID, BeforeDeploy: cmds.Before, AfterDeploy: cmds.After, UpdatedAt: s.now(),
+		}); err != nil {
+			return App{}, apperr.Internal(err)
+		}
+	}
 	if turningOff {
 		if err := s.dropVolume(ctx, row); err != nil {
 			return App{}, err
@@ -655,11 +677,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["old_slug"] = row.Slug
 		s.Audit(ctx, a, "app.update", "app", row.ID, changed)
 	}
-	if pc != nil {
+	if ac != nil {
 		if cur, err := s.Q.GetApp(ctx, row.ID); err == nil {
 			row = cur
 		}
-		if err := s.applyProjectChange(ctx, a, row, pc); err != nil {
+		if err := s.applyAliasChange(ctx, a, row, ac); err != nil {
 			return App{}, err
 		}
 	}
@@ -934,10 +956,10 @@ func validPort(p int64) *apperr.Error {
 }
 
 func validResources(memMB, cpuMillis int64) *apperr.Error {
-	if memMB < minMemoryMB || memMB > 64*1024 {
+	if memMB < minMemoryMB || memMB > deploy.MaxMemoryMB {
 		return apperr.BadRequest("memory_invalid", fmt.Sprintf("%d MB of memory is not a valid amount.", memMB), fmt.Sprintf("Use at least %d MB.", minMemoryMB))
 	}
-	if cpuMillis < minCPUMillis || cpuMillis > 64*1000 {
+	if cpuMillis < minCPUMillis || cpuMillis > deploy.MaxCPUMillis {
 		return apperr.BadRequest("cpu_invalid", fmt.Sprintf("%d CPU millis is not a valid amount.", cpuMillis), "cpu_millis is thousandths of a CPU: 500 is half a CPU, 1000 is one. Use at least 50.")
 	}
 	return nil
@@ -1258,6 +1280,8 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	}
 	v.Services, v.Volumes = s.serviceViews(ctx, r)
 	s.projectFields(ctx, &v, r)
+	cmds := s.deployCommandsOf(ctx, r.ID)
+	v.BeforeDeployCommand, v.AfterDeployCommand = cmds.Before, cmds.After
 	return v
 }
 

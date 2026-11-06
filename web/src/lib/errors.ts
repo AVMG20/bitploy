@@ -12,6 +12,15 @@ export interface FriendlyError {
 const HINTS: Record<string, string> = {
   github_access_missing: 'Check which repositories bitploy may read in Settings > GitHub, then try again.',
   dockerfile_missing: 'Add a Dockerfile at the top of your code folder. For a site of HTML files, set the type to Plain website.',
+  port_unknown: 'Fill in the port your app listens on under Settings, How it runs, or add one EXPOSE line with that port to the Dockerfile. Then deploy again. A bot without a web address: choose Worker there.',
+  port_ambiguous: 'Fill in the one port visitors should reach under Settings, How it runs, or keep only that EXPOSE line in the Dockerfile. Then deploy again.',
+  // deploy commands (Settings, Deploy commands)
+  before_deploy_failed: 'Open the build log and read the lines marked [before-deploy] to see why. Fix your code or the command under Settings, Deploy commands, then deploy again.',
+  before_deploy_timeout:
+    'Open the build log and read the lines marked [before-deploy]. A command that waits for a database it cannot reach hangs: check the variables it uses, like DATABASE_URL. Then deploy again.',
+  after_deploy_failed: 'Open the build log and read the lines marked [after-deploy] to see why. Fix your code or the command under Settings, Deploy commands. It runs again on the next deploy.',
+  deploy_commands_unsupported: 'Only an app built from your own code with one service has deploy commands. Set them on the app that runs your code.',
+  deploy_command_invalid: 'Put longer steps in a script in your code, like scripts/migrate.sh, and run that script.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
   server_app_limit: 'Delete an app you no longer need, or ask your admin to raise the limit.',
   slug_taken: 'Pick another name for the address.',
@@ -25,13 +34,11 @@ const HINTS: Record<string, string> = {
   project_required: 'Pick the project to put it in.',
   project_ambiguous: 'Two projects have that name. Rename one of them first.',
   projects_limit: 'You have 100 projects, the maximum. Delete one you no longer need.',
-  project_not_empty: 'Move its apps to another project or delete them first, or tick the box that deletes them too.',
+  project_not_empty: 'Delete its apps first, or tick the box that deletes them too.',
   confirm_mismatch: 'Type the name exactly as shown to confirm.',
   alias_invalid: 'Use lowercase letters, numbers and dashes for the short name, like db or api-2.',
   alias_taken: 'Another app of the project has that short name. Pick another, like db-2.',
   app_in_use: 'Other apps of the project read its variables. Remove those variables from them first, then delete it.',
-  app_referenced: 'Other apps of the project use its variables. Remove those references first, or move them along.',
-  app_has_references: 'Its variables use other apps of the project. Remove those references first, or move those apps along.',
   service_template_unknown: 'Pick one from the list under Add.',
   connect_to_other_project: 'An app can only connect to databases and services of its own project.',
   connect_to_var_set: 'That app already has this variable. Change it under its Variables, or untick it.',
@@ -89,6 +96,7 @@ const COMPOSE_TITLES: Record<string, string> = {
   compose_source_missing: 'A folder the compose file builds from is missing.',
   compose_key_ignored: 'bitploy ignores a setting in the compose file.',
   compose_variable_unset: 'A variable the compose file uses has no value.',
+  compose_image_variable: 'An image name uses a variable. Write the image and its tag in the file.',
   compose_service_skipped: 'A service is left out.',
   compose_ports_not_published: 'Ports are not opened to the internet.',
 }

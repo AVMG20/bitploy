@@ -59,7 +59,7 @@ const deleteText = computed(() => {
 
 <template>
   <div v-if="project" class="grid max-w-6xl gap-10">
-    <SettingsSection title="General" description="Only the name changes. The apps keep their addresses and short names.">
+    <SettingsSection title="General">
       <form novalidate @submit.prevent="name.trim() && !unchanged && rename.mutate()">
         <FormCard title="Project name">
           <div class="grid gap-2">
@@ -77,7 +77,7 @@ const deleteText = computed(() => {
 
     <SettingsSection id="danger" title="Danger zone">
       <DangerZone>
-        <DangerRow title="Delete project" :description="apps.length ? `Deletes ${project.name} and its ${apps.length === 1 ? 'app' : `${apps.length} apps`}, with their saved files, databases, domains and backups. Download a backup first if you may need the data.` : `Deletes ${project.name}. It holds no apps.`">
+        <DangerRow title="Delete project" :description="apps.length ? `Deletes ${project.name} and its ${apps.length === 1 ? 'app' : `${apps.length} apps`}, with their saved files, databases, domains and backups. Download a backup first if you may need the data.` : `Deletes ${project.name}.`">
           <Button variant="destructive" @click="deleteOpen = true">Delete project</Button>
         </DangerRow>
       </DangerZone>

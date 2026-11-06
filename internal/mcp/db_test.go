@@ -212,3 +212,29 @@ func TestFormatSQLResultsStaysWithinTheLimit(t *testing.T) {
 		t.Errorf("text = %q", text)
 	}
 }
+
+// "Show me the rows" on an app whose data is in a PostgreSQL service: the
+// answer points at the service, not at a SQLite path or turning on /data.
+func TestQueryDBOnAppWithDatabaseService(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, e.deployToken)
+	res := call(t, cs, "create_app", map[string]any{"name": "Shop", "slug": "pg-shop"})
+	pid := structured(t, res)["app"].(map[string]any)["project"].(map[string]any)["id"].(string)
+	res = call(t, cs, "add_service", map[string]any{"project": pid, "template": "postgres", "connect_to": []string{"pg-shop"}})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	svcSlug := structured(t, res)["app"].(map[string]any)["slug"].(string)
+	for _, args := range []map[string]any{{"app": "pg-shop", "sql": "SELECT 1"}, {"app": "pg-shop", "path": "app.db", "sql": "SELECT 1"}} {
+		m := assertErrorShape(t, "query_db", call(t, cs, "query_db", args))
+		if m != nil && (m["code"] != "db_in_service" || m["next_tool"] != "query_db" || !strings.Contains(m["hint"].(string), "app="+svcSlug)) {
+			t.Errorf("%v: %v", args, m)
+		}
+	}
+	// Without a service, an app without /data is told what that means.
+	call(t, cs, "create_app", map[string]any{"name": "Plain", "slug": "plain-app"})
+	m := assertErrorShape(t, "plain", call(t, cs, "query_db", map[string]any{"app": "plain-app", "path": "app.db", "sql": "SELECT 1"}))
+	if m != nil && (m["code"] != "volume_off" || !strings.Contains(m["hint"].(string), "no SQLite file")) {
+		t.Errorf("plain: %v", m)
+	}
+}

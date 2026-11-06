@@ -26,8 +26,14 @@ type BuildSpec struct {
 	Labels     map[string]string
 	// Args are --build-arg values and Target the stage to build (compose
 	// build.args and build.target).
-	Args    map[string]string
-	Target  string
+	Args   map[string]string
+	Target string
+	// Secrets are BuildKit secrets, name to value: the build sees one only in
+	// a RUN step that mounts it (RUN --mount=type=secret,id=NAME,env=NAME),
+	// never in the image or its history. The values are not on the command
+	// line either: BuildArgs names an environment variable of the docker
+	// process (SecretEnv).
+	Secrets map[string]string
 	Timeout time.Duration // default BuildTimeout
 	Docker  string        // docker binary, default "docker"
 	// Builder, when set, runs the build in the isolated builder (see builder.go)
@@ -61,10 +67,38 @@ func (b BuildSpec) BuildArgs() []string {
 	for _, k := range keys {
 		args = append(args, "--build-arg", k+"="+b.Args[k])
 	}
+	for i, k := range b.secretNames() {
+		args = append(args, "--secret", "id="+k+",env="+secretEnvName(i))
+	}
 	if b.Target != "" {
 		args = append(args, "--target", b.Target)
 	}
 	return append(args, b.ContextDir)
+}
+
+func (b BuildSpec) secretNames() []string {
+	keys := make([]string, 0, len(b.Secrets))
+	for k := range b.Secrets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// secretEnvName is the environment variable of the docker process that holds
+// the i-th secret. It is not the secret's own name, so a secret called PATH
+// or DOCKER_HOST cannot change how docker runs; no app variable starts with
+// BITPLOY_ (reserved).
+func secretEnvName(i int) string { return fmt.Sprintf("BITPLOY_BUILD_SECRET_%d", i) }
+
+// SecretEnv is the environment the docker process needs for the secrets that
+// BuildArgs names.
+func (b BuildSpec) SecretEnv() []string {
+	out := make([]string, 0, len(b.Secrets))
+	for i, k := range b.secretNames() {
+		out = append(out, secretEnvName(i)+"="+b.Secrets[k])
+	}
+	return out
 }
 
 // RunBuild runs the build and feeds every output line (stdout and stderr
@@ -87,7 +121,7 @@ func RunBuild(ctx context.Context, b BuildSpec, onLine func(string)) error {
 	if b.Builder != nil {
 		env = b.Builder.Env()
 	}
-	cmd.Env = append(env, "BUILDKIT_PROGRESS=plain", "DOCKER_CLI_HINTS=false")
+	cmd.Env = append(append(env, b.SecretEnv()...), "BUILDKIT_PROGRESS=plain", "DOCKER_CLI_HINTS=false")
 	cmd.WaitDelay = 10 * time.Second
 	setChildAttrs(cmd)
 	pr, pw := io.Pipe()

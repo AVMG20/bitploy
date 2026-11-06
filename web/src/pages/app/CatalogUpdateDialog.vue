@@ -58,7 +58,7 @@ const update = useMutation({
   onSuccess: () => {
     open.value = false
     emit('updated')
-    toastOk('Update started', 'The current version keeps running until the new one is ready.')
+    toastOk('Update started')
     void qc.invalidateQueries({ queryKey: keys.dockerfile(slug.value) })
     void qc.invalidateQueries({ queryKey: keys.app(slug.value) })
     void qc.invalidateQueries({ queryKey: keys.deployments(slug.value) })

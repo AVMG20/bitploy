@@ -46,7 +46,7 @@ const submit = handleSubmit(async (values) => {
 </script>
 
 <template>
-  <AuthShell title="Log in" description="With the email address and password of your bitploy account.">
+  <AuthShell title="Log in">
     <form class="grid gap-4" novalidate @submit.prevent="submit">
       <Alert v-if="failure" variant="destructive">
         <AlertTitle>{{ failure.message }}</AlertTitle>

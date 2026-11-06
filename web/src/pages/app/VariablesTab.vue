@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ChevronDown, ChevronUp, ClipboardPaste, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronUp, ClipboardPaste, Hammer, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormScope from '@/components/FormScope.vue'
@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,6 +31,8 @@ import type { EnvVar } from '@/lib/types'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { ApiError, api } from '@/lib/api'
 import { parseDotenv } from '@/lib/dotenv'
+import { BUILD_CHOICES, buildChoice, buildChoiceOf, buildTag, isServedSite, looksBuildTime } from '@/lib/buildVars'
+import type { BuildChoice } from '@/lib/buildVars'
 import { isServerDb } from '@/lib/dbvalue'
 import { toastError, toastOk } from '@/lib/notify'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
@@ -116,10 +120,6 @@ function pickSuggestion(s: { name: string; value: string }) {
   addForm.setValues({ name: s.name, value: s.value })
 }
 
-function changed() {
-  markRestartNeeded(app.data.value, 'variables')
-  void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
-}
 const willRestart = computed(() => app.data.value?.status === 'running')
 // On the app page the banner above the tabs asks for the restart (and the
 // Restart button shows a dot); the toast only repeats it in the service panel,
@@ -150,22 +150,72 @@ const addForm = useForm({
 })
 const addingExisting = computed(() => names.value.has((addForm.values.name ?? '').trim()))
 
+// ---------------------------------------------------------------- build variables
+// A variable can also reach the image build (VITE_* and NEXT_PUBLIC_* values a
+// site bakes in). That needs a new build, not a restart. A database's own
+// variables are never part of a build.
+const showBuild = computed(() => !app.data.value?.template)
+// A site bitploy serves runs none of its code on the server: only its build reads variables.
+const site = computed(() => isServedSite(app.data.value))
+const byName = computed(() => new Map(list.value.map((v) => [v.name, v])))
+const addBuildPicked = ref<BuildChoice | null>(null)
+// Until the person picks one: what the variable has, or "public" for a name a
+// front end reads while it builds and for any variable of a site.
+const addBuild = computed<BuildChoice>(() => {
+  if (addBuildPicked.value) return addBuildPicked.value
+  const name = (addForm.values.name ?? '').trim()
+  const have = byName.value.get(name)
+  return have ? buildChoiceOf(have) : site.value || looksBuildTime(name) ? 'public' : 'none'
+})
+function pickAddBuild(v: unknown) {
+  addBuildPicked.value = v as BuildChoice
+}
+const addBuildHint = computed(() => {
+  const name = (addForm.values.name ?? '').trim()
+  if (addBuild.value === 'none' && site.value) return 'This site runs none of your code on the server, so only its build can read a variable. Choose "Also when it builds" or the site will not see it.'
+  if (addBuild.value === 'none' && looksBuildTime(name)) return `Names like ${name} are read while the site is built. Choose "Also when it builds" or the site will not see it.`
+  if (addBuild.value === 'none') return ''
+  const help = buildChoice(addBuild.value).help
+  // bitploy builds a site itself: the note about a Dockerfile of your own does not apply.
+  return site.value ? help.replace(/ With your own Dockerfile.*$/, '') : help
+})
+// The banner above the tabs offers Deploy again (a new build of the same code).
+const buildApplies = 'The build reads it from the next deploy on. Press Deploy again to use it now.'
+/** Note that a variable change waits for a new build (build variables) or a restart. A site needs no restart. */
+function changed(forBuild = false) {
+  if (forBuild) markRestartNeeded(app.data.value, 'build')
+  else if (!site.value) markRestartNeeded(app.data.value, 'variables')
+  void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
+}
+
 const save = useMutation({
-  mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, [], scope.value || undefined),
+  mutationFn: (v: { name: string; value: string; build?: BuildChoice }) =>
+    api.setEnv(props.slug, { [v.name]: v.value }, [], scope.value || undefined, v.build && showBuild.value ? { [v.name]: v.build } : undefined),
   onSuccess: (_r, v) => {
-    toastOk(`Saved ${v.name}${forWhom.value}`, appliesWhen.value)
-    changed()
+    const forBuild = (v.build ?? buildChoiceOf(byName.value.get(v.name) ?? {})) !== 'none'
+    toastOk(`Saved ${v.name}${forWhom.value}`, forBuild && app.data.value?.current_deployment ? buildApplies : appliesWhen.value)
+    changed(forBuild)
+  },
+  onError: saveError,
+})
+const setBuild = useMutation({
+  mutationFn: (v: { name: string; build: BuildChoice }) => api.setEnv(props.slug, {}, [], scope.value || undefined, { [v.name]: v.build }),
+  onSuccess: (_r, v) => {
+    toastOk(v.build === 'none' ? `${v.name} is no longer given to the build` : `${v.name} is given to the build as ${v.build === 'secret' ? 'a secret' : 'a public value'}`, app.data.value?.current_deployment ? buildApplies : undefined)
+    changed(true)
   },
   onError: saveError,
 })
 const submitAdd = addForm.handleSubmit((v) =>
   save.mutate(
-    { name: v.name.trim(), value: v.value },
+    { name: v.name.trim(), value: v.value, build: addBuild.value },
     {
       onSuccess: () => {
         addForm.resetForm({ values: { name: '', value: '' } })
-        // Ready for the next one.
-        document.querySelector<HTMLInputElement>('#env-add input')?.focus()
+        addBuildPicked.value = null
+        // Ready for the next one. After the fields are empty on the page: moving the
+        // focus earlier makes the value box report its old text as a change and keep it.
+        void nextTick(() => document.querySelector<HTMLInputElement>('#env-add input')?.focus())
       },
     },
   ),
@@ -219,7 +269,7 @@ const remove = useMutation({
   onSuccess: (_r, name) => {
     toastOk(`Removed ${name}`)
     toRemove.value = null
-    changed()
+    changed(buildChoiceOf(byName.value.get(name) ?? {}) !== 'none')
   },
   onError: saveError,
 })
@@ -233,13 +283,24 @@ function openPaste() {
   pasteText.value = ''
   pasteOpen.value = true
 }
+// New names a front end reads while it builds (VITE_*, NEXT_PUBLIC_*) go to the build too, and every new one of a site.
+const pastedForBuild = computed(() =>
+  showBuild.value ? parsed.value.vars.filter((v) => !names.value.has(v.name) && (site.value || looksBuildTime(v.name))).map((v) => v.name) : [],
+)
 const importAll = useMutation({
-  mutationFn: () => api.setEnv(props.slug, Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])), [], scope.value || undefined),
+  mutationFn: () =>
+    api.setEnv(
+      props.slug,
+      Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])),
+      [],
+      scope.value || undefined,
+      Object.fromEntries(pastedForBuild.value.map((n) => [n, 'public' as const])),
+    ),
   onSuccess: () => {
     const n = parsed.value.vars.length
-    toastOk(`Saved ${n} ${n === 1 ? 'variable' : 'variables'}${forWhom.value}`, appliesWhen.value)
+    toastOk(`Saved ${n} ${n === 1 ? 'variable' : 'variables'}${forWhom.value}`, pastedForBuild.value.length && app.data.value?.current_deployment ? buildApplies : appliesWhen.value)
     pasteOpen.value = false
-    changed()
+    changed(pastedForBuild.value.length > 0 || parsed.value.vars.some((v) => buildChoiceOf(byName.value.get(v.name) ?? {}) !== 'none'))
   },
   onError: saveError,
 })
@@ -269,8 +330,12 @@ const importAll = useMutation({
           <CardDescription v-else-if="multi">
             Shared variables: every service of this app gets them. Passwords, API keys and other settings, hidden once saved. A change applies after a restart.
           </CardDescription>
+          <CardDescription v-else-if="site">
+            Settings your site needs while it is built, like VITE_API_URL. bitploy serves the built files, so none of your code runs on the server and only the build reads a
+            variable. Anyone can read a public value in the site, so never make a password public. A change applies on the next deploy.
+          </CardDescription>
           <CardDescription v-else>
-            Passwords, API keys and other settings your app reads when it starts. Values are hidden once saved. A change applies after a restart.
+            Passwords, API keys and other settings your app reads when it starts. Values are hidden once saved. A change applies after a restart. A value a site needs while it is built, like VITE_API_URL, can also go to the build.
           </CardDescription>
         </div>
         <div class="flex gap-2">
@@ -321,7 +386,7 @@ const importAll = useMutation({
                 <FormMessage />
               </FormItem>
             </FormField>
-            <Button type="submit" class="sm:mt-[1.375rem]" :disabled="save.isPending.value && !editing">
+            <Button type="submit" class="max-sm:order-last sm:mt-[1.375rem]" :disabled="save.isPending.value && !editing">
               <Plus /> {{ addingExisting ? 'Replace' : 'Add' }}
             </Button>
             <div v-if="suggestions.length && !scope && !app.data.value?.template" class="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground sm:col-span-3">
@@ -340,6 +405,18 @@ const importAll = useMutation({
             <p v-if="addingExisting" class="text-xs text-muted-foreground sm:col-span-3">
               <span class="font-mono">{{ addForm.values.name?.trim() }}</span> already exists. Saving replaces its value.
             </p>
+            <div v-if="showBuild" class="grid gap-1.5 sm:col-span-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <Label for="env-add-build" class="text-xs font-normal text-muted-foreground">Used</Label>
+                <Select :model-value="addBuild" @update:model-value="pickAddBuild">
+                  <SelectTrigger id="env-add-build" size="sm" class="w-full sm:w-64"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="c in BUILD_CHOICES" :key="c.value" :value="c.value">{{ c.label }}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p v-if="addBuildHint" class="text-xs" :class="addBuild === 'none' ? 'text-warning' : 'text-muted-foreground'">{{ addBuildHint }}</p>
+            </div>
           </form>
         </FormScope>
 
@@ -349,7 +426,7 @@ const importAll = useMutation({
           v-else-if="!list.length && !inherited.length"
           :icon="KeyRound"
           :title="scope ? `${scope} has no variables of its own.` : multi ? 'No shared variables yet.' : 'No variables yet.'"
-          :description="scope ? 'Add one above that only this service needs, or paste a .env file.' : 'Add one above, like DATABASE_URL, or paste the contents of a .env file.'"
+          :description="scope ? 'Add one above that only this service needs, or paste a .env file.' : `Add one above, like ${site ? 'VITE_API_URL' : 'DATABASE_URL'}, or paste the contents of a .env file.`"
         />
         <template v-else>
           <ListSearch v-if="list.length + inherited.length > 6" v-model="search" class="sm:max-w-xs" placeholder="Find a variable" label="Find a variable" />
@@ -373,8 +450,21 @@ const importAll = useMutation({
                   </template>
                 </span>
                 <span v-else class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
+                <Badge v-if="buildTag(v)" variant="outline" class="font-normal" :title="buildChoice(buildChoiceOf(v)).help">{{ buildTag(v) }}</Badge>
                 <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
                 <div v-if="editing !== v.name" class="ml-auto flex gap-1">
+                  <DropdownMenu v-if="showBuild">
+                    <DropdownMenuTrigger as-child>
+                      <Button size="sm" variant="ghost" :aria-label="`When ${v.name} is used`" :disabled="setBuild.isPending.value"><Hammer /> When used</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" class="w-72">
+                      <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">When {{ v.name }} is used. A change reaches the build on the next deploy.</DropdownMenuLabel>
+                      <DropdownMenuItem v-for="c in BUILD_CHOICES" :key="c.value" class="items-start" @select="c.value !== buildChoiceOf(v) && setBuild.mutate({ name: v.name, build: c.value })">
+                        <Check class="mt-0.5" :class="c.value === buildChoiceOf(v) ? 'opacity-100' : 'opacity-0'" />
+                        <span>{{ c.label }}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button size="sm" variant="ghost" :aria-label="`Change the value of ${v.name}`" @click="startEdit(v.name)"><Pencil /> Change</Button>
                   <Button size="sm" variant="ghost" class="text-muted-foreground hover:text-destructive" :aria-label="`Remove ${v.name}`" @click="toRemove = v.name"><Trash2 /> Remove</Button>
                 </div>
@@ -417,7 +507,7 @@ const importAll = useMutation({
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Paste a .env file</DialogTitle>
-          <DialogDescription>One NAME=value per line. Comments and empty lines are left out.<template v-if="multi"> They are saved {{ scope ? `for ${scope} only` : 'for every service' }}.</template></DialogDescription>
+          <DialogDescription>One NAME=value per line.<template v-if="multi"> They are saved {{ scope ? `for ${scope} only` : 'for every service' }}.</template></DialogDescription>
         </DialogHeader>
         <Label for="env-paste" class="sr-only">Contents of the .env file</Label>
         <Textarea id="env-paste" v-model="pasteText" rows="8" placeholder="DATABASE_URL=...&#10;API_KEY=..." spellcheck="false" autocomplete="off" class="max-h-72 font-mono text-xs" />
@@ -430,6 +520,9 @@ const importAll = useMutation({
               <Badge :variant="names.has(v.name) ? 'outline' : 'secondary'" class="font-mono" :title="names.has(v.name) ? 'Replaces the value you have' : 'New'">{{ v.name }}</Badge>
             </li>
           </ul>
+          <p v-if="pastedForBuild.length" class="text-xs text-muted-foreground">
+            {{ pastedForBuild.join(', ') }} {{ pastedForBuild.length === 1 ? 'is' : 'are' }} read while the site is built, so {{ pastedForBuild.length === 1 ? 'it goes' : 'they go' }} to the build too, as public values.
+          </p>
           <p v-if="parsed.skipped.length" class="text-xs text-destructive">
             Not understood, left out: line {{ parsed.skipped.map((s) => s.line).join(', ') }}.
           </p>

@@ -148,7 +148,7 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
           <CardContent class="grid gap-4 sm:grid-cols-2 sm:items-start">
             <ol class="grid list-decimal gap-1 pl-5 text-sm text-muted-foreground sm:col-span-2">
               <li>Press Create GitHub App. GitHub opens and shows the app: read-only access to code{{ info.data.value.public_url_problem ? '' : ', and push events' }}.</li>
-              <li>Confirm on GitHub. You come back here, and bitploy stores the app's keys encrypted.</li>
+              <li>Confirm on GitHub. You come back here.</li>
               <li>Everyone can then connect their GitHub account in Settings > GitHub.</li>
             </ol>
             <FormField v-slot="{ componentField }" name="name">

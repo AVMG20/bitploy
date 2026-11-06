@@ -115,7 +115,7 @@ func (s *Service) FollowBuildLog(ctx context.Context, a Actor, deploymentID stri
 		if gerr != nil {
 			return nil // deployment (app) deleted
 		}
-		if v := cur.State; v == "running" || v == "failed" || v == "superseded" || v == "cancelled" {
+		if v := cur.State; (v == "running" && !afterDeployBusy(cur.AfterDeploy)) || v == "failed" || v == "superseded" || v == "cancelled" {
 			// One more read after the terminal state so the last lines are not lost.
 			if f != nil {
 				for {

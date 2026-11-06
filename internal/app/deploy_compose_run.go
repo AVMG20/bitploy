@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,9 +292,15 @@ func (p *pipeline) buildService(ctx context.Context, bld *deploy.Builder, i int,
 	if perr != nil {
 		return "", false, perr
 	}
+	spec := deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: tag, Labels: labels, Builder: bld,
+		Args: maps.Clone(sp.BuildArgs), Target: sp.Target}
+	cleanup, ae := p.applyBuildVars(ctx, &spec, sp.Name, false)
+	defer cleanup()
+	if ae != nil {
+		return "", false, ae
+	}
 	p.images = append(p.images, tag)
-	if err := deploy.RunBuild(ctx, deploy.BuildSpec{ContextDir: ctxDir, Dockerfile: dockerfile, Tag: tag, Labels: labels, Builder: bld,
-		Args: sp.BuildArgs, Target: sp.Target}, p.writeLog); err != nil {
+	if err := deploy.RunBuild(ctx, spec, p.writeLog); err != nil {
 		return "", false, p.buildFailed(ctx, err, bld)
 	}
 	return tag, false, nil

@@ -199,8 +199,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
               <dt class="text-muted-foreground">Size</dt>
               <dd>{{ formatMB(data.memory_mb) }} memory, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </dl>
-            <div class="mt-auto flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
-              <span>You can go back to an earlier version.</span>
+            <div class="mt-auto flex items-center justify-end gap-3 border-t pt-3 text-xs text-muted-foreground">
               <RouterLink :to="{ name: 'app-deployments', params: { slug } }" class="inline-flex items-center gap-1 font-medium text-foreground hover:underline">
                 All deployments <ArrowRight class="size-3.5" />
               </RouterLink>

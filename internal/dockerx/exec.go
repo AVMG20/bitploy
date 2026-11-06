@@ -25,6 +25,9 @@ type ExecOptions struct {
 	// Stdout receives the command's output; nil throws it away. A write
 	// error stops the command's streams and is returned.
 	Stdout io.Writer
+	// Stderr also receives what the command writes to stderr (the end of it
+	// is returned either way); nil: only the returned tail has it.
+	Stderr io.Writer
 }
 
 // ExecError is a command that ran and exited with a code other than 0.
@@ -72,6 +75,10 @@ func (c *Client) Exec(ctx context.Context, name string, cmd []string, o ExecOpti
 		stdout = io.Discard
 	}
 	tail := &TailBuffer{Max: execTailBytes}
+	var stderr io.Writer = tail
+	if o.Stderr != nil {
+		stderr = io.MultiWriter(tail, o.Stderr)
+	}
 	// Only a failure to read Stdin matters: the command closing its end
 	// early (it stopped on an error) shows up in its exit code. A read
 	// failure must not look like the end of the input, so the connection is
@@ -97,7 +104,7 @@ func (c *Client) Exec(ctx context.Context, name string, cmd []string, o ExecOpti
 		<-inDone
 	}()
 	ow := &errWriter{w: stdout}
-	_, copyErr := stdcopy.StdCopy(ow, tail, att.Reader)
+	_, copyErr := stdcopy.StdCopy(ow, stderr, att.Reader)
 	// The output has ended (the command has, or nearly has, exited), or one
 	// side failed: stop both streams and let the stdin copier finish.
 	closeConn()

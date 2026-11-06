@@ -44,7 +44,7 @@ const open = computed({ get: () => !!picked.value, set: (v) => !v && (picked.val
       <div>
         <h2 id="rm-services" class="font-medium">Databases &amp; services</h2>
         <p class="text-sm text-muted-foreground">
-          For the apps you deploy. Each one is private to its project and gets its own password. Your apps get its address as a variable.
+          Each one is private to its project and gets its own password. Your apps get its address as a variable.
         </p>
       </div>
       <div v-if="templates.isPending.value" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

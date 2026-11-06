@@ -31,5 +31,6 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # add "whitenoise.middleware.WhiteNoiseMiddleware" right after SecurityMiddleware in MIDDLEWARE
 ```
 
+- PostgreSQL instead (a database added with `add_service`, which sets `DATABASE_URL`): add `psycopg[binary]` and `dj-database-url` to `requirements.txt`, use `DATABASES = {"default": dj_database_url.config()}`, take `python manage.py migrate --noinput &&` out of `CMD` and set `before_deploy_command` to `python manage.py migrate --noinput` (`update_app`), so migrations run once per deploy before the new version takes traffic.
 - Uploads (`MEDIA_ROOT`) must also point into `/data`, for example `/data/media`, and Django does not serve them in production by itself.
 - If `EXPOSE` is not your port, change both, or set the port with update_app.

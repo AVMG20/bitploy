@@ -97,7 +97,7 @@ const submitPw = pw.handleSubmit((v) => savePw.mutate(v))
 
 <template>
   <div class="grid gap-10">
-    <SettingsSection title="Profile" description="Your name is shown in bitploy. You log in with your email address.">
+    <SettingsSection title="Profile">
       <FormScope :form="profile">
         <form novalidate @submit.prevent="submitProfile">
           <Card>

@@ -93,6 +93,13 @@ func ContainerName(slug string, seq int64) string { return fmt.Sprintf("bp-%s-%d
 func ImageName(slug string, seq int64) string     { return fmt.Sprintf("bitploy/%s:%d", slug, seq) }
 func VolumeName(slug string) string               { return "bp-" + slug + "-data" }
 
+// BeforeDeployName is the one-off container that runs the before-deploy
+// command of deployment seq. It ends in a letter, so it never equals the
+// bp-<slug>-<n> of another app.
+func BeforeDeployName(slug string, seq int64) string {
+	return fmt.Sprintf("bp-%s-%d-before", slug, seq)
+}
+
 // Names for the services of a multi-service app. The "_" between slug and
 // service cannot occur in either, so bp-<slug>_<service>-<n> never equals
 // another app's bp-<slug>-<n> (app "shop" with service "web" against an app

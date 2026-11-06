@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -84,7 +84,7 @@ const revokeOpen = computed({
 const revoke = useMutation({
   mutationFn: (id: string) => api.revokeToken(id),
   onSuccess: () => {
-    toastOk('Token revoked', 'It stopped working straight away.')
+    toastOk('Token revoked')
     toRevoke.value = null
     void qc.invalidateQueries({ queryKey: keys.tokens })
   },
@@ -162,7 +162,6 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
             <FormItem>
               <FormLabel>Name</FormLabel>
               <FormControl><Input placeholder="My laptop" autocomplete="off" v-bind="componentField" /></FormControl>
-              <FormDescription>Helps you remember where you use it.</FormDescription>
               <FormMessage />
             </FormItem>
           </FormField>

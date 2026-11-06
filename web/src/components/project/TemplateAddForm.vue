@@ -207,7 +207,7 @@ const busy = computed(() => stage.value === 'adding')
         <p v-if="nameError" class="text-[0.8rem] text-destructive">{{ nameError }}</p>
         <template v-else>
           <p v-if="renamed" class="text-[0.8rem] text-foreground/85" data-testid="tpl-renamed">
-            <Info class="mr-1 inline size-3 align-[-1px]" />Named <span class="font-mono">{{ name.trim() }}</span> because {{ project?.name }} already has an app called <span class="font-mono">{{ template.id }}</span>. You can change it.
+            <Info class="mr-1 inline size-3 align-[-1px]" />Named <span class="font-mono">{{ name.trim() }}</span> because {{ project?.name }} already has an app called <span class="font-mono">{{ template.id }}</span>.
           </p>
           <p class="text-[0.8rem] text-muted-foreground">
             <Lock class="mr-1 inline size-3 align-[-1px]" />Private. The other apps of {{ isNew ? 'the project' : project?.name }} reach it at

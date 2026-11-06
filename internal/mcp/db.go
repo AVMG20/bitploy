@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -174,6 +175,26 @@ func serverDB(ctx context.Context, svc *app.Service, a app.Actor, ref string) bo
 	return false
 }
 
+// linkedDatabases are the PostgreSQL, MySQL and MariaDB services of the
+// app's project that its variables refer to (add_service connect_to).
+func linkedDatabases(ctx context.Context, svc *app.Service, a app.Actor, ref string) []app.App {
+	ap, err := svc.GetApp(ctx, a, ref)
+	if err != nil || ap.Template != nil || len(ap.References) == 0 || ap.Project.ID == "" {
+		return nil
+	}
+	p, err := svc.GetProject(ctx, a, ap.Project.ID)
+	if err != nil {
+		return nil
+	}
+	var out []app.App
+	for _, other := range p.Apps {
+		if slices.Contains(ap.References, other.Alias) && serverDB(ctx, svc, a, other.Slug) {
+			out = append(out, other)
+		}
+	}
+	return out
+}
+
 // listTablesSQL says how to list the tables of each kind of database.
 const listTablesSQL = "SQLite: SELECT name FROM sqlite_schema WHERE type IN ('table','view'); PostgreSQL: SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema'); MySQL and MariaDB: SHOW TABLES."
 
@@ -190,6 +211,23 @@ func queryDBError(ctx context.Context, svc *app.Service, a app.Actor, in queryDB
 		out := apperr.New(ae.HTTPStatus, ae.Code, ae.Message, hint)
 		out.Details = ae.Details
 		return out.WithNext(next)
+	}
+	// An app whose data is in a database service: the SQLite hints (pass a
+	// path, turn on /data) would send the AI the wrong way.
+	if (strings.TrimSpace(in.Path) == "" && ae.Code == "path_invalid") || ae.Code == "volume_off" {
+		if dbs := linkedDatabases(ctx, svc, a, in.App); len(dbs) > 0 {
+			names := make([]string, len(dbs))
+			for i, d := range dbs {
+				names[i] = d.Alias + " (app=" + d.Slug + ")"
+			}
+			tool := "query_db"
+			if write {
+				tool = "write_db"
+			}
+			out := apperr.New(ae.HTTPStatus, "db_in_service", in.App+" keeps its data in the database service "+strings.Join(names, ", ")+", not in a file of its own.",
+				"Call "+tool+" with app="+dbs[0].Slug+" and leave path out (that is the database the service was made with).")
+			return out.WithNext(tool)
+		}
 	}
 	switch ae.Code {
 	case "sql_error":
@@ -218,6 +256,8 @@ func queryDBError(ctx context.Context, svc *app.Service, a app.Actor, in queryDB
 		return redo("path is the SQLite file relative to /data (or to the volume's folder), like app.db. Find it where the app's code opens its database, or ask the user; do not try names one after another.", "get_app")
 	case "not_sqlite":
 		return redo("Point path at the SQLite file the app's code opens (often .db, .sqlite or .sqlite3; not the -wal, -shm or -journal file next to it). Ask the user when the code does not say.", "get_app")
+	case "volume_off":
+		return redo("Without /data the app has no SQLite file to look at. A database the code reaches over the network (a hosted one, set with set_env) is not reachable with query_db. Turn /data on (update_app volume=true) only when the app should keep a SQLite database there.", "get_app")
 	case "path_invalid":
 		if strings.TrimSpace(in.Path) == "" {
 			return redo("Pass path: the SQLite file relative to /data, like app.db, from where the app's code opens its database.", "query_db")
