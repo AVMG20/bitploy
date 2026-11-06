@@ -13,9 +13,9 @@ import { keys, liveMs } from '@/composables/queries'
 import { liveBuildLogs } from '@/composables/useEvents'
 import { useAppActions } from '@/composables/useAppActions'
 import { api } from '@/lib/api'
-import { plainHint } from '@/lib/errors'
 import { deploymentStateInfo } from '@/lib/format'
 import type { App } from '@/lib/types'
+import DeployFailure from './DeployFailure.vue'
 
 // The first deploy of an app, live: the step it is on, the build log, and the
 // reason in plain words when it fails. Shown on the Overview while the app has
@@ -99,10 +99,7 @@ watch(
         </li>
       </ol>
 
-      <div v-if="latest.error && !cancelled" class="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-        <p class="font-medium">{{ latest.error.message }}</p>
-        <p v-if="plainHint(latest.error.code, latest.error.hint)" class="mt-1">{{ plainHint(latest.error.code, latest.error.hint) }}</p>
-      </div>
+      <DeployFailure v-if="latest.error && !cancelled" alert :error="latest.error" :log-tail="latest.log_tail" />
 
       <div v-if="log.length" class="grid gap-1.5">
         <p class="text-xs font-medium text-muted-foreground">{{ failed ? 'The last lines of the log' : 'Log' }}</p>
