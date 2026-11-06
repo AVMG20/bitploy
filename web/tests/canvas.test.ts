@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { crossesBox, placeLabels, roundedPath, routeLinks } from '../src/lib/canvas.ts'
+import { crossesBox, labelSpots, laneLayout, placeLabels, roundedPath, routeLinks, wrapLabel } from '../src/lib/canvas.ts'
 import type { Box, RoutedLink } from '../src/lib/canvas.ts'
 
 // Three lanes of 272px with 64px gaps, like the canvas at desktop width.
@@ -186,4 +186,60 @@ test('routeLinks orders the tracks in a gap so lines do not cross', () => {
     ],
   )
   assertNoCrossings(routes)
+})
+
+test('routeLinks: a line skipping a lane passes between two of its cards when they leave room', () => {
+  // api and worker are 32px apart: room for a line, so web>pg does not go below the lane.
+  const mid = [box('api', 1, 60), box('worker', 1, 272), box('mailer', 1, 484)]
+  const all = [box('web', 0, 200), ...mid, box('pg', 2, 200)]
+  const [wp] = routeLinks(all, [{ from: 'web', to: 'pg' }])
+  assert.deepEqual(hits(wp!, all), [])
+  const pass = wp!.points.find((p, i) => i > 0 && p.y === wp!.points[i - 1]!.y && p.x >= mid[0]!.r)
+  assert.ok(pass && pass.y > mid[0]!.b && pass.y < mid[1]!.t, 'web>pg passes between api and worker')
+  assert.ok(Math.max(...wp!.points.map((p) => p.y)) < mid[1]!.t)
+})
+
+test('wrapLabel keeps names whole and breaks a long name after an underscore', () => {
+  assert.deepEqual(wrapLabel('DATABASE_URL', 200), ['DATABASE_URL'])
+  assert.deepEqual(wrapLabel('A_URL, B_URL', 60), ['A_URL,', 'B_URL'])
+  assert.deepEqual(wrapLabel('A_URL, B_URL, DATABASE_URL', 100), ['A_URL, B_URL,', 'DATABASE_URL'])
+  assert.deepEqual(wrapLabel('DATABASE_URL', 70), ['DATABASE_', 'URL'])
+})
+
+test('labelSpots gives lines reading the same variables from one side one label', () => {
+  const routes = routeLinks(boxes, [
+    { from: 'api', to: 'pg' },
+    { from: 'worker', to: 'pg' },
+    { from: 'web', to: 'pg' },
+  ])
+  const spots = labelSpots(routes, 'pg', () => 'DATABASE_URL')
+  assert.equal(spots.length, 1)
+  assert.equal(spots[0]!.y, Math.min(...routes.map((r) => r.end.y)))
+})
+
+test('placeLabels wraps a label in a narrow gap, and puts one with no room at its end beside the line', () => {
+  const left = { l: 0, r: 200, t: 0, b: 300 }
+  const right = { l: 280, r: 480, t: 0, b: 300 }
+  const out = placeLabels(
+    [
+      // 80px gap: DATABASE_URL (86px) takes two lines.
+      { key: 'a', x: 206, y: 40, side: 'r', width: 86, text: 'DATABASE_URL' },
+      // Ends where a card leaves no room, but runs down the gap to below the cards.
+      { key: 'b', x: 226, y: 150, side: 'l', width: 60, text: 'API_URL', runs: [{ x: 220, y1: 150, y2: 380 }] },
+    ],
+    [left, right, { l: 230, r: 270, t: 100, b: 300 }],
+    { w: 480, h: 400 },
+  )
+  const at = Object.fromEntries(out.map((l) => [l.key, l]))
+  assert.deepEqual(at.a!.lines, ['DATABASE_', 'URL'])
+  assert.ok(at.a!.left + at.a!.width <= right.l)
+  assert.deepEqual(at.b!.lines, ['API_URL'])
+  assert.ok(at.b!.top >= left.b, 'beside the run, below the cards')
+})
+
+test('laneLayout puts lanes side by side only when the cards keep their width', () => {
+  assert.deepEqual(laneLayout(700, 3), { side: false, gap: 0 })
+  assert.equal(laneLayout(1098, 3).side, true)
+  assert.ok(laneLayout(1098, 3).gap >= 72 && laneLayout(1578, 3).gap <= 144)
+  assert.equal(laneLayout(400, 1).side, false)
 })

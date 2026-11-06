@@ -9,8 +9,11 @@
 // - Within one column: out of the same side of both cards, one upright run in
 //   the gap on that side (the margin for the first column, else the right).
 // - Past a column: level through the free room below that column's cards when
-//   one end is low enough, else down into the gap, below the column, and up
-//   again in the next gap.
+//   one end is low enough, else into the gap, level through a channel (the
+//   room between two cards of the column when it is tall enough, else below
+//   the column's cards) and back in the next gap. The channel nearest the two
+//   ends is taken first, so a line passing a tall column keeps close to its
+//   cards instead of going round the whole column.
 //
 // Then the router looks for the fewest crossings. Each card side has its
 // ports (where lines meet it) in some order, each gap its upright runs in some
@@ -72,6 +75,11 @@ const CLEAR = 10
 /** The first run below a column is this far under its lowest card. */
 const BELOW = 18
 const BELOW_STEP = 8
+/** Lines in a channel between two cards are this far apart, and at least CHANNEL_MIN when it is full. */
+const CHANNEL_STEP = 6
+const CHANNEL_MIN = 4
+/** What a pixel of going up or down to reach a channel costs, against 1 for a crossing: the nearest channel wins unless it adds a crossing. */
+const DETOUR = 1 / 4000
 /** The most and the least room between two upright runs in one gap. */
 const TRACK_STEP = 10
 const MIN_STEP = 3
@@ -143,8 +151,10 @@ interface Plan {
   eb: End
   way: Way
   ways: Way[]
-  /** The run below the columns in between. */
+  /** The level run past the columns in between, in its channel. */
   belowY: number
+  /** Which channel past the columns in between (see channelsOf); the last one is below them. */
+  chan: number
 }
 
 const inside = (y: number, p: Pick<Part, 'lo' | 'hi'>) => y > p.lo + EPS && y < p.hi - EPS
@@ -187,6 +197,43 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
     return true
   }
   const bottomOf = (lo: number, hi: number) => Math.max(...inCol.slice(lo, hi + 1).flatMap((bs) => bs.map((b) => b.b)))
+  /**
+   * The channels past columns lo..hi, top to bottom: the heights (top..bottom)
+   * where a level run passes every one of them clear of its cards, between
+   * the top card and the lowest one, and last the room below them all.
+   */
+  const channelMemo = new Map<string, { top: number; bottom: number }[]>()
+  const channelsOf = (lo: number, hi: number) => {
+    const key = `${lo}-${hi}`
+    let out = channelMemo.get(key)
+    if (out) return out
+    // Free spans of each column, then what all of them leave free.
+    let free: [number, number][] | null = null
+    for (let c = lo; c <= hi; c++) {
+      const bs = [...inCol[c]!].sort((x, y) => x.t - y.t)
+      const spans: [number, number][] = []
+      for (let k = 0; k + 1 < bs.length; k++) {
+        const top = Math.max(...bs.slice(0, k + 1).map((b) => b.b)) + CLEAR
+        const bottom = bs[k + 1]!.t - CLEAR
+        if (bottom >= top) spans.push([top, bottom])
+      }
+      free = free === null ? spans : free.flatMap(([t, b]) => spans.flatMap(([t2, b2]): [number, number][] => (Math.max(t, t2) <= Math.min(b, b2) ? [[Math.max(t, t2), Math.min(b, b2)]] : [])))
+    }
+    out = [...(free ?? []).map(([top, bottom]) => ({ top, bottom })), { top: bottomOf(lo, hi) + BELOW, bottom: Infinity }]
+    channelMemo.set(key, out)
+    return out
+  }
+  /** The channel whose middle is nearest y. */
+  const nearestChannel = (lo: number, hi: number, y: number) => {
+    const chans = channelsOf(lo, hi)
+    let best = chans.length - 1
+    let dist = Infinity
+    chans.forEach((ch, k) => {
+      const d = Math.abs((ch.bottom === Infinity ? ch.top : (ch.top + ch.bottom) / 2) - y)
+      if (d < dist) [best, dist] = [k, d]
+    })
+    return best
+  }
 
   // ---------------------------------------------------------------- the plans
   const plans: Plan[] = []
@@ -216,6 +263,7 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       way: ways[0]!,
       ways,
       belowY: 0,
+      chan: ways[0] === 'start' ? nearestChannel(Math.min(ca, cb) + 1, Math.max(ca, cb) - 1, ((a.t + a.b) / 2 + (b.t + b.b) / 2) / 2) : 0,
     })
   })
   if (!plans.length) return []
@@ -264,28 +312,50 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       }
     }
   }
-  /** The runs below the columns lo..hi, top to bottom. */
+  /** The level runs in each channel past the columns lo..hi, top to bottom. */
   const belows = new Map<string, Plan[]>()
-  const belowKey = (p: Plan) => `${Math.min(p.ca, p.cb) + 1}-${Math.max(p.ca, p.cb) - 1}`
+  const rangeOf = (p: Plan): [number, number] => [Math.min(p.ca, p.cb) + 1, Math.max(p.ca, p.cb) - 1]
+  const belowKey = (p: Plan) => `${rangeOf(p).join('-')}/${p.chan}`
+  /** Lines more than a channel between two cards holds: each costs as much as two lines on top of each other. */
+  let overfull = 0
   const placeBelow = () => {
+    overfull = 0
     for (const [k, list] of belows) {
-      const [lo, hi] = k.split('-').map(Number) as [number, number]
-      const base = bottomOf(lo, hi) + BELOW
-      list.forEach((p, j) => (p.belowY = base + j * BELOW_STEP))
+      if (!list.length) continue
+      const [lo, hi] = rangeOf(list[0]!)
+      const ch = channelsOf(lo, hi)[Number(k.split('/')[1])]!
+      if (ch.bottom === Infinity) {
+        list.forEach((p, j) => (p.belowY = ch.top + j * BELOW_STEP))
+        continue
+      }
+      // Between two cards: in the middle of the room, closer together when it is full.
+      const room = ch.bottom - ch.top
+      const fits = Math.floor(room / CHANNEL_MIN) + 1
+      overfull += Math.max(0, list.length - fits)
+      const step = list.length > 1 ? Math.max(CHANNEL_MIN, Math.min(CHANNEL_STEP, room / (list.length - 1))) : 0
+      const first = (ch.top + ch.bottom) / 2 - ((list.length - 1) * step) / 2
+      list.forEach((p, j) => (p.belowY = first + j * step))
     }
+  }
+  /** Lines whose ends are lower run lower in a channel, so two of them need not cross. */
+  const addBelow = (p: Plan) => {
+    const list = belows.get(belowKey(p)) ?? []
+    const low = (x: Plan) => x.ea.y + x.eb.y
+    let k = list.findIndex((x) => low(x) > low(p))
+    if (k < 0) k = list.length
+    list.splice(k, 0, p)
+    belows.set(belowKey(p), list)
+  }
+  const dropBelow = (p: Plan) => belows.get(belowKey(p))!.splice(belows.get(belowKey(p))!.indexOf(p), 1)
+  const setChan = (p: Plan, chan: number) => {
+    if (p.way === 'below') dropBelow(p)
+    p.chan = chan
+    if (p.way === 'below') addBelow(p)
   }
   const setWay = (p: Plan, way: Way) => {
     if (p.way === way) return
-    if (p.way === 'below') belows.get(belowKey(p))!.splice(belows.get(belowKey(p))!.indexOf(p), 1)
-    if (way === 'below') {
-      // Lines whose ends are lower run lower, so two of them need not cross.
-      const list = belows.get(belowKey(p)) ?? []
-      const low = (x: Plan) => x.ea.y + x.eb.y
-      let k = list.findIndex((x) => low(x) > low(p))
-      if (k < 0) k = list.length
-      list.splice(k, 0, p)
-      belows.set(belowKey(p), list)
-    }
+    if (p.way === 'below') dropBelow(p)
+    if (way === 'below') addBelow(p)
     if (p.way.startsWith('same') !== way.startsWith('same')) throw new Error('a link cannot change its kind')
     if (p.way.startsWith('same') && way !== p.way) {
       dropEnd(p.ea)
@@ -528,9 +598,10 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       const r = partsOf(p)
       if (!r) return Infinity
       all.push(r)
-      if (p.way === 'below') cost += 0.5
+      if (p.way === 'below') cost += 0.5 + (Math.abs(p.ea.y - p.belowY) + Math.abs(p.eb.y - p.belowY)) * DETOUR
       if (p.way !== p.ways[0] && p.way.startsWith('same')) cost += 0.25
     }
+    cost += overfull * OVERLAP
     const partsIn: Part[][] = Array.from({ length: n + 1 }, () => [])
     const passesIn: Pass[][] = Array.from({ length: n + 1 }, () => [])
     for (const r of all) {
@@ -578,6 +649,20 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       cost += res.cost
     }
     built = all
+    // Two lines crossing twice, once in each of two gaps (one of them runs past
+    // a column), cost what a needless crossing costs.
+    const wide = all.map((r) => r.parts.length > 1 || r.passes.length > 0)
+    if (wide.some(Boolean)) {
+      placeTracks()
+      const lines = plans.map((_, k) => pointsOf(k))
+      for (let i = 0; i < lines.length; i++) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (!wide[i] && !wide[j]) continue
+          const c = crossingCount(lines[i]!, lines[j]!)
+          if (c > 1) cost += (c - 1) * FREE
+        }
+      }
+    }
     return cost
   }
 
@@ -590,13 +675,23 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       const lo = Math.min(p.ca, p.cb) + 1
       const hi = Math.max(p.ca, p.cb) - 1
       const way: Way = clear(p.ea.y, lo, hi) ? 'start' : clear(p.eb.y, lo, hi) ? 'end' : 'below'
+      if (way === 'below') {
+        // The channel nearest the middle of the two cards.
+        const chan = nearestChannel(lo, hi, ((p.a.t + p.a.b) / 2 + (p.b.t + p.b.b) / 2) / 2)
+        if (chan !== p.chan) {
+          setChan(p, chan)
+          changed = true
+        }
+      }
       if (way !== p.way) {
         setWay(p, way)
         changed = true
       }
-      // A line going below the columns leaves and enters low.
-      if (way === 'below' && p.ea.key < 1e6) {
-        p.ea.key = p.eb.key = 1e6 + p.i
+      // A line going below the columns leaves and enters low; one going between two cards, at the height of its channel.
+      const chans = channelsOf(lo, hi)
+      const key = way !== 'below' ? null : p.chan === chans.length - 1 ? 1e6 + p.i : chans[p.chan]!.top
+      if (key !== null && p.ea.key !== key) {
+        p.ea.key = p.eb.key = key
         dropEnd(p.ea)
         dropEnd(p.eb)
         addEnd(p.ea)
@@ -645,7 +740,12 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
 
   let cost = evaluate()
   if (cost === Infinity) {
-    for (const p of plans) if (p.ways[0] === 'start') setWay(p, 'below')
+    for (const p of plans) {
+      if (p.ways[0] !== 'start') continue
+      const [lo, hi] = rangeOf(p)
+      setWay(p, 'below')
+      setChan(p, nearestChannel(lo, hi, (p.ea.y + p.eb.y) / 2))
+    }
     cost = evaluate()
   }
   /** The lines that cross another line now: a port swap helps only if one of its lines is among them. */
@@ -687,10 +787,12 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
       for (const w of p.ways) {
         if (w === p.way) continue
         const was = p.way
+        const chan = p.chan
         const snapshot = new Map([...sides].map(([k, v]) => [k, [...v]]))
         const belowSnap = new Map([...belows].map(([k, v]) => [k, [...v]]))
         const undo = () => {
           p.way = was
+          p.chan = chan
           if (was.startsWith('same')) p.ea.side = p.eb.side = was === 'same-l' ? 'l' : 'r'
           sides.clear()
           for (const [k, v] of snapshot) sides.set(k, v)
@@ -698,6 +800,26 @@ export function routeLinks(boxes: readonly Box[], links: readonly { from: string
           for (const [k, v] of belowSnap) belows.set(k, v)
         }
         if (tryMove(() => setWay(p, w), undo)) {
+          better = true
+          break
+        }
+      }
+    }
+    // Another channel for a line going past the columns.
+    for (const p of plans) {
+      if (p.way !== 'below') continue
+      const [lo, hi] = rangeOf(p)
+      const count = channelsOf(lo, hi).length
+      for (let c = 0; c < count; c++) {
+        if (c === p.chan) continue
+        const chan = p.chan
+        const belowSnap = new Map([...belows].map(([k, v]) => [k, [...v]]))
+        const undo = () => {
+          p.chan = chan
+          belows.clear()
+          for (const [k, v] of belowSnap) belows.set(k, v)
+        }
+        if (tryMove(() => setChan(p, c), undo)) {
           better = true
           break
         }
@@ -784,13 +906,19 @@ export function roundedPath(points: readonly Pt[], radius = 8): string {
 
 // ---------------------------------------------------------------- labels
 
-/** Where a label wants to be: it reads away from (x, y) toward `side`, `width` wide at most. */
+/**
+ * Where a label wants to be: it reads away from (x, y) toward `side`, `width`
+ * wide at most. A label with its text wraps where it has less room.
+ */
 export interface LabelSpot {
   key: string
   x: number
   y: number
   side: Side
   width: number
+  text?: string
+  /** Upright runs of the line: where the label goes when there is no room at the spot (beside the run, in a free row). */
+  runs?: { x: number; y1: number; y2: number }[]
 }
 
 export interface PlacedLabel {
@@ -799,7 +927,49 @@ export interface PlacedLabel {
   top: number
   width: number
   height: number
+  /** The text line by line, for a label that came with its text. */
+  lines: string[]
 }
+
+/** A label's text: 10.5px monospace, about this wide a letter, with this much padding, on lines this tall. */
+const CHAR = 6.3
+const LABEL_PAD = 10
+const LABEL_LINE = 16
+
+/**
+ * A label's text ("A_URL, B_KEY") in lines that fit the width: a name that
+ * fits on the line before goes there, a name too long for a line breaks after
+ * an underscore (or where the line ends).
+ */
+export function wrapLabel(text: string, width: number): string[] {
+  const max = Math.max(1, Math.floor((width - LABEL_PAD) / CHAR))
+  const names = text.split(', ')
+  const lines: string[] = []
+  /** Whether the last line holds whole names, so the next one may join it. */
+  let whole = false
+  names.forEach((n, k) => {
+    const name = k < names.length - 1 ? `${n},` : n
+    if (name.length <= max) {
+      if (whole && lines.at(-1)!.length + 1 + name.length <= max) lines[lines.length - 1] += ` ${name}`
+      else lines.push(name)
+      whole = true
+      return
+    }
+    let rest = name
+    while (rest.length > max) {
+      const cut = rest.lastIndexOf('_', max - 1)
+      const at = cut > 0 ? cut + 1 : max
+      lines.push(rest.slice(0, at))
+      rest = rest.slice(at)
+    }
+    if (rest) lines.push(rest)
+    whole = false
+  })
+  return lines
+}
+
+/** How tall a label of n lines is. */
+const labelHeight = (n: number) => 4 + n * LABEL_LINE
 
 type Rect = Pick<Box, 'l' | 'r' | 't' | 'b'>
 
@@ -819,45 +989,124 @@ function roomAt(x: number, top: number, height: number, side: Side, rects: reado
 /**
  * Place labels next to their spots without covering a box or another label
  * and inside the board: a label moves up or down a row when its spot is
- * taken, is cut short where a box starts, and is left out when no row near
- * its spot has `min` pixels of room.
+ * taken, wraps (or without its text, is cut short) where a box starts, and is
+ * left out when no row near its spot has `min` pixels of room.
  */
 export function placeLabels(spots: readonly LabelSpot[], boxes: readonly Rect[], size: { w: number; h: number }, height = 20, min = 36): PlacedLabel[] {
   const out: PlacedLabel[] = []
   const rects: Rect[] = [...boxes]
   const row = height + 2
+  /** The label of s reading from x toward side with its top at top, if it fits there. */
+  const fit = (s: LabelSpot, x: number, top: number, side: Side, whole: boolean): PlacedLabel | null => {
+    if (top < 2 || top + height > size.h - 2) return null
+    let w = Math.min(s.width, roomAt(x, top, height, side, rects, size.w))
+    if (w < (whole ? s.width : min)) return null
+    let lines = s.text === undefined ? [] : [s.text]
+    let h = height
+    // Too narrow for the text on one line: wrap it, then make sure the taller label has the room too.
+    if (s.text !== undefined && w < s.width) {
+      let fits = false
+      for (let tries = 0; tries < 4 && w >= min; tries++) {
+        lines = wrapLabel(s.text, w)
+        h = labelHeight(lines.length)
+        if (top + h > size.h - 2) break
+        const need = Math.max(...lines.map(labelWidth))
+        const room = roomAt(x, top, h, side, rects, size.w)
+        if (need <= room) {
+          w = need
+          fits = true
+          break
+        }
+        w = Math.min(w, room)
+      }
+      if (!fits) return null
+    }
+    return { key: s.key, left: side === 'l' ? x - w : x, top, width: w, height: h, lines }
+  }
   const sorted = [...spots].sort((a, b) => a.y - b.y || a.key.localeCompare(b.key))
   for (const s of sorted) {
+    let placed: PlacedLabel | null = null
     for (const dy of [0, row, -row, 2 * row, -2 * row, 3 * row, -3 * row]) {
-      const top = s.y + dy - height / 2
-      if (top < 2 || top + height > size.h - 2) continue
-      const w = Math.min(s.width, roomAt(s.x, top, height, s.side, rects, size.w))
-      if (w < min) continue
-      const left = s.side === 'l' ? s.x - w : s.x
-      out.push({ key: s.key, left, top, width: w, height })
-      rects.push({ l: left, r: left + w, t: top, b: top + height })
-      break
+      placed = fit(s, s.x, s.y + dy - height / 2, s.side, false)
+      if (placed) break
     }
+    // No room at the end of the line: beside one of its upright runs, where a row is free
+    // (just under a card the run passes, or halfway along it), on one line.
+    for (const run of placed ? [] : (s.runs ?? [])) {
+      const lo = Math.min(run.y1, run.y2)
+      const hi = Math.max(run.y1, run.y2)
+      const tops = [...boxes.filter((b) => b.b > lo && b.b + height + 4 < hi).map((b) => b.b + 4), (lo + hi) / 2 - height / 2]
+      for (const top of tops) {
+        for (const side of ['r', 'l'] as const) {
+          placed = fit(s, side === 'r' ? run.x + 4 : run.x - 4, top, side, true)
+          if (placed) break
+        }
+        if (placed) break
+      }
+      if (placed) break
+    }
+    if (!placed) continue
+    out.push(placed)
+    rects.push({ l: placed.left, r: placed.left + placed.width, t: placed.top, b: placed.top + placed.height })
   }
   return out
 }
 
 /**
  * The labels of the lines of one app: each at the end of its line (the card
- * that is read), reading away from that card.
+ * that is read), reading away from that card. Lines reading the same
+ * variables from one side of the app share one label (the highest).
  */
 export function labelSpots(routes: readonly RoutedLink[], focus: string, textOf: (r: RoutedLink) => string): (LabelSpot & { text: string })[] {
+  const seen = new Set<string>()
   return routes
     .filter((r) => r.from === focus || r.to === focus)
+    .sort((a, b) => a.end.y - b.end.y)
+    .filter((r) => {
+      if (r.to !== focus) return true
+      const k = `${r.endSide}|${textOf(r)}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
     .map((r) => {
       const text = textOf(r)
-      return { key: r.key, x: r.endSide === 'l' ? r.end.x - 6 : r.end.x + 6, y: r.end.y, side: r.endSide, width: labelWidth(text), text }
+      const runs: { x: number; y1: number; y2: number }[] = []
+      for (let i = 0; i + 1 < r.points.length; i++) {
+        const a = r.points[i]!
+        const b = r.points[i + 1]!
+        if (Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) > 24) runs.push({ x: a.x, y1: a.y, y2: b.y })
+      }
+      return { key: r.key, x: r.endSide === 'l' ? r.end.x - 6 : r.end.x + 6, y: r.end.y, side: r.endSide, width: labelWidth(text), text, runs }
     })
 }
 
-/** About how wide a label is: 10.5px monospace text and its padding. */
+/** About how wide a label is: 10.5px monospace text, its padding and border. */
 export function labelWidth(text: string): number {
-  return Math.ceil(text.length * 6.4 + 16)
+  return Math.ceil(text.length * CHAR + LABEL_PAD)
+}
+
+// ---------------------------------------------------------------- the lanes
+
+/** Lanes side by side: cards at least MIN_CARD wide (CARD when there is room), lanes MIN_GAP to MAX_GAP apart. */
+const MIN_CARD = 216
+const CARD = 280
+const MIN_GAP = 72
+const MAX_GAP = 144
+
+/**
+ * How the lanes sit on a board `width` px wide inside: side by side with
+ * `gap` px between them (wider gaps leave room for the labels on the lines),
+ * or, when the cards would get too narrow, one lane under the other.
+ */
+export function laneLayout(width: number, lanes: number): { side: boolean; gap: number } {
+  if (lanes < 2 || width < lanes * MIN_CARD + (lanes - 1) * MIN_GAP) return { side: false, gap: 0 }
+  return { side: true, gap: Math.round(Math.min(MAX_GAP, Math.max(MIN_GAP, (width - lanes * CARD) / (lanes - 1)))) }
+}
+
+/** The width that `lanes` lanes need to sit side by side. */
+export function laneWidthNeeded(lanes: number): number {
+  return lanes * MIN_CARD + (lanes - 1) * MIN_GAP
 }
 
 /** Whether the line between two points runs through the box (its edges count as outside). */

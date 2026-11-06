@@ -85,6 +85,7 @@ type backupState struct {
 	restore  map[string]*BackupRestore // appID -> latest restore
 	base     context.Context           // ends when the service shuts down; nil until RunBackground
 	vol      volumeStore               // tests replace it; nil means Docker
+	run      serviceRunner             // tests replace it; nil means Docker (database dumps)
 	wg       sync.WaitGroup            // running jobs
 	commitMu sync.Mutex                // one backup at a time checks the storage allowance and lands
 	sem      chan struct{}             // limits automatic backups that run at once
@@ -146,7 +147,11 @@ func (s *Service) backupPath(appID, id string) string {
 }
 
 func backupView(b db.AppBackup) Backup {
-	return Backup{ID: b.ID, Kind: b.Kind, Status: b.Status, SizeBytes: b.SizeBytes, Error: b.Error, CreatedAt: ts(b.CreatedAt)}
+	format := b.Format
+	if format == "" {
+		format = formatVolume
+	}
+	return Backup{ID: b.ID, Kind: b.Kind, Format: format, Tool: b.Tool, Status: b.Status, SizeBytes: b.SizeBytes, Error: b.Error, CreatedAt: ts(b.CreatedAt)}
 }
 
 func backupNotFound() *apperr.Error {
@@ -274,6 +279,9 @@ func (s *Service) ListBackups(ctx context.Context, a Actor, ref string) (BackupL
 		}
 		out.Items = append(out.Items, v)
 		out.TotalBytes += r.SizeBytes
+	}
+	if eng := dumpEngineOf(row); eng != nil {
+		out.DumpTool = eng.tool
 	}
 	out.UploadMaxBytes, _ = s.uploadLimit(ctx, row, owner)
 	out.Volumes = []BackupVolume{}
@@ -441,7 +449,7 @@ func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string
 	}
 	rows := make([]db.AppBackup, 0, len(ready))
 	for _, vol := range ready {
-		b, err := s.insertBackup(ctx, row.ID, BackupManual, vol.Name)
+		b, err := s.insertBackup(ctx, row.ID, BackupManual, vol.Name, s.backupFormatFor(ctx, row, vol.Name))
 		if err != nil {
 			for _, r := range rows {
 				_ = s.Q.DeleteBackup(context.WithoutCancel(ctx), r.ID)
@@ -450,7 +458,7 @@ func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string
 			return nil, err
 		}
 		rows = append(rows, b)
-		meta := map[string]any{"backup": b.ID, "kind": BackupManual}
+		meta := map[string]any{"backup": b.ID, "kind": BackupManual, "format": b.Format}
 		if isMulti(row) {
 			meta["volume"] = b.Volume
 		}
@@ -489,13 +497,15 @@ func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string
 	return out, nil
 }
 
-func (s *Service) insertBackup(ctx context.Context, appID, kind, volume string) (db.AppBackup, error) {
+// insertBackup records a backup that is about to be made, in status
+// running; format is formatVolume or formatDump.
+func (s *Service) insertBackup(ctx context.Context, appID, kind, volume, format string) (db.AppBackup, error) {
 	if volume == "" {
 		volume = singleVolume
 	}
-	b := db.AppBackup{ID: ids.New(ids.Backup), AppID: appID, Kind: kind, Status: backupRunning, CreatedAt: s.now(), Volume: volume}
+	b := db.AppBackup{ID: ids.New(ids.Backup), AppID: appID, Kind: kind, Status: backupRunning, CreatedAt: s.now(), Volume: volume, Format: format}
 	if err := s.Q.InsertBackup(ctx, db.InsertBackupParams{
-		ID: b.ID, AppID: b.AppID, Kind: b.Kind, Status: b.Status, CreatedAt: b.CreatedAt, Volume: b.Volume,
+		ID: b.ID, AppID: b.AppID, Kind: b.Kind, Status: b.Status, CreatedAt: b.CreatedAt, Volume: b.Volume, Format: b.Format,
 	}); err != nil {
 		return db.AppBackup{}, apperr.Internal(err)
 	}
@@ -526,12 +536,16 @@ func (s *Service) OpenBackup(ctx context.Context, a Actor, ref, id string) (*os.
 	if b.Status != backupReady {
 		return nil, "", apperr.Conflict("backup_not_ready", "This backup is not finished, so it cannot be downloaded.", "Wait until it is ready.")
 	}
-	f, err := os.Open(s.backupPath(row.ID, b.ID))
+	f, err := os.Open(s.backupFile(b))
 	if err != nil {
 		return nil, "", apperr.NotFound("backup_file_missing", "The file of this backup is gone from the server.", "Delete this backup and make a new one.")
 	}
 	s.Audit(ctx, a, "backup.download", "app", row.ID, map[string]any{"backup": b.ID})
-	name := fmt.Sprintf("%s-%s-%s.tar.gz", row.Slug, ts(b.CreatedAt).Format("20060102-150405"), strings.ReplaceAll(b.Kind, "_", "-"))
+	ext := ".tar.gz"
+	if b.Format == formatDump {
+		ext = ".sql.gz"
+	}
+	name := fmt.Sprintf("%s-%s-%s%s", row.Slug, ts(b.CreatedAt).Format("20060102-150405"), strings.ReplaceAll(b.Kind, "_", "-"), ext)
 	return f, name, nil
 }
 
@@ -680,7 +694,7 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 		werr = s.commitBackup(ctx, owner, tmp, final, size, func() error {
 			return s.Q.InsertBackup(ctx, db.InsertBackupParams{
 				ID: id, AppID: row.ID, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: now,
-				FinishedAt: sql.NullInt64{Int64: now, Valid: true}, Volume: vol.Name,
+				FinishedAt: sql.NullInt64{Int64: now, Valid: true}, Volume: vol.Name, Format: formatVolume,
 			})
 		})
 	}
@@ -690,7 +704,7 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 	}
 	s.Audit(ctx, a, "backup.upload", "app", row.ID, map[string]any{"backup": id, "bytes": size})
 	s.publishBackup(ctx, row.ID)
-	out := Backup{ID: id, Kind: BackupUploaded, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}
+	out := Backup{ID: id, Kind: BackupUploaded, Format: formatVolume, Status: backupReady, SizeBytes: size, CreatedAt: ts(s.now())}
 	if isMulti(row) {
 		out.Volume = vol.Name
 	}

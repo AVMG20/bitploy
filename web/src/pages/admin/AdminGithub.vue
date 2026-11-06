@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { ExternalLink, Github, TriangleAlert } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
+import DangerRow from '@/components/DangerRow.vue'
+import DangerZone from '@/components/DangerZone.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -210,13 +212,18 @@ const finishHint = computed(() => (finishError.value instanceof ApiError ? finis
             </template>
           </dl>
         </CardContent>
-        <CardFooter class="flex-wrap justify-between gap-3">
+        <CardFooter>
           <Button as-child variant="outline">
             <a :href="info.data.value.manage_url" target="_blank" rel="noopener noreferrer">Manage on GitHub <ExternalLink /></a>
           </Button>
-          <Button variant="outline" class="text-destructive" @click="disconnectOpen = true">Disconnect</Button>
         </CardFooter>
       </Card>
+
+      <DangerZone v-if="info.data.value.configured">
+        <DangerRow title="Disconnect GitHub" description="bitploy forgets the app's keys and every connected GitHub account. Private repositories stop building and pushes stop deploying.">
+          <Button variant="destructive" @click="disconnectOpen = true">Disconnect</Button>
+        </DangerRow>
+      </DangerZone>
     </template>
 
     <ConfirmDialog

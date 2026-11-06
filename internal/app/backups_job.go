@@ -56,7 +56,10 @@ func (s *Service) finishBackup(ctx context.Context, app db.App, owner db.User, b
 // backupErrText is the plain-words reason shown for a failed backup.
 func backupErrText(err error) string {
 	var tp *tarProblem
+	var de *dumpError
 	switch {
+	case errors.As(err, &de):
+		return strings.TrimSpace(de.msg)
 	case errors.Is(err, dockerx.ErrNoVolume):
 		return "This app has no data yet. Start the app once, then try again."
 	case errors.Is(err, errBackupNoRoom):
@@ -82,6 +85,13 @@ func backupErrText(err error) string {
 // read, so the copy is consistent; it is always resumed. The helper container
 // (and the image it needs) is made before the pause: that is the slow part.
 func (s *Service) makeBackup(ctx context.Context, app db.App, owner db.User, id string, room int64, appLocked bool) (int64, error) {
+	volName := singleVolume
+	if b, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: id, AppID: app.ID}); err == nil {
+		if b.Format == formatDump {
+			return s.makeDump(ctx, app, owner, b, room, appLocked)
+		}
+		volName = b.Volume
+	}
 	vs, aerr := s.volumes()
 	if aerr != nil {
 		return 0, aerr
@@ -95,15 +105,13 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, owner db.User, id 
 	if err != nil {
 		return 0, err
 	}
-	volName := singleVolume
-	if b, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: id, AppID: app.ID}); err == nil {
-		volName = b.Volume
-	}
 	vol, ok := s.volumeOf(ctx, app, volName)
 	if !ok {
 		_ = os.Remove(tmp)
 		return 0, dockerx.ErrNoVolume
 	}
+	// Valkey and Redis write a fresh snapshot first (outside the pause).
+	s.snapshotBeforeCopy(ctx, app)
 	size, err := func() (int64, error) {
 		defer f.Close()
 		arch, err := vs.PrepareArchive(ctx, vol.VolumeName)
@@ -230,6 +238,11 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if b.Status != backupReady {
 		return BackupRestore{}, apperr.Conflict("backup_not_ready", "This backup is not finished or failed, so it cannot be restored.", "Pick a backup that is ready.")
 	}
+	dump := b.Format == formatDump
+	if dump && dumpEngineOf(row) == nil {
+		return BackupRestore{}, apperr.Conflict("dump_not_restorable", "This backup is a database dump, and this app is no database it can be replayed into.",
+			"Restore a backup of the app's files instead.")
+	}
 	vol, ok, err := s.pickVolume(ctx, row, b.Volume)
 	if err != nil {
 		return BackupRestore{}, err
@@ -237,7 +250,7 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if !ok {
 		return BackupRestore{}, volumeOffErr()
 	}
-	if _, err := os.Stat(s.backupPath(row.ID, b.ID)); err != nil {
+	if _, err := os.Stat(s.backupFile(b)); err != nil {
 		return BackupRestore{}, apperr.NotFound("backup_file_missing", "The file of this backup is gone from the server.", "Delete this backup and pick another one.")
 	}
 	vs, err := s.volumes()
@@ -255,6 +268,10 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if n, err := s.Q.CountPendingDeploymentsByApp(ctx, row.ID); err == nil && n > 0 {
 		return BackupRestore{}, busyErr()
 	}
+	if dump && !s.dbRunning(ctx, row) {
+		return BackupRestore{}, apperr.Conflict("database_not_running", "The database is not running, so the dump cannot be replayed into it.",
+			"Start the app and wait until it runs, then restore again. A dump is replayed by the database itself.")
+	}
 	if err := s.checkBackupDisk(); err != nil {
 		return BackupRestore{}, err
 	}
@@ -271,10 +288,10 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if !lock.TryLock() {
 		return BackupRestore{}, backupBusyErr()
 	}
-	st := &BackupRestore{BackupID: b.ID, State: "running", StartedAt: s.Now(), AppRestarts: s.restartsApp(row)}
+	st := &BackupRestore{BackupID: b.ID, State: "running", StartedAt: s.Now(), AppRestarts: !dump && s.restartsApp(row)}
 	s.setRestore(row.ID, st)
 	started := *st // the job below updates st
-	s.Audit(ctx, a, "backup.restore", "app", row.ID, map[string]any{"backup": b.ID})
+	s.Audit(ctx, a, "backup.restore", "app", row.ID, map[string]any{"backup": b.ID, "format": backupView(b).Format})
 	s.backupGo(func() {
 		defer lock.Unlock()
 		ctx, cancel := s.backupCtx()
@@ -282,7 +299,12 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 		// Database helpers that read the volume finish first: one that closes its
 		// last connection would remove a -wal file that is restored meanwhile.
 		s.waitDBReads(ctx, row.ID)
-		err := s.runRestore(ctx, row, owner, b, room, st)
+		var err error
+		if dump {
+			err = s.runDumpRestore(ctx, row, owner, b, room)
+		} else {
+			err = s.runRestore(ctx, row, owner, b, room, st)
+		}
 		s.finishRestoreState(row.ID, st, err)
 		if err != nil {
 			s.Log.Warn("restore failed", "app", row.Slug, "err", err)
@@ -436,7 +458,7 @@ func (s *Service) runRestore(ctx context.Context, row db.App, owner db.User, b d
 	}
 
 	// A backup of what is there now, so a restore can be undone.
-	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore, b.Volume)
+	safe, err := s.insertBackup(ctx, app.ID, BackupBeforeRestore, b.Volume, formatVolume)
 	if err != nil {
 		return errors.New("A server error stopped the restore before it began. Nothing was changed.")
 	}
@@ -615,6 +637,16 @@ func (s *Service) recoverRestore(ctx context.Context, app db.App) {
 	switch {
 	case app.RestoreSafeID == "":
 		st.Error = "bitploy was restarted before the restore began. Nothing was changed."
+	case s.restoreSafeIsDump(ctx, app):
+		// A dump restore never stopped the database: replay the dump from
+		// before. If that fails, the database keeps running as it is, so the
+		// user can restore the before-restore backup.
+		if err := s.undoRestore(ctx, app); err != nil {
+			st.Error = "bitploy was restarted in the middle of the restore and the databases from before could not be put back. Restore the backup marked \"before restore\" from the Storage tab."
+			s.Log.Error("recovering an interrupted restore failed", "app", app.Slug, "err", err)
+		} else {
+			st.Error = "bitploy was restarted in the middle of the restore. The databases from before were put back."
+		}
 	default:
 		if err := s.undoRestore(ctx, app); err != nil {
 			keepStopped = true
@@ -650,7 +682,24 @@ func (s *Service) undoRestore(ctx context.Context, app db.App) error {
 	if err != nil || safe.Status != backupReady {
 		return errors.New("the before-restore backup is not usable")
 	}
+	if safe.Format == formatDump {
+		eng := dumpEngineOf(app)
+		if eng == nil {
+			return errors.New("the app is no database")
+		}
+		return s.replayDump(ctx, app, eng, safe)
+	}
 	return s.replaceFrom(ctx, vs, app, safe)
+}
+
+// restoreSafeIsDump reports whether the interrupted restore of app had made
+// a dump as its before-restore backup.
+func (s *Service) restoreSafeIsDump(ctx context.Context, app db.App) bool {
+	if app.RestoreSafeID == "" {
+		return false
+	}
+	safe, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: app.RestoreSafeID, AppID: app.ID})
+	return err == nil && safe.Format == formatDump
 }
 
 // ---- delete ----
@@ -682,8 +731,10 @@ func (s *Service) DeleteBackup(ctx context.Context, a Actor, ref, id string) err
 }
 
 func (s *Service) removeBackup(ctx context.Context, appID, id string) error {
-	if err := os.Remove(s.backupPath(appID, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	for _, p := range []string{s.backupPath(appID, id), s.dumpPath(appID, id)} {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return s.Q.DeleteBackup(ctx, id)
 }

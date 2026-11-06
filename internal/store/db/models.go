@@ -83,6 +83,8 @@ type AppBackup struct {
 	CreatedAt   int64
 	FinishedAt  sql.NullInt64
 	Volume      string
+	Format      string
+	Tool        string
 }
 
 type AppDisk struct {

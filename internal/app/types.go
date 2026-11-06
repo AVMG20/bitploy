@@ -644,8 +644,13 @@ type LogOptions struct {
 
 // Backup is one archive of an app's /data folder.
 type Backup struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`   // manual | scheduled | uploaded | before_restore
+	ID   string `json:"id"`
+	Kind string `json:"kind"` // manual | scheduled | uploaded | before_restore
+	// Format is how the backup holds the data: volume (a .tar.gz of the
+	// files) or dump (a gzipped SQL dump of a database service, .sql.gz).
+	Format string `json:"format" enum:"volume,dump" doc:"volume: a .tar.gz of the files. dump: a gzipped SQL dump of every database of a database service (PostgreSQL, MariaDB, MySQL), made while it runs."`
+	// Tool is the dump tool and its version, for dumps.
+	Tool      string    `json:"tool,omitempty" doc:"Dumps: the tool and its version, like pg_dumpall (PostgreSQL) 18.1"`
 	Status    string    `json:"status"` // running | ready | failed
 	SizeBytes int64     `json:"size_bytes"`
 	Error     string    `json:"error,omitempty"` // why a failed backup failed, in plain words
@@ -690,6 +695,9 @@ type BackupList struct {
 	UploadMaxBytes int64 `json:"upload_max_bytes"`
 	// Volumes are the app's volumes with the biggest backup file each can take.
 	Volumes []BackupVolume `json:"volumes"`
+	// DumpTool is set for a database service: its backups are dumps made
+	// with this tool while it runs (a copy of the files while it is stopped).
+	DumpTool string `json:"dump_tool,omitempty" doc:"Database services: backups are dumps made with this tool (pg_dumpall, mariadb-dump, mysqldump) while the database runs, a copy of the files while it is stopped"`
 }
 
 // BackupVolume is a volume backups can be made of and uploaded to.

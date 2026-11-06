@@ -82,7 +82,6 @@ const projectForAi = computed(() => {
             {{ hostOf(main.url) }} <ArrowUpRight class="size-3 text-muted-foreground" />
           </a>
           <span v-else>No web address yet</span>
-          <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
           <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, {{ formatMB(usage.memoryMB) }} memory reserved</template></span>
         </template>
         <CopyForAiButton v-if="apps.length" :text="projectForAi" />

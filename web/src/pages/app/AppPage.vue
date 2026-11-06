@@ -121,22 +121,20 @@ const deleteOpen = ref(false)
           </button>
         </template>
         <template #meta>
-          <template v-if="isWeb">
+          <span v-if="isWeb" class="inline-flex max-w-full items-center gap-1">
             <a :href="data.url" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] text-foreground hover:underline">{{ hostOf(data.url) }}</a>
-            <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="-ml-1 size-6 text-muted-foreground" />
-            <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs" :title="`Password-protected. Visitors sign in as ${data.protected_username}.`">
+            <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="size-6 shrink-0 text-muted-foreground" />
+            <span v-if="data.protected" class="inline-flex shrink-0 items-center gap-1 text-xs" :title="`Password-protected. Visitors sign in as ${data.protected_username}.`">
               <Lock class="size-3.5" aria-hidden="true" /> Private
             </span>
-          </template>
+          </span>
           <span v-else-if="internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
             <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
           </span>
           <span v-else>Runs in the background, no web address</span>
-          <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
           <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
           <span v-else>Not deployed yet</span>
           <template v-if="data.git_source">
-            <span class="size-1 rounded-full bg-muted-foreground/50" aria-hidden="true" />
             <span class="inline-flex items-center gap-1.5">
               <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
               <template v-if="dep?.commit_sha">

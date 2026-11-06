@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { ArrowUpCircle, ArrowUpRight, Cable, ExternalLink, Lock, Maximize2, Play, RefreshCw, RotateCw, Trash2, X } from 'lucide-vue-next'
+import { Archive, ArrowUpCircle, ArrowUpRight, Cable, ExternalLink, Lock, Maximize2, Play, RefreshCw, RotateCw, Trash2, X } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
@@ -21,6 +21,7 @@ import { useProjectData } from '@/composables/useProjectData'
 import { api, fetchLogEntries } from '@/lib/api'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { plainHint } from '@/lib/errors'
+import { toastError } from '@/lib/notify'
 import { deploymentStateInfo, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { aliasOf, envReferences, internalHostOf, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
 import CatalogUpdateDialog from '@/pages/app/CatalogUpdateDialog.vue'
@@ -73,6 +74,25 @@ watch(tail, async () => {
   await nextTick()
   if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
 })
+
+// ---------------------------------------------------------------- backups of a database service
+// Only a database service (PostgreSQL, MySQL, MariaDB: dump_tool is set) shows
+// its last backup here; the Storage tab has the rest.
+const qc = useQueryClient()
+const backups = useQuery({
+  queryKey: computed(() => keys.backups(props.slug)),
+  queryFn: () => api.backups(props.slug),
+  enabled: computed(() => !!data.value?.template && !!data.value?.volume),
+  refetchInterval: (q) => liveMs(q.state.data?.busy ? 2_000 : 30_000),
+})
+const dumpTool = computed(() => (data.value?.template ? backups.data.value?.dump_tool : undefined))
+const lastBackup = computed(() => backups.data.value?.items.find((b) => b.status === 'ready' && b.kind !== 'before_restore') ?? null)
+const backUp = useMutation({
+  mutationFn: () => api.createBackup(props.slug),
+  onSuccess: () => void qc.invalidateQueries({ queryKey: keys.backups(props.slug) }),
+  onError: (e) => toastError(e),
+})
+const backingUp = computed(() => backUp.isPending.value || !!backups.data.value?.busy)
 
 const TABS = computed(() =>
   [
@@ -230,6 +250,23 @@ watch(
         </section>
         <ConnectionCard v-if="data.template && !fallback" :app="data" />
         <PublicPort :app="data" compact />
+
+        <!-- The last backup of a database service. -->
+        <section v-if="dumpTool" class="grid gap-2" aria-labelledby="panel-backups">
+          <div class="flex items-center justify-between gap-2">
+            <h3 id="panel-backups" class="text-xs font-medium text-muted-foreground">Backups</h3>
+            <RouterLink :to="appRoute(data, 'app-storage')" class="text-xs font-medium hover:underline">All backups</RouterLink>
+          </div>
+          <p class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm" data-testid="panel-backup">
+            <Archive class="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <span v-if="lastBackup" class="text-muted-foreground">Last backup <RelativeTime :date="lastBackup.created_at" /></span>
+            <span v-else class="text-muted-foreground">No backups yet</span>
+            <span class="text-muted-foreground" aria-hidden="true">·</span>
+            <button type="button" class="font-medium underline-offset-4 hover:underline disabled:opacity-50" :disabled="backingUp" :title="data.status === 'running' ? `A dump made with ${dumpTool}` : 'A copy of the database files, as it is stopped'" @click="backUp.mutate()">
+              {{ backingUp ? 'Backing up...' : 'Back up now' }}
+            </button>
+          </p>
+        </section>
 
         <!-- Its variables. -->
         <section class="grid gap-2" aria-labelledby="panel-vars">

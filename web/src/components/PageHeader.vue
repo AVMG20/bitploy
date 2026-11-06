@@ -15,7 +15,8 @@ defineProps<{ title: string; description?: string }>()
           <h1 class="min-w-0 truncate text-2xl font-semibold tracking-tight">{{ title }}</h1>
           <slot name="badges" />
         </div>
-        <div v-if="$slots.meta" class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"><slot name="meta" /></div>
+        <!-- Each element in the meta slot is one fact, with a dot between two facts (see .meta-dots). -->
+        <div v-if="$slots.meta" class="mt-1.5 overflow-x-clip text-sm text-muted-foreground"><div class="meta-dots"><slot name="meta" /></div></div>
         <p v-else-if="description" class="mt-1 text-sm text-muted-foreground">{{ description }}</p>
       </div>
     </div>

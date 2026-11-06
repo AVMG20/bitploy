@@ -232,3 +232,33 @@
 @media (prefers-reduced-motion: reduce) {
   .link-flow { animation: none; }
 }
+
+/*
+ * Facts in a row with a dot between each two. Every fact brings the dot
+ * before it; the row is shifted left by one dot's room and clipped, so a fact
+ * that starts a line hides its dot and no dot is ever alone at a line's start
+ * or end.
+ */
+.meta-dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 0.25rem;
+  margin-left: -1.25rem;
+}
+.meta-dots > * {
+  position: relative;
+  min-width: 0;
+  padding-left: 1.25rem;
+}
+.meta-dots > *::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  width: 0.25rem;
+  height: 0.25rem;
+  margin-top: -0.125rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+}
