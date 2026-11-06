@@ -82,15 +82,16 @@ const close = useMutation({
               <TableRow v-for="o in p.open" :key="o.app">
                 <TableCell>
                   <RouterLink :to="appPath(o.app)" class="font-medium hover:underline">{{ o.app_name }}</RouterLink>
+                  <p v-if="o.app !== o.app_name" class="font-mono text-xs text-muted-foreground">{{ o.app }}</p>
                   <p v-if="o.service" class="font-mono text-xs text-muted-foreground">{{ o.service }}</p>
                   <p v-if="o.error" class="text-xs text-destructive">{{ o.error }}</p>
                 </TableCell>
                 <TableCell class="hidden sm:table-cell">{{ o.owner_email }}</TableCell>
                 <TableCell class="font-mono tabular-nums">{{ o.port }}</TableCell>
-                <TableCell class="hidden font-mono text-xs md:table-cell">{{ o.allow_from.length ? o.allow_from.join(', ') : 'anyone' }}</TableCell>
+                <TableCell class="hidden text-xs md:table-cell"><span v-if="o.allow_from.length" class="font-mono">{{ o.allow_from.join(', ') }}</span><template v-else>Anyone</template></TableCell>
                 <TableCell class="text-xs"><RelativeTime :date="o.expires_at" empty="never" /></TableCell>
                 <TableCell>
-                  <Button size="sm" variant="outline" :aria-label="`Close the public port of ${o.app_name}`" :disabled="close.isPending.value" @click="close.mutate(o.app)">Close</Button>
+                  <Button size="sm" variant="outline" :aria-label="`Close the public port of ${o.app_name}`" :disabled="close.isPending.value" @click="close.mutate(o.app)">Close port</Button>
                 </TableCell>
               </TableRow>
             </TableBody>

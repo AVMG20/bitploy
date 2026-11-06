@@ -42,7 +42,7 @@ function toggle(id: string, on: boolean) {
 
 const label = computed(() => {
   const n = extra.value.filter((d) => granted.value.has(d.id)).length
-  return n === 0 ? 'Default domain' : n === 1 ? '1 more domain' : `${n} more domains`
+  return n === 0 ? 'Default domain only' : n === 1 ? 'Default + 1 domain' : `Default + ${n} domains`
 })
 </script>
 

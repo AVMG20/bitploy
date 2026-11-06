@@ -447,11 +447,11 @@ const submit = form.handleSubmit(run)
           <span class="flex items-center gap-3">
             <FolderPlus class="size-4.5 text-muted-foreground" />
             <span class="grid">
-              <span class="text-sm font-medium">Start empty</span>
-              <span class="text-xs text-muted-foreground">An empty project. Add a database, a cache or an app to it next.</span>
+              <span class="text-sm font-medium">Empty project</span>
+              <span class="text-xs text-muted-foreground">Add a database, a cache or an app to it after creating it.</span>
             </span>
           </span>
-          <Button variant="outline" size="sm" @click="emptyOpen = true">Start empty</Button>
+          <Button variant="outline" size="sm" @click="emptyOpen = true">Create empty project</Button>
         </div>
         <form v-else class="flex flex-wrap items-end gap-2" @submit.prevent="startEmpty">
           <div class="grid gap-1.5">

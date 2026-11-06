@@ -373,7 +373,7 @@ function restoreTitle(b: Backup) {
 }
 const restoreText = computed(() => {
   if (toRestore.value?.format === 'dump') {
-    return 'Every database is dropped and made again from this dump. The database keeps running; apps connected to it lose their connection for a moment. The current databases are dumped first, so you can undo this.'
+    return 'Every database is dropped and rebuilt from this dump. Apps connected to it lose their connection for a moment. The current databases are dumped first, so you can undo this.'
   }
   return `The saved files are replaced by this backup.${appWillRestart.value ? ' The app restarts.' : ''} The current files are backed up first, so you can undo this.`
 })
@@ -555,7 +555,7 @@ const restoreText = computed(() => {
             </div>
             <div class="flex justify-end sm:col-span-2">
               <Button type="submit" :disabled="saveSettings.isPending.value || !backupForm.meta.value.dirty">
-                {{ saveSettings.isPending.value ? 'Saving...' : 'Save' }}
+                {{ saveSettings.isPending.value ? 'Saving...' : 'Save schedule' }}
               </Button>
             </div>
           </form>

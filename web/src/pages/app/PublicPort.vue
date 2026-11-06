@@ -41,7 +41,7 @@ const description = computed(() =>
     ? 'Connect to it from your computer with psql, TablePlus or a similar tool. Close the port when you are done.'
     : isMulti(props.app)
       ? 'Reach one of its services from your computer, like the database with psql or TablePlus. Close the port when you are done.'
-      : 'Reach its port from your computer with the client it speaks to. Close the port when you are done.',
+      : `Connect to its port${props.app.port ? ` ${props.app.port}` : ''} from your computer, for example to test it. Close the port when you are done.`,
 )
 
 // ---------------------------------------------------------------- the form (opening, or changing while open)
@@ -245,7 +245,7 @@ const visible = computed(() => !!pp.value && (pp.value.enabled || pp.value.avail
             }}
           </p>
           <div v-if="!formOpen" class="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" :disabled="busy" @click="resetForm(); formOpen = true">Change</Button>
+            <Button size="sm" variant="outline" :disabled="busy" @click="resetForm(); formOpen = true">Change settings</Button>
             <Button size="sm" variant="outline" :disabled="busy" @click="close.mutate()">{{ close.isPending.value ? 'Closing...' : 'Close port' }}</Button>
           </div>
         </div>
@@ -263,7 +263,7 @@ const visible = computed(() => !!pp.value && (pp.value.enabled || pp.value.avail
           </div>
 
           <fieldset class="grid gap-1.5">
-            <legend class="mb-1.5 text-sm font-medium">{{ isOpen ? 'Close it by itself after, from now' : 'Close it by itself after' }}</legend>
+            <legend class="mb-1.5 text-sm font-medium">Close automatically after<span v-if="isOpen" class="font-normal text-muted-foreground"> (counted from now)</span></legend>
             <div role="radiogroup" class="inline-flex w-fit rounded-md border bg-muted/30 p-0.5">
               <button
                 v-for="c in CLOSE_CHOICES"
