@@ -25,6 +25,14 @@ import type { Invite } from '@/lib/types'
 
 const qc = useQueryClient()
 const invites = useQuery({ queryKey: keys.adminInvites, queryFn: api.invites, refetchInterval: 15_000 })
+// An invite does not keep who used it; an invite for an email address was used by the account with that address.
+const users = useQuery({ queryKey: keys.adminUsers, queryFn: api.adminUsers })
+const userByEmail = computed(() => new Map((users.data.value ?? []).map((u) => [u.email.toLowerCase(), u])))
+function usedBy(i: Invite): string {
+  if (!i.email) return ''
+  const u = userByEmail.value.get(i.email.toLowerCase())
+  return u ? u.name || u.email : ''
+}
 const fresh = ref<Invite | null>(null)
 
 const { handleSubmit, resetForm } = useForm({
@@ -66,10 +74,11 @@ const revoke = useMutation({
   onError: (e) => toastError(e),
 })
 
-function state(i: Invite): { label: string; tone: string } {
-  if (i.used_at) return { label: 'Used', tone: 'text-muted-foreground' }
-  if (new Date(i.expires_at).getTime() < Date.now()) return { label: 'Expired', tone: 'text-muted-foreground' }
-  return { label: 'Waiting', tone: 'text-success' }
+/** What became of the invite, and when: used (and by whom), expired, or waiting until it expires. */
+function state(i: Invite): { label: string; tone: string; date: string } {
+  if (i.used_at) return { label: 'Used', tone: 'text-muted-foreground', date: i.used_at }
+  if (new Date(i.expires_at).getTime() < Date.now()) return { label: 'Expired', tone: 'text-muted-foreground', date: i.expires_at }
+  return { label: 'Waiting', tone: 'text-success', date: i.expires_at }
 }
 </script>
 
@@ -124,7 +133,6 @@ function state(i: Invite): { label: string; tone: string } {
             <TableHead>For</TableHead>
             <TableHead>Status</TableHead>
             <TableHead class="hidden sm:table-cell">Created</TableHead>
-            <TableHead class="hidden sm:table-cell">Expires</TableHead>
             <TableHead class="w-0" />
           </TableRow>
         </TableHeader>
@@ -134,9 +142,10 @@ function state(i: Invite): { label: string; tone: string } {
               {{ i.email || 'Anyone with the link' }}
               <Badge v-if="i.role === 'admin'" variant="secondary" class="ml-1">Admin</Badge>
             </TableCell>
-            <TableCell :class="state(i).tone">{{ state(i).label }}</TableCell>
+            <TableCell>
+              <span :class="state(i).tone">{{ state(i).label }}</span><span class="text-muted-foreground">{{ state(i).label === 'Waiting' ? ', expires' : '' }} <RelativeTime :date="state(i).date" /><template v-if="i.used_at && usedBy(i)"> by {{ usedBy(i) }}</template></span>
+            </TableCell>
             <TableCell class="hidden sm:table-cell"><RelativeTime :date="i.created_at" /></TableCell>
-            <TableCell class="hidden sm:table-cell"><RelativeTime :date="i.expires_at" /></TableCell>
             <TableCell>
               <Button v-if="!i.used_at" size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke invite for ${i.email || 'anyone with the link'}`" @click="toRevoke = i">Revoke</Button>
             </TableCell>
