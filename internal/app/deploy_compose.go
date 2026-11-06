@@ -607,7 +607,7 @@ type ValidateComposeInput struct {
 	Compose string `json:"compose" doc:"The content of the compose file (compose.yaml)" maxLength:"262144"`
 	// App is optional: its shared variables fill in ${VAR}, and its current
 	// use is left out of the quota check (a deployment replaces it).
-	App string `json:"app,omitempty" doc:"Optional app id or slug: its shared variables fill in ${VAR}, and its own use is left out of the quota check"`
+	App string `json:"app,omitempty" doc:"Optional app id or slug: its shared variables fill in ${VAR}, and its own use is left out of the quota check. Needs the deploy scope"`
 }
 
 // ComposePreview is what bitploy would run from a compose file.
@@ -660,8 +660,11 @@ type ComposePreviewVolume struct {
 func (s *Service) ValidateCompose(ctx context.Context, a Actor, in ValidateComposeInput) (ComposePreview, error) {
 	var row db.App
 	ownerID := a.UserID
+	// With an app, ${VAR} is filled with its real variables, and the filled-in
+	// image or target comes back in the answer: owner with deploy scope only, as
+	// for a deploy (a read-only token or an admin must not read values this way).
 	if strings.TrimSpace(in.App) != "" {
-		r, err := s.LoadApp(ctx, a, in.App, false)
+		r, err := s.LoadApp(ctx, a, in.App, true)
 		if err != nil {
 			return ComposePreview{}, err
 		}

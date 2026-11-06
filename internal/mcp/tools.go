@@ -63,7 +63,7 @@ type createAppIn struct {
 
 type validateComposeIn struct {
 	Compose string `json:"compose" jsonschema:"The full text of the compose file (compose.yaml or docker-compose.yml), not a path."`
-	App     string `json:"app,omitempty" jsonschema:"Optional app slug: its variables (set_env) fill in ${VAR} in the file, and its own memory, CPU and storage are not counted against the quota (the deploy replaces them)."`
+	App     string `json:"app,omitempty" jsonschema:"Optional app slug: its variables (set_env) fill in ${VAR} in the file, and its own memory, CPU and storage are not counted against the quota (the deploy replaces them). Needs a token with the deploy scope."`
 }
 
 type updateAppIn struct {

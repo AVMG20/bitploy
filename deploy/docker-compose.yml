@@ -16,7 +16,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      # No port 8081: the "internal" entrypoint is only for bitploy's health checks, over the shared network.
+      # No port 8081: the "internal" entrypoint is only for bitploy's health checks, over the "bitploy" network.
     volumes:
       - ./traefik:/etc/traefik:ro                          # static config (traefik.yml)
       - ${BITPLOY_DATA_DIR:-/var/lib/bitploy}/traefik/dynamic:/dynamic:ro   # route files written by bitploy
@@ -28,7 +28,14 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    networks: [bitploy]
+    networks:
+      bitploy:
+        # Fixed address, at the top of the subnet so no other container takes it first.
+        # The "internal" entrypoint (traefik/traefik.yml) listens on this address only:
+        # bitploy joins Traefik to every app network, and an app must not reach that
+        # entrypoint through Traefik's address on its own network (its routers have no
+        # password check). Change both files together.
+        ipv4_address: 10.201.0.254
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

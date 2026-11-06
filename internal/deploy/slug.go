@@ -9,12 +9,13 @@ import (
 	"github.com/AVMG20/bitploy/internal/ids"
 )
 
-// Reserved subdomains (SPEC "Domains & routing"). Anything starting with
+// Reserved subdomains (SPEC "Domains & routing"); builder because bp-builder
+// is the build network. Anything starting with
 // "bp-" is reserved too.
 var reservedSlugs = map[string]bool{}
 
 func init() {
-	for _, s := range strings.Fields("www app api mcp admin dashboard docs status mail edge custom cdn static assets auth login bitploy traefik") {
+	for _, s := range strings.Fields("www app api mcp admin dashboard docs status mail edge custom cdn static assets auth login bitploy traefik builder") {
 		reservedSlugs[s] = true
 	}
 }

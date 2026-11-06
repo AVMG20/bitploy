@@ -87,8 +87,14 @@ entryPoints:
 
   # Not published on the host. bitploy reaches it over the "bitploy" Docker network
   # to probe a new container through Traefik before the route swap.
+  # It listens only on Traefik's fixed address on that network (ipv4_address in
+  # docker-compose.yml; change both together), not on ":8081". Traefik also has an
+  # address on every app network, and the candidate and live routers on this
+  # entrypoint have no password check, so an app could reach any other app through
+  # them. Traffic inside one Docker bridge skips iptables (unless br_netfilter is
+  # on), so firewall.sh alone cannot stop that.
   internal:
-    address: ":8081"
+    address: "10.201.0.254:8081"
 
 ping:
   entryPoint: internal

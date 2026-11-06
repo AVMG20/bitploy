@@ -221,7 +221,7 @@ If the user's domain is on Cloudflare, the record must be **DNS only** (grey clo
 sudo deploy/firewall.sh status
 ```
 
-Known limits: bridge networks are IPv4 only, so there are no IPv6 rules. An app cannot call a hostname that resolves to this server's own address (for example a custom domain served by this same server); that traffic would end up in the private network, which the firewall drops. The Traefik `internal` entrypoint (`:8081`) is reachable from app networks; it only serves candidate health checks.
+Known limits: bridge networks are IPv4 only, so there are no IPv6 rules. An app cannot call a hostname that resolves to this server's own address (for example a custom domain served by this same server); that traffic would end up in the private network, which the firewall drops. The Traefik `internal` entrypoint (health checks, no password check) listens only on Traefik's fixed address on the `bitploy` network (`10.201.0.254:8081`, set in both `docker-compose.yml` and `traefik/traefik.yml`), so apps cannot reach it through Traefik's address on their own network; traffic inside one Docker bridge does not pass the firewall.
 
 ### Security notes
 

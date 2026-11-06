@@ -12,10 +12,13 @@
 #   FORWARD, via the DOCKER-USER chain (Docker never touches this chain)
 #     - replies to connections that were already allowed: pass
 #     - NEW TCP connections to port 8081 (Traefik's internal entrypoint): DROP.
-#       Traefik has an address on every app network, so without this rule an
-#       app could reach that entrypoint through its own /24. As a result an
-#       app cannot listen on port 8081 itself (Traefik's connections to it
-#       would be dropped too).
+#       A second lock only. Traefik has an address on every app network, but
+#       traffic between two containers on one bridge is switched, and only
+#       passes iptables when br_netfilter is on (Docker 28 and later no longer
+#       turns it on by itself). The real lock is in traefik.yml: the internal
+#       entrypoint listens only on Traefik's fixed address on the "bitploy"
+#       network. Apps cannot use port 8081 (port_reserved), so this rule never
+#       drops Traefik's own connections to an app.
 #     - the app's own /24: pass. Traefik is a member of every app network, so
 #       Traefik <-> app traffic stays inside one /24 and must keep working.
 #       A project network (bp-p-<id>, shared by the apps of one project once it
@@ -143,7 +146,8 @@ apply() {
     echo "-A $FWD_CHAIN ! -s $APP_POOL -d $APP_POOL -m conntrack --ctstate DNAT -j DROP"
     # Traefik's internal entrypoint (health checks of candidates, route probes) must
     # only be reachable from the "bitploy" network. Traefik has an address on every
-    # app network, so this has to come before the same-/24 rules below.
+    # app network, so this has to come before the same-/24 rules below. It only sees
+    # bridged traffic with br_netfilter on; traefik.yml's listen address is the lock.
     echo "-A $FWD_CHAIN -s $APP_POOL -p tcp --dport $TRAEFIK_INTERNAL_PORT -m conntrack --ctstate NEW -j DROP"
     # Each app network is one /24: traffic that stays inside it is Traefik <-> app.
     for i in $(seq 0 255); do

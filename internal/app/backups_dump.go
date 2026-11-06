@@ -18,7 +18,6 @@ package app
 
 import (
 	"bufio"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"database/sql"
@@ -295,8 +294,14 @@ func (s *Service) makeDump(ctx context.Context, app db.App, owner db.User, b db.
 	if err := os.MkdirAll(s.backupDir(app.ID), 0o750); err != nil {
 		return 0, err
 	}
-	var ver bytes.Buffer
-	if _, err := run.Exec(ctx, app, eng.version, nil, &ver); err == nil {
+	// Only the first line is used. The container is the user's (a template app
+	// can be redeployed with any image), so its output is capped: a tool that
+	// prints without end must not fill bitploy's memory.
+	ver := &dockerx.TailBuffer{Max: 4 << 10}
+	vctx, vcancel := context.WithTimeout(ctx, time.Minute)
+	_, verr := run.Exec(vctx, app, eng.version, nil, ver)
+	vcancel()
+	if verr == nil {
 		tool := strings.TrimSpace(strings.SplitN(ver.String(), "\n", 2)[0])
 		if r := []rune(tool); len(r) > 100 {
 			tool = string(r[:100])
@@ -410,8 +415,9 @@ func (s *Service) replayDump(ctx context.Context, app db.App, eng *dumpEngine, b
 	}
 	defer gz.Close()
 	gz.Multistream(false)
-	var who bytes.Buffer
-	if tail, err := run.Exec(ctx, app, eng.clean, nil, &who); err != nil {
+	// Only the last line (the current user) is used; capped like the version.
+	who := &dockerx.TailBuffer{Max: 4 << 10}
+	if tail, err := run.Exec(ctx, app, eng.clean, nil, who); err != nil {
 		return execFailure("emptying the database failed", tail, err)
 	}
 	var in io.Reader = gz

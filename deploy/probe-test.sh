@@ -6,8 +6,15 @@
 # It starts a probe container on a fresh network "bp-probe" (a /24 from the app
 # pool, like any app) and checks:
 #   must work    the internet; another container on the same network (Traefik <-> app)
-#   must fail    Traefik's internal port 8081 on the app's own network, the host (bridge gateway and primary address), the metadata
+#   must fail    the host (bridge gateway and primary address), the metadata
 #                address, a container on another app network
+#   Traefik      a Traefik container set up like the real one ("bp-probe-traefik" on
+#                "bp-probe-core", which plays the "bitploy" network, with the internal
+#                entrypoint on its fixed address there) joins the app network:
+#                its internal entrypoint must answer on the core network and must
+#                not answer through its address on the app network. On a server
+#                with bitploy, the real bitploy-traefik is checked the same way
+#                (it joins bp-probe for the test, and bitploy must still reach it).
 #   then         both apps join a project network "bp-probe-project" (like bp-p-<id>, one /24
 #                from the pool): the client reaches the other app by its alias db there,
 #                and still not through the other app's own network
@@ -28,6 +35,9 @@
 # It only creates and removes containers and networks named bp-probe*.
 #
 #   PROBE_IMAGE=busybox:1.37  image with busybox wget and httpd
+#   PROBE_TRAEFIK_IMAGE=traefik:v3.7   the Traefik image (same as docker-compose.yml)
+#   PROBE_CORE_SUBNET=10.201.255.0/24  subnet of bp-probe-core (outside the app pool,
+#                            and not the real "bitploy" network's 10.201.0.0/24)
 #   PROBE_URL=http://example.com   an HTTP page on the internet
 #   PROBE_SKIP_BASELINE=1    do not remove the firewall for the control run
 #   PROBE_PUBLIC_PORT=39999  the port inside the range to publish (default: the highest)
@@ -39,6 +49,13 @@ URL="${PROBE_URL:-http://example.com}"
 HOST_PORT="${PROBE_HOST_PORT:-18099}"
 NET="bp-probe"
 NET_OTHER="bp-probe-other"
+NET_CORE="bp-probe-core"
+CORE_SUBNET="${PROBE_CORE_SUBNET:-10.201.255.0/24}"
+CORE_TRAEFIK_IP="${CORE_SUBNET%.*}.254"   # like 10.201.0.254 in docker-compose.yml
+TRAEFIK_IMAGE="${PROBE_TRAEFIK_IMAGE:-traefik:v3.7}"
+TRAEFIK="bp-probe-traefik"
+CORE_CLIENT="bp-probe-core-client"
+LIVE_TRAEFIK="bitploy-traefik"
 NET_PROJECT="bp-probe-project"
 CLIENT="bp-probe-client"
 SIBLING="bp-probe-sibling"
@@ -67,8 +84,9 @@ bad() { say "  FAIL  $*"; fail=1; }
 cleanup() {
   if [ -n "$listener_pid" ]; then kill "$listener_pid" 2>/dev/null || true; fi
   if [ -n "$www" ]; then rm -rf "$www"; fi
-  docker rm -f "$CLIENT" "$SIBLING" "$OTHER" "$PUB_IN" "$PUB_OUT" >/dev/null 2>&1 || true
-  docker network rm "$NET" "$NET_OTHER" "$NET_PROJECT" "$NET_PUB" >/dev/null 2>&1 || true
+  docker rm -f "$CLIENT" "$SIBLING" "$OTHER" "$PUB_IN" "$PUB_OUT" "$TRAEFIK" "$CORE_CLIENT" >/dev/null 2>&1 || true
+  docker network disconnect -f "$NET" "$LIVE_TRAEFIK" >/dev/null 2>&1 || true
+  docker network rm "$NET" "$NET_OTHER" "$NET_PROJECT" "$NET_PUB" "$NET_CORE" >/dev/null 2>&1 || true
   ip link del "$EXT_HOST_IF" >/dev/null 2>&1 || true
   ip netns del "$EXT_NS" >/dev/null 2>&1 || true
   # The control run takes the rules away and the test may use its own port
@@ -149,7 +167,7 @@ GATEWAY="$(gateway "$NET")"
 say "  host address $HOST_IP, test server on port $HOST_PORT"
 
 docker run -d --name "$CLIENT" --network "$NET" --label "$LABEL" "$IMAGE" sleep 600 >/dev/null
-# The sibling also listens on 8081, like Traefik's internal entrypoint does on every app network.
+# The sibling also listens on 8081, to see whether firewall.sh's second lock on that port works here.
 docker run -d --name "$SIBLING" --network "$NET" --label "$LABEL" "$IMAGE" \
   sh -c 'echo ok >/tmp/index.html; httpd -p 8081 -h /tmp; exec httpd -f -p 8000 -h /tmp' >/dev/null
 docker run -d --name "$OTHER" --network "$NET_OTHER" --label "$LABEL" "$IMAGE" \
@@ -227,7 +245,13 @@ drops_before="$(metadata_drops || true)"
 expect_blocked "host via bridge gateway $GATEWAY:$HOST_PORT" "http://$GATEWAY:$HOST_PORT/"
 expect_blocked "host via primary address $HOST_IP:$HOST_PORT" "http://$HOST_IP:$HOST_PORT/"
 expect_blocked "container of another app $OTHER_IP:8000" "http://$OTHER_IP:8000/"
-expect_blocked "Traefik's internal port 8081 on the same app network" "http://$SIBLING_IP:8081/"
+if reach "http://$SIBLING_IP:8081/"; then
+  say "  note  port 8081 of a container on the same app network answered: traffic inside one bridge skips iptables here" \
+    "(net.bridge.bridge-nf-call-iptables=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo off))," \
+    "so only Traefik's listen address keeps apps off its internal entrypoint (checked below)"
+else
+  pass "port 8081 on the same app network dropped by the firewall too"
+fi
 expect_blocked "metadata service $METADATA_IP" "http://$METADATA_IP/"
 drops_after="$(metadata_drops || true)"
 if [ "${drops_after:-0}" -gt "${drops_before:-0}" ]; then
@@ -236,6 +260,37 @@ else
   bad "the metadata rule counted no dropped packets"
 fi
 expect_blocked "private range 192.168.1.1" "http://192.168.1.1/"
+
+say "Traefik's internal entrypoint (listens on its address on the bitploy network only)"
+docker network create --label "$LABEL" --subnet "$CORE_SUBNET" "$NET_CORE" >/dev/null
+docker run -d --name "$TRAEFIK" --network "$NET_CORE" --ip "$CORE_TRAEFIK_IP" --label "$LABEL" "$TRAEFIK_IMAGE" \
+  --entryPoints.web.address=:80 --entryPoints.internal.address="$CORE_TRAEFIK_IP:8081" \
+  --ping=true --ping.entryPoint=internal >/dev/null
+docker run -d --name "$CORE_CLIENT" --network "$NET_CORE" --label "$LABEL" "$IMAGE" sleep 600 >/dev/null
+# Joined to the app network after it started, like bitploy joins it to app networks.
+docker network connect "$NET" "$TRAEFIK"
+TRAEFIK_APP_IP="$(docker inspect "$TRAEFIK" -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}")"
+core_reach() { docker exec "$CORE_CLIENT" wget -q -T 4 -O /dev/null "$1" >/dev/null 2>&1; }
+for _ in $(seq 1 20); do core_reach "http://$CORE_TRAEFIK_IP:8081/ping" && break; sleep 0.5; done
+if core_reach "http://$CORE_TRAEFIK_IP:8081/ping"; then
+  pass "from the bitploy network: the internal entrypoint $CORE_TRAEFIK_IP:8081 (bitploy's health checks)"
+else
+  bad "from the bitploy network: the internal entrypoint $CORE_TRAEFIK_IP:8081 (expected to work; docker logs $TRAEFIK)"
+fi
+expect_blocked "from an app: Traefik's internal entrypoint through its address on the app network $TRAEFIK_APP_IP:8081" "http://$TRAEFIK_APP_IP:8081/ping"
+if docker inspect "$LIVE_TRAEFIK" >/dev/null 2>&1; then
+  docker network connect "$NET" "$LIVE_TRAEFIK"
+  LIVE_IP="$(docker inspect "$LIVE_TRAEFIK" -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}")"
+  expect_blocked "from an app: the internal entrypoint of $LIVE_TRAEFIK through $LIVE_IP:8081" "http://$LIVE_IP:8081/ping"
+  docker network disconnect -f "$NET" "$LIVE_TRAEFIK" >/dev/null 2>&1 || true
+  if docker inspect bitploy >/dev/null 2>&1; then
+    if docker exec bitploy wget -q -T 4 -O /dev/null "http://$LIVE_TRAEFIK:8081/ping" >/dev/null 2>&1; then
+      pass "bitploy reaches the internal entrypoint of $LIVE_TRAEFIK"
+    else
+      bad "bitploy cannot reach http://$LIVE_TRAEFIK:8081/ping (health checks would fail)"
+    fi
+  fi
+fi
 
 say "Project network (two apps of one project)"
 docker network create --label "$LABEL" "$NET_PROJECT" >/dev/null
