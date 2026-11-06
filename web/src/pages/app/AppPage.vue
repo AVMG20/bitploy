@@ -240,7 +240,7 @@ const deleteOpen = ref(false)
         <p class="min-w-0 flex-1">
           <span class="font-medium">{{ pending.needsBuild.value ? 'Deploy again to apply your changes.' : 'Restart to apply your changes.' }}</span>
           <span class="text-muted-foreground">
-            Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.<template v-if="pending.needsBuild.value"> The build reads them, so a restart is not enough.</template>
+            Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.
           </span>
         </p>
         <Button v-if="pending.needsBuild.value" size="sm" :disabled="busy || !canRebuild" @click="rebuild">

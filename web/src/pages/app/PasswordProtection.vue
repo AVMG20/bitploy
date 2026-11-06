@@ -75,7 +75,7 @@ const save = useMutation({
     form.resetForm({ values: { username: updated.protected_username ?? v.username, password: '' } })
     showPassword.value = false
     refresh()
-    toastOk(wasOn ? 'Login changed' : 'Password protection is on', wasOn ? undefined : 'Visitors now need the username and password.')
+    toastOk(wasOn ? 'Login changed' : 'Password protection is on')
   },
   onError: (e) => toastError(e),
 })

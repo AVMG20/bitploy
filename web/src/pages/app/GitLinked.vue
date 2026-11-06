@@ -93,7 +93,7 @@ const disconnect = useMutation({
   onSuccess: (updated) => {
     disconnectOpen.value = false
     refresh(updated)
-    toastOk('Repository disconnected', 'The app keeps running. You can upload files again.')
+    toastOk('Repository disconnected', 'You can upload files again.')
   },
   onError: (e) => toastError(e),
 })
@@ -192,7 +192,7 @@ const statusText = computed(() => props.source.push_message.replace(/\.$/, ''))
     <ConfirmDialog
       v-model:open="disconnectOpen"
       title="Disconnect this repository?"
-      description="The app keeps running as it is. Pushes stop deploying it, and you can upload files again."
+      description="Pushes stop deploying it, and you can upload files again."
       confirm-label="Disconnect"
       :loading="disconnect.isPending.value"
       @confirm="disconnect.mutate()"

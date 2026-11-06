@@ -70,7 +70,7 @@ function submit() {
 
 <template>
   <form v-if="anyShown" id="run" class="scroll-mt-16" novalidate @submit.prevent="submit">
-    <FormCard title="How it runs" description="Settings for the next deploy. Leave a field as it is unless the app needs it.">
+    <FormCard title="How it runs" description="Settings for the next deploy.">
       <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
         <div v-if="shown.type" class="grid gap-1.5 sm:col-span-2">
           <Label for="run-type">Kind of app</Label>

@@ -82,7 +82,7 @@ async function deploy() {
       if (changed) await api.updateApp(props.slug, before).catch(() => {})
       throw e
     }
-    toastOk(`Deploying ${versionLabel(d.seq).toLowerCase()}`, first.value ? 'Follow it on the Overview.' : 'Your app keeps running until the new version is ready.')
+    toastOk(`Deploying ${versionLabel(d.seq).toLowerCase()}`, first.value ? 'Follow it on the Overview.' : undefined)
     open.value = false
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
@@ -105,7 +105,7 @@ async function deploy() {
           <DialogTitle>{{ first ? 'Upload your files' : 'Upload a new version' }}</DialogTitle>
           <DialogDescription v-if="first">Drop your code folder, a .zip or a single .html page. bitploy builds it and puts it online.</DialogDescription>
           <DialogDescription v-else>
-            Drop the folder with your changes. You can go back to the current version later.
+            Drop the folder with your changes.
           </DialogDescription>
         </DialogHeader>
         <SourceDropZone v-model="choice" v-model:mode="mode" v-model:home-page="homePage" :output-dir="outputDir" :disabled="busy" />

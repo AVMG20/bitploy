@@ -130,7 +130,7 @@ const close = useMutation({
   onSuccess: (updated) => {
     qc.setQueryData(keys.app(updated.slug), updated)
     refresh()
-    toastOk('Public port closed', 'Nobody can connect from outside any more.')
+    toastOk('Public port closed')
   },
   onError: (e) => toastError(e),
 })

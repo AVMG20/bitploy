@@ -61,7 +61,7 @@ const save = useMutation({
     <form novalidate @submit.prevent="save.mutate()">
       <FormCard
         title="Before and after a deploy"
-        description="They run in your app's own image, with its variables, its database connection and its saved files (/data). Leave a box empty when you do not need it."
+        description="They run in your app's own image, with its variables, its database connection and its saved files (/data)."
       >
         <div class="grid gap-5">
           <div class="grid gap-2">
@@ -79,7 +79,7 @@ const save = useMutation({
             />
             <p class="text-sm text-muted-foreground">
               For database migrations, like <span class="font-mono">php artisan migrate --force</span>, <span class="font-mono">python manage.py migrate</span> or
-              <span class="font-mono">npx prisma migrate deploy</span>. The current version keeps running meanwhile. If the command fails or takes longer than 10 minutes, the
+              <span class="font-mono">npx prisma migrate deploy</span>. If the command fails or takes longer than 10 minutes, the
               deploy stops and the current version stays online.
             </p>
             <p v-if="beforeError" class="text-sm text-destructive">{{ beforeError }}</p>

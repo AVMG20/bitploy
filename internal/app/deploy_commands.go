@@ -341,7 +341,7 @@ func (p *pipeline) beforeDeploy(ctx context.Context) *apperr.Error {
 	}
 	plan := startPlan{App: p.app, DepID: p.dep.ID, Seq: p.dep.Seq, Image: p.primary.image, Port: p.primary.port, ExtraEnv: p.extraEnv}
 	p.logf("Running before-deploy command: %s", cmd)
-	p.logf("It runs in a one-off container of the new version (up to %s). The live version keeps serving meanwhile.", durationText(beforeDeployTimeout))
+	p.logf("It runs in a one-off container of the new version (up to %s).", durationText(beforeDeployTimeout))
 	out := p.hookOutput("before-deploy")
 	rctx, cancel := context.WithTimeout(ctx, beforeDeployTimeout)
 	defer cancel()

@@ -81,7 +81,6 @@ const dep = computed(() => props.app.current_deployment)
     <div v-if="dep" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-sm shadow-card">
       <p class="min-w-0 text-muted-foreground">
         <span class="font-medium text-foreground">{{ versionLabel(dep.seq) }}</span> is live, deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" />.
-        You can go back to an earlier version.
       </p>
       <RouterLink :to="{ name: 'app-deployments', params: { slug: app.slug } }" class="inline-flex items-center gap-1 text-xs font-medium hover:underline">
         All deployments <ArrowRight class="size-3.5" />

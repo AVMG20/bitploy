@@ -167,7 +167,7 @@ const submitGeneral = generalForm.handleSubmit((v) => {
 const renameDescription = computed(() => {
   if (isPrivate.value) return 'Links to this page and API calls that use the old ID stop working. The other apps keep reaching it by its short name.'
   const to = `${pendingRename.value?.slug ?? ''}.${domain.value || me.data.value?.apps_domain || ''}`
-  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Saved files are kept.`
+  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break.`
 })
 
 // ---------------------------------------------------------------- type
@@ -352,10 +352,10 @@ const deleteOpen = ref(false)
 const deleteText = computed(() => {
   const a = app.data.value
   if (a?.template) {
-    return `Removes ${templateOf.value?.name ?? 'the service'} with all its data and backups. The other apps of the project stay. Download a backup first if you may need its data.`
+    return `Removes ${templateOf.value?.name ?? 'the service'} with all its data and backups. Download a backup first if you may need its data.`
   }
   const address = a?.type === 'worker' ? '' : ' its address,'
-  return `Removes the app${multi.value ? ' with all its services' : ''},${address} its saved files, its backups and all old versions. The other apps of the project stay. Download a backup first if you may need its saved files.`
+  return `Removes the app${multi.value ? ' with all its services' : ''},${address} its saved files, its backups and all old versions. Download a backup first if you may need its saved files.`
 })
 </script>
 
@@ -434,7 +434,6 @@ const deleteText = computed(() => {
             Runs <span class="font-mono">{{ templateOf?.image ?? app.data.value.template }}</span>
             <template v-if="templateOf">, the ready-made {{ templateOf.name }}</template>.
           </p>
-          <p class="text-muted-foreground">Its data is kept when it restarts or redeploys.</p>
         </CardContent>
       </Card>
     </SettingsSection>
@@ -465,7 +464,7 @@ const deleteText = computed(() => {
             <CardTitle>Compose file</CardTitle>
             <CardDescription>
               This app runs {{ services.length }} services from <span class="font-mono">{{ app.data.value?.compose_path || 'compose.yaml' }}</span>.
-              Each one is built from your code or pulled as a ready-made image. To add a service or change one, edit the file and deploy again.
+              To add a service or change one, edit the file and deploy again.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -473,7 +472,7 @@ const deleteText = computed(() => {
         <Card v-if="showDockerfile && !multi">
           <CardHeader>
             <CardTitle>Dockerfile</CardTitle>
-            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it. Saved files are kept.</CardDescription>
+            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it.</CardDescription>
             <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
           </CardHeader>
           <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">

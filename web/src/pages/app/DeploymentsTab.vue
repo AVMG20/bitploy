@@ -46,7 +46,7 @@ const rollback = useMutation({
   onSuccess: (_r, d) => {
     toastOk(
       `Going back to ${versionLabel(d.seq).toLowerCase()}`,
-      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : 'Your app keeps running while the old version starts.',
+      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : undefined,
     )
     target.value = null
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
@@ -59,7 +59,7 @@ const rollback = useMutation({
 // What going back does, and that a push to the linked branch builds the newest code again.
 const goBackText = computed(() => {
   const gs = app.data.value?.git_source
-  let text = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again. You can switch back to the current version later.`
+  let text = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again.`
   // Migrations are not undone: the older version must work with the database as it is now.
   if (app.data.value?.before_deploy_command || app.data.value?.after_deploy_command)
     text += ' Your deploy commands do not run when you go back, so changes they made, like database migrations, stay.'
@@ -70,10 +70,9 @@ const goBackText = computed(() => {
 // Every new version shows up here; how you send one depends on where the code is.
 const emptyText = computed(() => {
   const a = app.data.value
-  const end = 'Every version shows up here, and you can go back to an earlier one.'
-  if (a?.git_source) return `Push to ${a.git_source.branch} to build the first version. ${end}`
-  if (a?.catalog_id) return `The first version is being prepared. ${end}`
-  return `Upload your files, or ask your AI assistant to deploy to this app. ${end}`
+  if (a?.git_source) return `Push to ${a.git_source.branch} to build the first version.`
+  if (a?.catalog_id) return 'The first version is being prepared.'
+  return 'Upload your files, or ask your AI assistant to deploy to this app.'
 })
 
 function canRollback(d: Deployment): boolean {

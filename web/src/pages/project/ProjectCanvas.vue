@@ -222,7 +222,6 @@ const quickPicks = computed(() => {
         <div>
           <h2 class="font-medium">Add to {{ project.name }}</h2>
           <p class="mt-1 text-sm text-muted-foreground">
-            A project holds the apps and databases of one product.
             <template v-if="quickPicks.some((t) => templateRole(t) === 'database')">Add a database and {{ aliasOf(apps[0]!) }} gets its address as a variable, or add</template><template v-else>Add</template>
             an API or a worker from another repository.
           </p>

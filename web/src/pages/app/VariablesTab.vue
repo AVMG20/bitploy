@@ -507,7 +507,7 @@ const importAll = useMutation({
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Paste a .env file</DialogTitle>
-          <DialogDescription>One NAME=value per line. Comments and empty lines are left out.<template v-if="multi"> They are saved {{ scope ? `for ${scope} only` : 'for every service' }}.</template></DialogDescription>
+          <DialogDescription>One NAME=value per line.<template v-if="multi"> They are saved {{ scope ? `for ${scope} only` : 'for every service' }}.</template></DialogDescription>
         </DialogHeader>
         <Label for="env-paste" class="sr-only">Contents of the .env file</Label>
         <Textarea id="env-paste" v-model="pasteText" rows="8" placeholder="DATABASE_URL=...&#10;API_KEY=..." spellcheck="false" autocomplete="off" class="max-h-72 font-mono text-xs" />

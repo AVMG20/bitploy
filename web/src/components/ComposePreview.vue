@@ -126,7 +126,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
       <Info class="mt-0.5 size-4 shrink-0" />
       <span>
         {{ state === 'unsupported' ? 'This server cannot show a preview of compose files.' : `The preview did not load${failure ? `: ${failure}` : '.'}` }}
-        You can still deploy; if something in the file is not allowed, the deploy says what and where.
+        You can still deploy.
       </span>
     </p>
 

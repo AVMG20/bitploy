@@ -45,7 +45,7 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
   const restartService = useMutation({
     mutationFn: (service: string) => api.restart(toValue(slug), service),
     onSuccess: (_d, service) => {
-      toastOk(`${service} restarted`, 'The other services kept running.')
+      toastOk(`${service} restarted`)
       refresh()
     },
     onError: (e) => toastError(e),
@@ -54,7 +54,7 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
   return {
     cancel,
     restartService,
-    redeploy: action(api.redeploy, 'Redeploy started', 'The live version keeps running until the new one is ready.'),
+    redeploy: action(api.redeploy, 'Redeploy started'),
     // Restart and start answer once the app runs again.
     restart: action(api.restart, 'App restarted'),
     stop: action(api.stop, 'App stopped', 'Its address shows a "stopped" page until you start it again.'),

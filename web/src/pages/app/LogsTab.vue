@@ -332,7 +332,7 @@ function download() {
     >
       <p v-if="noBuildYet" class="text-muted-foreground">There is no build log yet. It appears after the first deploy.</p>
       <p v-else-if="!visible.length" class="text-muted-foreground">
-        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : logService ? `Nothing logged yet. Anything ${logService} prints shows up here.` : 'Nothing logged yet. Anything your app prints shows up here.' }}
+        {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : 'Nothing logged yet.' }}
       </p>
       <!-- Keyed by the line itself and memoised: a new batch of lines renders only the new ones. -->
       <div
