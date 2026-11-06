@@ -182,7 +182,7 @@ const backupForm = useForm({
         if (v.keep > max) ctx.addIssue({ code: 'custom', path: ['keep'], message: `At most ${max}.` })
       }),
   ),
-  initialValues: { schedule: 'off' as const, keep_mode: 'last' as const, keep: 7 },
+  initialValues: { schedule: 'daily' as const, keep_mode: 'days' as const, keep: 14 },
 })
 
 let settingsLoadedFor = ''
@@ -208,14 +208,16 @@ const saveSettings = useMutation({
 })
 const submitSettings = backupForm.handleSubmit((v) => saveSettings.mutate(v))
 
+// Each app has its own backup time between 02:00 and 06:00 UTC.
+const backupTime = computed(() => list.value?.settings.time_utc ?? '03:00')
 const scheduleHint = computed(() => {
   switch (backupForm.values.schedule) {
     case 'daily':
-      return 'Every night at 03:00 UTC.'
+      return `Every night at ${backupTime.value} UTC.`
     case 'weekly':
-      return 'Every Sunday at 03:00 UTC.'
+      return `Every Sunday at ${backupTime.value} UTC.`
     default:
-      return 'Only when you click Back up now.'
+      return 'Only when you press Back up now. bitploy keeps it off until you turn it on again.'
   }
 })
 const nextAt = computed(() => {
@@ -575,7 +577,7 @@ const restoreText = computed(() => {
           v-else-if="!list.items.length && hasData"
           :icon="Archive"
           title="No backups yet."
-          :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover the first volume only.' : 'Back up now, or turn on automatic backups above.'"
+          :description="multi && !isFirstVolume ? 'Back up now. Automatic backups cover every volume.' : 'Back up now, or let the automatic backups above make one.'"
         />
         <p v-else-if="!list.items.length" class="text-sm text-muted-foreground">Nothing to back up: this app has no saved files.</p>
         <ul v-else class="divide-y rounded-lg border">

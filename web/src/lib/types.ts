@@ -807,6 +807,8 @@ export interface BackupSettings {
   keep_mode: BackupKeepMode
   /** How many backups (keep_mode last) or how many days (keep_mode days). */
   keep: number
+  /** The app's own backup time (HH:MM, UTC), between 02:00 and 06:00. */
+  time_utc: string
   /** When the next automatic backup is due; a time in the past means "soon". */
   next_at?: string
 }

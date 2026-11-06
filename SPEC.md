@@ -308,8 +308,14 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `delete_app(app, confirm_slug)` | Removes containers, images, routes, volume; refused with `app_in_use` while other apps refer to its variables | deploy | destructive |
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
-| `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings and restore state. A database service gets a dump (`format: dump`). Restoring is dashboard-only on purpose | deploy / read | — / read-only |
-| `query_db(app, path, sql, write=false, volume?)` | Run SQL on a SQLite file in /data (`volume` picks another volume of a compose app) (see SQLite viewer). Results as compact text tables, at most 200 rows and about 50 KB. Read-only unless `write=true`, which needs the deploy scope. `SELECT name, sql FROM sqlite_schema` lists the tables | read (write: deploy) | destructive |
+| `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings (with `time_utc`) and restore state. A database service gets a dump (`format: dump`). Restoring is dashboard-only on purpose | deploy / read | — / read-only |
+| `set_backup_schedule(app, schedule?, keep_mode?, keep?)` | `PUT /apps/{app}/backup-settings`: off, daily or weekly at the app's time; keep the newest N or N days | deploy | idempotent |
+| `query_db(app, path?, sql, volume?)` | Read-only SQL on a SQLite file in /data (`volume` picks another volume of a compose app), or on a PostgreSQL, MySQL or MariaDB service (`path` is the database name, left out: its own). Always `write: false` on `/db/sql`. Results as compact text tables, at most 200 rows and about 50 KB | read | read-only |
+| `write_db(app, path?, sql, volume?)` | The same with `write: true`: changes are committed, audited as `db.write` | deploy | destructive |
+| `list_env(app, names?)` | Variable names, services and references, never values; `names` says which are set | read | read-only |
+| `get_traffic(app, window?)` | `GET /apps/{app}/traffic` for `24h`, `7d` or `30d`: requests, 5xx errors and rate, page views, visitors, median and p95 answer times | read | read-only |
+| `update_catalog_app(app)` | `POST /apps/{app}/catalog-update`: deploys the catalog's newer version of a one-click app | deploy | write |
+| `rename_project(project, name)` / `delete_project(project, confirm, with_apps?)` | `PATCH` / `DELETE /projects/{id}`; delete needs the name as `confirm`, a project with apps needs `with_apps=true` | deploy | idempotent / destructive |
 
 Also expose the rules as resource `bitploy://rules` and each template as `bitploy://templates/{stack}`, and add a prompt `deploy_project` that walks through the eight steps. Keep the tools anyway: many clients ignore resources and prompts.
 
@@ -421,8 +427,8 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
 | `GET /api/v1/apps/{app}/metrics?window=24h[&service=]` | `get_metrics` |
 | `POST /api/v1/apps/{app}/upload` | Raw zip body, upload and deploy in one call (session with CSRF, or a deploy token); the dashboard's "Upload new version" |
-| `GET` `POST /api/v1/apps/{app}/backups` | `list_backups`, `create_backup` (restore, download, upload and settings are dashboard and REST only) |
-| `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` |
+| `GET` `POST /api/v1/apps/{app}/backups`, `PUT …/backup-settings` | `list_backups`, `create_backup`, `set_backup_schedule` (restore, download and upload are dashboard and REST only) |
+| `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` with `write: false`, `write_db` with `write: true` |
 | `/api/v1/admin/users`, `/invites`, `/quotas`, `/server` | Admin only |
 | `GET /api/v1/admin/db`, `POST /api/v1/admin/db/rows`, `POST /api/v1/admin/db/sql` | Admin only, dashboard session only: a read-only view of bitploy's own database with every secret hidden (see Admin database viewer). No MCP tool |
 
