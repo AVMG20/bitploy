@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { REFRESH_MS, keys, livePoll, useApp, useCatalogApp, useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import ProjectSettings from './ProjectSettings.vue'
 import { api } from '@/lib/api'
@@ -343,10 +344,27 @@ function catalogUpdated() {
 
 // ---------------------------------------------------------------- delete
 const deleteOpen = ref(false)
+const deleteText = computed(() => {
+  const a = app.data.value
+  if (a?.template) {
+    return `Removes ${templateOf.value?.name ?? 'the service'} with all its data and backups. The other apps of the project stay. Download a backup first if you may need its data.`
+  }
+  const address = a?.type === 'worker' ? '' : ' its address,'
+  return `Removes the app${multi.value ? ' with all its services' : ''},${address} its saved files, its backups and all old versions. The other apps of the project stay. Download a backup first if you may need its saved files.`
+})
 </script>
 
 <template>
-  <div class="grid gap-10">
+  <!-- Until the app is known the page cannot tell a ready-made database from an app built from code. -->
+  <div v-if="!app.data.value" class="grid gap-10" data-testid="settings-loading">
+    <QueryError v-if="app.isError.value" :error="app.error.value" @retry="app.refetch()" />
+    <template v-else>
+      <Skeleton class="h-7 w-80" />
+      <Skeleton class="h-56 w-full" />
+      <Skeleton class="h-40 w-full" />
+    </template>
+  </div>
+  <div v-else class="grid gap-10">
     <nav aria-label="Settings sections" class="-mb-4 flex flex-wrap items-center gap-1.5">
       <a
         v-for="sec in sections"
@@ -544,9 +562,9 @@ const deleteOpen = ref(false)
       <DangerZone>
         <DangerRow
           :title="`Delete ${app.data.value?.name ?? 'this app'}`"
-          :description="`Removes the app${multi ? ' with all its services' : ''}, its address, its saved files, its backups and all old versions. The other apps of the project stay. Download a backup first if you may need its saved files.`"
+          :description="deleteText"
         >
-          <Button variant="destructive" :disabled="!app.data.value" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
+          <Button variant="destructive" :disabled="!app.data.value" @click="deleteOpen = true"><Trash2 /> {{ app.data.value?.template ? 'Delete' : 'Delete app' }}</Button>
         </DangerRow>
       </DangerZone>
     </SettingsSection>

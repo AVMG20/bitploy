@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { Archive, Download, HardDrive, Loader2, RotateCcw, Trash2, Upload } from 'lucide-vue-next'
+import { Archive, Database, Download, HardDrive, Loader2, RotateCcw, Trash2, Upload } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormCard from '@/components/FormCard.vue'
@@ -22,7 +23,7 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
-import { keys, useApp, useBackups, useMe } from '@/composables/queries'
+import { keys, useApp, useBackups, useMe, useServiceTemplates } from '@/composables/queries'
 import DataFiles from '@/pages/app/DataFiles.vue'
 import { ApiError, api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
@@ -31,6 +32,7 @@ import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import type { Backup, BackupKind } from '@/lib/types'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { isMulti, serviceRole } from '@/lib/services'
+import { isServerDb } from '@/lib/dbvalue'
 
 const props = defineProps<{ slug: string }>()
 const qc = useQueryClient()
@@ -52,6 +54,28 @@ const volService = computed(() => data.value?.services.find((s) => s.name === vo
 // The database viewer reads the first volume only.
 const isFirstVolume = computed(() => !!vol.value && vol.value.name === volumes.value[0]?.name)
 const hasData = computed(() => (multi.value ? !!vol.value : !!data.value?.volume))
+
+// A database, cache or search engine made from a ready-made template keeps its
+// data in its own folder. A switch that turns that off, or a file browser of
+// files only the engine reads, would only let you break it: it gets a view of
+// its size and limit, and links to its backups and the Database tab.
+const templates = useServiceTemplates()
+const service = computed(() => !multi.value && !!data.value?.template && !!data.value?.volume)
+const serviceName = computed(() => templates.data.value?.find((t) => t.id === data.value?.template)?.name || data.value?.template || '')
+const serviceMount = computed(() => data.value?.volumes?.[0]?.mount_path || '/data')
+const serverDb = computed(() => isServerDb(data.value))
+function scrollToBackups() {
+  document.getElementById('backups')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+// A link to storage#backups (from the Database tab) opens at the backups once they are drawn.
+const route = useRoute()
+watch(
+  () => [route.hash, !!data.value] as const,
+  ([hash, ready]) => {
+    if (hash === '#backups' && ready) void nextTick(scrollToBackups)
+  },
+  { immediate: true },
+)
 const allBackups = computed(() => backups.data.value)
 // Backups of the shown volume; one without a volume is of the first.
 const list = computed(() => {
@@ -208,14 +232,24 @@ const saveSettings = useMutation({
 })
 const submitSettings = backupForm.handleSubmit((v) => saveSettings.mutate(v))
 
+// The server backs up at 03:00 UTC (Sundays for weekly). Backup times in the
+// list are in the browser's time, so the schedule is too, with the zone named.
+function scheduleAt(weekly: boolean): string {
+  const d = new Date()
+  d.setUTCHours(3, 0, 0, 0)
+  if (weekly) d.setUTCDate(d.getUTCDate() - d.getUTCDay()) // a Sunday
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+  if (!weekly) return `Every night at ${time}.`
+  return `Every ${d.toLocaleDateString(undefined, { weekday: 'long' })} at ${time}.`
+}
 const scheduleHint = computed(() => {
   switch (backupForm.values.schedule) {
     case 'daily':
-      return 'Every night at 03:00 UTC.'
+      return scheduleAt(false)
     case 'weekly':
-      return 'Every Sunday at 03:00 UTC.'
+      return scheduleAt(true)
     default:
-      return 'Only when you click Back up now.'
+      return 'Only when you press Back up now.'
   }
 })
 const nextAt = computed(() => {
@@ -418,6 +452,45 @@ const restoreText = computed(() => {
       </CardContent>
     </Card>
 
+    <FormScope v-else-if="service" :form="dataForm">
+      <form novalidate data-testid="service-storage" @submit.prevent="submitLimit">
+        <FormCard title="Saved data">
+          <template #description>
+            {{ serviceName }} keeps its data in <span class="font-mono">{{ serviceMount }}</span>. It stays when the app restarts or is updated.
+          </template>
+          <div class="grid gap-4">
+            <div class="grid gap-2">
+              <div class="flex items-baseline justify-between gap-4 text-sm">
+                <span class="text-muted-foreground">In use</span>
+                <span class="shrink-0 font-semibold tabular-nums">
+                  <template v-if="data.volume_used_mb !== null">{{ formatMB(data.volume_used_mb) }} <span class="font-normal text-muted-foreground">of {{ formatMB(data.volume_mb) }}</span></template>
+                  <template v-else><span class="font-normal text-muted-foreground">Not measured yet, limit {{ formatMB(data.volume_mb) }}</span></template>
+                </span>
+              </div>
+              <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
+            </div>
+            <FormField v-slot="{ componentField }" name="volume_gb">
+              <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
+                <FormLabel>Limit (GB)</FormLabel>
+                <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+            <div class="flex flex-wrap gap-2">
+              <Button v-if="serverDb" as-child variant="outline" size="sm">
+                <RouterLink :to="{ name: 'app-database-default', params: { slug } }"><Database /> Open the Database tab</RouterLink>
+              </Button>
+              <Button v-if="!noBackupsText" type="button" variant="outline" size="sm" @click="scrollToBackups"><Archive /> Backups</Button>
+            </div>
+          </div>
+          <template #hint>{{ storageFree }}</template>
+          <template #actions>
+            <Button type="submit" :disabled="saveLimit.isPending.value || !dataForm.meta.value.dirty">{{ saveLimit.isPending.value ? 'Saving...' : 'Save limit' }}</Button>
+          </template>
+        </FormCard>
+      </form>
+    </FormScope>
+
     <FormScope v-else :form="dataForm">
       <form novalidate @submit.prevent="submitLimit">
         <FormCard title="Saved files">
@@ -469,10 +542,10 @@ const restoreText = computed(() => {
     </FormScope>
 
     <DataFiles v-if="multi && vol" :key="vol.name" :slug="slug" :running="data.status === 'running'" :volume="vol.name" :mount-path="vol.mount_path" :can-open-database="isFirstVolume" />
-    <DataFiles v-else-if="!multi && data.volume" :slug="slug" :running="data.status === 'running'" />
+    <DataFiles v-else-if="!multi && data.volume && !service" :slug="slug" :running="data.status === 'running'" />
 
     <p v-if="noBackupsText" class="px-1 text-sm text-muted-foreground" data-testid="no-backups">{{ noBackupsText }}</p>
-    <Card v-else>
+    <Card v-else id="backups" class="scroll-mt-4">
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>
@@ -509,6 +582,11 @@ const restoreText = computed(() => {
           </AlertDescription>
         </Alert>
 
+        <p v-if="dumpTool && list?.items.length" class="text-sm text-muted-foreground" data-testid="backup-kinds">
+          <span class="font-medium text-foreground">Dump</span>: the databases written out by <span class="font-mono">{{ dumpTool }}</span> while it runs; restoring one does not stop the database.
+          <span class="font-medium text-foreground">Files</span>: a copy of its data folder, made while it was stopped.
+        </p>
+
         <FormScope v-if="hasData && list && (!multi || isFirstVolume)" :form="backupForm">
           <form class="grid gap-4 sm:grid-cols-2 sm:items-start" novalidate @submit.prevent="submitSettings">
             <FormField v-slot="{ componentField }" name="schedule">
@@ -532,23 +610,22 @@ const restoreText = computed(() => {
             <div class="grid gap-2">
               <Label as="span">Keep</Label>
               <div class="flex items-center gap-2">
-                <FormField v-slot="{ componentField }" name="keep_mode">
-                  <FormItem class="min-w-0 flex-1">
-                    <Select v-bind="componentField">
-                      <FormControl><SelectTrigger class="w-full"><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="last">the latest</SelectItem>
-                        <SelectItem value="days">backups for</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                </FormField>
                 <FormField v-slot="{ componentField }" name="keep">
                   <FormItem class="w-20 shrink-0">
                     <FormControl><Input type="number" min="1" step="1" inputmode="numeric" aria-label="How many to keep" v-bind="componentField" /></FormControl>
                   </FormItem>
                 </FormField>
-                <span class="shrink-0 text-sm text-muted-foreground">{{ backupForm.values.keep_mode === 'days' ? 'days' : 'backups' }}</span>
+                <FormField v-slot="{ componentField }" name="keep_mode">
+                  <FormItem class="min-w-0 flex-1">
+                    <Select v-bind="componentField">
+                      <FormControl><SelectTrigger class="w-full" aria-label="Count backups or days"><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="last">latest backups</SelectItem>
+                        <SelectItem value="days">days of backups</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
+                </FormField>
               </div>
               <p v-if="backupForm.errors.value.keep" class="text-[0.8rem] font-medium text-destructive">{{ backupForm.errors.value.keep }}</p>
               <p v-else class="text-[0.8rem] text-muted-foreground">Applies to automatic backups. Others stay until you delete them.</p>

@@ -53,12 +53,12 @@ const deleteText = computed(() => {
   const n = apps.value.length
   if (!n) return 'The project is empty, so nothing else is deleted.'
   const names = apps.value.map((a) => a.name).join(', ')
-  return `This deletes ${n === 1 ? 'its app' : `its ${n} apps`} (${names}) with their saved files, domains and backups. This cannot be undone.`
+  return `This deletes ${n === 1 ? 'its app' : `its ${n} apps`} (${names}) with their saved files, databases, domains and backups. This cannot be undone. Download a backup first (each app's Storage tab) if you may need the data.`
 })
 </script>
 
 <template>
-  <div v-if="project" class="grid max-w-5xl gap-10">
+  <div v-if="project" class="grid max-w-6xl gap-10">
     <SettingsSection title="General" description="Only the name changes. The apps keep their addresses and short names.">
       <form novalidate @submit.prevent="name.trim() && !unchanged && rename.mutate()">
         <FormCard title="Project name">
@@ -77,7 +77,7 @@ const deleteText = computed(() => {
 
     <SettingsSection id="danger" title="Danger zone">
       <DangerZone>
-        <DangerRow title="Delete project" :description="apps.length ? `Deletes ${project.name} and its ${apps.length === 1 ? 'app' : `${apps.length} apps`}, with their saved files, domains and backups.` : `Deletes ${project.name}. It holds no apps.`">
+        <DangerRow title="Delete project" :description="apps.length ? `Deletes ${project.name} and its ${apps.length === 1 ? 'app' : `${apps.length} apps`}, with their saved files, databases, domains and backups. Download a backup first if you may need the data.` : `Deletes ${project.name}. It holds no apps.`">
           <Button variant="destructive" @click="deleteOpen = true">Delete project</Button>
         </DangerRow>
       </DangerZone>

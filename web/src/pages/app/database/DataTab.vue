@@ -4,7 +4,7 @@ import Toolbar from '@/components/Toolbar.vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useDebounceFn, useMediaQuery } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Info, ListFilter, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Info, ListFilter, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,9 @@ import ValueDialog from './ValueDialog.vue'
 
 // The rows of one table or view. The parent gives this component a new key per
 // table, so paging, sorting, filters and the selection start fresh for each.
-const props = defineProps<{ source: DbSource; table: DbTable; /** The page's Read-only switch: nothing can be changed from here. */ readOnly: boolean }>()
+const props = defineProps<{ source: DbSource; table: DbTable; /** Allow changes is off on the page: nothing can be changed from here. */ readOnly: boolean }>()
+// Asks the page to turn on Allow changes (it confirms first).
+const emit = defineEmits<{ 'allow-changes': [] }>()
 const qc = useQueryClient()
 
 const PAGE_SIZES = [50, 100, 250, 500, 1000]
@@ -266,6 +268,8 @@ function hintSeen(): boolean {
   }
 }
 const hintDismissed = ref(hintSeen())
+// A double-click is a mouse thing: on a touch screen rows are ticked and then edited.
+const touch = useMediaQuery('(pointer: coarse)')
 function dismissHint() {
   hintDismissed.value = true
   try {
@@ -514,9 +518,6 @@ const remove = useMutation({
           <ListFilter /> Filters
           <span v-if="applied.length" class="ml-0.5 rounded-full bg-primary px-1.5 text-[11px] leading-4 font-medium text-primary-foreground">{{ applied.length }}</span>
         </Button>
-        <Button variant="ghost" size="icon" class="text-muted-foreground" title="Refresh" aria-label="Refresh rows" @click="refreshAll">
-          <RefreshCw :class="rows.isFetching.value && 'animate-spin'" />
-        </Button>
         <Button v-if="canWrite" @click="openInsert"><Plus /> New row</Button>
       </div>
     </Toolbar>
@@ -525,9 +526,12 @@ const remove = useMutation({
       <span v-if="data.total !== null">{{ rowsLabel(data.total, narrowed) }}</span>
       <span v-else>Count not available</span>
       <Loader2 v-if="loading" class="size-3.5 animate-spin" />
-      <span v-if="source.write && readOnly" class="ml-auto inline-flex items-center gap-1">Read-only: editing is off</span>
+      <span v-if="source.write && readOnly" class="ml-auto inline-flex items-center gap-1" data-testid="db-read-only">
+        Read-only.
+        <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" @click="emit('allow-changes')">Allow changes</button>
+      </span>
       <span v-else-if="canWrite && !hintDismissed && data.rows.length" class="ml-auto inline-flex items-center gap-1">
-        Double-click a cell to edit
+        {{ touch ? 'Tick rows, then Edit' : 'Double-click a cell to edit' }}
         <button type="button" class="inline-flex size-4 items-center justify-center rounded hover:text-foreground" aria-label="Dismiss" @click="dismissHint"><X class="size-3" /></button>
       </span>
     </p>

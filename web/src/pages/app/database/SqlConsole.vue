@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { History, Play, TriangleAlert } from 'lucide-vue-next'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@/lib/api'
 import type { DbSource } from '@/lib/dbSource'
@@ -19,9 +16,12 @@ import SqlText from '@/components/SqlText.vue'
 import DataGrid from './DataGrid.vue'
 import ValueDialog from './ValueDialog.vue'
 
-// A place to type SQL. It runs read-only unless "Allow writes" is on, which asks
-// once per visit. The last queries are remembered for this browser tab (sessionStorage), per app, so they do not outlive a logout.
-const props = defineProps<{ source: DbSource; /** A table name to start the first query with. */ startTable?: string; /** The page's Read-only switch: writes stay off. */ readOnly: boolean }>()
+// A place to type SQL. It runs read-only unless the page's "Allow changes" is on
+// (the same switch as editing in the grid). The last queries are remembered for
+// this browser tab (sessionStorage), per app, so they do not outlive a logout.
+const props = defineProps<{ source: DbSource; /** A table name to start the first query with. */ startTable?: string; /** Allow changes is off on the page: the SQL runs read-only. */ readOnly: boolean }>()
+// Asks the page to turn on Allow changes (it confirms first).
+const emit = defineEmits<{ 'allow-changes': [] }>()
 const qc = useQueryClient()
 
 const MAX_SQL_BYTES = 64 * 1024
@@ -53,25 +53,7 @@ const sqlBytes = computed(() => new TextEncoder().encode(sql.value).length)
 const tooLong = computed(() => sqlBytes.value > MAX_SQL_BYTES)
 
 // ---------------------------------------------------------------- writes
-const write = ref(false)
-watch(
-  () => props.readOnly,
-  (ro) => {
-    if (ro) write.value = false
-  },
-)
-const confirmedOnce = ref(false)
-const confirmOpen = ref(false)
-function onWrite(on: boolean) {
-  if (!on) write.value = false
-  else if (confirmedOnce.value) write.value = true
-  else confirmOpen.value = true
-}
-function confirmWrite() {
-  confirmedOnce.value = true
-  write.value = true
-  confirmOpen.value = false
-}
+const write = computed(() => writable.value && !props.readOnly)
 
 // ---------------------------------------------------------------- running
 const results = ref<DbSqlResult[]>([])
@@ -110,7 +92,7 @@ const run = useMutation({
 
 const canRun = computed(() => !!sql.value.trim() && !tooLong.value && !run.isPending.value)
 function execute() {
-  if (canRun.value) run.mutate({ sql: sql.value, write: write.value && !props.readOnly && writable.value })
+  if (canRun.value) run.mutate({ sql: sql.value, write: write.value })
 }
 
 const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform)
@@ -177,13 +159,12 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
       </div>
       <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <p v-if="!writable" class="text-xs text-muted-foreground">Read-only. Hidden (secret) columns come back as NULL here.</p>
-        <div v-else class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-2" :title="readOnly ? 'Turn off Read-only at the top of the page to allow writes.' : undefined">
-            <Switch id="db-write" size="default" :disabled="readOnly" :model-value="write && !readOnly" @update:model-value="(v) => onWrite(v === true)" />
-            <Label for="db-write" class="text-sm" :class="readOnly ? 'text-muted-foreground' : 'cursor-pointer'">Allow writes</Label>
-          </span>
-          <Badge v-if="write" variant="destructive">changes are saved at once</Badge>
-        </div>
+        <p v-else-if="!write" class="text-xs text-muted-foreground">
+          Runs read-only.
+          <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" @click="emit('allow-changes')">Allow changes</button>
+          to run INSERT, UPDATE or DELETE.
+        </p>
+        <Badge v-else variant="destructive">Changes are allowed and saved at once</Badge>
         <div class="flex items-center gap-2">
           <span v-if="tooLong" class="text-xs text-destructive">Too long: SQL can be up to 64 KB.</span>
           <DropdownMenu>
@@ -221,8 +202,8 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
       <TriangleAlert class="mt-0.5 size-4 shrink-0" />
       <div class="min-w-0 flex-1">
         <template v-if="failure.code === 'db_read_only'">
-          <span>Turn on writes to change data.</span>
-          <Button v-if="writable && !readOnly" class="ml-2 align-baseline" variant="outline" size="xs" @click="onWrite(true)">Allow writes</Button>
+          <span>This runs read-only, so nothing was changed.</span>
+          <Button v-if="writable && readOnly" class="ml-2 align-baseline" variant="outline" size="xs" @click="emit('allow-changes')">Allow changes</Button>
         </template>
         <template v-else>
           <span v-if="failure.statement && (failure.statement > 1 || results.length)" class="font-medium">Statement {{ failure.statement }}: </span>
@@ -233,12 +214,5 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
     </div>
 
     <ValueDialog v-if="viewing" v-model:open="viewOpen" :value="viewing.value" :column="viewing.column" />
-    <ConfirmDialog
-      v-model:open="confirmOpen"
-      title="Allow writes?"
-      description="With writes on, INSERT, UPDATE, DELETE and schema changes are saved to the database at once. They cannot be undone, and a running app may be using this file. Make a backup first if you are unsure."
-      confirm-label="Allow writes"
-      @confirm="confirmWrite"
-    />
   </div>
 </template>

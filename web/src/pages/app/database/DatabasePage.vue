@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Database, Download, Lock, RefreshCw } from 'lucide-vue-next'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { Button } from '@/components/ui/button'
@@ -66,7 +67,7 @@ watch(
 const fileName = computed(() => path.value.split('/').pop() || path.value)
 const tab = computed<Tab>(() => TABS.find((t) => t.value === route.query.tab)?.value ?? 'data')
 const source = computed(() => (props.admin ? adminDbSource : appDbSource(slug.value, path.value)))
-// A source can be read-only for good (bitploy's own database); a file in /data has the page's Read-only switch.
+// A source can be read-only for good (bitploy's own database); an app's database has the page's Allow changes switch.
 const fixedReadOnly = computed(() => !source.value.write)
 
 const schema = useDbSchema(source, () => props.admin || server.value || !!path.value)
@@ -93,30 +94,43 @@ function refresh() {
   void qc.invalidateQueries({ queryKey: source.value.rowsKey })
 }
 
-// Read-only: nothing on the page can change the database. Remembered per app and file in this browser.
-const roKey = computed(() => `bitploy:db-readonly:${slug.value}:${path.value}`)
-function loadReadOnly(): boolean {
+// Read-only until "Allow changes" is turned on: then cells can be edited, rows added and deleted, and
+// the SQL console writes. One switch for all of them, asked once and remembered for this browser tab
+// (sessionStorage) per app and database, so a new visit starts read-only again.
+const allowKey = computed(() => `bitploy:db-allow-changes:${slug.value}:${path.value}`)
+function loadAllow(): boolean {
   try {
-    return localStorage.getItem(roKey.value) === '1'
+    return sessionStorage.getItem(allowKey.value) === '1'
   } catch {
     return false
   }
 }
-const switchOn = ref(loadReadOnly())
-watch(roKey, () => (switchOn.value = loadReadOnly()))
-const readOnly = computed(() => fixedReadOnly.value || switchOn.value)
-function setReadOnly(on: boolean) {
-  switchOn.value = on
+const allowChanges = ref(loadAllow())
+watch(allowKey, () => (allowChanges.value = loadAllow()))
+const readOnly = computed(() => fixedReadOnly.value || !allowChanges.value)
+const confirmAllowOpen = ref(false)
+function storeAllow(on: boolean) {
+  allowChanges.value = on
   try {
-    if (on) localStorage.setItem(roKey.value, '1')
-    else localStorage.removeItem(roKey.value)
+    if (on) sessionStorage.setItem(allowKey.value, '1')
+    else sessionStorage.removeItem(allowKey.value)
   } catch {
-    // storage blocked: it just is not remembered
+    // storage blocked: it lasts until the page is left
   }
+}
+function setAllow(on: boolean) {
+  if (on) confirmAllowOpen.value = true
+  else storeAllow(false)
+}
+function confirmAllow() {
+  storeAllow(true)
+  confirmAllowOpen.value = false
 }
 
 const volumeOff = computed(() => !props.admin && !server.value && app.data.value && !app.data.value.volume)
 const toStorage = computed(() => ({ name: 'app-storage', params: { slug: slug.value } }))
+// A database server has no file to download: its dumps are in Backups.
+const toBackups = computed(() => ({ ...toStorage.value, hash: '#backups' }))
 const back = computed(() => (props.admin ? { to: { path: '/admin' }, label: 'Admin' } : isTab.value ? null : { to: toStorage.value, label: 'Storage' }))
 const meta = computed(() => {
   const d = db.value
@@ -160,13 +174,22 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
             <SelectItem v-for="name in db.databases" :key="name" :value="name" class="font-mono text-[13px]">{{ name }}</SelectItem>
           </SelectContent>
         </Select>
-        <label v-if="!fixedReadOnly" class="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground" title="Hides everything that edits data, and keeps the SQL console from writing.">
-          <Lock class="size-3.5" /> Read-only
-          <Switch size="sm" :model-value="readOnly" aria-label="Read-only" @update:model-value="(v) => setReadOnly(v === true)" />
+        <label
+          v-if="!fixedReadOnly"
+          class="inline-flex cursor-pointer items-center gap-1.5 text-sm"
+          :class="readOnly ? 'text-muted-foreground' : 'font-medium text-foreground'"
+          :title="readOnly ? 'Read-only now. Turn on to edit cells, add and delete rows, and run INSERT, UPDATE or DELETE in SQL.' : 'Changes are saved to the database at once. Turn off to make it read-only again.'"
+          data-testid="db-allow-changes"
+        >
+          <Lock v-if="readOnly" class="size-3.5" /> Allow changes
+          <Switch size="sm" :model-value="!readOnly" aria-label="Allow changes" @update:model-value="(v) => setAllow(v === true)" />
         </label>
         <Button variant="outline" size="sm" @click="refresh"><RefreshCw :class="schema.isFetching.value && 'animate-spin'" /> Refresh</Button>
         <Button v-if="!server" as-child variant="outline" size="sm">
           <a :href="api.dataFileDownloadUrl(slug, path)" download><Download /> Download</a>
+        </Button>
+        <Button v-else-if="app.data.value?.backups_supported !== false" as-child variant="outline" size="sm" title="Back up the database as a dump and download it">
+          <RouterLink :to="toBackups"><Download /> Download a dump</RouterLink>
         </Button>
       </div>
     </div>
@@ -179,7 +202,7 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
       <Button as-child variant="outline"><RouterLink :to="toStorage">Back to Storage</RouterLink></Button>
     </EmptyState>
     <DbError v-else-if="volumeOff" :error="null" code="volume_off" :back-to="toStorage" />
-        <DbError v-else-if="schema.isError.value && !db" :server="server" :error="schema.error.value" :back-to="back?.to ?? toStorage" :back-label="back?.label" :download-href="admin ? undefined : api.dataFileDownloadUrl(slug, path)" @retry="schema.refetch()" />
+    <DbError v-else-if="schema.isError.value && !db" :server="server" :error="schema.error.value" :back-to="back?.to ?? toStorage" :back-label="back?.label" :download-href="admin ? undefined : api.dataFileDownloadUrl(slug, path)" @retry="schema.refetch()" />
     <div v-else-if="!db" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
       <Skeleton class="h-48 w-full" />
       <Skeleton class="h-80 w-full" />
@@ -211,11 +234,19 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
 
         <template v-if="tab !== 'sql'">
           <EmptyState v-if="!table" :icon="Database" title="This database has no tables." :description="fixedReadOnly ? undefined : 'Create one in the SQL tab.'" />
-          <DataTab v-else-if="tab === 'data'" :key="`${path}:${table.name}`" :source="source" :table="table" :read-only="readOnly" />
+          <DataTab v-else-if="tab === 'data'" :key="`${path}:${table.name}`" :source="source" :table="table" :read-only="readOnly" @allow-changes="setAllow(true)" />
           <StructureTab v-else :table="table" />
         </template>
-        <SqlConsole v-show="tab === 'sql'" :source="source" :start-table="table?.name" :read-only="readOnly" />
+        <SqlConsole v-show="tab === 'sql'" :source="source" :start-table="table?.name" :read-only="readOnly" @allow-changes="setAllow(true)" />
       </div>
     </div>
+
+    <ConfirmDialog
+      v-model:open="confirmAllowOpen"
+      title="Allow changes?"
+      description="Edits in the grid and INSERT, UPDATE, DELETE and schema changes in SQL are saved to the database at once. They cannot be undone, and a running app may be using it. Make a backup first if you are unsure. It stays on until you turn it off or close this tab."
+      confirm-label="Allow changes"
+      @confirm="confirmAllow"
+    />
   </div>
 </template>
