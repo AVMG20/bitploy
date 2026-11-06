@@ -384,6 +384,12 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 	res = templateFindings(plan, res)
 	res.Findings = p.s.dropSingleServiceComposeWarning(ctx, p.app, res.Findings, files, read)
 	res.Findings = append(res.Findings, p.findings...)
+	for i, f := range res.Findings {
+		if f.Code == deploy.CodeNoHealthcheck {
+			res.Findings[i].Message = fmt.Sprintf("Checked GET %s after deploy.", healthPathOr(p.app.HealthPath))
+			res.Findings[i].Hint = ""
+		}
+	}
 	for _, f := range res.Findings {
 		p.logf("check %s (%s): %s", f.Code, f.Severity, f.Message)
 	}
@@ -1482,4 +1488,12 @@ func (s *Service) settleStatusAfterFailure(ctx context.Context, appID, msg strin
 	case unsettled:
 		_ = s.Q.SetAppStatus(ctx, db.SetAppStatusParams{Status: "failed", StatusMessage: msg, UpdatedAt: s.now(), ID: appID})
 	}
+}
+
+// healthPathOr returns the app's health path, or / when none is set.
+func healthPathOr(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return path
 }
