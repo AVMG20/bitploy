@@ -44,6 +44,7 @@ const HINTS: Record<string, string> = {
   public_port_limit: 'Close the public port of another app first, or ask your admin to raise the limit.',
   public_ports_full: 'Every public port of the server is in use. Try again later, or ask your admin for a bigger range.',
   public_port_busy: 'Wait a few seconds and try again.',
+  public_port_changed: 'The port was opened, changed or closed at the same moment. Reload the page to see it as it is now, then try again.',
   public_port_failed: 'The port is saved and bitploy keeps trying to start it. Check again in a minute.',
   my_ip_unknown: 'Pick These addresses and type your IPv4 address instead.',
   my_ip_not_ipv4: 'Pick These addresses and type your IPv4 address instead.',

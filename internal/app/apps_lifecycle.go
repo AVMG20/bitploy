@@ -159,7 +159,9 @@ func (s *Service) stopApp(ctx context.Context, a Actor, row db.App) error {
 	return nil
 }
 
-// StopAllForUser stops every app of a user (used when suspending).
+// StopAllForUser stops every app of a user and closes their public ports
+// (used when suspending). Reactivating the user starts nothing and opens no
+// port again: the owner does that.
 func (s *Service) StopAllForUser(ctx context.Context, userID string) error {
 	rows, err := s.Q.ListAppsByUser(ctx, userID)
 	if err != nil {
@@ -167,6 +169,9 @@ func (s *Service) StopAllForUser(ctx context.Context, userID string) error {
 	}
 	var first error
 	for _, r := range rows {
+		if err := s.closePublicPort(ctx, System, r, "user_suspended"); err != nil && first == nil {
+			first = err
+		}
 		if r.DesiredState == "stopped" {
 			s.cancelAllDeployments(ctx, r.ID) // a queued deploy would start it again
 			continue

@@ -352,6 +352,17 @@ func (s *Service) SetPublicPort(ctx context.Context, a Actor, ref string, in Pub
 
 	var port int64
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		// Read again inside the transaction: the settings above were worked out
+		// from the row as it was, and another open, a close or the reconciler
+		// closing an expired port may have changed it since.
+		fresh, err := q.GetPublicPort(ctx, row.ID)
+		switch {
+		case err != nil && !errors.Is(err, sql.ErrNoRows):
+			return err
+		case (err == nil) != exists || (exists && (fresh.Port != cur.Port || fresh.UpdatedAt != cur.UpdatedAt)):
+			return apperr.Conflict("public_port_changed", "The public port of "+row.Slug+" was opened, changed or closed at the same moment, so nothing was changed.",
+				"Call get_app to see it as it is now, then call set_public_port again.").WithNext("get_app")
+		}
 		if exists {
 			port = cur.Port
 			return q.UpdatePublicPortSettings(ctx, db.UpdatePublicPortSettingsParams{
@@ -548,7 +559,7 @@ func (s *Service) movePublicPort(ctx context.Context, pp db.PublicPort) *apperr.
 
 // closePublicPort removes the public port of an app (no row: nothing to do).
 // reason goes into the audit row: closed, expired, app_deleted, admin,
-// public_ports_off.
+// public_ports_off, user_suspended.
 func (s *Service) closePublicPort(ctx context.Context, a Actor, row db.App, reason string) error {
 	s.pub.run.Lock()
 	defer s.pub.run.Unlock()
