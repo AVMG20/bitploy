@@ -14,11 +14,15 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { keys } from '@/composables/queries'
+import { useSession } from '@/composables/useSession'
 import { api } from '@/lib/api'
 import { formatMB } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { AdminUser } from '@/lib/types'
 import UserDomainsSelect from './UserDomainsSelect.vue'
+
+// The server does not let an admin suspend their own account, so that row has no Suspend.
+const { user: self } = useSession()
 
 interface QuotaForm {
   apps: number
@@ -156,7 +160,7 @@ const setStatus = useMutation({
               <div class="flex gap-1">
                 <UserDomainsSelect :user="u" />
                 <Button size="sm" variant="outline" :aria-label="`Limits for ${u.name}`" @click="edit(u)">Limits</Button>
-                <Button size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" :aria-label="`${u.status === 'suspended' ? 'Reactivate' : 'Suspend'} ${u.name}`" @click="toggling = u">
+                <Button v-if="u.id !== self?.id" size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" :aria-label="`${u.status === 'suspended' ? 'Reactivate' : 'Suspend'} ${u.name}`" @click="toggling = u">
                   {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}
                 </Button>
               </div>

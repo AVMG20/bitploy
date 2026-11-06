@@ -120,7 +120,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Can</TableHead>
-            <TableHead class="hidden md:table-cell">Created</TableHead>
+            <TableHead class="hidden 2xl:table-cell">Created</TableHead>
             <TableHead class="hidden sm:table-cell">Last used</TableHead>
             <TableHead class="hidden md:table-cell">Expires</TableHead>
             <TableHead class="w-0" />
@@ -135,7 +135,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
             <TableCell>
               <Badge :variant="t.scope === 'deploy' ? 'outline' : 'secondary'">{{ t.scope === 'deploy' ? 'Deploy' : 'Read only' }}</Badge>
             </TableCell>
-            <TableCell class="hidden md:table-cell"><RelativeTime :date="t.created_at" /></TableCell>
+            <TableCell class="hidden 2xl:table-cell"><RelativeTime :date="t.created_at" /></TableCell>
             <TableCell class="hidden sm:table-cell"><RelativeTime :date="t.last_used_at" empty="Never used" /></TableCell>
             <TableCell class="hidden md:table-cell">
               <span v-if="t.revoked_at" class="text-muted-foreground">Revoked</span>

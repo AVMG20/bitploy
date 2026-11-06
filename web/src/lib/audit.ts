@@ -101,7 +101,9 @@ export function auditDetails(d: Record<string, unknown> | null): string[] {
   const out: string[] = []
   for (const [k, v] of Object.entries(d)) {
     if (v === null || v === undefined || v === '' || /(^|_)id$/.test(k)) continue
-    const val = typeof v === 'object' ? JSON.stringify(v) : String(v)
+    // A list of names or numbers reads as a list; other objects stay JSON.
+    const plain = Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string' || typeof x === 'number')
+    const val = plain ? (v as unknown[]).join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
     out.push(`${k.replace(/_/g, ' ')}: ${val.length > 80 ? `${val.slice(0, 77)}...` : val}`)
   }
   return out

@@ -20,20 +20,21 @@ const s = computed(() => server.data.value)
         title="Memory"
         :loading="!s"
         :value="s ? `${formatMB(s.mem_used_mb)} of ${formatMB(s.mem_total_mb)}` : ''"
-        :sub="s ? `${formatMB(s.mem_reserved_mb)} promised to apps` : ''"
+        :sub="s ? `${formatMB(s.mem_reserved_mb)} reserved for apps` : ''"
         :progress="s ? pct(s.mem_used_mb, s.mem_total_mb) : undefined"
       />
       <StatCard
         title="Disk"
         :loading="!s"
         :value="s ? `${formatGB(s.disk_used_gb)} of ${formatGB(s.disk_total_gb)}` : ''"
+        :sub="s ? `${formatGB(Math.max(0, s.disk_total_gb - s.disk_used_gb))} free` : ''"
         :progress="s ? pct(s.disk_used_gb, s.disk_total_gb) : undefined"
       />
       <StatCard
         title="Docker disk use"
         :loading="!s"
         :value="s ? formatGB(s.docker_images_gb + s.docker_build_cache_gb + s.docker_volumes_gb) : ''"
-        :sub="s ? `Images ${formatGB(s.docker_images_gb)}, build cache ${formatGB(s.docker_build_cache_gb)}, volumes ${formatGB(s.docker_volumes_gb)}` : ''"
+        :sub="s ? `Images ${formatGB(s.docker_images_gb)}, build cache ${formatGB(s.docker_build_cache_gb)}, saved files (/data) ${formatGB(s.docker_volumes_gb)}` : ''"
       />
       <StatCard title="Builds" :loading="!s" :value="s ? `${s.builds_running} running` : ''" :sub="s ? `${s.builds_queued} waiting in line` : ''" />
       <StatCard

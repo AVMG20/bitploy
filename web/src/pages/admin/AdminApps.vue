@@ -99,7 +99,7 @@ const stop = useMutation({
     <EmptyState v-else-if="!all.length" title="No apps on this server yet." />
     <div v-else class="grid gap-4">
       <div class="grid gap-4 sm:grid-cols-3">
-        <StatCard title="Apps running" :value="String(totals.running)" :suffix="`of ${totals.total}`" :progress="pct(totals.running, totals.total)" />
+        <StatCard title="Apps running" :value="String(totals.running)" :suffix="`of ${totals.total}`" />
         <StatCard
           title="CPU used by apps"
           :value="formatCPU(cpuFromPercent(totals.cpu)).replace(' CPU', '')"
@@ -142,7 +142,7 @@ const stop = useMutation({
             <TableRow v-for="a in shown" :key="a.id">
               <TableCell>
                 <RouterLink :to="appPath(a.slug)" class="font-medium hover:underline">{{ a.name }}</RouterLink>
-                <p class="text-xs text-muted-foreground">{{ a.type === 'web' ? hostOf(a.url) : 'Background worker' }}</p>
+                <p class="text-xs text-muted-foreground"><template v-if="a.project">{{ a.project.name }} &middot; </template>{{ a.type === 'web' ? hostOf(a.url) : 'No web address' }}</p>
               </TableCell>
               <TableCell class="hidden sm:table-cell">{{ ownerOf(a) }}</TableCell>
               <TableCell><AppStatusBadge :status="a.status" /></TableCell>

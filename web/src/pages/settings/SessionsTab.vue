@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { LogOut, Monitor } from 'lucide-vue-next'
+import { LogOut, Monitor, Smartphone } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
@@ -60,7 +60,7 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
     <Card v-else class="gap-0 py-0">
       <ul class="divide-y">
         <li v-for="s in sessions.data.value" :key="s.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-          <div class="flex size-8 items-center justify-center rounded-lg border bg-muted/50"><Monitor class="size-4 text-muted-foreground" /></div>
+          <div class="flex size-8 items-center justify-center rounded-lg border bg-muted/50"><component :is="/Mobile|Android|iPhone/.test(s.user_agent) ? Smartphone : Monitor" class="size-4 text-muted-foreground" /></div>
           <div class="min-w-0">
             <p class="text-sm font-medium">
               {{ deviceName(s.user_agent) }}
