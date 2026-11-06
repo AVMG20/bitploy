@@ -306,7 +306,8 @@ watch(
                     <Cable class="size-3 shrink-0 text-primary" /> {{ r.app }}.{{ r.variable }}
                   </span>
                 </template>
-                <span v-else class="truncate font-mono text-muted-foreground">{{ v.masked }}</span>
+                <span v-else-if="v.value !== undefined" class="truncate font-mono text-muted-foreground" :title="v.value">{{ v.value }}</span>
+                <span v-else class="inline-flex items-center gap-1 font-mono text-muted-foreground" title="Hidden: the value is never shown again">{{ v.masked }}<Lock class="size-3" /></span>
               </span>
             </li>
             <li v-if="vars.length > 10" class="px-3 py-1.5 text-muted-foreground">and {{ vars.length - 10 }} more</li>

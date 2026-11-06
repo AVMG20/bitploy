@@ -515,10 +515,9 @@ export const api = {
    * several; without one they are shared by every service. `service` in the body
    * is an assumption about the compose phase 2 API: it is only sent when set, so
    * a server without it answers with an error instead of saving a shared value.
-   * `build` says, per name, whether the image build gets the variable too
-   * ('none' takes that away); names left out keep what they have.
+   * `hidden` is the flag per name; a name left out keeps its flag (a new one
+   * is readable).
    */
-  /** hidden: the flag per name; a name left out keeps its flag (a new one is readable). */
   setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string, hidden?: Record<string, boolean>) =>
     request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset, ...(service ? { service } : {}), ...(hidden && Object.keys(hidden).length ? { hidden } : {}) } }),
   /** Without a service: the sum over all services. */

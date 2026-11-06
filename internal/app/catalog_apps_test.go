@@ -259,3 +259,24 @@ func TestCatalogNewer(t *testing.T) {
 		}
 	}
 }
+
+// A secret the catalog generates is saved hidden; the other values stay readable.
+func TestDeployCatalogAppHidesGeneratedSecrets(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	res, err := e.s.DeployCatalogApp(ctx, e.user, "n8n", CatalogDeployInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := e.s.ListEnv(ctx, e.user, res.App.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := envByName(vars)
+	if v := m["N8N_ENCRYPTION_KEY"]; !v.Hidden || v.Value != nil {
+		t.Errorf("generated: %+v", v)
+	}
+	if v := m["WEBHOOK_URL"]; v.Hidden || v.Value == nil || *v.Value != res.App.URL {
+		t.Errorf("filled in: %+v", v)
+	}
+}

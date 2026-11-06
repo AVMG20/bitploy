@@ -459,7 +459,7 @@ func (p *composeParser) scanReferences(raw map[string]any) {
 // scanImageVariables refuses a shared variable that has a value in the
 // image: of a service that pulls it. The image is shown in the deploy log,
 // in errors and in the app's services, which read-only tokens and admins
-// can read, while variable values are never shown. ${TAG:-latest} with TAG
+// can read, while an admin never sees a variable's value. ${TAG:-latest} with TAG
 // not set (or empty) is fine: the image then holds only the file's text.
 // A variable without a value and without a default is refused too: the
 // image would lose its name or tag, and setting the variable (what the

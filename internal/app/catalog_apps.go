@@ -16,9 +16,9 @@ import (
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
-// CatalogEnv is an environment variable a catalog app sets. Values are never
-// returned: a generated secret is random and stored encrypted, a fixed value
-// is part of the app's Dockerfile or filled in at create time.
+// CatalogEnv is an environment variable a catalog app sets. The catalog
+// lists no value: a generated secret is random and saved hidden, a fixed
+// value is filled in at create time.
 type CatalogEnv struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -255,16 +255,17 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 			renamed[sv.Name] = svc.Alias
 		}
 	}
-	set := map[string]string{}
+	// A generated secret is hidden: nobody needs to read it.
+	set, hidden := map[string]string{}, map[string]bool{}
 	for _, ev := range e.Env {
 		if ev.Generate == "secret" {
-			set[ev.Name] = ids.Base62(32)
+			set[ev.Name], hidden[ev.Name] = ids.Base62(32), true
 		} else {
 			set[ev.Name] = renameRefs(catalog.Fill(ev.Value, url), renamed)
 		}
 	}
 	if len(set) > 0 {
-		if _, err = s.SetEnv(ctx, a, created.Slug, set, nil); err != nil {
+		if _, err = s.ChangeEnv(ctx, a, created.Slug, EnvChange{Set: set, Hidden: hidden}); err != nil {
 			return res, err
 		}
 	}

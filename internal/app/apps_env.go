@@ -26,10 +26,13 @@ func (s *Service) ListEnv(ctx context.Context, a Actor, ref string) ([]EnvVar, e
 	if err != nil {
 		return nil, err
 	}
-	return s.listEnv(ctx, row.ID)
+	// An admin looking at another user's app sees no value: readable means
+	// readable to the app's owner (and the owner's tokens).
+	return s.listEnv(ctx, row.ID, row.UserID == a.UserID || a.Channel == ChannelSystem)
 }
 
-func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
+// listEnv lists the app's variables; reveal false leaves every value out.
+func (s *Service) listEnv(ctx context.Context, appID string, reveal bool) ([]EnvVar, error) {
 	rows, err := s.Q.ListEnvVars(ctx, appID)
 	if err != nil {
 		return nil, apperr.Internal(err)
@@ -45,7 +48,7 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 			if ev.References != nil {
 				ev.Masked = maskAroundRefs(string(v))
 			}
-			if !ev.Hidden {
+			if reveal && !ev.Hidden {
 				val := string(v)
 				ev.Value = &val
 			}
@@ -218,7 +221,7 @@ func (s *Service) ChangeEnv(ctx context.Context, a Actor, ref string, c EnvChang
 		meta["service"] = service
 	}
 	s.Audit(ctx, a, "env.set", "app", row.ID, meta)
-	return s.listEnv(ctx, row.ID)
+	return s.listEnv(ctx, row.ID, true) // LoadApp with write: the owner
 }
 
 // hiddenChanges validates c.Hidden and returns the hidden flag to store per

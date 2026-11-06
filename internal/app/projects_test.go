@@ -150,6 +150,10 @@ func TestAddServiceAndReferences(t *testing.T) {
 	if len(pgVars["POSTGRES_PASSWORD"]) != 32 || pgVars["POSTGRES_USER"] != "app" {
 		t.Fatalf("postgres vars: %d names", len(pgVars))
 	}
+	// The generated password is hidden, the user name readable.
+	if pgEnv, _ := e.s.ListEnv(ctx, e.user, pg.Slug); !envByName(pgEnv)["POSTGRES_PASSWORD"].Hidden || envByName(pgEnv)["POSTGRES_USER"].Hidden {
+		t.Errorf("postgres env = %+v", pgEnv)
+	}
 	row, _ := e.s.Q.GetApp(ctx, web.ID)
 	envList, _, ae := e.s.serviceEnv(ctx, row, nil, nil, 3000)
 	if ae != nil {

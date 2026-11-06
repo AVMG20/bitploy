@@ -21,8 +21,9 @@ import (
 
 // buildVars decrypts the variables the build of one service gets: the shared
 // ones and the service's own (which win), with their ${{alias.VAR}}
-// references filled in like at run time. hidden are the names of the hidden
-// ones among them.
+// references filled in like at run time. hidden are the names among them
+// whose value the build log masks however it looks: the hidden ones, and the
+// ones with a reference, which may hold another app's hidden value.
 func (s *Service) buildVars(ctx context.Context, app db.App, service string) (vars map[string]string, hidden map[string]bool, ae *apperr.Error) {
 	rows, err := s.Q.ListServiceEnvVars(ctx, db.ListServiceEnvVarsParams{AppID: app.ID, Service: service})
 	if err != nil {
@@ -36,10 +37,11 @@ func (s *Service) buildVars(ctx context.Context, app db.App, service string) (va
 			return nil, nil, apperr.Unprocessable("env_unreadable", "The environment variable "+r.Name+" cannot be decrypted.",
 				"Set it again with set_env. (This happens when the server's secret key changed.)").WithNext("set_env")
 		}
+		h := r.Hidden != 0 || strings.Contains(string(v), "${{")
 		if r.Service == "" {
-			shared[r.Name], sharedHidden[r.Name] = string(v), r.Hidden != 0
+			shared[r.Name], sharedHidden[r.Name] = string(v), h
 		} else {
-			own[r.Name], ownHidden[r.Name] = string(v), r.Hidden != 0
+			own[r.Name], ownHidden[r.Name] = string(v), h
 		}
 	}
 	if app.ProjectID != "" {
@@ -131,6 +133,13 @@ var publicBuildPrefixes = []string{"VITE_", "NEXT_PUBLIC_", "PUBLIC_", "REACT_AP
 // cleanup removes that copy.
 func (p *pipeline) applyBuildVars(ctx context.Context, spec *deploy.BuildSpec, service string, generated bool) (cleanup func(), ae *apperr.Error) {
 	cleanup = func() {}
+	if readyMade(p.app) {
+		// A database or one-click app builds the Dockerfile bitploy ships,
+		// which pins what it builds (pocketbase's ARG PB_VERSION goes with
+		// the checksums next to it): no app variable reaches that build, and
+		// a change to one applies after a restart.
+		return cleanup, nil
+	}
 	vars, hidden, ae := p.s.buildVars(ctx, p.app, service)
 	if ae != nil {
 		return cleanup, ae
@@ -218,6 +227,8 @@ func (p *pipeline) applyBuildVars(ctx context.Context, spec *deploy.BuildSpec, s
 			p.buildSecrets = append(p.buildSecrets, vars[n])
 		}
 	}
+	// The longest first: a value that holds a shorter one is masked whole.
+	sort.SliceStable(p.buildSecrets, func(i, j int) bool { return len(p.buildSecrets[i]) > len(p.buildSecrets[j]) })
 	if len(args) > 0 && spec.Args == nil {
 		spec.Args = map[string]string{}
 	}
@@ -321,3 +332,7 @@ func maskSecrets(line string, secrets []string) string {
 	}
 	return line
 }
+
+// readyMade reports an app made from a service template (a database, a
+// cache) or the catalog (a one-click app).
+func readyMade(r db.App) bool { return r.Template != "" || r.CatalogID != "" }

@@ -157,16 +157,18 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 		}
 	}()
 
-	set := map[string]string{}
+	// A generated password is hidden; the connection variables and the
+	// public port give what an app or a person needs to log in.
+	set, hidden := map[string]string{}, map[string]bool{}
 	for _, e := range tpl.Env {
 		if e.Generate == "secret" {
-			set[e.Name] = ids.Base62(32)
+			set[e.Name], hidden[e.Name] = ids.Base62(32), true
 		} else {
 			set[e.Name] = e.Value
 		}
 	}
 	if len(set) > 0 {
-		if _, err = s.SetEnv(ctx, a, created.ID, set, nil); err != nil {
+		if _, err = s.ChangeEnv(ctx, a, created.ID, EnvChange{Set: set, Hidden: hidden}); err != nil {
 			return res, err
 		}
 	}

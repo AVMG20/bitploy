@@ -140,6 +140,24 @@ func TestApplyBuildVars(t *testing.T) {
 		}
 	})
 
+	t.Run("ready-made app", func(t *testing.T) {
+		dir := t.TempDir()
+		df := filepath.Join(dir, "Dockerfile")
+		content := "FROM alpine\nARG NODE_ENV\nRUN --mount=type=secret,id=SENTRY_AUTH_TOKEN true\n"
+		_ = os.WriteFile(df, []byte(content), 0o644)
+		for _, mk := range []func(*pipeline){func(p *pipeline) { p.app.CatalogID = "pocketbase" }, func(p *pipeline) { p.app.Template = "postgres" }} {
+			p := newPipeline(dir)
+			mk(p)
+			spec := deploy.BuildSpec{ContextDir: dir, Dockerfile: df}
+			if _, ae := p.applyBuildVars(ctx, &spec, singleService, false); ae != nil {
+				t.Fatal(ae)
+			}
+			if len(spec.Args) != 0 || len(spec.Secrets) != 0 || len(p.buildReads) != 0 || spec.Dockerfile != df {
+				t.Fatalf("%+v %v", spec, p.buildReads)
+			}
+		}
+	})
+
 	t.Run("compose build args win", func(t *testing.T) {
 		dir := t.TempDir()
 		df := filepath.Join(dir, "Dockerfile")

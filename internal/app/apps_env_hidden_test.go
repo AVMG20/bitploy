@@ -156,3 +156,49 @@ func TestBuildVarsHidden(t *testing.T) {
 		t.Fatal("mask")
 	}
 }
+
+// An admin looking at another user's app sees no value, readable or not.
+func TestEnvAdminSeesNoValues(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+	if _, err := e.s.ChangeEnv(ctx, e.user, app.Slug, EnvChange{
+		Set:    map[string]string{"NODE_ENV": "production", "DB": "postgres://u:pw@db/x", "KEY": "k"},
+		Hidden: map[string]bool{"KEY": true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	admin := e.addUser(t, "usr_admin", "admin@example.com", "admin")
+	admin.Scope, admin.Channel = ScopeSession, ChannelDashboard
+	list, err := e.s.ListEnv(ctx, admin, app.Slug)
+	if err != nil || len(list) != 3 {
+		t.Fatalf("%v %+v", err, list)
+	}
+	for _, v := range list {
+		if v.Value != nil || v.Masked == "" {
+			t.Errorf("admin got %+v", v)
+		}
+	}
+}
+
+// The build log masks a value filled in from a reference, which may be
+// another app's hidden value, and a longer value before one inside it.
+func TestBuildVarsMaskReferences(t *testing.T) {
+	if got := maskSecrets("x abcdef-123456 y", []string{"abcdef-123456", "abcdef"}); got != "x "+envMask+" y" {
+		t.Fatalf("%q", got)
+	}
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+	api := e.mustApp(t, CreateAppInput{Slug: "api-x", Project: app.Project.ID, Alias: "api"})
+	if _, err := e.s.ChangeEnv(ctx, e.user, api.Slug, EnvChange{Set: map[string]string{"SECRET": "letmein"}, Hidden: map[string]bool{"SECRET": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.SetEnv(ctx, e.user, app.Slug, map[string]string{"VITE_X": "${{api.SECRET}}"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := e.s.Q.GetApp(ctx, app.ID)
+	if vars, hidden, ae := e.s.buildVars(ctx, row, singleService); ae != nil || vars["VITE_X"] != "letmein" || !hidden["VITE_X"] {
+		t.Fatalf("%v %v %v", ae, vars, hidden)
+	}
+}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowRight, Cable, Pencil } from 'lucide-vue-next'
+import { ArrowRight, Cable, Lock, Pencil } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { Button } from '@/components/ui/button'
@@ -14,8 +14,8 @@ import { aliasOf, envReferences, referenceText } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
 // Every variable of the project in one place: which app reads which variable
-// of which other app, then each app's own variables. Values stay masked;
-// references to other apps are not secret and are shown as written.
+// of which other app, then each app's own variables with their values; a
+// hidden one shows as dots. References to other apps are shown as written.
 const props = defineProps<{ projectId: string }>()
 const { apps, env, links, roleOf } = useProjectData(() => props.projectId)
 const byId = computed(() => new Map(apps.value.map((a) => [a.id, a])))
@@ -83,7 +83,8 @@ const panel = (a: App) => appRoute(a)
                   :title="`The value of ${r.variable} in ${r.app}`"
                 ><Cable class="size-3 text-primary" /> {{ r.app }}.{{ r.variable }}</span>
               </template>
-              <span v-else class="truncate font-mono text-xs text-muted-foreground">{{ v.masked }}</span>
+              <span v-else-if="v.value !== undefined" class="truncate font-mono text-xs text-muted-foreground" :title="v.value">{{ v.value }}</span>
+              <span v-else class="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground" title="Hidden: the value is never shown again">{{ v.masked }}<Lock class="size-3" /></span>
             </span>
           </li>
         </ul>

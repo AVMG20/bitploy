@@ -313,14 +313,16 @@ const importAll = useMutation({
             Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. A change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="multi">
-            Shared variables: every service of this app gets them. A hidden value is never shown again. A change applies after a restart.
+            Shared variables: every service of this app gets them. Tick Hidden for a password or key: its value is never shown again. A change applies after a restart, or on the
+            next deploy when the build reads it.
           </CardDescription>
           <CardDescription v-else-if="site">
-            Settings your site needs while it is built, like VITE_API_URL. bitploy serves the built files, so none of your code runs on the server and only the build reads a
-            variable. Anyone can read a VITE_ or NEXT_PUBLIC_ value in the site, so never put a password in one. A change applies on the next deploy.
+            Settings your site needs while it is built, like VITE_API_URL. Anyone can read a VITE_ or NEXT_PUBLIC_ value in the site, so never put a password in one. A change
+            applies on the next deploy.
           </CardDescription>
           <CardDescription v-else>
-            Passwords, API keys and other settings your app reads when it starts and while it is built. A hidden value is never shown again. A change applies after a restart, or on the next deploy when the build reads it.
+            Passwords, API keys and other settings your app reads when it starts and while it is built. Tick Hidden for a password or key: its value is never shown again. A change
+            applies after a restart, or on the next deploy when the build reads it.
           </CardDescription>
         </div>
         <div class="flex gap-2">
@@ -371,7 +373,7 @@ const importAll = useMutation({
                 <FormMessage />
                 <label class="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="The value is never shown again, not even to you">
                   <Checkbox :model-value="addHidden" @update:model-value="(v) => (addHiddenPicked = v === true)" />
-                  Hidden
+                  {{ addHidden ? 'Hidden: the value is never shown again' : 'Hidden' }}
                 </label>
               </FormItem>
             </FormField>
@@ -458,9 +460,11 @@ const importAll = useMutation({
                   <span class="text-xs text-muted-foreground">{{
                     editNeedsValue
                       ? 'Enter the value again to make it readable.'
-                      : v.hidden
-                        ? 'The old value is not shown; leave the box empty to keep it. Enter saves, Esc cancels.'
-                        : 'Enter saves, Esc cancels.'
+                      : editHidden && !v.hidden
+                        ? 'Saved hidden, the value is never shown again. Enter saves, Esc cancels.'
+                        : v.hidden
+                          ? 'The old value is not shown; leave the box empty to keep it. Enter saves, Esc cancels.'
+                          : 'Enter saves, Esc cancels.'
                   }}</span>
                 </div>
               </form>
