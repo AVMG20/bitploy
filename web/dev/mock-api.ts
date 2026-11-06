@@ -12,23 +12,33 @@ import type { Plugin } from 'vite'
 import type {
   App,
   AppService,
+  AdminUser,
+  AppDomain,
   AppVolume,
+  AuditEntry,
   BackupList,
   CatalogApp,
   ComposeCheck,
   ComposeService,
   DataFileList,
+  DbSchema,
+  DbTable,
+  DbValue,
   Deployment,
   DeploymentState,
   EnvVar,
   GitHubOverview,
   GitHubRepo,
+  Invite,
   Me,
   MetricPoint,
   Metrics,
   Project,
+  ServerStats,
   ServiceTemplate,
+  Session,
   SessionInfo,
+  Token,
   Traffic,
   User,
 } from '../src/lib/types'
@@ -406,7 +416,8 @@ function seedEnv(slug: string, vars: { name: string; value?: string; masked?: st
 
 apps.push(
   makeApp({ slug: 'portfolio', name: 'Portfolio', project: 'prj_portfolio', alias: 'portfolio', port: 80, repo: 'ada/portfolio', static: true, memory: 32, cpu: 100, createdDaysAgo: 60, deploys: 5 }),
-  makeApp({ slug: 'shop-web', name: 'web', project: 'prj_shop', alias: 'web', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 30, deploys: 4 }),
+  makeApp({ slug: 'shop-web', name: 'web', project: 'prj_shop', alias: 'web', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 30, deploys: 4,
+    volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: 1024, used_mb: 24 }] }),
   makeApp({ slug: 'shop-api', name: 'api', project: 'prj_shop', alias: 'api', type: 'worker', port: 8080, repo: 'ada/api-go', memory: 256, cpu: 250, createdDaysAgo: 29, deploys: 3 }),
   makeApp({ slug: 'shop-postgres', name: 'postgres', project: 'prj_shop', alias: 'postgres', template: 'postgres', templateVersion: '18.4', type: 'worker', port: 5432, memory: 256, cpu: 250, createdDaysAgo: 28, deploys: 1,
     volumes: [{ name: 'pgdata', service: 'app', mount_path: '/var/lib/postgresql/data', size_mb: 2048, used_mb: 184 }] }),
@@ -807,6 +818,168 @@ function send(res: ServerResponse, status: number, body?: unknown) {
   res.end(JSON.stringify(body))
 }
 
+// ---------------------------------------------------------------- account and admin
+
+const tokens: Token[] = [
+  { id: 'tok_claude', name: 'Claude Code on the laptop', prefix: 'bp_7Kq2', scope: 'deploy', created_at: ago(60 * 24 * 30), expires_at: null, last_used_at: ago(42), last_used_ip: '203.0.113.7' },
+  { id: 'tok_ci', name: 'GitHub Actions', prefix: 'bp_Lm9x', scope: 'deploy', created_at: ago(60 * 24 * 12), expires_at: ago(-60 * 24 * 78), last_used_at: ago(60 * 26), last_used_ip: '140.82.112.4' },
+  { id: 'tok_read', name: 'Status dashboard', prefix: 'bp_Qa31', scope: 'read', created_at: ago(60 * 24 * 60), expires_at: null, last_used_at: null, last_used_ip: null },
+]
+const sessions: Session[] = [
+  { id: 'ses_now', current: true, ip: '203.0.113.7', user_agent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36', created_at: ago(60 * 5), last_seen_at: ago(1) },
+  { id: 'ses_phone', current: false, ip: '198.51.100.23', user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1', created_at: ago(60 * 24 * 3), last_seen_at: ago(60 * 7) },
+]
+
+function adminUsers(): AdminUser[] {
+  const m = me()
+  const people: [string, string, string, 'user' | 'admin', 'active' | 'suspended', number][] = [
+    ['usr_ada', 'ada@example.com', 'Ada', 'admin', 'active', apps.length],
+    ['usr_linus', 'linus@example.com', 'Linus', 'user', 'active', 3],
+    ['usr_grace', 'grace@example.com', 'Grace', 'user', 'active', 1],
+    ['usr_ken', 'ken@example.com', 'Ken', 'user', 'suspended', 0],
+  ]
+  return people.map(([id, email, name, role, status, count], i) => ({
+    id,
+    email,
+    name,
+    role,
+    status,
+    created_at: ago(60 * 24 * (90 - i * 20)),
+    // The admin runs the demo projects and has room for them.
+    quota: role === 'admin' ? { ...m.quota, apps: 30, memory_mb: 8192 } : m.quota,
+    usage: {
+      ...m.usage,
+      apps: count,
+      apps_running: status === 'active' ? count : 0,
+      memory_reserved_mb: Math.round((m.usage.memory_reserved_mb * count) / Math.max(1, apps.length)),
+      deploys_month: [38, 12, 3, 0][i]!,
+      build_minutes_month: [42, 15, 4, 0][i]!,
+      running_hours_month: [3100, 2160, 720, 0][i]!,
+    },
+    app_count: count,
+    app_domain_ids: id === 'usr_linus' ? ['apd_shop'] : [],
+  }))
+}
+const invites: Invite[] = [
+  { id: 'inv_open', email: 'margaret@example.com', role: 'user', created_at: ago(60 * 20), expires_at: ago(-60 * 24 * 6), used_at: null },
+  { id: 'inv_used', email: 'grace@example.com', role: 'user', created_at: ago(60 * 24 * 40), expires_at: ago(60 * 24 * 33), used_at: ago(60 * 24 * 39) },
+]
+const appDomains: AppDomain[] = [
+  { id: 'default', domain: DOMAIN, default: true, certificate: 'install', cert_expires_at: ago(-60 * 24 * 61), app_count: 14, user_count: 0, created_at: null },
+  { id: 'apd_shop', domain: 'shop.example.com', default: false, certificate: 'own', cert_expires_at: ago(-60 * 24 * 20), app_count: 2, user_count: 1, created_at: ago(60 * 24 * 15) },
+  { id: 'apd_new', domain: 'apps.example.org', default: false, certificate: 'none', cert_expires_at: null, app_count: 0, user_count: 0, created_at: ago(60 * 3) },
+]
+const auditRows: [string, string, string, string, Record<string, unknown> | null][] = [
+  ['deployment.queue', 'app', 'mk-api', 'mcp', { source: 'git', commit: '4f2a9c1' }],
+  ['env.set', 'app', 'mk-store', 'dashboard', { names: ['API_URL'] }],
+  ['token.create', 'token', 'tok_ci', 'dashboard', { scope: 'deploy' }],
+  ['invite.create', 'invite', 'inv_open', 'dashboard', { role: 'user' }],
+  ['app.stop', 'app', 'notes', 'api', null],
+  ['auth.login', 'user', 'usr_ada', 'dashboard', null],
+  ['domain.add', 'app_domain', 'apd_new', 'dashboard', { domain: 'apps.example.org' }],
+]
+const audit: AuditEntry[] = auditRows.map(([action, target_type, target_id, channel, details], i) => ({
+  id: 900 - i,
+  ts: ago(i * 37 + 3),
+  user_id: 'usr_ada',
+  channel,
+  token_id: channel === 'mcp' ? 'tok_claude' : null,
+  ip: '203.0.113.7',
+  action,
+  target_type,
+  target_id: target_type === 'app' ? (findApp(target_id)?.id ?? target_id) : target_id,
+  details,
+}))
+function serverStats(): ServerStats {
+  return {
+    cpu_percent: 23,
+    load1: 0.84,
+    mem_total_mb: 16384,
+    mem_used_mb: 7310,
+    mem_reserved_mb: usedMemory() + 2048,
+    disk_total_gb: 160,
+    disk_used_gb: 61,
+    docker_images_gb: 18.4,
+    docker_build_cache_gb: 6.2,
+    docker_volumes_gb: 3.1,
+    builds_running: 1,
+    builds_queued: 0,
+    apps_running: apps.filter((a) => a.status === 'running').length,
+    apps_total: apps.length,
+    apps_max: 60,
+  }
+}
+
+// ---------------------------------------------------------------- a SQLite file in /data, and bitploy's own database
+
+const col = (name: string, type: string, pk = 0, notnull = false, redacted = false) => ({ name, type, notnull, default: null, pk, hidden: false, generated: false, redacted })
+const dbTables: Record<'app' | 'admin', { table: DbTable; rows: DbValue[][] }[]> = {
+  app: [
+    {
+      table: { name: 'notes', type: 'table', without_rowid: false, editable: true, rows: 4, sql: 'CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT, created_at TEXT)', columns: [col('id', 'INTEGER', 1), col('title', 'TEXT', 0, true), col('body', 'TEXT'), col('created_at', 'TEXT')], indexes: [] },
+      rows: [
+        [1, 'Groceries', 'Milk, eggs, coffee', ago(60 * 24 * 3)],
+        [2, 'Deploy checklist', 'Run the tests, then push to main', ago(60 * 30)],
+        [3, 'Ideas', null, ago(60 * 5)],
+        [4, 'Meeting', 'Thursday 10:00 with the design team', ago(25)],
+      ],
+    },
+    {
+      table: { name: 'tags', type: 'table', without_rowid: false, editable: true, rows: 2, sql: 'CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE)', columns: [col('id', 'INTEGER', 1), col('name', 'TEXT')], indexes: [{ name: 'sqlite_autoindex_tags_1', unique: true, columns: ['name'], sql: null }] },
+      rows: [
+        [1, 'home'],
+        [2, 'work'],
+      ],
+    },
+  ],
+  admin: [
+    {
+      table: { name: 'users', type: 'table', without_rowid: false, editable: false, rows: 4, sql: 'CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT, password_hash TEXT)', columns: [col('id', 'TEXT', 1), col('email', 'TEXT', 0, true), col('role', 'TEXT'), col('password_hash', 'TEXT', 0, false, true)], indexes: [] },
+      rows: [],
+    },
+    {
+      table: { name: 'apps', type: 'table', without_rowid: false, editable: false, rows: null, sql: 'CREATE TABLE apps (id TEXT PRIMARY KEY, slug TEXT NOT NULL, status TEXT)', columns: [col('id', 'TEXT', 1), col('slug', 'TEXT', 0, true), col('status', 'TEXT')], indexes: [] },
+      rows: [],
+    },
+  ],
+}
+function dbTablesOf(kind: 'app' | 'admin') {
+  if (kind === 'admin') {
+    dbTables.admin[0]!.rows = adminUsers().map((u) => [u.id, u.email, u.role, null])
+    dbTables.admin[1]!.rows = apps.map((a) => [a.id, a.slug, a.status])
+  }
+  return dbTables[kind]
+}
+function dbSchema(kind: 'app' | 'admin', path: string): DbSchema {
+  const tables = dbTablesOf(kind).map((t) => ({ ...t.table, rows: t.rows.length }))
+  return { path: kind === 'admin' ? '/var/lib/bitploy/bitploy.db' : `/data/${path}`, size: kind === 'admin' ? 1_482_752 : 24_576, journal_mode: 'wal', page_size: 4096, sqlite_version: '3.46.1', tables }
+}
+function dbRows(kind: 'app' | 'admin', body: Record<string, unknown>) {
+  const t = dbTablesOf(kind).find((x) => x.table.name === body.table)
+  if (!t) throw new HttpError(404, 'table_not_found', `There is no table called ${String(body.table)}.`)
+  const columns = t.table.columns.map((c) => c.name)
+  const limit = Number(body.limit ?? 100)
+  const offset = Number(body.offset ?? 0)
+  const search = String(body.search ?? '').toLowerCase()
+  const list = t.rows.filter((r) => !search || r.some((v) => String(v ?? '').toLowerCase().includes(search)))
+  const app = kind === 'app'
+  return {
+    columns,
+    key_columns: app ? [columns[0]!] : [],
+    editable: app,
+    rows: list.slice(offset, offset + limit).map((r) => ({ key: app ? { [columns[0]!]: r[0]! } : null, values: r })),
+    total: list.length,
+    offset,
+    limit,
+  }
+}
+function dbSql(kind: 'app' | 'admin', sql: string) {
+  const name = /from\s+["`]?(\w+)/i.exec(sql)?.[1]
+  const t = dbTablesOf(kind).find((x) => x.table.name === name)
+  if (!t) throw new HttpError(422, 'sql_error', name ? `no such table: ${name}` : 'The mock runs only SELECT ... FROM <table>.')
+  return { results: [{ sql, columns: t.table.columns.map((c) => c.name), rows: t.rows, truncated: false, rows_affected: null, last_insert_rowid: null, took_ms: 0.4 }], took_ms: 0.4 }
+}
+
 const items = <T>(list: T[]) => ({ items: list })
 
 function needApp(slug: string): App {
@@ -839,8 +1012,34 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'GET /events':
       throw new HttpError(404, 'not_found', 'The mock has no live events; the dashboard polls.')
     case 'GET /tokens':
+      return send(res, 200, items(tokens))
     case 'GET /sessions':
-      return send(res, 200, items([]))
+      return send(res, 200, items(sessions))
+
+    // ---------------------------------------------------------------- admin
+    case 'GET /admin/users':
+      return send(res, 200, items(adminUsers()))
+    case 'GET /admin/invites':
+      return send(res, 200, items(invites))
+    case 'POST /admin/invites': {
+      const inv: Invite = { id: newId('inv'), email: body.email ? String(body.email) : null, role: body.role === 'admin' ? 'admin' : 'user', created_at: ago(0), expires_at: ago(-60 * 24 * 7), used_at: null, url: 'http://localhost:5177/invite/mock-code' }
+      invites.unshift(inv)
+      return send(res, 201, inv)
+    }
+    case 'GET /admin/server':
+      return send(res, 200, serverStats())
+    case 'GET /admin/app-domains':
+      return send(res, 200, { items: appDomains, server_ipv4: '203.0.113.10', server_ipv6: '2001:db8::10' })
+    case 'GET /admin/audit':
+      return send(res, 200, { items: audit })
+    case 'GET /admin/github':
+      return send(res, 200, { configured: true, name: 'bitploy-ada', slug: 'bitploy-ada', html_url: 'https://github.com/apps/bitploy-ada', manage_url: 'https://github.com/settings/apps/bitploy-ada', owner: 'ada', webhook_url: 'https://bitploy.example.com/api/v1/github/webhook', push_events: true, created_at: ago(60 * 24 * 80) })
+    case 'GET /admin/db':
+      return send(res, 200, dbSchema('admin', ''))
+    case 'POST /admin/db/rows':
+      return send(res, 200, dbRows('admin', body))
+    case 'POST /admin/db/sql':
+      return send(res, 200, dbSql('admin', String(body.sql ?? '')))
 
     // ---------------------------------------------------------------- GitHub
     case 'GET /github':
@@ -1063,9 +1262,28 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         volumes: a.volumes.map((v) => ({ ...v, upload_max_bytes: 512 * 1024 * 1024 })),
       } satisfies BackupList & { volumes: unknown[] })
     }
-    case 'GET /apps/:id/files':
+    case 'GET /apps/:id/files': {
+      const a = needApp(id)
+      const at = q.get('path') ?? ''
+      // An app of your own with saved files keeps a SQLite database and an uploads folder at the top of /data.
+      const top: DataFileList['items'] =
+        a.volume && !a.catalog_id && !a.template && !at
+          ? [
+              { name: 'app.db', type: 'file', size: 24_576, modified_at: ago(25) },
+              { name: 'uploads', type: 'dir', size: 0, modified_at: ago(60 * 24) },
+            ]
+          : []
+      return send(res, 200, { path: at, items: top, truncated: false, upload_max_bytes: 100 * 1024 * 1024 } satisfies DataFileList)
+    }
+    case 'GET /apps/:id/db':
       needApp(id)
-      return send(res, 200, { path: q.get('path') ?? '', items: [], truncated: false, upload_max_bytes: 100 * 1024 * 1024 } satisfies DataFileList)
+      return send(res, 200, dbSchema('app', q.get('path') ?? 'app.db'))
+    case 'POST /apps/:id/db/rows':
+      needApp(id)
+      return send(res, 200, dbRows('app', body))
+    case 'POST /apps/:id/db/sql':
+      needApp(id)
+      return send(res, 200, dbSql('app', String(body.sql ?? '')))
     case 'GET /apps/:id/logs': {
       const a = needApp(id)
       if (q.get('follow')) throw new HttpError(404, 'not_found', 'The mock has no live log stream.')
