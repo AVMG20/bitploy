@@ -195,8 +195,11 @@ func homePage(has map[string]bool, chosen string) (page string, ok bool, err *ap
 // homePage is the app's choice of page for "/" when a static site has no
 // index.html and several pages; it is only used in auto and static mode.
 //
-// With mode dockerfile (or an unknown mode) the plan is always a Dockerfile
-// build: a missing Dockerfile is reported by CheckDockerfile as before.
+// With mode dockerfile the plan is a Dockerfile build, unless the source has
+// no Dockerfile and the auto rules find a static site (plain website files or
+// a front end that builds to files): then it is that static plan. A missing
+// Dockerfile is otherwise reported by CheckDockerfile. An unknown mode is a
+// Dockerfile build.
 func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []string, read func(rel string) []byte) (BuildPlan, *apperr.Error) {
 	if dockerfilePath == "" {
 		dockerfilePath = "Dockerfile"

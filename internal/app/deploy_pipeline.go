@@ -361,7 +361,7 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		p.useSingleService(ctx, ch)
 	}
 	// The build mode decides between the app's Dockerfile and a static site.
-	effApp, plan, files, read, perr := planBuild(p.app, files, read)
+	effApp, plan, files, read, perr := planBuild(p.app, p.s.runsOwnDockerfile(ctx, p.app), files, read)
 	if perr != nil {
 		return composeHintOnMissing(perr, files, p.app)
 	}

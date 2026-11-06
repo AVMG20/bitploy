@@ -211,9 +211,10 @@ func (a *Aggregator) Add(appID string, e Entry) {
 	asset := IsAsset(e.Path)
 	// Answer times of people asking for pages or data, not files (fast and
 	// many, they would hide a slow app) and not bots (an uptime check every
-	// minute would too). A 101 is a websocket: its duration is how long the
-	// connection stayed open, not how long the answer took.
-	if !bot && !asset && e.Duration > 0 && e.Status != 101 {
+	// minute would too). A 101 is a websocket and a stream of server-sent
+	// events stays open too: their duration is how long the connection stayed
+	// open, not how long the answer took.
+	if !bot && !asset && e.Duration > 0 && e.Status != 101 && !e.Stream {
 		b := SpeedBucket(e.Duration)
 		h.delta.Speed[b]++
 		d.delta.Speed[b]++

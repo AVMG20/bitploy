@@ -542,7 +542,7 @@ func (s *Service) checkSource(ctx context.Context, row db.App, files []string, r
 	if ch.single != nil {
 		eff = singleFromCompose(row, ch.single)
 	}
-	effApp, plan, allPaths, read2, perr := planBuild(eff, files, read)
+	effApp, plan, allPaths, read2, perr := planBuild(eff, s.runsOwnDockerfile(ctx, row), files, read)
 	if perr != nil {
 		return deploy.CheckResult{}, composeHintOnMissing(perr, files, row)
 	}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -19,10 +20,19 @@ import (
 // Dockerfile is the injected template and the context is the source root), the
 // file list including injected files, and a reader that serves them. The source
 // itself is not changed here; see writeInjected.
-func planBuild(app db.App, files []string, read func(rel string) []byte) (db.App, deploy.BuildPlan, []string, func(rel string) []byte, *apperr.Error) {
+//
+// ownDockerfile (runsOwnDockerfile) is true when the app's live version was
+// built from its own Dockerfile: in build mode dockerfile a source without
+// one is then not served as a static site, so a push that lost its
+// Dockerfile fails with dockerfile_missing instead of turning the server
+// into public files at the static size.
+func planBuild(app db.App, ownDockerfile bool, files []string, read func(rel string) []byte) (db.App, deploy.BuildPlan, []string, func(rel string) []byte, *apperr.Error) {
 	plan, perr := deploy.PlanBuild(app.BuildMode, app.DockerfilePath, app.HomePage, app.OutputDir, files, read)
 	if perr != nil {
 		return app, plan, files, read, perr
+	}
+	if ownDockerfile && app.BuildMode == deploy.BuildModeDockerfile && deploy.IsStaticKind(plan.Kind) {
+		plan = deploy.BuildPlan{Kind: deploy.BuildKindDockerfile}
 	}
 	if len(plan.Inject) == 0 {
 		return app, plan, files, read, nil
@@ -52,6 +62,12 @@ func planBuild(app db.App, files []string, read func(rel string) []byte) (db.App
 		}
 		return read(rel)
 	}, nil
+}
+
+// runsOwnDockerfile: the app is in build mode dockerfile and its live version
+// is a build of its own Dockerfile (not one of bitploy's static templates).
+func (s *Service) runsOwnDockerfile(ctx context.Context, app db.App) bool {
+	return app.BuildMode == deploy.BuildModeDockerfile && app.CurrentDeploymentID.Valid && !s.appIsStatic(ctx, app)
 }
 
 // templateFindings drops what the checks say about bitploy's own templates

@@ -32,6 +32,9 @@ type Entry struct {
 	// older traefik.yml) or when Traefik answered by itself, since then it says
 	// nothing about the app.
 	Duration time.Duration
+	// Stream is an answer that stays open and sends as it goes (server-sent
+	// events): its duration is how long it was open, not an answer time.
+	Stream bool
 }
 
 // rawLine holds the fields bitploy asks Traefik to keep (deploy/traefik/traefik.yml).
@@ -49,6 +52,7 @@ type rawLine struct {
 	UserAgent      string `json:"request_User-Agent"`
 	Referer        string `json:"request_Referer"`
 	Country        string `json:"request_Cf-Ipcountry"`
+	ContentType    string `json:"downstream_Content-Type"`
 }
 
 // MaxPathLen caps stored paths (bytes).
@@ -71,6 +75,7 @@ func ParseLine(b []byte) (Entry, bool) {
 		UserAgent:  r.UserAgent,
 		Referer:    r.Referer,
 		Country:    cleanCountry(r.Country),
+		Stream:     strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.ContentType)), "text/event-stream"),
 	}
 	// OriginStatus is 0 when Traefik answered by itself. The only 401 it sends
 	// on an app router is the basic-auth prompt. A 401 from the app has its own

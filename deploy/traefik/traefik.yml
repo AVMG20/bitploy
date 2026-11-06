@@ -39,6 +39,7 @@ accessLog:
         User-Agent: keep
         Referer: keep
         Cf-Ipcountry: keep
+        Content-Type: keep   # downstream_Content-Type: server-sent events are left out of answer times
 
 entryPoints:
   web:

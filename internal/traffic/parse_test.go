@@ -26,6 +26,17 @@ func TestParseLine(t *testing.T) {
 	}
 }
 
+// A response of server-sent events is a stream (Traefik logs the response
+// header as downstream_Content-Type).
+func TestParseStream(t *testing.T) {
+	for ct, want := range map[string]bool{"text/event-stream": true, "Text/Event-Stream; charset=utf-8": true, "text/html": false, "": false} {
+		line := `{"Duration":5000000,"DownstreamStatus":200,"RouterName":"app-x@file","RequestPath":"/","downstream_Content-Type":"` + ct + `"}`
+		if e, ok := ParseLine([]byte(line)); !ok || e.Stream != want {
+			t.Errorf("%q: stream %v, want %v", ct, e.Stream, want)
+		}
+	}
+}
+
 // Duration is the app's answer time. When Traefik answered by itself
 // (OriginStatus 0, for example a 502 while the app is down) it is not.
 func TestParseDuration(t *testing.T) {

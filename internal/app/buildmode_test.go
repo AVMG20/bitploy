@@ -91,6 +91,18 @@ func TestDeployFilesAutoMode(t *testing.T) {
 	if _, err := e.s.DeployFiles(ctx, e.user, site.Slug, []FileInput{{Path: "index.html", Content: "hi"}}); err != nil {
 		t.Errorf("static site in the default mode: %v", err)
 	}
+	// An app that runs its own Dockerfile and loses it in a push is not
+	// turned into a public static site: the Dockerfile is still asked for.
+	server := e.mustApp(t, CreateAppInput{})
+	e.goLive(t, server, deploy.BuildKindDockerfile, 512, 500)
+	if _, err := e.s.DeployFiles(ctx, e.user, server.Slug, []FileInput{{Path: "index.html", Content: "hi"}}); depCode(err) != "dockerfile_missing" {
+		t.Errorf("app that lost its Dockerfile: %v", err)
+	}
+	// A static site of the default mode keeps being one.
+	e.goLive(t, site, deploy.BuildKindStatic, staticMemoryMB, staticCPUMillis)
+	if _, err := e.s.DeployFiles(ctx, e.user, site.Slug, []FileInput{{Path: "index.html", Content: "hi again"}}); err != nil {
+		t.Errorf("static site redeployed: %v", err)
+	}
 }
 
 // runSource queues an upload deployment and runs the fetch and validate steps

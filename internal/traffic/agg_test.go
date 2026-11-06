@@ -284,7 +284,8 @@ func TestSnapshotHasNoIPOrUserAgent(t *testing.T) {
 }
 
 // Answer times count for people asking for pages or data: not files, not bots,
-// not websockets (their duration is how long the connection stayed open).
+// not websockets or server-sent events (their duration is how long the
+// connection stayed open).
 func TestAggregateSpeed(t *testing.T) {
 	a := newAgg()
 	timed := func(path, ua string, status int, d time.Duration) Entry {
@@ -299,6 +300,9 @@ func TestAggregateSpeed(t *testing.T) {
 	a.Add("app_1", timed("/", "Googlebot/2.1", 200, 9*time.Second))
 	a.Add("app_1", timed("/ws", firefox, 101, time.Hour))
 	a.Add("app_1", timed("/x", firefox, 200, 0)) // unknown
+	sse := timed("/events", firefox, 200, 20*time.Minute)
+	sse.Stream = true
+	a.Add("app_1", sse)
 
 	snap := a.Flush()["app_1"]
 	want := Speed{1, 0, 1, 0, 0, 1, 0, 0}
