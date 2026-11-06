@@ -68,7 +68,7 @@ func (q *Queries) FinishBackup(ctx context.Context, arg FinishBackupParams) erro
 }
 
 const getBackup = `-- name: GetBackup :one
-SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume FROM app_backups WHERE id = ? AND app_id = ?
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume, format, tool FROM app_backups WHERE id = ? AND app_id = ?
 `
 
 type GetBackupParams struct {
@@ -90,14 +90,16 @@ func (q *Queries) GetBackup(ctx context.Context, arg GetBackupParams) (AppBackup
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.Volume,
+		&i.Format,
+		&i.Tool,
 	)
 	return i, err
 }
 
 const insertBackup = `-- name: InsertBackup :exec
 
-INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at, volume)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO app_backups (id, app_id, kind, status, size_bytes, error, created_at, finished_at, volume, format)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertBackupParams struct {
@@ -110,6 +112,7 @@ type InsertBackupParams struct {
 	CreatedAt  int64
 	FinishedAt sql.NullInt64
 	Volume     string
+	Format     string
 }
 
 // Backups of an app's /data folder (internal/app/backups*.go).
@@ -124,6 +127,7 @@ func (q *Queries) InsertBackup(ctx context.Context, arg InsertBackupParams) erro
 		arg.CreatedAt,
 		arg.FinishedAt,
 		arg.Volume,
+		arg.Format,
 	)
 	return err
 }
@@ -142,7 +146,7 @@ func (q *Queries) LatestScheduledBackupAt(ctx context.Context, appID string) (in
 }
 
 const listBackupsByApp = `-- name: ListBackupsByApp :many
-SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
+SELECT id, app_id, kind, status, size_bytes, error, interrupted, created_at, finished_at, volume, format, tool FROM app_backups WHERE app_id = ? ORDER BY created_at DESC, id DESC
 `
 
 func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBackup, error) {
@@ -165,6 +169,8 @@ func (q *Queries) ListBackupsByApp(ctx context.Context, appID string) ([]AppBack
 			&i.CreatedAt,
 			&i.FinishedAt,
 			&i.Volume,
+			&i.Format,
+			&i.Tool,
 		); err != nil {
 			return nil, err
 		}
@@ -252,6 +258,20 @@ func (q *Queries) ListRestoringApps(ctx context.Context) ([]App, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBackupTool = `-- name: SetBackupTool :exec
+UPDATE app_backups SET tool = ? WHERE id = ?
+`
+
+type SetBackupToolParams struct {
+	Tool string
+	ID   string
+}
+
+func (q *Queries) SetBackupTool(ctx context.Context, arg SetBackupToolParams) error {
+	_, err := q.db.ExecContext(ctx, setBackupTool, arg.Tool, arg.ID)
+	return err
 }
 
 const setRestoreMarker = `-- name: SetRestoreMarker :exec
