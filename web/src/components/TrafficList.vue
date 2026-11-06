@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import QueryError from '@/components/QueryError.vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCount } from '@/lib/format'
@@ -15,10 +15,14 @@ export interface TrafficRow {
   prefix?: string
   /** A name that is not a real value, like "Direct / none": shown muted. */
   muted?: boolean
+  /** Opens in a new tab, for example the page on the live site. */
+  href?: string
 }
 
 const props = defineProps<{
   title: string
+  /** One plain sentence under the title: what the list is. */
+  hint?: string
   unit: string
   rows: TrafficRow[]
   empty: string
@@ -77,9 +81,12 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
 
 <template>
   <Card>
-    <CardHeader class="flex flex-row items-baseline justify-between gap-2">
-      <CardTitle>{{ title }}</CardTitle>
-      <span class="text-xs text-muted-foreground">{{ unit }}</span>
+    <CardHeader>
+      <div class="flex items-baseline justify-between gap-2">
+        <CardTitle>{{ title }}</CardTitle>
+        <span class="text-xs text-muted-foreground">{{ unit }}</span>
+      </div>
+      <CardDescription v-if="hint" class="text-xs">{{ hint }}</CardDescription>
     </CardHeader>
     <CardContent>
       <p v-if="rows.length === 0" class="py-6 text-center text-sm text-muted-foreground">{{ empty }}</p>
@@ -88,7 +95,14 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
           <span class="absolute inset-y-0 left-0 rounded-md bg-primary/10" :style="{ width: `${width(r.count, top)}%` }" aria-hidden="true" />
           <span class="relative flex min-w-0 items-center gap-2" :title="r.label">
             <span v-if="r.prefix" class="w-5 shrink-0 font-mono text-[11px] text-muted-foreground" aria-hidden="true">{{ r.prefix }}</span>
-            <span :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
+            <a
+              v-if="r.href"
+              :href="r.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="truncate underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+            >{{ r.label }}</a>
+            <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
           <span class="relative shrink-0 font-medium tabular-nums">{{ formatCount(r.count) }}</span>
         </li>
@@ -113,7 +127,14 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
           <span class="absolute inset-y-0 left-0 rounded-md bg-primary/10" :style="{ width: `${width(r.count, allTop)}%` }" aria-hidden="true" />
           <span class="relative flex min-w-0 items-center gap-2" :title="r.label">
             <span v-if="r.prefix" class="w-5 shrink-0 font-mono text-[11px] text-muted-foreground" aria-hidden="true">{{ r.prefix }}</span>
-            <span :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
+            <a
+              v-if="r.href"
+              :href="r.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="truncate underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+            >{{ r.label }}</a>
+            <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
           <span class="relative shrink-0 font-medium tabular-nums">{{ formatCount(r.count) }}</span>
         </li>

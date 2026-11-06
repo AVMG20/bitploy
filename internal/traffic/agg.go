@@ -19,13 +19,16 @@ const (
 	UnknownCountry     = "unknown"
 )
 
-// Counts are request totals for one bucket (an hour or a day).
+// Counts are request totals for one bucket (an hour or a day). Views are the
+// page views of people (what the top pages count, "(other)" included); Speed
+// is how fast the app answered people (see Aggregator.Add).
 type Counts struct {
-	Requests, Errors4xx, Errors5xx, Visitors, Bots int64
+	Requests, Errors4xx, Errors5xx, Visitors, Bots, Views int64
+	Speed                                                 Speed
 }
 
 func (c Counts) Add(o Counts) Counts {
-	return Counts{c.Requests + o.Requests, c.Errors4xx + o.Errors4xx, c.Errors5xx + o.Errors5xx, c.Visitors + o.Visitors, c.Bots + o.Bots}
+	return Counts{c.Requests + o.Requests, c.Errors4xx + o.Errors4xx, c.Errors5xx + o.Errors5xx, c.Visitors + o.Visitors, c.Bots + o.Bots, c.Views + o.Views, c.Speed.Add(o.Speed)}
 }
 
 // CountryCounts are the numbers per country and day.
@@ -205,7 +208,20 @@ func (a *Aggregator) Add(appID string, e Entry) {
 	}
 	d.countries[country] = cc
 
-	if !bot && e.Method == "GET" && e.Status >= 200 && e.Status < 400 && !IsAsset(e.Path) {
+	asset := IsAsset(e.Path)
+	// Answer times of people asking for pages or data, not files (fast and
+	// many, they would hide a slow app) and not bots (an uptime check every
+	// minute would too). A 101 is a websocket: its duration is how long the
+	// connection stayed open, not how long the answer took.
+	if !bot && !asset && e.Duration > 0 && e.Status != 101 {
+		b := SpeedBucket(e.Duration)
+		h.delta.Speed[b]++
+		d.delta.Speed[b]++
+	}
+
+	if !bot && e.Method == "GET" && e.Status >= 200 && e.Status < 400 && !asset {
+		h.delta.Views++
+		d.delta.Views++
 		d.paths[capKey(d.knownPaths, e.Path, MaxPathsPerDay-1, OtherName)]++
 		// No Referer: typed in, a bookmark, an app. Outside the cap, so never dropped.
 		// A link from the site itself is not "came from" at all.

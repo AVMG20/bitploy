@@ -46,7 +46,7 @@ func TestAggregateCounts(t *testing.T) {
 	snap := a.Flush()
 	d := snap["app_1"]
 	hour := t0.Truncate(time.Hour).Unix()
-	if got, want := d.Hours[hour], (Counts{Requests: 8, Errors4xx: 1, Errors5xx: 1, Visitors: 4, Bots: 1}); got != want {
+	if got, want := d.Hours[hour], (Counts{Requests: 8, Errors4xx: 1, Errors5xx: 1, Visitors: 4, Bots: 1, Views: 3}); got != want {
 		t.Errorf("hour = %+v, want %+v", got, want)
 	}
 	day := d.Days["2026-10-30"]
@@ -280,5 +280,37 @@ func TestSnapshotHasNoIPOrUserAgent(t *testing.T) {
 		if strings.Contains(dump, secret) {
 			t.Errorf("snapshot contains %q: %s", secret, dump)
 		}
+	}
+}
+
+// Answer times count for people asking for pages or data: not files, not bots,
+// not websockets (their duration is how long the connection stayed open).
+func TestAggregateSpeed(t *testing.T) {
+	a := newAgg()
+	timed := func(path, ua string, status int, d time.Duration) Entry {
+		e := req(path, "203.0.113.1", ua)
+		e.Status, e.Duration = status, d
+		return e
+	}
+	a.Add("app_1", timed("/", firefox, 200, 30*time.Millisecond))
+	a.Add("app_1", timed("/api/items", firefox, 200, 1500*time.Millisecond))
+	a.Add("app_1", timed("/missing", firefox, 404, 120*time.Millisecond)) // an answer all the same
+	a.Add("app_1", timed("/app.js", firefox, 200, 9*time.Second))
+	a.Add("app_1", timed("/", "Googlebot/2.1", 200, 9*time.Second))
+	a.Add("app_1", timed("/ws", firefox, 101, time.Hour))
+	a.Add("app_1", timed("/x", firefox, 200, 0)) // unknown
+
+	snap := a.Flush()["app_1"]
+	want := Speed{1, 0, 1, 0, 0, 1, 0, 0}
+	if got := snap.Hours[t0.Truncate(time.Hour).Unix()].Speed; got != want {
+		t.Errorf("hour speed = %v, want %v", got, want)
+	}
+	if got := snap.Days["2026-10-30"].Speed; got != want {
+		t.Errorf("day speed = %v, want %v", got, want)
+	}
+	// Restoring a failed flush keeps them.
+	a.Restore(Snapshot{"app_1": snap})
+	if got := a.Flush()["app_1"].Days["2026-10-30"].Speed; got != want {
+		t.Errorf("restored speed = %v, want %v", got, want)
 	}
 }

@@ -117,9 +117,11 @@ rename or remove anything, and mention it in your final summary.
   `proxy.RouterName` / `proxy.HostRouterName`; only domains in `issuing_cert`/`active` have a router) to an app, and keeps only counts. Never store an
   IP address, user agent or query string. `GET /api/v1/apps/{app}/traffic?window=24h|7d|30d|today` returns
   `{app, window, granularity, visitors_today, totals, previous, points, pages, countries, referrers, not_found}`;
-  `totals` and `previous` are `{requests, visitors, errors (5xx), error_rate, client_errors (4xx), bots}`, `previous` is the
+  `totals` and `previous` are `{requests, visitors, errors (5xx), error_rate, client_errors (4xx), bots, page_views, timed, slow, median_ms, p95_ms}`, `previous` is the
   equal period before (its last hour or day counted for the share of the current one that has passed) and `null` for `today` or when the stats (or the app) do not go back that far; points carry
-  `client_errors` too. Lists hold the top 10; the referrer `(direct)` is page views without a `Referer`.
+  `client_errors`, `bots`, `page_views`, `median_ms` and `p95_ms` too. Answer times (migration `00280`, `traffic.SpeedBounds`) are counts per bucket
+  (under 50, 100, 200, 500 ms, 1, 2, 5 s, slower) per hour and day, for people's non-file requests that reached the app (Traefik's `Duration`, not when
+  `OriginStatus` is 0, not for 101); `median_ms`/`p95_ms` are estimated from the buckets (5000 means 5 s or more) and `null` without timed answers; `slow` is answers of 1 s or more. Lists hold the top 10; the referrer `(direct)` is page views without a `Referer`.
   `&list=pages|countries|referrers|not_found` returns only that list, up to 500 rows (other fields empty); any other
   value is 400 `invalid_list`. Retention: day totals 61 days, everything else 30.
   The fields kept in `deploy/traefik/traefik*.yml` and the ones read in `traffic.ParseLine` go together.

@@ -8,24 +8,44 @@ SELECT id, slug FROM apps;
 SELECT app_id, hostname FROM domains WHERE status IN ('issuing_cert', 'active');
 
 -- name: TrafficAddHourly :exec
-INSERT INTO traffic_hourly (app_id, hour, requests, errors_4xx, errors_5xx, visitors, bots)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO traffic_hourly (app_id, hour, requests, errors_4xx, errors_5xx, visitors, bots, views,
+    speed_0, speed_1, speed_2, speed_3, speed_4, speed_5, speed_6, speed_7)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (app_id, hour) DO UPDATE SET
     requests = requests + excluded.requests,
     errors_4xx = errors_4xx + excluded.errors_4xx,
     errors_5xx = errors_5xx + excluded.errors_5xx,
     visitors = visitors + excluded.visitors,
-    bots = bots + excluded.bots;
+    bots = bots + excluded.bots,
+    views = views + excluded.views,
+    speed_0 = speed_0 + excluded.speed_0,
+    speed_1 = speed_1 + excluded.speed_1,
+    speed_2 = speed_2 + excluded.speed_2,
+    speed_3 = speed_3 + excluded.speed_3,
+    speed_4 = speed_4 + excluded.speed_4,
+    speed_5 = speed_5 + excluded.speed_5,
+    speed_6 = speed_6 + excluded.speed_6,
+    speed_7 = speed_7 + excluded.speed_7;
 
 -- name: TrafficAddDaily :exec
-INSERT INTO traffic_daily (app_id, day, requests, errors_4xx, errors_5xx, visitors, bots)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO traffic_daily (app_id, day, requests, errors_4xx, errors_5xx, visitors, bots, views,
+    speed_0, speed_1, speed_2, speed_3, speed_4, speed_5, speed_6, speed_7)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (app_id, day) DO UPDATE SET
     requests = requests + excluded.requests,
     errors_4xx = errors_4xx + excluded.errors_4xx,
     errors_5xx = errors_5xx + excluded.errors_5xx,
     visitors = visitors + excluded.visitors,
-    bots = bots + excluded.bots;
+    bots = bots + excluded.bots,
+    views = views + excluded.views,
+    speed_0 = speed_0 + excluded.speed_0,
+    speed_1 = speed_1 + excluded.speed_1,
+    speed_2 = speed_2 + excluded.speed_2,
+    speed_3 = speed_3 + excluded.speed_3,
+    speed_4 = speed_4 + excluded.speed_4,
+    speed_5 = speed_5 + excluded.speed_5,
+    speed_6 = speed_6 + excluded.speed_6,
+    speed_7 = speed_7 + excluded.speed_7;
 
 -- name: TrafficAddPath :exec
 INSERT INTO traffic_paths (app_id, day, path, views) VALUES (?, ?, ?, ?)
@@ -53,11 +73,13 @@ INSERT INTO traffic_cursor (id, pos, head_len, head_hash) VALUES (1, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pos = excluded.pos, head_len = excluded.head_len, head_hash = excluded.head_hash;
 
 -- name: TrafficHourlySince :many
-SELECT hour, requests, errors_4xx, errors_5xx, visitors, bots
+SELECT hour, requests, errors_4xx, errors_5xx, visitors, bots, views,
+    speed_0, speed_1, speed_2, speed_3, speed_4, speed_5, speed_6, speed_7
 FROM traffic_hourly WHERE app_id = ? AND hour >= ? ORDER BY hour;
 
 -- name: TrafficDailySince :many
-SELECT day, requests, errors_4xx, errors_5xx, visitors, bots
+SELECT day, requests, errors_4xx, errors_5xx, visitors, bots, views,
+    speed_0, speed_1, speed_2, speed_3, speed_4, speed_5, speed_6, speed_7
 FROM traffic_daily WHERE app_id = ? AND day >= ? ORDER BY day;
 
 -- name: TrafficTopPaths :many

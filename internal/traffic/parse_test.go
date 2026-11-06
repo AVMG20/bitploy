@@ -18,10 +18,33 @@ func TestParseLine(t *testing.T) {
 		Router: "app-quiet-otter-3f9a", EntryPoint: "websecure", Host: "quiet-otter-3f9a.bitploy.nl", Method: "GET",
 		Path: "/blog/hello", Status: 200, IP: "203.0.113.7", UserAgent: "Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0",
 		Referer: "https://www.Example.com/post?id=1", Country: "NL",
-		Time: time.Date(2026, 10, 30, 14, 3, 5, 123456789, time.UTC),
+		Time:     time.Date(2026, 10, 30, 14, 3, 5, 123456789, time.UTC),
+		Duration: 1234567 * time.Nanosecond,
 	}
 	if e != want {
 		t.Errorf("got  %+v\nwant %+v", e, want)
+	}
+}
+
+// Duration is the app's answer time. When Traefik answered by itself
+// (OriginStatus 0, for example a 502 while the app is down) it is not.
+func TestParseDuration(t *testing.T) {
+	for _, c := range []struct {
+		origin string
+		want   time.Duration
+	}{
+		{``, 5 * time.Millisecond},
+		{`"OriginStatus":200,`, 5 * time.Millisecond},
+		{`"OriginStatus":0,`, 0},
+	} {
+		line := `{` + c.origin + `"Duration":5000000,"DownstreamStatus":200,"RouterName":"app-x@file","RequestPath":"/"}`
+		e, ok := ParseLine([]byte(line))
+		if !ok || e.Duration != c.want {
+			t.Errorf("%q: duration %v, want %v", c.origin, e.Duration, c.want)
+		}
+	}
+	if e, _ := ParseLine([]byte(`{"DownstreamStatus":200,"RouterName":"app-x@file"}`)); e.Duration != 0 {
+		t.Errorf("no Duration field: %v", e.Duration)
 	}
 }
 

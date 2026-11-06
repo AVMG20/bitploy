@@ -661,6 +661,13 @@ export interface TrafficPoint {
   errors: number
   /** 4xx */
   client_errors: number
+  /** Requests from crawlers and scripts, part of requests. */
+  bots: number
+  /** Pages opened by people. */
+  page_views: number
+  /** Answer times in ms, estimated; null without answers in this hour or day. */
+  median_ms: number | null
+  p95_ms: number | null
 }
 
 export interface TrafficItem {
@@ -685,6 +692,16 @@ export interface TrafficTotals {
   client_errors: number
   /** Requests from crawlers and scripts, part of requests. */
   bots: number
+  /** Pages opened by people (not files, not bots). */
+  page_views: number
+  /** Answers to people (pages and data, no files) with a known answer time. */
+  timed: number
+  /** Of those, the ones that took a second or longer. */
+  slow: number
+  /** Half of the answers were faster than this (ms, estimated); null without answers. */
+  median_ms: number | null
+  /** 95 in 100 answers were faster than this (ms, estimated); null without answers. */
+  p95_ms: number | null
 }
 
 export interface Traffic {

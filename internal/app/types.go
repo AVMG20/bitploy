@@ -480,6 +480,13 @@ type TrafficTotals struct {
 	ErrorRate    float64 `json:"error_rate"`    // errors as a percentage of requests
 	ClientErrors int64   `json:"client_errors"` // answers with status 400 to 499
 	Bots         int64   `json:"bots"`          // requests from crawlers and scripts, part of requests
+	PageViews    int64   `json:"page_views"`    // pages opened by people (GET, below 400, no files, no bots)
+	// Answer times of people's requests for pages and data (no files, no bots),
+	// from buckets (see traffic.SpeedBounds), so estimates. Null without answers.
+	Timed    int64  `json:"timed"`     // answers with a known answer time
+	Slow     int64  `json:"slow"`      // answers that took a second or longer
+	MedianMS *int64 `json:"median_ms"` // half of the answers were faster than this
+	P95MS    *int64 `json:"p95_ms"`    // 95 in 100 answers were faster than this
 }
 
 type TrafficPoint struct {
@@ -488,6 +495,10 @@ type TrafficPoint struct {
 	Visitors     int64     `json:"visitors"`
 	Errors       int64     `json:"errors"`
 	ClientErrors int64     `json:"client_errors"`
+	Bots         int64     `json:"bots"`
+	PageViews    int64     `json:"page_views"`
+	MedianMS     *int64    `json:"median_ms"` // null without timed answers in this hour or day
+	P95MS        *int64    `json:"p95_ms"`
 }
 
 // TrafficItem is a page, a referrer or a 404 path with its count. Lists cover

@@ -205,6 +205,17 @@ func TestFlushAddsUpAndSurvivesDeletedApp(t *testing.T) {
 	if req != 2 || e5 != 1 || vis != 1 {
 		t.Errorf("daily = %d requests, %d errors, %d visitors", req, e5, vis)
 	}
+	// One page view (the 500 is not one); both answers took 1 µs, the fastest bucket.
+	for _, table := range []string{"traffic_hourly", "traffic_daily"} {
+		var views, fast, slower int64
+		q := `SELECT views, speed_0, speed_1 + speed_2 + speed_3 + speed_4 + speed_5 + speed_6 + speed_7 FROM ` + table + ` WHERE app_id = 'app_1'`
+		if err := e.st.DB.QueryRow(q).Scan(&views, &fast, &slower); err != nil {
+			t.Fatal(err)
+		}
+		if views != 1 || fast != 2 || slower != 0 {
+			t.Errorf("%s: %d views, speed %d fast and %d slower", table, views, fast, slower)
+		}
+	}
 
 	// An app deleted between reading and saving: its counts go, the others are saved.
 	e.write(

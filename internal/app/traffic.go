@@ -69,7 +69,8 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 	}
 	byDay := make(map[string]traffic.Counts, len(daily))
 	for _, d := range daily {
-		byDay[d.Day] = traffic.Counts{Requests: d.Requests, Errors4xx: d.Errors4xx, Errors5xx: d.Errors5xx, Visitors: d.Visitors, Bots: d.Bots}
+		byDay[d.Day] = traffic.Counts{Requests: d.Requests, Errors4xx: d.Errors4xx, Errors5xx: d.Errors5xx, Visitors: d.Visitors, Bots: d.Bots, Views: d.Views,
+			Speed: traffic.Speed{d.Speed0, d.Speed1, d.Speed2, d.Speed3, d.Speed4, d.Speed5, d.Speed6, d.Speed7}}
 	}
 	// sumDays adds up the days from first to last, both included.
 	sumDays := func(first, last time.Time) traffic.Counts {
@@ -106,7 +107,8 @@ func (s *Service) GetTraffic(ctx context.Context, a Actor, ref, window string) (
 		var hours traffic.Counts
 		prevLast := hourStart.Add(-time.Hour).Unix()
 		for _, r := range rows {
-			c := traffic.Counts{Requests: r.Requests, Errors4xx: r.Errors4xx, Errors5xx: r.Errors5xx, Visitors: r.Visitors, Bots: r.Bots}
+			c := traffic.Counts{Requests: r.Requests, Errors4xx: r.Errors4xx, Errors5xx: r.Errors5xx, Visitors: r.Visitors, Bots: r.Bots, Views: r.Views,
+				Speed: traffic.Speed{r.Speed0, r.Speed1, r.Speed2, r.Speed3, r.Speed4, r.Speed5, r.Speed6, r.Speed7}}
 			byHour[r.Hour] = c
 			switch {
 			case r.Hour >= hourStart.Unix():
@@ -256,15 +258,30 @@ func (s *Service) trafficLists(ctx context.Context, out *Traffic, appID, from st
 func partOf(c traffic.Counts, elapsed, whole time.Duration) traffic.Counts {
 	f := float64(elapsed) / float64(whole)
 	part := func(n int64) int64 { return int64(math.Round(float64(n) * f)) }
-	return traffic.Counts{Requests: part(c.Requests), Errors4xx: part(c.Errors4xx), Errors5xx: part(c.Errors5xx), Visitors: part(c.Visitors), Bots: part(c.Bots)}
+	var sp traffic.Speed
+	for i, n := range c.Speed {
+		sp[i] = part(n)
+	}
+	return traffic.Counts{Requests: part(c.Requests), Errors4xx: part(c.Errors4xx), Errors5xx: part(c.Errors5xx), Visitors: part(c.Visitors), Bots: part(c.Bots), Views: part(c.Views), Speed: sp}
+}
+
+// quantileMS is traffic.Speed.Quantile as a JSON value: null without answers.
+func quantileMS(s traffic.Speed, q float64) *int64 {
+	ms, ok := s.Quantile(q)
+	if !ok {
+		return nil
+	}
+	return &ms
 }
 
 func trafficPoint(ts time.Time, c traffic.Counts) TrafficPoint {
-	return TrafficPoint{TS: ts, Requests: c.Requests, Visitors: c.Visitors, Errors: c.Errors5xx, ClientErrors: c.Errors4xx}
+	return TrafficPoint{TS: ts, Requests: c.Requests, Visitors: c.Visitors, Errors: c.Errors5xx, ClientErrors: c.Errors4xx,
+		Bots: c.Bots, PageViews: c.Views, MedianMS: quantileMS(c.Speed, 0.5), P95MS: quantileMS(c.Speed, 0.95)}
 }
 
 func trafficTotals(c traffic.Counts) TrafficTotals {
-	t := TrafficTotals{Requests: c.Requests, Visitors: c.Visitors, Errors: c.Errors5xx, ClientErrors: c.Errors4xx, Bots: c.Bots}
+	t := TrafficTotals{Requests: c.Requests, Visitors: c.Visitors, Errors: c.Errors5xx, ClientErrors: c.Errors4xx, Bots: c.Bots,
+		PageViews: c.Views, Timed: c.Speed.Total(), Slow: c.Speed.Slow(), MedianMS: quantileMS(c.Speed, 0.5), P95MS: quantileMS(c.Speed, 0.95)}
 	if c.Requests > 0 {
 		t.ErrorRate = float64(int64(float64(c.Errors5xx)/float64(c.Requests)*1000+0.5)) / 10
 	}

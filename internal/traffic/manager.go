@@ -255,15 +255,19 @@ func (m *Manager) dropDeleted(ctx context.Context, snap Snapshot) {
 
 func write(ctx context.Context, q *db.Queries, appID string, d *AppDelta) error {
 	for hour, c := range d.Hours {
+		sp := c.Speed
 		if err := q.TrafficAddHourly(ctx, db.TrafficAddHourlyParams{
-			AppID: appID, Hour: hour, Requests: c.Requests, Errors4xx: c.Errors4xx, Errors5xx: c.Errors5xx, Visitors: c.Visitors, Bots: c.Bots,
+			AppID: appID, Hour: hour, Requests: c.Requests, Errors4xx: c.Errors4xx, Errors5xx: c.Errors5xx, Visitors: c.Visitors, Bots: c.Bots, Views: c.Views,
+			Speed0: sp[0], Speed1: sp[1], Speed2: sp[2], Speed3: sp[3], Speed4: sp[4], Speed5: sp[5], Speed6: sp[6], Speed7: sp[7],
 		}); err != nil {
 			return err
 		}
 	}
 	for day, dd := range d.Days {
+		sp := dd.Speed
 		if err := q.TrafficAddDaily(ctx, db.TrafficAddDailyParams{
-			AppID: appID, Day: day, Requests: dd.Requests, Errors4xx: dd.Errors4xx, Errors5xx: dd.Errors5xx, Visitors: dd.Visitors, Bots: dd.Bots,
+			AppID: appID, Day: day, Requests: dd.Requests, Errors4xx: dd.Errors4xx, Errors5xx: dd.Errors5xx, Visitors: dd.Visitors, Bots: dd.Bots, Views: dd.Views,
+			Speed0: sp[0], Speed1: sp[1], Speed2: sp[2], Speed3: sp[3], Speed4: sp[4], Speed5: sp[5], Speed6: sp[6], Speed7: sp[7],
 		}); err != nil {
 			return err
 		}

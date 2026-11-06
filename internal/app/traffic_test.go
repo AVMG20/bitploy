@@ -205,6 +205,55 @@ func TestGetTrafficPreviousAndNewCounts(t *testing.T) {
 	}
 }
 
+// Page views and answer times come from the hour and day rows like the other
+// totals; the times are estimated from the buckets, per point and in total.
+func TestGetTrafficViewsAndSpeed(t *testing.T) {
+	e := newOpsEnv(t)
+	ctx := context.Background()
+	e.addApp(t, "app_t", "traffic-app", "usr_owner", "web")
+	now := e.now // 2026-10-29 12:00 UTC
+	hour := func(back int) int64 { return now.Truncate(time.Hour).Add(-time.Duration(back) * time.Hour).Unix() }
+	day := func(back int) string { return now.AddDate(0, 0, -back).Format("2006-01-02") }
+
+	// Hour 0: 10 answers between 100 and 200 ms. Hour 2: 8 under 50 ms, 2 between 1 and 2 s.
+	e.exec(t, `INSERT INTO traffic_hourly (app_id, hour, requests, views, speed_0, speed_2, speed_5) VALUES
+		('app_t', ?, 20, 12, 0, 10, 0), ('app_t', ?, 15, 6, 8, 0, 2)`, hour(0), hour(2))
+	e.exec(t, `INSERT INTO traffic_daily (app_id, day, requests, views, speed_0, speed_2, speed_5) VALUES
+		('app_t', ?, 35, 18, 8, 10, 2), ('app_t', ?, 10, 4, 0, 0, 0)`, day(0), day(1))
+
+	tr, err := e.svc.GetTraffic(ctx, e.owner, "traffic-app", "24h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := func(p *int64) any {
+		if p == nil {
+			return nil
+		}
+		return *p
+	}
+	last, quiet := tr.Points[23], tr.Points[22]
+	if last.PageViews != 12 || ms(last.MedianMS) != int64(150) || ms(last.P95MS) != int64(195) {
+		t.Errorf("last point: views %d, median %v, p95 %v", last.PageViews, ms(last.MedianMS), ms(last.P95MS))
+	}
+	if quiet.MedianMS != nil || quiet.P95MS != nil {
+		t.Errorf("an hour without answers has no times: %v %v", ms(quiet.MedianMS), ms(quiet.P95MS))
+	}
+	// 20 answers: 8 fast, 10 middling, 2 slow. The 10th is in the 100 to 200 ms bucket (the
+	// 2nd of 10: 120 ms); the 19th is in the 1 to 2 s one (half way: 1500 ms).
+	to := tr.Totals
+	if to.PageViews != 18 || to.Timed != 20 || to.Slow != 2 || ms(to.MedianMS) != int64(120) || ms(to.P95MS) != int64(1500) {
+		t.Errorf("24h totals: views %d, timed %d, slow %d, median %v, p95 %v", to.PageViews, to.Timed, to.Slow, ms(to.MedianMS), ms(to.P95MS))
+	}
+
+	tr, err = e.svc.GetTraffic(ctx, e.owner, "traffic-app", "7d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Totals.PageViews != 22 || tr.Points[6].PageViews != 18 || tr.Points[5].MedianMS != nil {
+		t.Errorf("7d: totals %+v, points %+v %+v", tr.Totals, tr.Points[5], tr.Points[6])
+	}
+}
+
 func TestGetTrafficList(t *testing.T) {
 	e := newOpsEnv(t)
 	ctx := context.Background()

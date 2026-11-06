@@ -380,6 +380,15 @@ type TrafficDaily struct {
 	Errors5xx int64
 	Visitors  int64
 	Bots      int64
+	Views     int64
+	Speed0    int64
+	Speed1    int64
+	Speed2    int64
+	Speed3    int64
+	Speed4    int64
+	Speed5    int64
+	Speed6    int64
+	Speed7    int64
 }
 
 type TrafficHourly struct {
@@ -390,6 +399,15 @@ type TrafficHourly struct {
 	Errors5xx int64
 	Visitors  int64
 	Bots      int64
+	Views     int64
+	Speed0    int64
+	Speed1    int64
+	Speed2    int64
+	Speed3    int64
+	Speed4    int64
+	Speed5    int64
+	Speed6    int64
+	Speed7    int64
 }
 
 type TrafficNotFound struct {

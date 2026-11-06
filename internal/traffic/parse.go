@@ -28,6 +28,10 @@ type Entry struct {
 	Referer   string
 	Country   string // ISO code from Cf-Ipcountry, or empty
 	Time      time.Time
+	// Duration is how long the app took to answer. It is 0 when unknown (an
+	// older traefik.yml) or when Traefik answered by itself, since then it says
+	// nothing about the app.
+	Duration time.Duration
 }
 
 // rawLine holds the fields bitploy asks Traefik to keep (deploy/traefik/traefik.yml).
@@ -39,6 +43,7 @@ type rawLine struct {
 	RequestMethod  string `json:"RequestMethod"`
 	Status         int    `json:"DownstreamStatus"`
 	OriginStatus   *int   `json:"OriginStatus"`
+	Duration       int64  `json:"Duration"` // nanoseconds
 	ClientHost     string `json:"ClientHost"`
 	StartUTC       string `json:"StartUTC"`
 	UserAgent      string `json:"request_User-Agent"`
@@ -71,6 +76,9 @@ func ParseLine(b []byte) (Entry, bool) {
 	// on an app router is the basic-auth prompt. A 401 from the app has its own
 	// OriginStatus. Without the field (an older traefik.yml) nothing is blocked.
 	e.Blocked = r.Status == 401 && r.OriginStatus != nil && *r.OriginStatus == 0
+	if r.Duration > 0 && (r.OriginStatus == nil || *r.OriginStatus != 0) {
+		e.Duration = time.Duration(r.Duration)
+	}
 	if name, provider, ok := strings.Cut(r.RouterName, "@"); ok && provider == "file" {
 		e.Router = name
 	}

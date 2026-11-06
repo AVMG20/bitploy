@@ -43,6 +43,7 @@ import type {
   SessionInfo,
   Token,
   Traffic,
+  TrafficPoint,
   User,
 } from '../src/lib/types'
 
@@ -722,29 +723,104 @@ function metricsOf(app: App, window: string, svc: string): Metrics {
   return { app: app.slug, service: svc || undefined, window: window as Metrics['window'], memory_limit_mb: mem, points, latest: points[points.length - 1] ?? null }
 }
 
-function trafficOf(app: App, window: string): Traffic {
+/** Realistic-looking traffic: busier by day than by night and on weekdays, a few bots, a slow spell. */
+function trafficOf(app: App, window: string, list = ''): Traffic {
   const r = seeded(`${app.slug}-traffic-${window}`)
-  const hours = window === '30d' ? 30 : window === '7d' ? 7 : 24
-  const gran = window === '24h' ? 'hour' : 'day'
-  const scale = app.template || app.type === 'worker' ? 0 : 1
-  const points = Array.from({ length: hours }, (_, i) => {
-    const req = Math.round((40 + r() * 200) * scale * (gran === 'day' ? 20 : 1))
-    return { ts: ago((hours - i) * (gran === 'day' ? 1440 : 60)), requests: req, visitors: Math.round(req / 4), errors: Math.round(req * 0.002), client_errors: Math.round(req * 0.02) }
+  const hourly = window === '24h'
+  const n = window === '30d' ? 30 : window === '7d' ? 7 : 24
+  const scale = app.template || app.type === 'worker' ? 0 : app.static ? 0.4 : 1
+  const HOUR = 3_600_000
+  const DAY = 24 * HOUR
+  const lastStart = hourly ? Math.floor(NOW / HOUR) * HOUR : Math.floor(NOW / DAY) * DAY
+  // Share of the newest hour or day that has passed: it is still counting.
+  const passed = (NOW - lastStart) / (hourly ? HOUR : DAY)
+
+  const points: TrafficPoint[] = Array.from({ length: n }, (_, i) => {
+    const ts = lastStart - (n - 1 - i) * (hourly ? HOUR : DAY)
+    const d = new Date(ts)
+    const busy = hourly ? 0.25 + Math.max(0, Math.sin(((d.getUTCHours() - 6) / 24) * Math.PI * 2)) : [0.6, 1, 1, 0.95, 1, 0.9, 0.55][d.getUTCDay()]!
+    const share = i === n - 1 ? passed : 1
+    const visitors = Math.round((hourly ? 22 : 260) * busy * (0.8 + r() * 0.4) * scale * share)
+    const page_views = Math.round(visitors * (2.2 + r() * 0.8))
+    const bots = Math.round((hourly ? 30 : 700) * (0.7 + r() * 0.6) * scale * share)
+    const requests = page_views * 6 + bots
+    const slowSpell = !hourly && i === n - 3
+    const median = visitors ? Math.round((slowSpell ? 260 : 90) * (0.85 + r() * 0.3)) : null
+    return {
+      ts: new Date(ts).toISOString(),
+      requests,
+      visitors,
+      page_views,
+      bots,
+      errors: slowSpell ? Math.round(requests * 0.03) : r() < 0.25 ? Math.round(r() * 3 * scale) : 0,
+      client_errors: Math.round(requests * (0.01 + r() * 0.02)),
+      median_ms: median,
+      p95_ms: median === null ? null : Math.round(median * (slowSpell ? 6 : 3.5 + r())),
+    }
   })
-  const sum = (k: 'requests' | 'visitors' | 'errors' | 'client_errors') => points.reduce((n, p) => n + p[k], 0)
-  const totals = { requests: sum('requests'), visitors: sum('visitors'), errors: sum('errors'), client_errors: sum('client_errors'), error_rate: 0.2, bots: Math.round(sum('requests') * 0.1) }
+  const sum = (k: 'requests' | 'visitors' | 'errors' | 'client_errors' | 'bots' | 'page_views') => points.reduce((s, p) => s + p[k], 0)
+  const requests = sum('requests')
+  const errors = sum('errors')
+  const timed = Math.round(sum('page_views') * 1.3)
+  const medians = points.filter((p) => p.median_ms !== null).map((p) => p.median_ms!).sort((a, b) => a - b)
+  const p95s = points.filter((p) => p.p95_ms !== null).map((p) => p.p95_ms!).sort((a, b) => a - b)
+  const totals = {
+    requests,
+    visitors: sum('visitors'),
+    errors,
+    error_rate: requests ? Math.round((errors / requests) * 1000) / 10 : 0,
+    client_errors: sum('client_errors'),
+    bots: sum('bots'),
+    page_views: sum('page_views'),
+    timed,
+    slow: Math.round(timed * 0.012),
+    median_ms: medians[Math.floor(medians.length / 2)] ?? null,
+    p95_ms: p95s[Math.floor(p95s.length * 0.9)] ?? null,
+  }
+  const prev = (f: number) => Math.round(f * (0.75 + r() * 0.5))
+  const previous = window === '30d'
+    ? null
+    : {
+        ...totals,
+        requests: prev(totals.requests),
+        visitors: prev(totals.visitors),
+        page_views: prev(totals.page_views),
+        errors: prev(totals.errors + 2),
+        median_ms: totals.median_ms === null ? null : prev(totals.median_ms),
+      }
+
+  const k = (hourly ? 2 : n) * scale // lists cover whole days: 24 hours means today and yesterday
+  const items = (rows: [string, number][]) => rows.map(([name, c]) => ({ name, count: Math.round(c * k) })).filter((i) => i.count > 0)
+  const pages = items([
+    ['/', 210], ['/products', 120], ['/products/oak-table', 64], ['/cart', 41], ['/about', 30], ['/blog/how-we-build-tables', 26],
+    ['/contact', 18], ['/products/walnut-chair', 15], ['/blog', 12], ['/checkout', 9], ['/faq', 7], ['/products/pine-shelf', 5],
+    ['/blog/caring-for-wood', 4], ['/privacy', 2],
+  ])
+  const referrers = items([
+    ['(direct)', 260], ['google.com', 140], ['duckduckgo.com', 22], ['instagram.com', 18], ['bing.com', 9], ['news.ycombinator.com', 7],
+    ['facebook.com', 6], ['pinterest.com', 5], ['reddit.com', 3], ['linkedin.com', 2], ['t.co', 1],
+  ])
+  const countries = ([
+    ['NL', 120], ['BE', 34], ['DE', 30], ['US', 22], ['GB', 14], ['FR', 9], ['unknown', 6], ['ES', 5], ['SE', 4], ['PL', 3], ['IT', 2], ['CA', 1],
+  ] as [string, number][])
+    .map(([code, v]) => ({ code, visitors: Math.round(v * k), requests: Math.round(v * k * 14) }))
+    .filter((c) => c.visitors > 0)
+  const not_found = items([['/wp-login.php', 9], ['/images/old-logo.png', 4], ['/products/maple-desk', 2], ['/.env', 1]])
+  const pick = <T,>(name: string, rows: T[]): T[] => (!list ? rows.slice(0, 10) : list === name ? rows : [])
+  if (list) points.length = 0
+
   return {
     app: app.slug,
     window: window as Traffic['window'],
-    granularity: gran,
+    granularity: hourly ? 'hour' : 'day',
     visitors_today: Math.round(180 * scale),
     totals,
-    previous: { ...totals, requests: Math.round(totals.requests * 0.9), visitors: Math.round(totals.visitors * 0.85) },
+    previous,
     points: window === 'today' ? [] : points,
-    pages: [{ name: '/', count: 1200 * scale }, { name: '/products', count: 640 * scale }, { name: '/cart', count: 210 * scale }],
-    countries: [{ code: 'NL', requests: 900 * scale, visitors: 220 * scale }, { code: 'DE', requests: 400 * scale, visitors: 110 * scale }],
-    referrers: [{ name: '(direct)', count: 800 * scale }, { name: 'google.com', count: 300 * scale }],
-    not_found: [{ name: '/wp-login.php', count: 12 * scale }],
+    pages: pick('pages', pages),
+    countries: pick('countries', countries),
+    referrers: pick('referrers', referrers),
+    not_found: pick('not_found', not_found),
   }
 }
 
@@ -1376,7 +1452,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'GET /apps/:id/metrics':
       return send(res, 200, metricsOf(needApp(id), q.get('window') ?? '1h', q.get('service') ?? ''))
     case 'GET /apps/:id/traffic':
-      return send(res, 200, trafficOf(needApp(id), q.get('window') ?? '24h'))
+      return send(res, 200, trafficOf(needApp(id), q.get('window') ?? '24h', q.get('list') ?? ''))
     case 'GET /apps/:id/deployments':
       needApp(id)
       return send(res, 200, items(deployments[id] ?? []))
