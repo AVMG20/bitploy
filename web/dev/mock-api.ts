@@ -72,6 +72,9 @@ const user: User = { id: 'usr_ada', email: 'ada@example.com', name: 'Ada', role:
 
 // ---------------------------------------------------------------- templates
 
+// A cache or search index has no backups (servicetpl.Template.Backups).
+const noBackups = (template?: string | null) => template === 'valkey' || template === 'redis' || template === 'meilisearch'
+
 // The shipped templates (internal/servicetpl). redis is hidden: only used when asked for by id.
 const templates: ServiceTemplate[] = [
   {
@@ -350,7 +353,8 @@ function makeApp(s: AppSeed): App {
     volume_mb: volumes[0]?.size_mb ?? 0,
     volume_used_mb: volumes[0]?.used_mb ?? null,
     files_mb: 180 + Math.round(seeded(s.slug)() * 400),
-    backups_mb: volumes.length ? 24 : 0,
+    backups_mb: volumes.length && !noBackups(s.template) ? 24 : 0,
+    backups_supported: !noBackups(s.template),
     disk_measured_at: ago(40),
     memory_mb: memory,
     cpu_millis: cpu,
@@ -593,6 +597,7 @@ function blankApp(name: string, slug: string, projectId: string, extra: Partial<
     volume_used_mb: null,
     files_mb: null,
     backups_mb: 0,
+    backups_supported: true,
     memory_mb: 256,
     cpu_millis: 250,
     static: false,
@@ -1098,6 +1103,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         url: '',
         port: tpl.port,
         template: tpl.id,
+        backups_supported: !noBackups(tpl.id),
         alias,
         internal_host: `${alias}:${tpl.port}`,
         template_version: tpl.version,

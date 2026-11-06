@@ -163,6 +163,17 @@ func volumeOffErr() *apperr.Error {
 		"Turn them on with update_app volume=true, or in the dashboard under Storage.")
 }
 
+// noBackupsErr is the refusal to back up an app bitploy makes no backups of
+// (a cache or a search index from a service template), or nil.
+func noBackupsErr(row db.App) *apperr.Error {
+	t, ok := templateOf(row)
+	if !ok || t.Backups() {
+		return nil
+	}
+	return apperr.Conflict("backups_not_needed", t.NoBackupsReason(),
+		"Nothing to do: back up the database the data comes from. backups_supported on the app says which apps have backups.")
+}
+
 func volumeNotReadyErr() *apperr.Error {
 	return apperr.Conflict("volume_not_ready", "This app has no /data folder yet.",
 		"Restart or redeploy the app once so that /data is created, then try again.")
@@ -339,6 +350,9 @@ func (s *Service) UpdateBackupSettings(ctx context.Context, a Actor, ref string,
 			return BackupSettings{}, apperr.BadRequest("backup_schedule_invalid", "The schedule "+quote(*in.Schedule)+" is not known.", "Use off, daily or weekly.")
 		}
 	}
+	if e := noBackupsErr(row); e != nil && schedule != "off" {
+		return BackupSettings{}, e
+	}
 	if in.KeepMode != nil {
 		mode = strings.ToLower(strings.TrimSpace(*in.KeepMode))
 		if mode != "last" && mode != "days" {
@@ -388,6 +402,9 @@ func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string
 	row, owner, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, err
+	}
+	if e := noBackupsErr(row); e != nil {
+		return nil, e
 	}
 	var vols []volumeSpec
 	if all {
@@ -608,6 +625,9 @@ func (s *Service) UploadBackup(ctx context.Context, a Actor, ref string, body io
 	row, owner, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return Backup{}, err
+	}
+	if e := noBackupsErr(row); e != nil {
+		return Backup{}, e
 	}
 	vol, ok, err := s.pickVolume(ctx, row, firstOpt(volume))
 	if err != nil {

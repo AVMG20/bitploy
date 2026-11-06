@@ -173,8 +173,12 @@ type App struct {
 	FilesMB        *float64   `json:"files_mb"`
 	DiskMeasuredAt *time.Time `json:"disk_measured_at,omitempty"`
 	BackupsMB      float64    `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
-	MemoryMB       int64      `json:"memory_mb"`
-	CPUMillis      int64      `json:"cpu_millis"`
+	// BackupsSupported is false for template apps that keep a cache or a
+	// search index (valkey, redis, meilisearch): bitploy makes no backups
+	// of them and refuses to (backups_not_needed).
+	BackupsSupported bool  `json:"backups_supported" doc:"False for a cache or search index (valkey, redis, meilisearch): bitploy makes no backups of it"`
+	MemoryMB         int64 `json:"memory_mb"`
+	CPUMillis        int64 `json:"cpu_millis"`
 	// Static is true while the live version is a static site: built from
 	// bitploy's own nginx templates (a plain website, or a Vite site built by
 	// auto mode), never from the app's own Dockerfile. A static site has fixed

@@ -81,7 +81,7 @@ const qc = useQueryClient()
 const backups = useQuery({
   queryKey: computed(() => keys.backups(props.slug)),
   queryFn: () => api.backups(props.slug),
-  enabled: computed(() => !!data.value?.template && !!data.value?.volume),
+  enabled: computed(() => !!data.value?.template && !!data.value?.volume && !!data.value?.backups_supported),
   refetchInterval: (q) => liveMs(q.state.data?.busy ? 2_000 : 30_000),
 })
 const dumpTool = computed(() => (data.value?.template ? backups.data.value?.dump_tool : undefined))

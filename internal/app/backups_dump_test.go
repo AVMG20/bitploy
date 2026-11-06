@@ -30,7 +30,6 @@ type fakeDB struct {
 	cutDump  bool     // the dump ends early without an error
 	failRepl []bool   // restore calls (in order) that fail
 	replN    int
-	snaps    int // redis snapshots
 }
 
 const pgDumpTrailer = "--\n-- PostgreSQL database cluster dump complete\n--\n"
@@ -57,11 +56,6 @@ func (f *fakeDB) Exec(_ context.Context, _ db.App, script string, stdin io.Reade
 		stdout = io.Discard
 	}
 	switch {
-	case strings.Contains(script, "BGSAVE"):
-		f.mu.Lock()
-		f.snaps++
-		f.mu.Unlock()
-		return "", nil
 	case script == eng.version:
 		_, _ = io.WriteString(stdout, "pg_dumpall (PostgreSQL) 18.1 (Debian 18.1-1.pgdg13+2)\n")
 		return "", nil
@@ -395,20 +389,41 @@ func TestInterruptedDumpRestoreIsRecovered(t *testing.T) {
 	}
 }
 
-func TestRedisGetsASnapshotBeforeItsFilesAreCopied(t *testing.T) {
+func TestNoBackupsOfACacheOrSearchIndex(t *testing.T) {
+	for _, tpl := range []string{"valkey", "redis", "meilisearch"} {
+		t.Run(tpl, func(t *testing.T) {
+			e := newBkEnv(t)
+			ctx := context.Background()
+			e.exec(t, `UPDATE apps SET template = ? WHERE id = ?`, tpl, e.app.ID)
+			_, err := e.s.CreateBackup(ctx, e.user, e.app.Slug)
+			wantCode(t, err, "backups_not_needed")
+			if !strings.Contains(err.Error(), "makes no backups") {
+				t.Errorf("message = %v", err)
+			}
+			_, err = e.s.CreateBackupAll(ctx, e.user, e.app.Slug)
+			wantCode(t, err, "backups_not_needed")
+			_, err = e.s.UpdateBackupSettings(ctx, e.user, e.app.Slug, BackupSettingsInput{Schedule: ptr("daily")})
+			wantCode(t, err, "backups_not_needed")
+			_, err = e.s.UploadBackup(ctx, e.user, e.app.Slug, strings.NewReader(""), 0)
+			wantCode(t, err, "backups_not_needed")
+			if _, err := e.s.UpdateBackupSettings(ctx, e.user, e.app.Slug, BackupSettingsInput{Schedule: ptr("off")}); err != nil {
+				t.Errorf("off: %v", err)
+			}
+			// A schedule set before is skipped by the scheduler.
+			e.exec(t, `UPDATE apps SET backup_schedule = 'daily' WHERE id = ?`, e.app.ID)
+			e.runDue(ctx)
+			if l := e.list(t); len(l.Items) != 0 || e.vol.prepared != 0 {
+				t.Errorf("backups = %+v, prepared %d", l.Items, e.vol.prepared)
+			}
+			if a, err := e.s.GetApp(ctx, e.user, e.app.Slug); err != nil || a.BackupsSupported {
+				t.Errorf("backups_supported = %v, %v", a.BackupsSupported, err)
+			}
+		})
+	}
 	e := newBkEnv(t)
-	e.exec(t, `UPDATE apps SET template = 'valkey' WHERE id = ?`, e.app.ID)
-	f := &fakeDB{eng: &pgEngine, running: true}
-	e.s.backup.run = f
-	b := e.makeBackup(t)
-	if b.Format != "volume" || f.snaps != 1 || e.vol.prepared != 1 {
-		t.Fatalf("backup = %+v, snapshots %d, prepared %d", b, f.snaps, e.vol.prepared)
-	}
-	if s := f.scripts[0]; !strings.Contains(s, `REDISCLI_AUTH="$VALKEY_PASSWORD"`) || !strings.Contains(s, "valkey-cli") {
-		t.Errorf("script = %s", s)
-	}
-	if l := e.list(t); l.DumpTool != "" {
-		t.Errorf("dump_tool = %q", l.DumpTool)
+	e.exec(t, `UPDATE apps SET template = 'postgres' WHERE id = ?`, e.app.ID)
+	if a, err := e.s.GetApp(context.Background(), e.user, e.app.Slug); err != nil || !a.BackupsSupported {
+		t.Errorf("postgres: backups_supported = %v, %v", a.BackupsSupported, err)
 	}
 }
 

@@ -225,6 +225,13 @@ const nextAt = computed(() => {
 const nextIsPast = computed(() => !!nextAt.value && new Date(nextAt.value).getTime() <= Date.now())
 
 // ---------------------------------------------------------------- backups
+// A cache or search index (valkey, redis, meilisearch) has no backups.
+const noBackupsText = computed(() => {
+  const t = data.value?.template
+  if (data.value?.backups_supported !== false) return ''
+  if (t === 'meilisearch') return 'Meilisearch keeps a search index; it can be rebuilt from your data, so bitploy makes no backups of it.'
+  return `${t === 'redis' ? 'Redis' : 'Valkey'} keeps a cache; its data can be rebuilt, so bitploy makes no backups of it.`
+})
 const restoring = computed(() => list.value?.restore?.state === 'running')
 const running = computed(() => !!list.value?.busy || createBackup.isPending.value)
 const working = computed(() => running.value || restoring.value || uploading.value)
@@ -464,7 +471,8 @@ const restoreText = computed(() => {
     <DataFiles v-if="multi && vol" :key="vol.name" :slug="slug" :running="data.status === 'running'" :volume="vol.name" :mount-path="vol.mount_path" :can-open-database="isFirstVolume" />
     <DataFiles v-else-if="!multi && data.volume" :slug="slug" :running="data.status === 'running'" />
 
-    <Card>
+    <p v-if="noBackupsText" class="px-1 text-sm text-muted-foreground" data-testid="no-backups">{{ noBackupsText }}</p>
+    <Card v-else>
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1">
           <CardTitle>Backups</CardTitle>

@@ -110,8 +110,6 @@ func (s *Service) makeBackup(ctx context.Context, app db.App, owner db.User, id 
 		_ = os.Remove(tmp)
 		return 0, dockerx.ErrNoVolume
 	}
-	// Valkey and Redis write a fresh snapshot first (outside the pause).
-	s.snapshotBeforeCopy(ctx, app)
 	size, err := func() (int64, error) {
 		defer f.Close()
 		arch, err := vs.PrepareArchive(ctx, vol.VolumeName)

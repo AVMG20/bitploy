@@ -383,6 +383,9 @@ func templateNext(ap app.App) []string {
 	if ap.TemplateUpdateAvailable {
 		out = append(out, "bitploy has "+ap.TemplateLatest+" while this runs "+ap.TemplateVersion+". It is never upgraded automatically, because a new major version can need a dump and restore. Mention it only if the user asks about versions; there is no upgrade tool.")
 	}
+	if !ap.BackupsSupported {
+		out = append(out, "bitploy makes no backups of it: its data can be rebuilt. Do not offer create_backup for it.")
+	}
 	return out
 }
 

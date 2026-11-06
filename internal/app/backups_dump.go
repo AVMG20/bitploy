@@ -13,8 +13,8 @@ package app
 // option file (mktemp, mode 0600, removed on exit).
 //
 // A database that is not running is backed up as a copy of its files: a
-// stopped database's files are consistent. Valkey and Redis get a BGSAVE
-// before their files are copied.
+// stopped database's files are consistent. Valkey, Redis and Meilisearch
+// apps have no backups (servicetpl.Template.Backups).
 
 import (
 	"bufio"
@@ -122,23 +122,6 @@ var (
 	mariadbEngine = mysqlEngine(servicetpl.EngineMariaDB, "mariadb-dump", "mariadb", "MARIADB_ROOT_PASSWORD", "")
 	mysqlEngineV  = mysqlEngine(servicetpl.EngineMySQL, "mysqldump", "mysql", "MYSQL_ROOT_PASSWORD", " --set-gtid-purged=OFF")
 )
-
-// redisSnapshot makes Valkey or Redis write a fresh snapshot (dump.rdb)
-// and waits until it is on disk, at most 5 minutes. The data itself is in
-// the append-only file, which the paused copy holds as it is.
-func redisSnapshot(cli, passVar string) string {
-	return `export REDISCLI_AUTH="$` + passVar + `"
-before=$(` + cli + ` LASTSAVE)
-sleep 1
-` + cli + ` BGSAVE SCHEDULE > /dev/null || true
-i=0
-while [ "$(` + cli + ` LASTSAVE)" = "$before" ]; do
-  i=$((i + 1))
-  if [ "$i" -ge 300 ]; then echo 'the snapshot did not finish within 5 minutes' >&2; exit 1; fi
-  sleep 1
-done
-` + cli + ` INFO persistence | grep -q 'rdb_last_bgsave_status:ok' || { echo 'the snapshot failed' >&2; exit 1; }`
-}
 
 // dumpEngineOf is how the app's databases are dumped, or nil when the app
 // is not a database service.
@@ -379,29 +362,6 @@ func dumpComplete(eng *dumpEngine, end string) bool {
 		}
 	}
 	return false
-}
-
-// snapshotBeforeCopy asks Valkey or Redis to write a snapshot before its
-// files are copied. A failure is logged, not fatal: the append-only file
-// holds the data either way.
-func (s *Service) snapshotBeforeCopy(ctx context.Context, app db.App) {
-	t, ok := templateOf(app)
-	if !ok || t.BackupEngine() != servicetpl.EngineRedis || isMulti(app) {
-		return
-	}
-	run := s.runner()
-	if run == nil || !s.dbRunning(ctx, app) {
-		return
-	}
-	cli := "valkey-cli"
-	if t.ID == "redis" {
-		cli = "redis-cli"
-	}
-	sctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
-	defer cancel()
-	if tail, err := run.Exec(sctx, app, redisSnapshot(cli, t.PasswordVar()), nil, nil); err != nil {
-		s.Log.Warn("backup: snapshot before the copy failed", "app", app.Slug, "err", err, "stderr", toolTail(tail))
-	}
 }
 
 // ---- restore ----

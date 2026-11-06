@@ -1174,6 +1174,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	if n, err := s.Q.SumBackupBytesByApp(ctx, r.ID); err == nil {
 		v.BackupsMB = round1(float64(n) / mib)
 	}
+	v.BackupsSupported = noBackupsErr(r) == nil
 	if r.Type == "web" {
 		v.URL = s.appURL(r)
 		if r.ProtectEnabled != 0 {

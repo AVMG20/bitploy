@@ -348,6 +348,8 @@ export interface App {
   files_mb: number | null
   /** What the app's backups take; counts towards the storage allowance. */
   backups_mb: number
+  /** False for a cache or search index (valkey, redis, meilisearch): bitploy makes no backups of it. */
+  backups_supported: boolean
   disk_measured_at?: string
   memory_mb: number
   cpu_millis: number

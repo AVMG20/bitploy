@@ -9,14 +9,29 @@ const (
 	// database, replayed with mariadb / mysql.
 	EngineMariaDB = "mariadb"
 	EngineMySQL   = "mysql"
-	// EngineRedis: a BGSAVE before the files are copied (valkey and redis).
-	EngineRedis = "redis"
 )
 
+// Backups reports whether bitploy makes backups of this template's data.
+// Valkey, Redis and Meilisearch keep a cache or a search index that can be
+// rebuilt, so they get none; NoBackupsReason says why in plain words.
+func (t Template) Backups() bool { return t.NoBackupsReason() == "" }
+
+// NoBackupsReason is why bitploy makes no backups of this template's data,
+// or "" when it does.
+func (t Template) NoBackupsReason() string {
+	switch t.ID {
+	case "valkey":
+		return "Valkey keeps a cache; its data can be rebuilt, so bitploy makes no backups of it."
+	case "redis":
+		return "Redis keeps a cache; its data can be rebuilt, so bitploy makes no backups of it."
+	case "meilisearch":
+		return "Meilisearch keeps a search index; it can be rebuilt from your data, so bitploy makes no backups of it."
+	}
+	return ""
+}
+
 // BackupEngine says how backups of this template's data are made. ""
-// means a copy of the files (the app is paused while they are read), which
-// is consistent for Meilisearch: its LMDB store is copy-on-write and a
-// paused process writes nothing.
+// means a copy of the files (the app is paused while they are read).
 func (t Template) BackupEngine() string {
 	switch t.ID {
 	case "postgres", "pgvector":
@@ -25,27 +40,6 @@ func (t Template) BackupEngine() string {
 		return EngineMariaDB
 	case "mysql":
 		return EngineMySQL
-	case "valkey", "redis":
-		return EngineRedis
-	}
-	return ""
-}
-
-// PasswordVar is the template app's variable that holds the password of the
-// database's superuser, which a dump and a restore log in as. Valkey and
-// Redis: the AUTH password.
-func (t Template) PasswordVar() string {
-	switch t.ID {
-	case "postgres", "pgvector":
-		return "POSTGRES_PASSWORD"
-	case "mariadb":
-		return "MARIADB_ROOT_PASSWORD"
-	case "mysql":
-		return "MYSQL_ROOT_PASSWORD"
-	case "valkey":
-		return "VALKEY_PASSWORD"
-	case "redis":
-		return "REDIS_PASSWORD"
 	}
 	return ""
 }

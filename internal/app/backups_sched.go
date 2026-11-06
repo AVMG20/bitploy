@@ -179,7 +179,7 @@ func (s *Service) runDueBackups(ctx context.Context) {
 			return
 		}
 		s.pruneBackups(ctx, app)
-		if app.BackupSchedule == "off" || app.VolumeEnabled == 0 || !app.CurrentDeploymentID.Valid {
+		if app.BackupSchedule == "off" || app.VolumeEnabled == 0 || !app.CurrentDeploymentID.Valid || noBackupsErr(app) != nil {
 			continue
 		}
 		last, err := s.Q.LatestScheduledBackupAt(ctx, app.ID)

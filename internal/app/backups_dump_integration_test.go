@@ -16,7 +16,7 @@ import (
 
 // Each database service is dumped while it runs, changed, and restored from
 // the dump; the data from before the change is back and the change is kept
-// in the before-restore dump. Valkey gets a snapshot and a copy of its files.
+// in the before-restore dump. Valkey, a cache, has no backups.
 func TestIntegrationDatabaseDumps(t *testing.T) {
 	e := itSetup(t)
 	ctx := context.Background()
@@ -134,13 +134,9 @@ func TestIntegrationDatabaseDumps(t *testing.T) {
 		if d := e.waitService(t, sv.Slug); d.State != "running" {
 			t.Fatalf("%s %+v", d.State, d.Error)
 		}
-		b, err := e.s.CreateBackup(ctx, e.user, sv.Slug)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if b = waitBackup(t, e, sv.Slug, b.ID); b.Format != "volume" {
-			t.Fatalf("backup = %+v", b)
-		}
+		// A cache has no backups.
+		_, err = e.s.CreateBackup(ctx, e.user, sv.Slug)
+		wantCode(t, err, "backups_not_needed")
 	})
 }
 
