@@ -24,6 +24,7 @@ import { plainHint } from '@/lib/errors'
 import { deploymentStateInfo, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { aliasOf, envReferences, internalHostOf, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
 import CatalogUpdateDialog from '@/pages/app/CatalogUpdateDialog.vue'
+import PublicPort from '@/pages/app/PublicPort.vue'
 import UploadVersionButton from '@/pages/app/UploadVersionButton.vue'
 
 // One app of the canvas, in a panel over it (?app=<slug>): whether it runs and
@@ -228,6 +229,7 @@ watch(
           </p>
         </section>
         <ConnectionCard v-if="data.template && !fallback" :app="data" />
+        <PublicPort :app="data" compact />
 
         <!-- Its variables. -->
         <section class="grid gap-2" aria-labelledby="panel-vars">

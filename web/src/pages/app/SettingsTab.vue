@@ -18,6 +18,7 @@ import QueryError from '@/components/QueryError.vue'
 import GitConnect from './GitConnect.vue'
 import GitLinked from './GitLinked.vue'
 import PasswordProtection from './PasswordProtection.vue'
+import PublicPort from './PublicPort.vue'
 import SettingsSection from '@/components/SettingsSection.vue'
 import DomainSelect from '@/components/DomainSelect.vue'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
@@ -392,6 +393,7 @@ const deleteOpen = ref(false)
         </FormScope>
 
         <PasswordProtection v-if="app.data.value && !isPrivate" :app="app.data.value" />
+        <PublicPort v-if="app.data.value?.public_port && app.data.value.public_port.reason !== 'web_app'" :app="app.data.value" />
       </div>
     </SettingsSection>
 

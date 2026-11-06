@@ -38,6 +38,17 @@ const HINTS: Record<string, string> = {
   variable_reference_unknown: 'A ${{name.VAR}} value names an app or variable the project does not have. Check the spelling under Variables.',
   variable_reference_self: 'A variable cannot refer to its own app. Type the value instead.',
   variable_reference_loop: 'Two variables refer to each other. Change one of them to a plain value.',
+  // public ports
+  public_ports_off: 'This server hands out no public ports. Ask your admin to turn them on.',
+  public_port_no_port: 'bitploy does not know the port it listens on. Set the port in Settings (or expose it in the compose file), deploy, then try again.',
+  public_port_limit: 'Close the public port of another app first, or ask your admin to raise the limit.',
+  public_ports_full: 'Every public port of the server is in use. Try again later, or ask your admin for a bigger range.',
+  public_port_busy: 'Wait a few seconds and try again.',
+  public_port_failed: 'The port is saved and bitploy keeps trying to start it. Check again in a minute.',
+  my_ip_unknown: 'Pick These addresses and type your IPv4 address instead.',
+  my_ip_not_ipv4: 'Pick These addresses and type your IPv4 address instead.',
+  allow_from_invalid: 'Use IPv4 addresses like 203.0.113.7 or networks like 198.51.100.0/24, separated by commas.',
+  service_required: 'Pick the service to open.',
 }
 
 // Words like delete_app or volume_mb are names of AI tools and API fields.

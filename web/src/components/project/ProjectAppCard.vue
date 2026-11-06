@@ -91,6 +91,12 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
         <Lock class="size-3 shrink-0" /> Private, at <span class="truncate font-mono text-foreground/80">{{ host }}</span>
       </span>
       <span v-else class="inline-flex items-center gap-1.5 text-muted-foreground"><Lock class="size-3 shrink-0" /> No web address</span>
+      <span
+        v-if="app.public_port?.enabled"
+        class="ml-1.5 inline-flex items-center rounded border border-primary/40 bg-primary/10 px-1 font-mono text-[10.5px] text-primary"
+        :title="`Public port open at ${app.public_port.address ?? ''}, for connecting from outside. Close it in the app's panel when you are done.`"
+        data-testid="public-port-badge"
+      >public</span>
     </div>
 
     <!-- A compose app: its services, each with its own status. -->

@@ -45,6 +45,9 @@ import type {
   TrafficWindow,
   Page,
   Project,
+  PublicConnection,
+  PublicPortInput,
+  PublicPortsOverview,
   ServerStats,
   ServiceTemplate,
   Session,
@@ -80,6 +83,8 @@ export const paths = {
   adminGithubComplete: `${V1}/admin/github/manifest/complete`,
   appGitSource: (slug: string) => `${V1}/apps/${enc(slug)}/git-source`,
   appPasswordProtection: (slug: string) => `${V1}/apps/${enc(slug)}/password-protection`,
+  appPublicPort: (slug: string) => `${V1}/apps/${enc(slug)}/public-port`,
+  appPublicPortReveal: (slug: string) => `${V1}/apps/${enc(slug)}/public-port/reveal`,
   sessions: `${V1}/sessions`,
   sessionById: (id: string) => `${V1}/sessions/${enc(id)}`,
   sessionsRevokeOthers: `${V1}/sessions/revoke-others`,
@@ -142,6 +147,8 @@ export const paths = {
   adminInvite: (id: string) => `${V1}/admin/invites/${enc(id)}`,
   adminServer: `${V1}/admin/server`,
   adminApps: `${V1}/admin/apps`,
+  adminPublicPorts: `${V1}/admin/public-ports`,
+  adminPublicPort: (slug: string) => `${V1}/admin/public-ports/${enc(slug)}`,
   adminAppStop: (slug: string) => `${V1}/admin/apps/${enc(slug)}/stop`,
   adminAudit: `${V1}/admin/audit`,
   adminAppDomains: `${V1}/admin/app-domains`,
@@ -393,6 +400,8 @@ export const api = {
   clearGitSource: (slug: string) => request<App>('DELETE', paths.appGitSource(slug)),
   setPasswordProtection: (slug: string, input: { enabled: boolean; username?: string; password?: string }) =>
     request<App>('PUT', paths.appPasswordProtection(slug), { body: input }),
+  setPublicPort: (slug: string, input: PublicPortInput) => request<App>('PUT', paths.appPublicPort(slug), { body: input }),
+  revealPublicConnection: (slug: string) => request<PublicConnection>('POST', paths.appPublicPortReveal(slug)),
   setAutoDeploy: (slug: string, autoDeploy: boolean) => request<App>('PATCH', paths.appGitSource(slug), { body: { auto_deploy: autoDeploy } }),
   async sessions(): Promise<Session[]> {
     return listAll<Session>(paths.sessions)
@@ -595,6 +604,8 @@ export const api = {
     return listAll<App>(paths.adminApps)
   },
   adminStopApp: (slug: string) => request<unknown>('POST', paths.adminAppStop(slug)),
+  adminPublicPorts: () => request<PublicPortsOverview>('GET', paths.adminPublicPorts),
+  adminClosePublicPort: (slug: string) => request<void>('DELETE', paths.adminPublicPort(slug)),
   adminAppDomains: () => request<AppDomainList>('GET', paths.adminAppDomains),
   addAppDomain: (input: { domain: string; certificate?: string; private_key?: string }) =>
     request<AppDomain>('POST', paths.adminAppDomains, { body: input }),

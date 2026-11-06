@@ -34,6 +34,8 @@ import type {
   MetricPoint,
   Metrics,
   Project,
+  PublicPort,
+  PublicPortsOverview,
   ServerStats,
   ServiceTemplate,
   Session,
@@ -311,6 +313,72 @@ interface AppSeed {
   deploys?: number
 }
 
+// ---------------------------------------------------------------- public ports
+
+const PUBLIC_PORTS = { from: 30000, to: 30099, host: DOMAIN, per_user: 3 }
+
+/** App.public_port of an app without an open port. */
+function closedPort(a: Pick<App, 'type' | 'services'>): PublicPort {
+  const web = a.type === 'web' && a.services.length <= 1
+  return { available: !web, ...(web ? { reason: 'web_app' as const } : {}), enabled: false, running: false, allow_from: [], expires_at: null }
+}
+
+/** The generated passwords of a template app, as the reveal endpoint gives them. */
+function mockSecrets(a: App): Record<string, string> {
+  switch (a.template) {
+    case 'postgres':
+    case 'pgvector':
+      return { POSTGRES_PASSWORD: 'f3k9Qm2xLr7Vt1Zp' }
+    case 'mariadb':
+    case 'mysql':
+      return { MYSQL_PASSWORD: 'h8Wq2Nc5Jv0Kd4Rs', MYSQL_ROOT_PASSWORD: 'p1Ls6Ty9Bx3Mg7Fe' }
+    case 'valkey':
+      return { REDIS_PASSWORD: 'c4Hn8Dz1Qw6Ys2Ua' }
+    case 'meilisearch':
+      return { MEILI_MASTER_KEY: 'm5Rt0Gk3Vb8Xe2Nj9Pq4' }
+    default:
+      return {}
+  }
+}
+
+/** The connection URL of a template app at a public address; masked puts ******** for the password. */
+function mockConnectionURL(a: App, address: string, masked: boolean): string {
+  const pw = (name: string) => (masked ? '********' : (mockSecrets(a)[name] ?? ''))
+  switch (a.template) {
+    case 'postgres':
+    case 'pgvector':
+      return `postgresql://postgres:${pw('POSTGRES_PASSWORD')}@${address}/postgres`
+    case 'mariadb':
+    case 'mysql':
+      return `mysql://app:${pw('MYSQL_PASSWORD')}@${address}/app`
+    case 'valkey':
+      return `redis://default:${pw('REDIS_PASSWORD')}@${address}`
+    case 'meilisearch':
+      return `http://${address}`
+    default:
+      return ''
+  }
+}
+
+function openPort(a: App, port: number, opts: { service?: string; minutes: number | null; allow: string[] }): PublicPort {
+  const address = `${PUBLIC_PORTS.host}:${port}`
+  const svc = opts.service ? a.services.find((s) => s.name === opts.service) : a.services[0]
+  return {
+    available: true,
+    enabled: true,
+    running: true,
+    ...(opts.service ? { service: opts.service } : {}),
+    host: PUBLIC_PORTS.host,
+    port,
+    address,
+    target_port: svc?.port ?? a.port ?? undefined,
+    connection_url: mockConnectionURL(a, address, true) || undefined,
+    allow_from: opts.allow,
+    expires_at: opts.minutes === null ? null : new Date(Date.now() + opts.minutes * 60_000).toISOString(),
+    opened_at: new Date().toISOString(),
+  }
+}
+
 function makeApp(s: AppSeed): App {
   const type = s.type ?? 'web'
   const memory = s.memory ?? (s.services ? s.services.reduce((n, x) => n + x.memory_mb, 0) : 256)
@@ -394,6 +462,7 @@ function makeApp(s: AppSeed): App {
   }
   deployments[a.slug] = list
   a.current_deployment = list.find((d) => d.state === 'running') ?? null
+  a.public_port = closedPort(a)
   return a
 }
 
@@ -455,6 +524,11 @@ apps.push(
   makeApp({ slug: 'mk-redis', name: 'redis', project: 'prj_market', alias: 'redis', template: 'valkey', type: 'worker', port: 6379, memory: 128, createdDaysAgo: 20, deploys: 1 }),
   makeApp({ slug: 'mk-search', name: 'search', project: 'prj_market', alias: 'search', template: 'meilisearch', type: 'worker', port: 7700, memory: 256, createdDaysAgo: 17, deploys: 1 }),
 )
+// One database with its public port open, for the badge on the canvas and the admin list.
+{
+  const pg = findApp('mk-postgres')!
+  pg.public_port = openPort(pg, 30000, { minutes: 42, allow: [] })
+}
 seedEnv('mk-store', [
   { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
   { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
@@ -613,6 +687,7 @@ function blankApp(name: string, slug: string, projectId: string, extra: Partial<
     updated_at: new Date().toISOString(),
     ...extra,
   }
+  a.public_port ??= closedPort(a)
   apps.push(a)
   env[a.slug] = []
   deployments[a.slug] = []
@@ -1000,6 +1075,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
 
   if (noProjects && (parts[0] === 'projects' || parts[0] === 'service-templates')) throw new HttpError(404, 'not_found', 'Not found.')
 
+  // DELETE /admin/public-ports/{app}: the router only knows ids after apps, projects, catalog and deployments.
+  if (method === 'DELETE' && parts[0] === 'admin' && parts[1] === 'public-ports' && parts[2]) {
+    const a = needApp(parts[2])
+    a.public_port = closedPort(a)
+    return send(res, 204)
+  }
+
   switch (route) {
     // ---------------------------------------------------------------- session and account
     case 'GET /session':
@@ -1028,6 +1110,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     }
     case 'GET /admin/server':
       return send(res, 200, serverStats())
+    case 'GET /admin/public-ports':
+      return send(res, 200, {
+        enabled: true,
+        ...PUBLIC_PORTS,
+        open: apps
+          .filter((a) => a.public_port?.enabled)
+          .map((a) => ({ app: a.slug, app_name: a.name, owner_email: user.email, service: a.public_port!.service, port: a.public_port!.port!, allow_from: a.public_port!.allow_from, expires_at: a.public_port!.expires_at, opened_at: a.public_port!.opened_at! })),
+      } satisfies PublicPortsOverview)
     case 'GET /admin/app-domains':
       return send(res, 200, { items: appDomains, server_ipv4: '203.0.113.10', server_ipv6: '2001:db8::10' })
     case 'GET /admin/audit':
@@ -1210,6 +1300,42 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         last_push_at: null,
       }
       return send(res, 200, a)
+    }
+    case 'PUT /apps/:id/public-port': {
+      const a = needApp(id)
+      const cur = a.public_port ?? closedPort(a)
+      if (!body.enabled) {
+        a.public_port = closedPort(a)
+        return send(res, 200, a)
+      }
+      if (!cur.available && !cur.enabled) throw new HttpError(422, 'public_port_web_app', `The app ${a.slug} has a web address, so it gets no public port.`, 'Open the app at its URL.')
+      const minutes = body.close_after === 'never' ? null : body.close_after === '24h' ? 24 * 60 : body.close_after === '1h' || !cur.enabled ? 60 : undefined
+      let allow = Array.isArray(body.allow_from) ? (body.allow_from as string[]) : cur.allow_from
+      if (allow.some((x) => !/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(x)))
+        throw new HttpError(400, 'allow_from_invalid', 'allow_from: not an IPv4 address or network.', 'Use IPv4 addresses like 203.0.113.7.')
+      if (body.only_my_ip) allow = [...allow, '198.51.100.23/32']
+      allow = allow.map((x) => (x.includes('/') ? x : `${x}/32`))
+      const multi = a.services.length > 1
+      const service = multi ? String(body.service || cur.service || a.services.find((s) => !(s.public && a.type === 'web'))?.name || '') : undefined
+      if (!cur.enabled) {
+        const mine = apps.filter((x) => x.public_port?.enabled).length
+        if (mine >= PUBLIC_PORTS.per_user)
+          throw new HttpError(409, 'public_port_limit', `You have ${mine} public ports open, the most allowed.`, 'Close another one first.')
+      }
+      const used = new Set(apps.map((x) => x.public_port?.enabled && x !== a ? x.public_port.port : 0))
+      let port = cur.enabled ? cur.port! : PUBLIC_PORTS.from
+      while (!cur.enabled && used.has(port)) port++
+      const next = openPort(a, port, { service, minutes: minutes === undefined ? null : minutes, allow })
+      if (cur.enabled && minutes === undefined) next.expires_at = cur.expires_at
+      if (cur.enabled) next.opened_at = cur.opened_at
+      a.public_port = next
+      return send(res, 200, a)
+    }
+    case 'POST /apps/:id/public-port/reveal': {
+      const a = needApp(id)
+      const p = a.public_port
+      if (!p?.enabled) throw new HttpError(409, 'public_port_closed', 'The public port is closed.', 'Open it first.')
+      return send(res, 200, { connection_url: mockConnectionURL(a, p.address!, false), address: p.address!, secrets: mockSecrets(a) })
     }
     case 'POST /apps/:id/restart':
     case 'POST /apps/:id/start':
