@@ -2,6 +2,8 @@ package dockerx
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/moby/moby/api/types/network"
@@ -12,9 +14,30 @@ import (
 func (c *Client) EnsureNetwork(ctx context.Context, name string, labels map[string]string) error {
 	_, err := c.API.NetworkCreate(ctx, name, client.NetworkCreateOptions{Driver: "bridge", Labels: labels})
 	if IsConflict(err) || (err != nil && strings.Contains(err.Error(), "already exists")) {
-		return nil
+		return c.checkNetworkOwner(ctx, name, labels)
 	}
 	return err
+}
+
+// ErrNetworkOwnedByOther is returned by EnsureNetwork when a network with
+// that name exists but belongs to something else: another app or project, or
+// a network bitploy did not make for apps (the builder's bp-builder).
+var ErrNetworkOwnedByOther = errors.New("a Docker network with this name already exists and belongs to something else")
+
+// checkNetworkOwner lets an existing network be used only when it carries the
+// same app id or project id as the one asked for, so an app never joins a
+// network that other users' containers are on.
+func (c *Client) checkNetworkOwner(ctx context.Context, name string, labels map[string]string) error {
+	res, err := c.API.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
+	if err != nil {
+		return err
+	}
+	for _, k := range []string{LabelAppID, LabelProject} {
+		if want := labels[k]; want != "" && res.Network.Labels[k] != want {
+			return fmt.Errorf("%w: %s", ErrNetworkOwnedByOther, name)
+		}
+	}
+	return nil
 }
 
 // ConnectNetwork attaches a container to a network; "already connected" is ignored.

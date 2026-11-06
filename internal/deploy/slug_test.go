@@ -44,6 +44,7 @@ func TestValidateSlug(t *testing.T) {
 		{"login", "slug_reserved"},
 		{"bitploy", "slug_reserved"},
 		{"traefik", "slug_reserved"},
+		{"builder", "slug_reserved"}, // its network would be bp-builder, the builder's
 		{"app", "slug_reserved"},
 		{"bp-foo", "slug_reserved"},
 		{"bp-", "slug_invalid"},
