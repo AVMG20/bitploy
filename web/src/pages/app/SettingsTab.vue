@@ -542,7 +542,8 @@ const deleteText = computed(() => {
                 <FormLabel>Memory (MB)</FormLabel>
                 <FormControl><Input type="number" min="64" step="64" inputmode="numeric" :disabled="isStatic" v-bind="componentField" /></FormControl>
                 <FormDescription v-if="room && quota && !isStatic">
-                  Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template>
+                  <template v-if="room.mem === 0">Your other running apps already have all of your {{ formatMB(quota.memory_mb) }}, so this app cannot get more. Stop one, or ask your admin for more.</template>
+                  <template v-else>Up to {{ formatMB(room.mem) }}<template v-if="room.otherMem">. Your other running apps have {{ formatMB(room.otherMem) }} of your {{ formatMB(quota.memory_mb) }}.</template><template v-else>.</template></template>
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -552,7 +553,8 @@ const deleteText = computed(() => {
                 <FormLabel>CPU</FormLabel>
                 <FormControl><Input type="number" min="0.1" step="0.1" inputmode="decimal" :disabled="isStatic" v-bind="componentField" /></FormControl>
                 <FormDescription v-if="room && quota && !isStatic">
-                  Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template>
+                  <template v-if="room.cpus === 0">Your other running apps already have all of your {{ formatCPUMillis(quota.cpu_millis) }}, so this app cannot get more. Stop one, or ask your admin for more.</template>
+                  <template v-else>Up to {{ formatCPU(room.cpus) }}<template v-if="room.otherCPU">. Your other running apps have {{ formatCPUMillis(room.otherCPU) }} of your {{ formatCPUMillis(quota.cpu_millis) }}.</template><template v-else>.</template></template>
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -393,6 +393,13 @@ function liveOf(slug: string, memoryMB: number, cpuMillis: number): MetricPoint 
   return { ts: new Date().toISOString(), cpu: Math.round(r() * cpuMillis * 0.12 * 10) / 10, memory_mb: Math.round(memoryMB * (0.25 + r() * 0.35)), rx_bytes: 0, tx_bytes: 0 }
 }
 
+const AFTER_DEPLOY_WARNING = {
+  code: 'after_deploy_failed',
+  severity: 'warning' as const,
+  message: 'The after-deploy command failed. It stopped with exit code 1. The new version stays live.',
+  hint: 'Read its output in the deploy log (get_logs kind=build, the lines marked [after-deploy]). Fix the command (update_app after_deploy_command=...) or the code; it runs again on the next deploy.',
+}
+
 function deployment(app: App, seq: number, state: DeploymentState, minutesAgo: number, extra: Partial<Deployment> = {}): Deployment {
   const finished = ['running', 'failed', 'superseded', 'cancelled'].includes(state)
   const git = !!app.git_source
@@ -630,8 +637,8 @@ function maskOf(value: string | undefined): string {
   return value.split(/(\$\{\{[^}]+\}\})/).map((p) => (p.startsWith('${{') ? p : p ? '••••' : '')).join('')
 }
 
-function seedEnv(slug: string, vars: { name: string; value?: string; service?: string }[]) {
-  env[slug] = vars.map((v) => ({ name: v.name, masked: maskOf(v.value), references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
+function seedEnv(slug: string, vars: { name: string; value?: string; service?: string; build?: EnvVar['build'] }[]) {
+  env[slug] = vars.map((v) => ({ name: v.name, masked: maskOf(v.value), references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3), ...(v.build ? { build: v.build } : {}) }))
 }
 
 apps.push(
@@ -726,7 +733,32 @@ seedEnv('shop-web', [
   { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
   { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
   { name: 'SESSION_SECRET' },
+  { name: 'NEXT_PUBLIC_SHOP_NAME', build: 'public' },
+  { name: 'SENTRY_AUTH_TOKEN', build: 'secret' },
 ])
+// shop-web migrates its database before each deploy and warms a cache after it; its current version's cache step failed.
+{
+  const web = findApp('shop-web')!
+  web.before_deploy_command = 'npx prisma migrate deploy'
+  web.after_deploy_command = 'node scripts/warm-cache.js'
+  const cur = web.current_deployment!
+  cur.after_deploy = 'failed'
+  cur.warnings = [AFTER_DEPLOY_WARNING]
+  // shop-api's last deploy stopped at its migration.
+  const api = findApp('shop-api')!
+  api.before_deploy_command = 'go run ./cmd/migrate'
+  const list = deployments['shop-api']!
+  list.unshift(
+    deployment(api, list[0]!.seq + 1, 'failed', 30, {
+      error: {
+        code: 'before_deploy_failed',
+        message: 'The before-deploy command failed with exit code 1. The new version was not started; the version that was live keeps running.',
+        hint: 'Read the command\'s output in the deploy log (get_logs kind=build, the lines marked [before-deploy]). Fix the code or the command (update_app before_deploy_command=...), then deploy again.',
+      },
+      log_tail: ['#14 DONE 2.1s', 'Running before-deploy command: go run ./cmd/migrate', 'It runs in a one-off container of the new version (up to 10 minutes). The live version keeps serving meanwhile.', '[before-deploy] migrate: connecting to postgres:5432', '[before-deploy] migrate: 0007_orders.sql: ERROR: column "total" of relation "orders" already exists', '[before-deploy] exit status 1'],
+    }),
+  )
+}
 seedEnv('shop-api', [
   { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
   { name: 'REDIS_URL', value: '${{redis.REDIS_URL}}' },
@@ -784,7 +816,24 @@ function startDeploy(app: App, kind: Deployment['source_kind'] = 'upload'): Depl
         app.status = 'running'
         app.current_deployment = d
         app.started_at = d.finished_at
+        // Uploaded files that auto-detect builds as a site (the mock's guess): served by bitploy, fixed small size.
+        if ((kind === 'upload' || kind === 'files') && ['auto', 'static', 'static_build'].includes(app.build_mode) && !app.template && !app.catalog_id) {
+          app.static = true
+          app.memory_mb = 32
+          app.cpu_millis = 100
+        }
         app.live = liveOf(app.slug, app.memory_mb, app.cpu_millis)
+        // The after-deploy command runs in the live version; "fail" in it makes it fail, to show the warning.
+        const after = kind === 'rollback' ? '' : (app.after_deploy_command ?? '')
+        if (after) {
+          d.after_deploy = 'running'
+          setTimeout(() => {
+            if (/fail/.test(after)) {
+              d.after_deploy = 'failed'
+              d.warnings = [...(d.warnings ?? []), AFTER_DEPLOY_WARNING]
+            } else d.after_deploy = 'succeeded'
+          }, 10_000)
+        }
       }
     }, ms)
   }
@@ -1014,7 +1063,7 @@ function composePreview(text: string): ComposeCheck {
   const cpu = services.reduce((n, s) => n + s.cpu_millis, 0)
   const vol = volumes.reduce((n, v) => n + v.size_mb, 0)
   // Like the server: what is left never goes below zero.
-  const left = Math.max(0, 4096 - usedMemory())
+  const left = Math.max(0, QUOTA.memory_mb - usedMemory())
   const errors = services.length ? [] : [{ code: 'compose_invalid', message: 'The file has no services.', hint: 'Add a services: section with at least one service.' }]
   return {
     ok: errors.length === 0,
@@ -1025,7 +1074,7 @@ function composePreview(text: string): ComposeCheck {
     volume_mb_total: vol,
     quota: {
       memory_mb_left: left,
-      cpu_millis_left: Math.max(0, 4000 - apps.reduce((n, a) => n + (a.static ? 0 : a.cpu_millis), 0)),
+      cpu_millis_left: Math.max(0, QUOTA.cpu_millis - apps.reduce((n, a) => n + (a.static ? 0 : a.cpu_millis), 0)),
       storage_mb_left: 20480 - 4200,
       fits: memory <= left,
       message: `This needs ${memory} MB of memory of the ${left} MB you have left.`,
@@ -1035,6 +1084,9 @@ function composePreview(text: string): ComposeCheck {
   }
 }
 
+// Room for the seeded apps and a few more, so the dashboard can add a database or deploy a site.
+const QUOTA = { apps: 30, memory_mb: 8192, cpu_millis: 8000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 20480 }
+
 function usedMemory(): number {
   return apps.reduce((n, a) => n + (a.static ? 0 : a.memory_mb), 0)
 }
@@ -1043,7 +1095,7 @@ function me(): Me {
   const running = apps.filter((a) => a.status === 'running')
   return {
     user,
-    quota: { apps: 12, memory_mb: 4096, cpu_millis: 4000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 20480 },
+    quota: QUOTA,
     usage: {
       apps: apps.length,
       apps_running: running.length,
@@ -1498,6 +1550,19 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         if (a.port) a.internal_host = `${a.alias}:${a.port}`
       }
       for (const k of ['memory_mb', 'cpu_millis', 'port', 'volume_mb'] as const) if (typeof body[k] === 'number') (a[k] as number) = body[k] as number
+      if (body.port === 0) a.port = null
+      if (body.port === 22) throw new HttpError(422, 'port_reserved', 'Port 22 is reserved.', 'Use the port your app listens on, like 3000.')
+      if (body.type === 'web' || body.type === 'worker') {
+        a.type = body.type
+        a.url = a.type === 'web' ? `https://${a.slug}.${DOMAIN}` : ''
+      }
+      for (const k of ['health_path', 'dockerfile_path', 'context_dir'] as const) if (typeof body[k] === 'string') a[k] = body[k] as string
+      for (const k of ['before_deploy_command', 'after_deploy_command'] as const)
+        if (typeof body[k] === 'string') {
+          if (body[k] && (a.template || a.catalog_id || a.static || a.build_mode === 'compose'))
+            throw new HttpError(422, 'deploy_commands_unsupported', 'This app is a static site: it runs no code of its own, so it has no deploy commands.', 'Leave before_deploy_command and after_deploy_command out for a static site.')
+          a[k] = (body[k] as string).trim()
+        }
       return send(res, 200, a)
     }
     case 'DELETE /apps/:id': {
@@ -1599,6 +1664,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         const next = { masked: maskOf(value), references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
         if (v) Object.assign(v, next)
         else list.push({ name, service: svc, ...next })
+      }
+      for (const [name, b] of Object.entries((body.build as Record<string, string>) ?? {})) {
+        const v = list.find((x) => x.name === name && x.service === svc)
+        if (!v) throw new HttpError(404, 'env_not_found', `There is no variable ${name}.`)
+        if (b === 'public' || b === 'secret') v.build = b
+        else delete v.build
+        v.updated_at = new Date().toISOString()
       }
       for (const name of (body.unset as string[]) ?? []) {
         const i = list.findIndex((x) => x.name === name && x.service === svc)

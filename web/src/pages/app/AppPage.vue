@@ -193,7 +193,7 @@ const deleteOpen = ref(false)
           </template>
           <Button v-if="!canStart" variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
             <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
-            <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
+            <span v-if="pending.reasons.value.length && !pending.needsBuild.value" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>
           <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
             <Play /> {{ actions.start.isPending.value ? 'Starting...' : 'Start' }}
@@ -238,10 +238,15 @@ const deleteOpen = ref(false)
       >
         <RotateCw class="size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" aria-hidden="true" />
         <p class="min-w-0 flex-1">
-          <span class="font-medium">Restart to apply your changes.</span>
-          <span class="text-muted-foreground"> Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.</span>
+          <span class="font-medium">{{ pending.needsBuild.value ? 'Deploy again to apply your changes.' : 'Restart to apply your changes.' }}</span>
+          <span class="text-muted-foreground">
+            Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.<template v-if="pending.needsBuild.value"> The build reads them, so a restart is not enough.</template>
+          </span>
         </p>
-        <Button size="sm" :disabled="busy" @click="restart">
+        <Button v-if="pending.needsBuild.value" size="sm" :disabled="busy || !canRebuild" @click="rebuild">
+          <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Deploy again
+        </Button>
+        <Button v-else size="sm" :disabled="busy" @click="restart">
           <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
         </Button>
       </div>

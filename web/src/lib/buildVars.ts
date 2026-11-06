@@ -11,7 +11,7 @@ export const BUILD_CHOICES: { value: BuildChoice; label: string; help: string }[
   {
     value: 'public',
     label: 'Also when it builds, public',
-    help: 'Also given to the build, so a site can bake it in (Vite, Next.js, Astro). Anyone can read it in the site, so never use it for a password or a private key. With your own Dockerfile, add ARG and the name before the step that needs it.',
+    help: 'Also given to the build, so a site built with Vite, Next.js or Astro can put it in its pages. Anyone can read it in the site, so never use it for a password or a private key. With your own Dockerfile, add ARG and the name before the step that needs it.',
   },
   {
     value: 'secret',
@@ -46,4 +46,13 @@ export function buildTag(v: Pick<EnvVar, 'build'>): string {
       return 'build, secret'
   }
   return ''
+}
+
+/**
+ * A site bitploy serves itself (plain website files, or a front end it builds
+ * to files): none of its code runs on the server, so a variable only reaches
+ * it through the build.
+ */
+export function isServedSite(a: { static?: boolean; build_mode?: string } | null | undefined): boolean {
+  return !!a && (!!a.static || a.build_mode === 'static' || a.build_mode === 'static_build')
 }

@@ -159,7 +159,7 @@ const statusText = computed(() => props.source.push_message.replace(/\.$/, ''))
             <FormItem>
               <FormLabel>Folder (optional)</FormLabel>
               <FormControl><Input placeholder="Whole repository" autocapitalize="off" autocomplete="off" spellcheck="false" class="font-mono" v-bind="componentField" /></FormControl>
-              <FormDescription>Only if the Dockerfile is in a subfolder, like apps/web.</FormDescription>
+              <FormDescription>Only if your app is in a subfolder of the repository, like apps/web.</FormDescription>
               <FormMessage />
             </FormItem>
           </FormField>

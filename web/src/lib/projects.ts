@@ -365,9 +365,10 @@ export function freeAlias(base: string, taken: Iterable<string>): string {
   return `${clean.slice(0, 24)}-${Date.now() % 100000}`
 }
 
-/** The apps "Connect to" offers: everything that runs your code, not other templates. */
+/** The apps "Connect to" offers: everything that runs your code on the server, not other templates or static sites. */
 export function connectable(apps: readonly App[]): App[] {
-  return apps.filter((a) => !a.template)
+  // A site bitploy serves runs none of its code on the server, so it cannot use a database.
+  return apps.filter((a) => !a.template && !a.static && a.build_mode !== 'static' && a.build_mode !== 'static_build')
 }
 
 /** Ticked at first: the project's main public app, unless it already has the variable (`skip`). */

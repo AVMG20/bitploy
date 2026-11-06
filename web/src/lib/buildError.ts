@@ -95,6 +95,16 @@ export function firstRuntimeError(lines: string[] | undefined): string {
   return short(errors.find((l) => EXCEPTION.test(l)) ?? errors[0] ?? '')
 }
 
+/**
+ * The line of a deploy command's output (marked [before-deploy] or
+ * [after-deploy] in the log) that names the error, else its last line.
+ */
+export function hookErrorLine(lines: string[] | undefined, which: 'before-deploy' | 'after-deploy'): string {
+  const mark = `[${which}] `
+  const own = (lines ?? []).map((l) => l.trim()).filter((l) => l.startsWith(mark)).map((l) => l.slice(mark.length).trim()).filter(Boolean)
+  return firstRuntimeError(own) || short(own[own.length - 1] ?? '')
+}
+
 const BUILD_FAILED = /^([\s\S]*?The build failed)(?:\.|: ([\s\S]+))$/
 
 /**
@@ -112,5 +122,6 @@ export function deployErrorSummary(error: Pick<DeployError, 'code' | 'message'>,
     return { message: error.message, line: '' }
   }
   if (error.code === 'app_crashed') return { message: error.message, line: firstRuntimeError(logTail) }
+  if (error.code === 'before_deploy_failed' || error.code === 'before_deploy_timeout') return { message: error.message, line: hookErrorLine(logTail, 'before-deploy') }
   return { message: error.message, line: '' }
 }

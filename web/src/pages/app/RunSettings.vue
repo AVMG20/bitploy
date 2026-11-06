@@ -34,6 +34,8 @@ watch(
 )
 
 const shown = computed(() => runFieldsFor(props.app, form.value.type))
+// The app builds from its own Dockerfile, not one bitploy writes for it.
+const ownDockerfile = computed(() => props.app.build_mode === 'dockerfile')
 const anyShown = computed(() => Object.values(shown.value).some(Boolean))
 const changes = computed(() => runChanges(props.app, form.value, shown.value))
 const changed = computed(() => Object.keys(changes.value).length > 0)
@@ -91,13 +93,16 @@ function submit() {
             id="run-port"
             v-model="form.port"
             inputmode="numeric"
-            placeholder="From the Dockerfile"
+            :placeholder="ownDockerfile ? 'From the Dockerfile' : 'Found when it builds'"
             autocomplete="off"
             class="font-mono"
             :aria-invalid="errors.port ? true : undefined"
           />
           <p v-if="errors.port" class="text-xs text-destructive" role="alert">{{ errors.port }}</p>
-          <p v-else class="text-xs text-muted-foreground">The port your app listens on, like 3000. Leave it empty to use the EXPOSE line of the Dockerfile.</p>
+          <p v-else class="text-xs text-muted-foreground">
+            The port your app listens on, like 3000.
+            {{ ownDockerfile ? 'Leave it empty to use the EXPOSE line of the Dockerfile.' : 'Leave it empty to let bitploy find it when it builds your app.' }}
+          </p>
         </div>
 
         <div v-if="shown.health_path" class="grid gap-1.5">
