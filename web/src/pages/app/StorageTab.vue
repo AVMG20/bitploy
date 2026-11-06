@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { Archive, Download, HardDrive, Loader2, RotateCcw, Trash2, Upload } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import FormCard from '@/components/FormCard.vue'
 import FormScope from '@/components/FormScope.vue'
 import QueryError from '@/components/QueryError.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
@@ -388,14 +389,11 @@ const kindLabel: Record<BackupKind, string> = {
       </CardContent>
     </Card>
 
-    <Card v-else>
-      <CardHeader>
-        <CardTitle>Saved files</CardTitle>
-        <CardDescription>Files your app saves in <span class="font-mono">/data</span>, like uploads or a database, are kept between deploys.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FormScope :form="dataForm">
-          <form class="grid gap-4" novalidate @submit.prevent="submitLimit">
+    <FormScope v-else :form="dataForm">
+      <form novalidate @submit.prevent="submitLimit">
+        <FormCard title="Saved files">
+          <template #description>Files your app saves in <span class="font-mono">/data</span>, like uploads or a database, are kept between deploys.</template>
+          <div class="grid gap-4">
             <div v-if="data.volume" class="grid gap-2">
               <div class="flex items-baseline justify-between gap-4 text-sm">
                 <span class="text-muted-foreground">In use</span>
@@ -428,16 +426,18 @@ const kindLabel: Record<BackupKind, string> = {
                 <FormItem class="sm:max-w-[calc(50%-0.5rem)]">
                   <FormLabel>Limit (GB)</FormLabel>
                   <FormControl><Input type="number" min="0.1" step="0.5" inputmode="decimal" v-bind="componentField" /></FormControl>
-                  <FormDescription v-if="storageFree">{{ storageFree }}</FormDescription>
                   <FormMessage />
                 </FormItem>
               </FormField>
-              <div><Button type="submit" :disabled="saveLimit.isPending.value || !dataForm.meta.value.dirty">{{ saveLimit.isPending.value ? 'Saving...' : 'Save limit' }}</Button></div>
             </template>
-          </form>
-        </FormScope>
-      </CardContent>
-    </Card>
+          </div>
+          <template v-if="data.volume" #hint>{{ storageFree }}</template>
+          <template v-if="data.volume" #actions>
+            <Button type="submit" :disabled="saveLimit.isPending.value || !dataForm.meta.value.dirty">{{ saveLimit.isPending.value ? 'Saving...' : 'Save limit' }}</Button>
+          </template>
+        </FormCard>
+      </form>
+    </FormScope>
 
     <DataFiles v-if="multi && vol" :key="vol.name" :slug="slug" :running="data.status === 'running'" :volume="vol.name" :mount-path="vol.mount_path" :can-open-database="isFirstVolume" />
     <DataFiles v-else-if="!multi && data.volume" :slug="slug" :running="data.status === 'running'" />
@@ -519,7 +519,7 @@ const kindLabel: Record<BackupKind, string> = {
               <p v-if="backupForm.errors.value.keep" class="text-[0.8rem] font-medium text-destructive">{{ backupForm.errors.value.keep }}</p>
               <p v-else class="text-[0.8rem] text-muted-foreground">Applies to automatic backups. Others stay until you delete them.</p>
             </div>
-            <div class="sm:col-span-2">
+            <div class="flex justify-end sm:col-span-2">
               <Button type="submit" :disabled="saveSettings.isPending.value || !backupForm.meta.value.dirty">
                 {{ saveSettings.isPending.value ? 'Saving...' : 'Save' }}
               </Button>
