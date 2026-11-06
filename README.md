@@ -128,7 +128,7 @@ The script is safe to run twice; running it again is also how you upgrade. Under
 
 1. Installs Docker Engine and the buildx plugin from Docker's apt repository.
 2. Writes `/etc/docker/daemon.json` (app networks from `10.200.0.0/16` in `/24` blocks, log rotation 10 MB x 3, `live-restore` so apps survive a Docker restart).
-3. Installs `firewall.sh` as a systemd unit, turns on unattended upgrades and turns off SSH password login (only if it finds an SSH key, so it cannot lock you out).
+3. Installs `firewall.sh` as a systemd unit, turns on unattended upgrades (Ubuntu's security updates and the Docker repository, so Docker, containerd and runc get their fixes) and turns off SSH password login (only if it finds an SSH key, so it cannot lock you out).
 4. Creates `/etc/bitploy/bitploy.env` (mode 0600) with a generated `BITPLOY_SECRET_KEY`, asks for the domain, the Let's Encrypt email and the Origin CA certificate.
 5. Runs `docker compose up -d`, waits for `/healthz` and prints what to do next.
 

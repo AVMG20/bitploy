@@ -687,7 +687,7 @@ One Hetzner Cloud server runs everything: Docker, Traefik and bitploy, started f
 
 1. Check for the current Ubuntu LTS; install Docker Engine and the buildx plugin from Docker's apt repository.
 2. Write `/etc/docker/daemon.json`: address pools from Security, `json-file` log limits, `"live-restore": true` so apps survive a daemon restart.
-3. Apply `deploy/firewall.sh`, enable unattended upgrades, allow SSH keys only.
+3. Apply `deploy/firewall.sh`, enable unattended upgrades (also for the Docker apt repository: `origin=Docker`, so docker-ce, containerd.io and runc get security fixes), allow SSH keys only.
 4. Create `/etc/bitploy/bitploy.env` (mode 0600) with a generated `BITPLOY_SECRET_KEY`, and ask for the domain, ACME email and the Cloudflare Origin CA certificate.
 5. `docker compose up -d`, wait for `/healthz`, then print the `bitploy admin create-user` command.
 

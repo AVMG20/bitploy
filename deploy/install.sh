@@ -138,6 +138,16 @@ cat >/etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 CONF
+# Docker Engine, containerd and runc come from download.docker.com, which
+# unattended-upgrades leaves out by default (it takes Ubuntu's archives only), so
+# their security fixes would never be installed. live-restore (daemon.json) keeps
+# the containers running while the daemon restarts after an upgrade.
+cat >/etc/apt/apt.conf.d/52bitploy-docker-upgrades <<'CONF'
+// Written by bitploy's install.sh.
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Docker,codename=${distro_codename}";
+};
+CONF
 
 harden_ssh() {
   [ -z "${BITPLOY_SKIP_SSH_HARDENING:-}" ] || { echo "skipping SSH hardening (BITPLOY_SKIP_SSH_HARDENING is set)"; return; }
