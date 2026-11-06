@@ -62,7 +62,8 @@ const multi = computed(() => isMulti(app.data.value))
 const projectList = useProjects()
 const templates = useServiceTemplates()
 // A database, cache or search engine: no web address, nothing to protect with a password.
-const isPrivate = computed(() => !!app.data.value?.template)
+// No web address: a database or cache, or a worker. Its slug is only an ID.
+const isPrivate = computed(() => !!app.data.value?.template || app.data.value?.type === 'worker')
 const templateOf = computed(() => templates.data.value?.find((t) => t.id === app.data.value?.template) ?? null)
 const inProjects = computed(() => !!projectList.data.value && !projectList.data.value.fallback)
 const services = computed(() => sortServices(app.data.value?.services ?? []))
@@ -140,7 +141,7 @@ const saveGeneral = useMutation({
       void qc.invalidateQueries({ queryKey: keys.app(oldSlug) })
       return
     }
-    toastOk('Address changed', updated.url ? `The app is at ${updated.url}. The old address stops working.` : undefined)
+    toastOk(isPrivate.value ? 'ID changed' : 'Address changed', updated.url && !isPrivate.value ? `The app is at ${updated.url}. The old address stops working.` : undefined)
     qc.setQueryData(keys.app(updated.slug), updated)
     await router.replace({ name: 'app-settings', params: { slug: updated.slug } })
     for (const key of [keys.app(oldSlug), keys.deployments(oldSlug), keys.env(oldSlug), keys.domains(oldSlug)]) {
@@ -158,6 +159,7 @@ const submitGeneral = generalForm.handleSubmit((v) => {
   else if (v.name !== app.data.value?.name) saveGeneral.mutate(v)
 })
 const renameDescription = computed(() => {
+  if (isPrivate.value) return 'Links to this page and API calls that use the old ID stop working. The other apps keep reaching it by its short name.'
   const to = `${pendingRename.value?.slug ?? ''}.${domain.value || me.data.value?.apps_domain || ''}`
   return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break. Saved files are kept.`
 })
@@ -356,13 +358,13 @@ const deleteOpen = ref(false)
       </a>
     </nav>
 
-    <SettingsSection id="general" class="scroll-mt-16" title="General" :description="isPrivate ? 'What the app is called in bitploy.' : 'What the app is called in bitploy, where people open it, and who may see it.'">
+    <SettingsSection id="general" class="scroll-mt-16" title="General" :description="isPrivate ? 'What the app is called in bitploy.' : 'Its name, its address and who may open it.'">
       <div class="grid gap-4">
         <FormScope :form="generalForm">
           <form novalidate @submit.prevent="submitGeneral">
             <FormCard
               :title="isPrivate ? 'Name and ID' : 'Name and address'"
-              :description="isPrivate ? 'The name is only shown in bitploy. The ID is in the links to this page and in the API.' : 'The name is only shown in bitploy. The address is where people open the app.'"
+              :description="isPrivate ? 'The name is only shown in bitploy. The ID is in the links to this page and in the API.' : 'The name is only shown in bitploy.'"
             >
               <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
                 <FormField v-slot="{ componentField }" name="name">
@@ -386,7 +388,7 @@ const deleteOpen = ref(false)
                 </FormField>
               </div>
               <template #actions>
-                <Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : 'Save' }}</Button>
+                <Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : isPrivate ? 'Save name' : 'Save name and address' }}</Button>
               </template>
             </FormCard>
           </form>
@@ -406,14 +408,14 @@ const deleteOpen = ref(false)
         <CardContent class="grid gap-1 text-sm">
           <p>
             Runs <span class="font-mono">{{ templateOf?.image ?? app.data.value.template }}</span>
-            <template v-if="templateOf"> from the {{ templateOf.name }} template</template>.
+            <template v-if="templateOf">, the ready-made {{ templateOf.name }}</template>.
           </p>
           <p class="text-muted-foreground">Its data is kept when it restarts or redeploys.</p>
         </CardContent>
       </Card>
     </SettingsSection>
 
-    <SettingsSection v-else id="build" class="scroll-mt-16" title="Build" description="Where the code comes from and how bitploy turns it into a running app. Changes here apply on the next deploy.">
+    <SettingsSection v-else id="build" class="scroll-mt-16" title="Build" description="Where the code comes from and how bitploy turns it into a running app.">
       <div class="grid gap-4">
         <Card v-if="app.data.value?.catalog_id">
           <CardHeader>
@@ -465,11 +467,11 @@ const deleteOpen = ref(false)
         </Card>
 
         <form v-if="!multi" novalidate @submit.prevent="saveType.mutate()">
-          <FormCard title="Type" description="How bitploy builds your files.">
+          <FormCard title="Build type" description="How bitploy builds your files.">
             <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
             <template #hint>Applies on the next deploy.</template>
             <template #actions>
-              <Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save' }}</Button>
+              <Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save build type' }}</Button>
             </template>
           </FormCard>
         </form>
@@ -551,9 +553,9 @@ const deleteOpen = ref(false)
     <CatalogUpdateDialog v-if="app.data.value?.catalog_update && updateOpen" v-model:open="updateOpen" :app="app.data.value" @updated="catalogUpdated" />
     <ConfirmDialog
       v-model:open="renameOpen"
-      title="Change the address?"
+      :title="isPrivate ? 'Change the ID?' : 'Change the address?'"
       :description="renameDescription"
-      confirm-label="Change address"
+      :confirm-label="isPrivate ? 'Change ID' : 'Change address'"
       :destructive="false"
       :loading="saveGeneral.isPending.value"
       @confirm="pendingRename && saveGeneral.mutate(pendingRename)"

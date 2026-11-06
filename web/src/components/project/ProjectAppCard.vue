@@ -44,7 +44,8 @@ const latest = computed(() => (running.value ? (metrics.data.value?.latest ?? pr
 const showMemory = computed(() => props.role.lane === 'data')
 const spark = computed(() => (showMemory.value ? points.value.map((p) => p.memory_mb) : points.value.map((p) => cpuFromPercent(p.cpu))))
 const reading = computed(() => {
-  if (!latest.value) return '-'
+  if (!running.value) return 'Not running'
+  if (!latest.value) return '...'
   return showMemory.value ? `${formatMB(latest.value.memory_mb)} of ${formatMB(props.app.memory_mb)}` : formatCPU(cpuFromPercent(latest.value.cpu))
 })
 const services = computed(() => (isMulti(props.app) ? sortServices(props.app.services) : []))
@@ -128,7 +129,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       <div class="min-w-0 flex-1">
         <p class="flex items-baseline justify-between gap-2 text-[11px]">
           <span class="text-muted-foreground">{{ showMemory ? 'Memory' : 'CPU' }}, last hour</span>
-          <span class="font-mono tabular-nums">{{ reading }}</span>
+          <span :class="running ? 'font-mono tabular-nums' : 'text-muted-foreground'">{{ reading }}</span>
         </p>
         <Sparkline
           class="mt-1"

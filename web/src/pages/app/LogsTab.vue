@@ -238,7 +238,9 @@ const statusText = computed(() => {
       return 'Stream ended'
     case 'snapshot':
       // A finished build log is complete; a runtime log you paused is not.
-      return canFollow.value ? 'Paused' : 'Complete log'
+      // Live but a snapshot: the stream could not start, so these are the latest lines.
+      if (!canFollow.value) return 'Complete log'
+      return live.value ? 'Could not follow live; showing the latest lines' : 'Paused'
     case 'failed':
       return streamError.value || 'The live stream stopped.'
     default:
