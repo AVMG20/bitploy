@@ -210,7 +210,8 @@ func hintSuffix(tool, code string) string {
 	case code == "dockerfile_missing" && tool == "deploy_files":
 		return "\n\nAfter saving the two files, call deploy_files again with ALL files, including the new Dockerfile and .dockerignore."
 	case code == "dockerfile_missing" && tool == "deploy":
-		return "\n\nAdd the two files to the code: for a git source commit and push them (a push deploys by itself when auto-deploy is on), for a zip create it again (create_upload), for files use deploy_files with ALL files."
+		return "\n\nAdd the two files to the code: for a git source commit and push them (a push deploys by itself when auto-deploy is on), for a zip create it again (create_upload), for files use deploy_files with ALL files." +
+			" A repository you cannot change (not the user's, or no checkout) that holds a Node.js app or a front end: call update_app with build_mode=auto instead and deploy again; bitploy then builds it without a Dockerfile."
 	}
 	return ""
 }

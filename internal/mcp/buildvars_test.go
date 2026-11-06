@@ -40,3 +40,27 @@ func TestSetEnvBuildVariables(t *testing.T) {
 		t.Errorf("unknown name: %v", m)
 	}
 }
+
+func TestBuildModeAutoOverMCP(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, e.deployToken)
+	res := call(t, cs, "create_app", map[string]any{"name": "Repo", "slug": "their-repo", "build_mode": "auto"})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	if steps := fmt.Sprint(structured(t, res)["next_steps"]); !strings.Contains(steps, "Build mode auto") {
+		t.Errorf("next steps: %s", steps)
+	}
+	if res := call(t, cs, "update_app", map[string]any{"app": "their-repo", "build_mode": "dockerfile"}); res.IsError {
+		t.Fatal(text(res))
+	}
+	if res := call(t, cs, "update_app", map[string]any{"app": "their-repo", "build_mode": "auto"}); res.IsError {
+		t.Fatal(text(res))
+	}
+	if m := assertErrorShape(t, "static", call(t, cs, "update_app", map[string]any{"app": "their-repo", "build_mode": "static"})); m == nil {
+		t.Error("build_mode static accepted over MCP")
+	}
+	if got := hintSuffix("deploy", "dockerfile_missing"); !strings.Contains(got, "build_mode=auto") {
+		t.Errorf("dockerfile_missing hint for deploy: %s", got)
+	}
+}

@@ -7,6 +7,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    the memory and CPU quota). Every other app is built from a Dockerfile;
    bitploy refuses to deploy a server without one. If the code has none, call
    get_template with the stack and file_list, adapt it, and add a .dockerignore.
+   Only for a repository you cannot change (not the user's, or no checkout)
+   that holds a Node.js app without a Dockerfile: create_app build_mode=auto,
+   and bitploy builds it by itself.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.

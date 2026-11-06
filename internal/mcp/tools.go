@@ -56,7 +56,7 @@ type createAppIn struct {
 	Port        *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
 	Volume      bool   `json:"volume,omitempty" jsonschema:"true keeps the files in /data across deploys: the SQLite database (like /data/app.db) and uploads. Needed by every app that stores data; the app must write those files to /data."`
 	VolumeMB    *int64 `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, default 5120 (5 GB). Taken from the account's storage allowance (whoami) while the volume is on."`
-	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out to build one Dockerfile (data as SQLite in /data). compose: only when the code ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file only to deploy."`
+	BuildMode   string `json:"build_mode,omitempty" jsonschema:"Leave out to build one Dockerfile (data as SQLite in /data). auto: only for code you cannot change, like a GitHub repository that is not the user's or that you have no checkout of, when it has no Dockerfile: bitploy then builds a Dockerfile if one shows up, else a Node.js app (package.json with a start script), a front end with a build script (served as a static site) or plain HTML by itself. Other languages still need a Dockerfile (nothing_to_build). Code you write or can change gets a Dockerfile (get_template) and stays on dockerfile. compose: only when the code ALREADY has a compose file (compose.yaml or docker-compose.yml) whose services it needs, like a database server or Redis next to the app; bitploy then runs every service of that file. Call validate_compose first. Never write a compose file only to deploy."`
 	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the code, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
 	Project     string `json:"project,omitempty" jsonschema:"Only to put the app next to apps that belong with it (like the app of a database added with add_service): the project id (prj_...) from list_projects. Leave out for a new project named after the app."`
 	Alias       string `json:"alias,omitempty" jsonschema:"The app's short name in its project: its host name for the project's other apps and the name in ${{<alias>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the slug."`
@@ -82,7 +82,7 @@ type updateAppIn struct {
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
-	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build one Dockerfile (the default). compose: run every service of the code's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the code has one); check the file with validate_compose first."`
+	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build one Dockerfile (the default). auto: only for code you cannot change, like a GitHub repository that is not the user's or that you have no checkout of, when it has no Dockerfile: bitploy then builds a Dockerfile if one shows up, else a Node.js app (package.json with a start script), a front end with a build script (served as a static site) or plain HTML by itself. Other languages still need a Dockerfile (nothing_to_build). Code you write or can change gets a Dockerfile (get_template) and stays on dockerfile. Applies on the next deploy. compose: run every service of the code's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the code has one); check the file with validate_compose first."`
 	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the code, like deploy/compose.yaml. Empty string: the standard names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
 	Project        *string `json:"project,omitempty" jsonschema:"Move the app to another project (id prj_... from list_projects). Refused while other apps of its project refer to its variables, or its variables refer to apps of its project."`
 	Alias          *string `json:"alias,omitempty" jsonschema:"New short name in the project. References to the old name in the project's other apps are rewritten, and those apps restart."`
@@ -383,7 +383,7 @@ func (s *srv) registerTools() {
 	addTool(s, "create_app", "Create an app",
 		"Reserves a name and URL for a NEW app; it serves nothing until the first deploy. BEFORE calling this: if the code folder has a .bitploy file, update that app instead (deploy_files, no create_app). If the user says the code is already online, find it with list_apps and confirm by name and url. Otherwise create a NEW app: never reuse an app only because the name is similar. After creating, save {\"app\":\"<slug>\",\"url\":\"<url>\"} as .bitploy in the code folder (do not deploy that file). Use type=worker for bots with no web port.",
 		write(), true,
-		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "compose"}}),
+		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "auto", "compose"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
 			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB,
 				BuildMode: in.BuildMode, ComposePath: in.ComposePath, Project: in.Project, Alias: in.Alias})
@@ -405,12 +405,16 @@ func (s *srv) registerTools() {
 					},
 				}, nil
 			}
+			dockerfileStep := "If the code has no Dockerfile, call get_template and add one, then call validate_dockerfile."
+			if ap.BuildMode == "auto" {
+				dockerfileStep = "Build mode auto: a Dockerfile in the code is built; without one bitploy builds a Node.js app, a front end or plain HTML by itself. Values the build needs (VITE_*, NEXT_PUBLIC_*): set_env with build={NAME: \"public\"} before the first deploy."
+			}
 			return &result{
 				Summary: fmt.Sprintf("Created app %s (%s) at %s; nothing is deployed yet.", ap.Slug, ap.Name, url),
 				Data:    data("app", ap),
 				Next: []string{
 					bitployFileStep(ap),
-					"If the code has no Dockerfile, call get_template and add one, then call validate_dockerfile.",
+					dockerfileStep,
 					"Send the code. If it has a GitHub remote, prefer set_git_source with app=" + ap.Slug + " and that URL, then deploy once: later, every push deploys by itself. Otherwise deploy_files with app=" + ap.Slug + " for up to 2 MB and 200 files, or create_upload for a zip (no repository needed). To publish changes later with uploads, call deploy_files again with ALL files (it replaces the whole source).",
 				},
 			}, nil
@@ -418,7 +422,7 @@ func (s *srv) registerTools() {
 
 	addTool(s, "update_app", "Change app settings",
 		"Changes settings of an existing app; only the fields you pass change. volume=true, memory_mb, cpu_millis apply on restart_app; volume=false and volume_mb apply at once; port, health_path, dockerfile_path, context_dir, type, build_mode apply on the next deploy (call deploy with only app=); slug (rename) and domain apply at once and change the URL. To keep files across deploys: volume=true, then restart_app; the app must write them to /data. An app with several services (a compose app) takes its port, memory, CPU and volumes from the compose file: change the file and deploy again.",
-		idempotent(), true, enums(map[string][]string{"build_mode": {"dockerfile", "compose"}}),
+		idempotent(), true, enums(map[string][]string{"build_mode": {"dockerfile", "auto", "compose"}}),
 		func(ctx context.Context, a app.Actor, in updateAppIn) (*result, error) {
 			ap, err := svc.UpdateApp(ctx, a, in.App, app.UpdateAppInput{
 				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
