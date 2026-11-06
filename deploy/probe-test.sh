@@ -11,6 +11,17 @@
 #   then         both apps join a project network "bp-probe-project" (like bp-p-<id>, one /24
 #                from the pool): the client reaches the other app by its alias db there,
 #                and still not through the other app's own network
+#   public ports a network namespace "bp-probe-ext" (198.51.100.2, behind a veth
+#                pair) plays a computer on the internet. Two containers on
+#                "bp-probe-pub" publish a port: one inside the public port range
+#                (like the forwarder of a public port), one outside it.
+#     must work  from outside: the published port inside the range
+#     must fail  from outside: the published port outside the range, and the
+#                sibling container's own address (a service that is not public);
+#                from an app: the public port of another app through the server's address
+#   The range is BITPLOY_PUBLIC_PORTS (environment or /etc/bitploy/bitploy.env),
+#   else 39990-39999 for the test; the firewall is put back with the server's
+#   own settings at the end.
 #
 # Before it checks the "must fail" cases it takes the firewall away once, so a
 # green run means the rules are what blocks the traffic, not the test setup.
@@ -19,6 +30,7 @@
 #   PROBE_IMAGE=busybox:1.37  image with busybox wget and httpd
 #   PROBE_URL=http://example.com   an HTTP page on the internet
 #   PROBE_SKIP_BASELINE=1    do not remove the firewall for the control run
+#   PROBE_PUBLIC_PORT=39999  the port inside the range to publish (default: the highest)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,9 +45,18 @@ SIBLING="bp-probe-sibling"
 OTHER="bp-probe-other-app"
 LABEL="nl.bitploy.probe=1"
 METADATA_IP="169.254.169.254"
+NET_PUB="bp-probe-pub"
+PUB_IN="bp-probe-pub-in"
+PUB_OUT="bp-probe-pub-out"
+EXT_NS="bp-probe-ext"
+EXT_HOST_IF="bp-probe-h"   # host side of the veth pair
+EXT_IF="bp-probe-e"        # inside the namespace
+EXT_HOST_ADDR="198.51.100.1"
+EXT_ADDR="198.51.100.2"
 
 fail=0
 firewall_removed=0
+firewall_touched=0
 listener_pid=""
 www=""
 
@@ -46,10 +67,15 @@ bad() { say "  FAIL  $*"; fail=1; }
 cleanup() {
   if [ -n "$listener_pid" ]; then kill "$listener_pid" 2>/dev/null || true; fi
   if [ -n "$www" ]; then rm -rf "$www"; fi
-  docker rm -f "$CLIENT" "$SIBLING" "$OTHER" >/dev/null 2>&1 || true
-  docker network rm "$NET" "$NET_OTHER" "$NET_PROJECT" >/dev/null 2>&1 || true
-  # The control run takes the rules away; always put them back, also on Ctrl-C or an early exit.
-  if [ "$firewall_removed" -eq 1 ]; then "$HERE/firewall.sh" apply >/dev/null || say "  WARNING: could not re-apply the firewall: run systemctl restart bitploy-firewall"; fi
+  docker rm -f "$CLIENT" "$SIBLING" "$OTHER" "$PUB_IN" "$PUB_OUT" >/dev/null 2>&1 || true
+  docker network rm "$NET" "$NET_OTHER" "$NET_PROJECT" "$NET_PUB" >/dev/null 2>&1 || true
+  ip link del "$EXT_HOST_IF" >/dev/null 2>&1 || true
+  ip netns del "$EXT_NS" >/dev/null 2>&1 || true
+  # The control run takes the rules away and the test may use its own port
+  # range; always put the server's own rules back, also on Ctrl-C or an early exit.
+  if [ "$firewall_removed" -eq 1 ] || [ "$firewall_touched" -eq 1 ]; then
+    "$HERE/firewall.sh" apply >/dev/null || say "  WARNING: could not re-apply the firewall: run systemctl restart bitploy-firewall"
+  fi
 }
 trap cleanup EXIT
 
@@ -57,9 +83,13 @@ trap cleanup EXIT
 [ "$(id -u)" -eq 0 ] || { say "run as root"; exit 2; }
 command -v docker >/dev/null || { say "docker not found"; exit 2; }
 command -v python3 >/dev/null || { say "python3 not found (used for the host-side test server)"; exit 2; }
+command -v ip >/dev/null || { say "ip not found (apt-get install iproute2)"; exit 2; }
+command -v curl >/dev/null || { say "curl not found"; exit 2; }
 
 # Fetches a URL from inside the probe container; exit code 0 means "reached it with HTTP 200".
 reach() { docker exec "$CLIENT" wget -q -T 4 -O /dev/null "$1" >/dev/null 2>&1; }
+# The same from the "internet" namespace.
+reach_ext() { ip netns exec "$EXT_NS" curl -fsS -m 4 -o /dev/null "$1" >/dev/null 2>&1; }
 
 expect_reach() {
   if reach "$2"; then pass "$1"; else bad "$1 (expected to work: $2)"; fi
@@ -67,6 +97,22 @@ expect_reach() {
 expect_blocked() {
   if reach "$2"; then bad "$1 (expected to be blocked, but $2 answered)"; else pass "$1"; fi
 }
+expect_reach_ext() {
+  if reach_ext "$2"; then pass "$1"; else bad "$1 (expected to work: $2)"; fi
+}
+expect_blocked_ext() {
+  if reach_ext "$2"; then bad "$1 (expected to be blocked, but $2 answered)"; else pass "$1"; fi
+}
+
+# The public port range: the server's, else one for the test. firewall.sh is
+# always run with it here; cleanup runs it with the server's settings again.
+PUB_RANGE="$("$HERE/firewall.sh" ports 2>/dev/null || true)"
+[ -n "$PUB_RANGE" ] || PUB_RANGE="39990:39999"
+PUB_LO="${PUB_RANGE%%:*}"
+PUB_HI="${PUB_RANGE##*:}"
+PUB_PORT="${PROBE_PUBLIC_PORT:-$PUB_HI}"
+if [ "$PUB_HI" -lt 65535 ]; then OUT_PORT=$((PUB_HI + 1)); else OUT_PORT=$((PUB_LO - 1)); fi
+fw_apply() { firewall_touched=1; BITPLOY_PUBLIC_PORTS="$PUB_LO-$PUB_HI" "$HERE/firewall.sh" apply; }
 
 metadata_drops() {
   iptables -nvxL BITPLOY-APPS 2>/dev/null | awk -v ip="$METADATA_IP" '$3 == "DROP" && $9 ~ ip { print $1; exit }'
@@ -117,6 +163,29 @@ for c in "$SIBLING" "$OTHER"; do
 done
 SIBLING_IP="$(docker inspect "$SIBLING" -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}")"
 OTHER_IP="$(docker inspect "$OTHER" -f "{{(index .NetworkSettings.Networks \"$NET_OTHER\").IPAddress}}")"
+
+# Public ports: two containers that publish a port on the host's IPv4
+# addresses, like the forwarder of a public port; one port inside the range,
+# one outside it.
+docker network create --label "$LABEL" "$NET_PUB" >/dev/null
+for pair in "$PUB_IN:$PUB_PORT" "$PUB_OUT:$OUT_PORT"; do
+  if ! docker run -d --name "${pair%%:*}" --network "$NET_PUB" --label "$LABEL" -p "0.0.0.0:${pair##*:}:8000" "$IMAGE" \
+    sh -c 'echo ok >/tmp/index.html; exec httpd -f -p 8000 -h /tmp' >/dev/null; then
+    say "cannot publish port ${pair##*:} (in use? set PROBE_PUBLIC_PORT to a free port of $PUB_LO-$PUB_HI)"
+    exit 2
+  fi
+done
+# The "internet": a network namespace behind a veth pair, routed through the host.
+ip netns add "$EXT_NS"
+ip link add "$EXT_HOST_IF" type veth peer name "$EXT_IF"
+ip link set "$EXT_IF" netns "$EXT_NS"
+ip addr add "$EXT_HOST_ADDR/30" dev "$EXT_HOST_IF"
+ip link set "$EXT_HOST_IF" up
+ip -n "$EXT_NS" addr add "$EXT_ADDR/30" dev "$EXT_IF"
+ip -n "$EXT_NS" link set "$EXT_IF" up
+ip -n "$EXT_NS" link set lo up
+ip -n "$EXT_NS" route add default via "$EXT_HOST_ADDR"
+say "  public ports $PUB_LO-$PUB_HI: $PUB_PORT published inside the range, $OUT_PORT outside it; outside client $EXT_ADDR"
 sleep 1
 
 if [ -z "${PROBE_SKIP_BASELINE:-}" ]; then
@@ -128,13 +197,18 @@ if [ -z "${PROBE_SKIP_BASELINE:-}" ]; then
   if ! reach "http://$OTHER_IP:8000/"; then
     say "  note  other app $OTHER_IP is isolated by Docker itself, even without our rules"
   fi
+  expect_reach_ext "from outside: published port $PUB_PORT reachable without rules" "http://$HOST_IP:$PUB_PORT/"
+  expect_reach_ext "from outside: published port $OUT_PORT (outside the range) reachable without rules" "http://$HOST_IP:$OUT_PORT/"
+  if ! reach_ext "http://$SIBLING_IP:8000/"; then
+    say "  note  from outside, the container address $SIBLING_IP is blocked by Docker itself, even without our rules"
+  fi
   [ "$fail" -eq 0 ] || { say "The control run failed: the test setup is wrong, not the firewall."; exit 2; }
 fi
 
 say "Applying the firewall (twice, to prove it is idempotent)"
-"$HERE/firewall.sh" apply >/dev/null
+fw_apply >/dev/null
 rules_before="$(iptables-save | grep -c BITPLOY || true)"
-"$HERE/firewall.sh" apply >/dev/null
+fw_apply >/dev/null
 rules_after="$(iptables-save | grep -c BITPLOY || true)"
 if [ "$rules_before" = "$rules_after" ] && [ "$rules_after" -gt 0 ]; then
   pass "second run left $rules_after rule lines unchanged"
@@ -174,6 +248,12 @@ docker network connect --alias db "$NET_PROJECT" "$OTHER"
 sleep 1
 expect_reach "the other app by its alias db on the project network" "http://db:8000/"
 expect_blocked "the other app through its own app network $OTHER_IP:8000" "http://$OTHER_IP:8000/"
+
+say "Public ports (from a client outside the server)"
+expect_reach_ext "published port $PUB_PORT inside the range" "http://$HOST_IP:$PUB_PORT/"
+expect_blocked_ext "published port $OUT_PORT outside the range" "http://$HOST_IP:$OUT_PORT/"
+expect_blocked_ext "a service that is not public, by its container address $SIBLING_IP:8000" "http://$SIBLING_IP:8000/"
+expect_blocked "an app using another app's public port through the server address $HOST_IP:$PUB_PORT" "http://$HOST_IP:$PUB_PORT/"
 
 if [ "$fail" -eq 0 ]; then
   say "All checks passed."

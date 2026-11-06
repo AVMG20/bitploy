@@ -116,6 +116,21 @@ func (a *API) adminRoutes() {
 		}
 		return okOrNil(a.svc.StopApp(ctx, act, in.App))
 	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminListPublicPorts", Method: http.MethodGet, Path: "/admin/public-ports", Tags: []string{"Admin"},
+		Summary: "Public port range and the open ports", Description: "Admin only. enabled is false when BITPLOY_PUBLIC_PORTS is not set.",
+	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.PublicPortsOverview], error) {
+		return okOrNil(a.svc.ListPublicPorts(ctx, act))
+	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminClosePublicPort", Method: http.MethodDelete, Path: "/admin/public-ports/{app}", Tags: []string{"Admin"},
+		Summary: "Close the public port of any app", Description: "Admin only.", DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Empty, error) {
+		if err := a.svc.AdminClosePublicPort(ctx, act, in.App); err != nil {
+			return nil, err
+		}
+		return &Empty{}, nil
+	})
 
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminAudit", Method: http.MethodGet, Path: "/admin/audit", Tags: []string{"Admin"},

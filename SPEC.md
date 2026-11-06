@@ -262,6 +262,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    Never write a compose file only to deploy.
 9. Never stop, delete or roll back an app the user did not name. Turn password
    protection (set_password_protection) on or off only when the user asks.
+   Open a public port (set_public_port) only when the user wants to connect
+   to a database from their computer; keep it short and close it afterwards.
 10. For a well-known tool (password manager, notes, uptime monitor, ...) call
     list_catalog, then deploy_catalog_app. To run another published image,
     deploy one Dockerfile `FROM <image>:<tag>` with a pinned tag (EXPOSE is
@@ -295,6 +297,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_logs(app, kind, tail?, since?, service?)` | `build` or `runtime` logs, max 1,000 lines; `service` picks one service of an app with several | read | read-only |
 | `set_env(app, set, unset, service?)` | Encrypted env vars; values are never returned. `service` scopes them to one service of a compose app. Values may hold `${{<alias>.VAR}}` references to apps of the same project, checked on set | deploy | idempotent |
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
+| `set_public_port(app, enabled, service?, close_after?, allow_from?, only_my_ip?, show_password?)` | For debugging: a port on the server that forwards to an app without a web address (Public ports); `show_password` adds the connection URL with the password (audited) | deploy | idempotent |
 | `restart_app` / `start_app` / `stop_app` | Lifecycle | deploy | stop: destructive |
 | `rollback(app, deployment_id)` | Runs a previous image | deploy | destructive |
 | `cancel_deployment(id or app)` | Cancels a queued or in-progress deployment (`app`: the app's open one; `no_deployment_to_cancel` 409 when there is none); the live version keeps running | deploy | write |
@@ -408,6 +411,8 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET /api/v1/apps/{app}/logs?kind=runtime&tail=200[&follow=1][&service=]` | `get_logs` |
 | `PUT /api/v1/apps/{app}/env` | `set_env` (names and masked values only on read; optional `service`) |
 | `PUT /api/v1/apps/{app}/password-protection` | `set_password_protection` (`{enabled, username?, password?}`; apps report `protected` and `protected_username`, never the password) |
+| `PUT /api/v1/apps/{app}/public-port`, `POST …/public-port/reveal` | `set_public_port` (`{enabled, service?, close_after?, allow_from?, only_my_ip?}`, returns the App with `public_port`); reveal returns `{connection_url, address, secrets}` with the password (owner, deploy scope, audited) |
+| `GET /api/v1/admin/public-ports`, `DELETE /api/v1/admin/public-ports/{app}` | Admin only, dashboard session only: the range, the per-user limit and every open port; close any of them |
 | `POST /api/v1/apps/{app}/restart`, `/start`, `/stop`, `/rollback` | Lifecycle tools |
 | `GET` `POST` `DELETE /api/v1/apps/{app}/domains[/{host}]`, `POST …/{host}/check` | Domain tools |
 | `GET /api/v1/apps/{app}/metrics?window=24h[&service=]` | `get_metrics` |
@@ -552,11 +557,11 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | App → Domains | Subdomain; custom domains with the DNS records to copy and their status | Add, check now, remove |
 | App → Storage | Backups, automatic backup settings and the /data file browser (download, upload or replace a file, make or delete a folder). A SQLite file (`.db`, `.sqlite`, `.sqlite3`, `.db3`) has an Open action | Back up, restore, upload, download; Open a database |
 | App → Storage → Database `/apps/:slug/storage/db?path=` | The tables and views of a SQLite file in /data with their columns and indexes; a data grid with paging, sorting and filters; a SQL console | Add, edit and delete rows (tables with a rowid or a primary key), run SQL (read-only until writes are turned on) |
-| App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), env var names with masked values, memory and CPU within quota (fixed for a static site) | Edit; delete app (type the slug to confirm) |
+| App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), public port for apps without a web address (switch, close after 1 h / 24 h / never, allow list with "only my IP", address and connection URL with copy, password hidden until Show), env var names with masked values, memory and CPU within quota (fixed for a static site) | Edit; delete app (type the slug to confirm) |
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
 | Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos) | Change, connect or disconnect GitHub, sign out everywhere |
-| Admin | Users with app count, usage and quota; invites; server CPU, RAM, disk, Docker disk use, build queue; a read-only view of bitploy's own database (secrets hidden) | Invite, edit quota, disable user, stop any app |
+| Admin | Users with app count, usage and quota; invites; server CPU, RAM, disk, Docker disk use, build queue; the public port range and the open ports; a read-only view of bitploy's own database (secrets hidden) | Invite, edit quota, disable user, stop any app, close any public port |
 
 **Connect AI page** — the page noobs will use most. Prefill the token they just created, and verify each snippet against the client's current docs when you build it:
 
@@ -620,7 +625,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 | Processes | `pids-limit` 256; `nofile` 4096 |
 | Privileges | `no-new-privileges`, Docker's default seccomp and AppArmor profiles, drop `NET_RAW`; never `--privileged`, never added capabilities |
 | Mounts | Only the optional named volume at `/data` (a compose app: its named volumes, one service each). Never `docker.sock`, never a host path |
-| Network | Own bridge network `bp-<slug>` that only Traefik joins; no published ports |
+| Network | Own bridge network `bp-<slug>` that only Traefik joins; no published ports (a public port publishes the port of a separate forwarder container, see Public ports) |
 | Logs | `json-file`, `max-size` 10 MB, `max-file` 3 |
 | Restarts | `unless-stopped`; 5 restarts within 5 minutes → stop it and mark it `crashed` with the log tail |
 
@@ -629,7 +634,17 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 **Network isolation**
 
 - Set `default-address-pools` in `daemon.json` to `10.200.0.0/16` in `/24` blocks. Docker's default pools run out after about 30 networks, and every app needs one.
-- In `deploy/firewall.sh`, block app subnets from the host itself (INPUT), from the Hetzner metadata address `169.254.169.254` and from private ranges (DOCKER-USER chain). Outbound internet stays open. A CI test runs a probe container and asserts each rule.
+- In `deploy/firewall.sh`, block app subnets from the host itself (INPUT), from the Hetzner metadata address `169.254.169.254` and from private ranges (DOCKER-USER chain). Outbound internet stays open. Published ports into the app subnets pass only for the public port range (and 80/443). A CI test runs a probe container and asserts each rule.
+
+**Public ports** (off unless `BITPLOY_PUBLIC_PORTS` is set): the owner of an app without a web address (a service template like postgres or meilisearch, a worker, a non-public service of a compose app) can open a port of the range for a while, to connect with psql, TablePlus or redis-cli. bitploy picks the lowest free port and keeps it while the port is open; it is released when the port closes or the app is deleted.
+
+- A forwarder container `bitploy-port-<app id>` (`bitploy port-proxy`, from the database helper image) joins only `bp-<slug>` and forwards to the service (`app:5432`). It is the only container with a published port, IPv4 only (`0.0.0.0`). It runs as nobody with no capabilities, `no-new-privileges`, a read-only root, 64 MB, 64 processes, 0.25 CPU, at most 64 connections. The app container keeps no published port and does not restart.
+- Web apps (and the public service of a compose app) are refused with `public_port_web_app`: the port would go around HTTPS and password protection.
+- Closes by itself after 1 h unless `close_after` says 24 h or never. The forwarder enforces the expiry itself (it closes its listener and open connections), and the reconciler removes the port and writes `app.public_port_closed` with reason `expired`, also after a restart.
+- An optional allow list of IPv4 addresses or networks (at most 20); `only_my_ip` adds the caller's address. The forwarder refuses other addresses.
+- At most `BITPLOY_PUBLIC_PORTS_PER_USER` (3) open per user (`public_port_limit`). Audit rows: `app.public_port_opened`, `_changed`, `_closed` (reason `closed`, `expired`, `admin`, `app_deleted`, `public_ports_off`), `_moved`, `_revealed`; never the password.
+- The App JSON has `public_port` with `address` (host:port), and for service templates `connection_url` with the generated passwords as `********`. The owner can read the URL with the password (`POST …/public-port/reveal`, audited): the one exception to "nobody can read env var values back", for generated passwords of service templates only, because a deploy token can already pass them to an app it deploys with `${{<alias>.VAR}}`.
+- Apps cannot use another app's public port through the server's address: after Docker's DNAT that is app-to-app traffic, which the firewall drops.
 
 **Quotas** (per user, editable by admins): 10 apps, 2 GB memory and 2 CPUs in total, 20 deployments per hour, 5 custom domains per app, 25 GB of storage in total for app files (kept images, stored source) and the /data volumes, each volume with its own limit (5 GB by default, warning at 80%).
 
@@ -672,7 +687,7 @@ One Hetzner Cloud server runs everything: Docker, Traefik and bitploy, started f
 4. Create `/etc/bitploy/bitploy.env` (mode 0600) with a generated `BITPLOY_SECRET_KEY`, and ask for the domain, ACME email and the Cloudflare Origin CA certificate.
 5. `docker compose up -d`, wait for `/healthz`, then print the `bitploy admin create-user` command.
 
-In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443 from anywhere. They cannot be limited to Cloudflare's ranges, because custom domains arrive directly.
+In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443 from anywhere. They cannot be limited to Cloudflare's ranges, because custom domains arrive directly. With public ports on, also allow the `BITPLOY_PUBLIC_PORTS` TCP range, and run `systemctl restart bitploy-firewall` after changing it.
 
 **Config**
 
@@ -687,6 +702,9 @@ In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account |
 | `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
+| `BITPLOY_PUBLIC_PORTS` | `30000-30099` | Ports users may open to connect to a database for debugging (Public ports); at most 1000, 1024 and up, not 8080 or 8081. Empty or `off`: none. firewall.sh reads it too |
+| `BITPLOY_PUBLIC_PORTS_PER_USER` | `3` | Open public ports per user; 0: nobody can open one |
+| `BITPLOY_PUBLIC_PORTS_HOST` | `203.0.113.10` | The address shown for public ports; default `BITPLOY_SERVER_IPV4`, else `BITPLOY_EDGE_HOST`. Not the apps domain: that goes through Cloudflare, which carries HTTP only |
 | `BITPLOY_DB_HELPER_BIN` | `/path/to/bitploy-linux` | A bitploy binary built for Linux that the SQLite viewer puts in its helper image. Only for a bitploy that does not run on Linux itself (`make dev` on a Mac sets it); on Linux the running binary is used |
 
 **Compose** (`deploy/docker-compose.yml`, shape only):

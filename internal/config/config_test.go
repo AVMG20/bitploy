@@ -23,3 +23,62 @@ func TestAppURLOnDomain(t *testing.T) {
 		t.Errorf("dev URL = %q", got)
 	}
 }
+
+func TestParsePortRange(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		from, to int
+		ok       bool
+	}{
+		{"", 0, 0, true},
+		{"off", 0, 0, true},
+		{"30000-30099", 30000, 30099, true},
+		{" 40000 - 40000 ", 40000, 40000, true},
+		{"40000", 40000, 40000, true},
+		{"30100-30000", 0, 0, false},
+		{"80-90", 0, 0, false},
+		{"30000-70000", 0, 0, false},
+		{"20000-29999", 0, 0, false}, // 10000 ports
+		{"8000-8100", 0, 0, false},   // holds 8080 and 8081
+		{"a-b", 0, 0, false},
+	} {
+		from, to, err := ParsePortRange(tc.in)
+		if (err == nil) != tc.ok {
+			t.Errorf("ParsePortRange(%q) error = %v, want ok=%v", tc.in, err, tc.ok)
+			continue
+		}
+		if tc.ok && (from != tc.from || to != tc.to) {
+			t.Errorf("ParsePortRange(%q) = %d-%d, want %d-%d", tc.in, from, to, tc.from, tc.to)
+		}
+	}
+}
+
+func TestLoadPublicPorts(t *testing.T) {
+	t.Setenv("BITPLOY_SECRET_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	t.Setenv("BITPLOY_PUBLIC_PORTS", "")
+	t.Setenv("BITPLOY_PUBLIC_PORTS_HOST", "")
+	t.Setenv("BITPLOY_PUBLIC_PORTS_PER_USER", "")
+	t.Setenv("BITPLOY_SERVER_IPV4", "")
+	t.Setenv("BITPLOY_EDGE_HOST", "")
+	t.Setenv("BITPLOY_APPS_DOMAIN", "bitploy.test")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PublicPortsOn() || c.PublicPortsPerUser != DefaultPublicPortsPerUser || c.PublicPortsHost != "edge.bitploy.test" {
+		t.Fatalf("defaults: on=%v per user=%d host=%q", c.PublicPortsOn(), c.PublicPortsPerUser, c.PublicPortsHost)
+	}
+	t.Setenv("BITPLOY_PUBLIC_PORTS", "30000-30009")
+	t.Setenv("BITPLOY_SERVER_IPV4", "203.0.113.10")
+	t.Setenv("BITPLOY_PUBLIC_PORTS_PER_USER", "1")
+	if c, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.PublicPortsOn() || c.PublicPortsFrom != 30000 || c.PublicPortsTo != 30009 || c.PublicPortsPerUser != 1 || c.PublicPortsHost != "203.0.113.10" {
+		t.Fatalf("set: %+v", c)
+	}
+	t.Setenv("BITPLOY_PUBLIC_PORTS", "1-2")
+	if _, err := Load(); err == nil {
+		t.Fatal("a bad range must fail")
+	}
+}

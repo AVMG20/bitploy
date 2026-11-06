@@ -47,6 +47,7 @@ func (s *Service) reconcileSafe(ctx context.Context) {
 // Reconcile runs one pass.
 func (s *Service) Reconcile(ctx context.Context) {
 	s.reconcileDeployments(ctx)
+	s.reconcilePublicPorts(ctx)
 	if s.Docker != nil {
 		s.reconcileDocker(ctx)
 	}

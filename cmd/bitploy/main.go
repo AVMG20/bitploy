@@ -30,6 +30,7 @@ import (
 	"github.com/AVMG20/bitploy/internal/dbview"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/mcp"
+	"github.com/AVMG20/bitploy/internal/portproxy"
 	"github.com/AVMG20/bitploy/internal/proxy"
 	"github.com/AVMG20/bitploy/internal/store"
 	"github.com/AVMG20/bitploy/web"
@@ -60,6 +61,10 @@ func main() {
 		// Not for people: the SQLite viewer runs this in a helper container (and, with --control, as a process, for the admin viewer of bitploy's own database)
 		// (internal/dbview). It reads one JSON request and prints one response.
 		os.Exit(dbview.HelperMain(os.Args[2:], os.Stdin, os.Stdout))
+	case "port-proxy":
+		// Not for people: the forwarder container of a public port runs this
+		// (internal/portproxy).
+		os.Exit(portproxy.Main(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)

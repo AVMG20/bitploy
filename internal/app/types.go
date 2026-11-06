@@ -204,6 +204,9 @@ type App struct {
 	Services []AppService `json:"services" doc:"The services of the app; one named app unless it has several"`
 	// Volumes are the app's storage volumes; the /data volume is named "data".
 	Volumes []AppVolume `json:"volumes" doc:"The storage volumes of the app; /data is named data"`
+	// PublicPort is the port on the server that forwards to the app, for
+	// connecting with psql, TablePlus or redis-cli while debugging.
+	PublicPort PublicPort `json:"public_port" doc:"A port on the server that forwards to the app while it is open (set_public_port)"`
 	// Project is the project the app is in; Alias is its short name there:
 	// the other apps of the project reach it at <alias> (and <alias>-<service>
 	// for each service of an app with several) and refer to its variables as

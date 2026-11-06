@@ -87,6 +87,18 @@ type Template struct {
 // ImageRef is image:version.
 func (t Template) ImageRef() string { return t.Image + ":" + t.Version }
 
+// SecretNames are the variables of the template app that bitploy generates
+// (the passwords and keys).
+func (t Template) SecretNames() []string {
+	out := []string{}
+	for _, e := range t.Env {
+		if e.Generate != "" {
+			out = append(out, e.Name)
+		}
+	}
+	return out
+}
+
 // ConnectionNames are the names of the connection variables.
 func (t Template) ConnectionNames() []string {
 	out := make([]string, len(t.Connection))
@@ -137,12 +149,18 @@ var ownRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // at host (its alias) with its own variables vars. ok is false when the
 // template has no such variable.
 func (t Template) Resolve(name, host string, vars map[string]string) (string, bool) {
+	return t.ResolveAt(name, host, t.Port, vars)
+}
+
+// ResolveAt is Resolve for another address than the one in the project,
+// like a public port: {host} becomes host and {port} becomes port.
+func (t Template) ResolveAt(name, host string, port int64, vars map[string]string) (string, bool) {
 	for _, c := range t.Connection {
 		if c.Name != name {
 			continue
 		}
 		v := strings.ReplaceAll(c.Value, "{host}", host)
-		v = strings.ReplaceAll(v, "{port}", fmt.Sprint(t.Port))
+		v = strings.ReplaceAll(v, "{port}", fmt.Sprint(port))
 		v = ownRef.ReplaceAllStringFunc(v, func(m string) string {
 			return vars[ownRef.FindStringSubmatch(m)[1]]
 		})

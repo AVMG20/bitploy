@@ -57,6 +57,55 @@ type Config struct {
 	GitHubAPIURL      string // GitHub REST API (BITPLOY_GITHUB_API_URL); tests point it at a fake
 	GitHubWebURL      string // github.com web address, for the app manifest, install and OAuth pages (BITPLOY_GITHUB_URL)
 	DBHelperBin       string // a bitploy binary built for Linux, for the SQLite viewer's helper image (BITPLOY_DB_HELPER_BIN); only needed when bitploy does not run on Linux itself
+	// PublicPortsFrom and PublicPortsTo are the host ports bitploy may hand out
+	// as public ports (BITPLOY_PUBLIC_PORTS, like 30000-30099). Both 0: the
+	// feature is off.
+	PublicPortsFrom    int
+	PublicPortsTo      int
+	PublicPortsPerUser int    // open public ports per user (BITPLOY_PUBLIC_PORTS_PER_USER, default 3)
+	PublicPortsHost    string // the host shown with a public port (BITPLOY_PUBLIC_PORTS_HOST; default the server's IPv4, else the edge host)
+}
+
+// Bounds of BITPLOY_PUBLIC_PORTS.
+const (
+	DefaultPublicPortsPerUser = 3
+	minPublicPort             = 1024
+	maxPublicPortRange        = 1000
+)
+
+// ParsePortRange reads BITPLOY_PUBLIC_PORTS: "" or "off" is no range (0, 0);
+// otherwise "from-to" (or one port) between 1024 and 65535, at most 1000
+// ports. The ports of bitploy and Traefik's internal entrypoint are refused.
+func ParsePortRange(v string) (from, to int, err error) {
+	v = strings.TrimSpace(v)
+	if v == "" || offValue(v) {
+		return 0, 0, nil
+	}
+	a, b, found := strings.Cut(v, "-")
+	if !found {
+		b = a
+	}
+	from, err1 := strconv.Atoi(strings.TrimSpace(a))
+	to, err2 := strconv.Atoi(strings.TrimSpace(b))
+	switch {
+	case err1 != nil || err2 != nil:
+		return 0, 0, fmt.Errorf("BITPLOY_PUBLIC_PORTS must be a range such as 30000-30099, got %q", v)
+	case from < minPublicPort || to > 65535 || from > to:
+		return 0, 0, fmt.Errorf("BITPLOY_PUBLIC_PORTS must lie between 1024 and 65535, low port first, got %q", v)
+	case to-from+1 > maxPublicPortRange:
+		return 0, 0, fmt.Errorf("BITPLOY_PUBLIC_PORTS may hold at most %d ports, got %q", maxPublicPortRange, v)
+	}
+	for _, p := range []int{8080, 8081} { // bitploy itself and Traefik's internal entrypoint
+		if from <= p && p <= to {
+			return 0, 0, fmt.Errorf("BITPLOY_PUBLIC_PORTS may not include port %d (bitploy and Traefik use it), got %q", p, v)
+		}
+	}
+	return from, to, nil
+}
+
+// PublicPortsOn reports whether apps may get a public port.
+func (c *Config) PublicPortsOn() bool {
+	return c.PublicPortsFrom > 0 && c.PublicPortsTo >= c.PublicPortsFrom
 }
 
 func Load() (*Config, error) {
@@ -110,6 +159,25 @@ func Load() (*Config, error) {
 	}
 	if c.EdgeHost == "" {
 		c.EdgeHost = "edge." + c.AppsDomain
+	}
+	from, to, err := ParsePortRange(os.Getenv("BITPLOY_PUBLIC_PORTS"))
+	if err != nil {
+		return nil, err
+	}
+	c.PublicPortsFrom, c.PublicPortsTo = from, to
+	c.PublicPortsPerUser = DefaultPublicPortsPerUser
+	if v := os.Getenv("BITPLOY_PUBLIC_PORTS_PER_USER"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return nil, fmt.Errorf("BITPLOY_PUBLIC_PORTS_PER_USER must be 0 or more, got %q", v)
+		}
+		c.PublicPortsPerUser = n
+	}
+	// The apps domain is behind Cloudflare's proxy, which passes only HTTP(S):
+	// a public port needs an address that reaches the server itself.
+	c.PublicPortsHost = strings.TrimSpace(env("BITPLOY_PUBLIC_PORTS_HOST", c.ServerIPv4))
+	if c.PublicPortsHost == "" {
+		c.PublicPortsHost = c.EdgeHost
 	}
 	key := os.Getenv("BITPLOY_SECRET_KEY")
 	if key == "" {

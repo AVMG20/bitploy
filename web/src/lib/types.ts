@@ -377,6 +377,8 @@ export interface App {
   services: AppService[]
   /** The storage volumes of the app; /data of a normal app is named "data". */
   volumes: AppVolume[]
+  /** A port on the server that forwards to the app, for connecting to a database to debug it. Missing on older servers. */
+  public_port?: PublicPort
   /** single: one service whose settings are the app's fields; multi: several services from a compose file. */
   service_layout?: 'single' | 'multi'
   /** Where the compose file is in the source, for build_mode compose; "" means the usual names. */
@@ -406,6 +408,82 @@ export interface App {
   references?: string[]
   created_at: string
   updated_at: string
+}
+
+/**
+ * App.public_port: a port on the server that forwards to an app without a web
+ * address (a database, cache, search engine or worker), for psql, TablePlus or
+ * redis-cli. Off by default; bitploy closes it by itself after close_after.
+ */
+export interface PublicPort {
+  /** False when the server hands out no public ports or the app has a web address. */
+  available: boolean
+  reason?: 'public_ports_off' | 'web_app'
+  /** True while the port is open. */
+  enabled: boolean
+  /** True while connections are forwarded; false while it starts or when it failed (see error). */
+  running: boolean
+  /** The service it forwards to, for an app with several services. */
+  service?: string
+  host?: string
+  port?: number
+  /** host:port to connect to. */
+  address?: string
+  /** The port inside the app that connections go to. */
+  target_port?: number
+  /** Service template apps: the connection URL for this address, passwords shown as ********. */
+  connection_url?: string
+  /** IPv4 addresses or networks that may connect; empty: everyone. */
+  allow_from: string[]
+  /** When bitploy closes it by itself; null: never. */
+  expires_at: string | null
+  opened_at?: string
+  /** Why the forwarder does not run. */
+  error?: string
+}
+
+export type CloseAfter = '1h' | '24h' | 'never'
+
+export interface PublicPortInput {
+  enabled: boolean
+  service?: string
+  /** Counted from now; defaults to 1h when opening. */
+  close_after?: CloseAfter
+  /** Left out keeps the list; [] lets everyone connect. */
+  allow_from?: string[]
+  /** Add the IPv4 address of this request to allow_from. */
+  only_my_ip?: boolean
+}
+
+/** POST /apps/{app}/public-port/reveal: the connection URL with the password. */
+export interface PublicConnection {
+  connection_url: string
+  address: string
+  /** The generated passwords and keys of the service template, by variable name. */
+  secrets: Record<string, string>
+}
+
+/** GET /admin/public-ports. */
+export interface PublicPortsOverview {
+  /** False when BITPLOY_PUBLIC_PORTS is not set. */
+  enabled: boolean
+  from: number
+  to: number
+  host: string
+  per_user: number
+  open: OpenPublicPort[]
+}
+
+export interface OpenPublicPort {
+  app: string
+  app_name: string
+  owner_email: string
+  service?: string
+  port: number
+  allow_from: string[]
+  expires_at: string | null
+  opened_at: string
+  error?: string
 }
 
 /** The project an app is in, as App.project. */

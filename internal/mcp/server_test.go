@@ -179,7 +179,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	wantTools := strings.Fields(`whoami get_deploy_rules get_template validate_dockerfile validate_compose list_apps get_app create_app update_app
 		deploy_files list_catalog deploy_catalog_app create_upload set_git_source deploy get_deployment list_deployments get_logs set_env
 		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics create_backup list_backups set_password_protection query_db cancel_deployment
-		list_projects get_project create_project list_service_templates add_service`)
+		list_projects get_project create_project list_service_templates add_service set_public_port`)
 	for _, n := range wantTools {
 		if got[n] == nil {
 			t.Errorf("tool %s missing", n)

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import QueryError from '@/components/QueryError.vue'
 import StatCard from '@/components/StatCard.vue'
+import AdminPublicPorts from './AdminPublicPorts.vue'
 import { keys, REFRESH_MS } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { formatGB, formatMB, formatPercent, pct } from '@/lib/format'
@@ -45,5 +46,6 @@ const s = computed(() => server.data.value)
         :progress="s ? pct(s.apps_total, s.apps_max) : undefined"
       />
     </div>
+    <AdminPublicPorts class="mt-6" />
   </div>
 </template>
