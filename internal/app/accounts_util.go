@@ -41,6 +41,7 @@ func acctQuotaFromRow(u db.User) Quota {
 	return Quota{
 		Apps: u.QuotaApps, MemoryMB: u.QuotaMemoryMb, CPUMillis: u.QuotaCpuMillis,
 		DeploysPerHour: u.QuotaDeploysPerHour, DomainsPerApp: u.QuotaDomainsPerApp, VolumeMB: u.QuotaVolumeMb,
+		Overallocate: u.Overallocate != 0,
 	}
 }
 

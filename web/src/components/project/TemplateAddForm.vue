@@ -72,7 +72,7 @@ const mainVar = computed(() => props.template.main_var || props.template.connect
 const role = computed<RoleKey>(() => templateRole(props.template))
 
 // ---------------------------------------------------------------- does it fit
-const memLeft = computed(() => (me.data.value ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
+const memLeft = computed(() => (me.data.value && !me.data.value.quota.overallocate ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
 const storageLeft = computed(() => {
   const m = me.data.value
   return m ? Math.max(0, m.quota.volume_mb - m.usage.files_mb - m.usage.backups_mb - m.usage.volume_reserved_mb) : null

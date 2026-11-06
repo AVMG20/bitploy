@@ -46,7 +46,7 @@ watch(
 )
 
 const groups = computed(() => groupTemplates(templates.data.value ?? []))
-const memLeft = computed(() => (me.data.value ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
+const memLeft = computed(() => (me.data.value && !me.data.value.quota.overallocate ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
 
 const SOURCES = [
   { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. bitploy finds its Dockerfile, compose file, Node.js app or website.' },

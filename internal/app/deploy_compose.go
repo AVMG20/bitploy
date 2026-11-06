@@ -415,10 +415,15 @@ func (s *Service) composeRoom(ctx context.Context, u db.User, excludeID string, 
 	}
 	q := ComposeQuota{MemoryMBLeft: max(u.QuotaMemoryMb-sum.MemoryMb, 0), CPUMillisLeft: max(u.QuotaCpuMillis-sum.CpuMillis, 0), Fits: true}
 	var parts []string
-	parts = append(parts, fmt.Sprintf("%s of memory of the %s you have left", mbText(mem), mbText(q.MemoryMBLeft)))
-	parts = append(parts, fmt.Sprintf("%s CPU of the %s left", cpuText(cpu), cpuText(q.CPUMillisLeft)))
-	if mem > q.MemoryMBLeft || cpu > q.CPUMillisLeft {
-		q.Fits = false
+	if u.Overallocate != 0 {
+		// Memory and CPU are not checked for this user; storage still is.
+		parts = append(parts, fmt.Sprintf("%s of memory and %s CPU (not checked: you may overallocate)", mbText(mem), cpuText(cpu)))
+	} else {
+		parts = append(parts, fmt.Sprintf("%s of memory of the %s you have left", mbText(mem), mbText(q.MemoryMBLeft)))
+		parts = append(parts, fmt.Sprintf("%s CPU of the %s left", cpuText(cpu), cpuText(q.CPUMillisLeft)))
+		if mem > q.MemoryMBLeft || cpu > q.CPUMillisLeft {
+			q.Fits = false
+		}
 	}
 	if u.QuotaVolumeMb > 0 {
 		taken, err := s.storageTaken(ctx, u.ID, excludeID)
@@ -466,7 +471,7 @@ func (s *Service) composeQuotaErr(ctx context.Context, app db.App, specs []servi
 	if appConsumes(app) {
 		extra = mem - app.MemoryMb
 	}
-	if extra > 0 {
+	if extra > 0 && u.Overallocate == 0 {
 		if err := s.checkServerRoom(ctx, extra); err != nil {
 			return apperr.As(err)
 		}

@@ -21,6 +21,8 @@ export interface Quota {
   domains_per_app: number
   /** Storage allowance, shared by the /data volumes of all apps. */
   volume_mb: number
+  /** Memory and CPU are not checked at all (set by an admin, for the people who run the server). */
+  overallocate?: boolean
 }
 
 export interface Usage {

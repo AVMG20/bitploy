@@ -26,6 +26,9 @@ type Quota struct {
 	DeploysPerHour int64 `json:"deploys_per_hour"`
 	DomainsPerApp  int64 `json:"domains_per_app"`
 	VolumeMB       int64 `json:"volume_mb"` // storage allowance, shared by the /data volumes of all apps
+	// Overallocate: memory and CPU are not checked at all, not against this
+	// quota and not against the server's room. Admins set it, for themselves.
+	Overallocate bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have"`
 }
 
 type Usage struct {

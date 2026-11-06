@@ -590,7 +590,7 @@ func (q *Queries) ListTokensOfUser(ctx context.Context, userID string) ([]ApiTok
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at FROM users ORDER BY created_at ASC
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate FROM users ORDER BY created_at ASC
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -617,6 +617,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.QuotaVolumeMb,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Overallocate,
 		); err != nil {
 			return nil, err
 		}
@@ -744,7 +745,7 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 
 const updateUserQuota = `-- name: UpdateUserQuota :exec
 UPDATE users SET quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?,
-    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, updated_at = ?
+    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
 WHERE id = ?
 `
 
@@ -755,6 +756,7 @@ type UpdateUserQuotaParams struct {
 	QuotaDeploysPerHour int64
 	QuotaDomainsPerApp  int64
 	QuotaVolumeMb       int64
+	Overallocate        int64
 	UpdatedAt           int64
 	ID                  string
 }
@@ -767,6 +769,7 @@ func (q *Queries) UpdateUserQuota(ctx context.Context, arg UpdateUserQuotaParams
 		arg.QuotaDeploysPerHour,
 		arg.QuotaDomainsPerApp,
 		arg.QuotaVolumeMb,
+		arg.Overallocate,
 		arg.UpdatedAt,
 		arg.ID,
 	)

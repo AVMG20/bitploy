@@ -465,6 +465,7 @@ type User struct {
 	QuotaVolumeMb       int64
 	CreatedAt           int64
 	UpdatedAt           int64
+	Overallocate        int64
 }
 
 type UserAppDomain struct {

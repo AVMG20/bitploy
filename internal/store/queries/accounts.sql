@@ -19,7 +19,7 @@ UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?;
 
 -- name: UpdateUserQuota :exec
 UPDATE users SET quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?,
-    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, updated_at = ?
+    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
 WHERE id = ?;
 
 -- name: UpdateUserStatus :exec

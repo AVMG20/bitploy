@@ -537,7 +537,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			if err := s.checkResourceQuota(ctx, owner, row.ID, p.MemoryMb, p.CpuMillis); err != nil {
 				return App{}, err
 			}
-			if delta := p.MemoryMb - row.MemoryMb; delta > 0 {
+			if delta := p.MemoryMb - row.MemoryMb; delta > 0 && owner.Overallocate == 0 {
 				if err := s.checkServerRoom(ctx, delta); err != nil {
 					return App{}, err
 				}
@@ -1035,7 +1035,11 @@ func (s *Service) appIsStatic(ctx context.Context, a db.App) bool {
 }
 
 // checkFitsQuota rejects one app that is bigger than the user's whole quota.
+// A user who may overallocate is never refused.
 func checkFitsQuota(u db.User, mem, cpu int64) error {
+	if u.Overallocate != 0 {
+		return nil
+	}
 	if mem > u.QuotaMemoryMb {
 		return apperr.Forbidden("memory_quota_exceeded",
 			fmt.Sprintf("This needs %d MB of memory, but your whole quota is %d MB.", mem, u.QuotaMemoryMb),
@@ -1077,11 +1081,14 @@ func (s *Service) checkDeployQuota(ctx context.Context, app db.App, rollbackKind
 
 // checkConsumeQuota verifies that app (counted at mem and cpu, as the user's
 // other running apps are summed without it) fits the quota and that the server
-// has room for extraMB more memory.
+// has room for extraMB more memory. A user who may overallocate skips both.
 func (s *Service) checkConsumeQuota(ctx context.Context, app db.App, mem, cpu, extraMB int64) error {
 	user, err := s.activeUser(ctx, app.UserID)
 	if err != nil {
 		return err
+	}
+	if user.Overallocate != 0 {
+		return nil
 	}
 	if err := s.checkResourceQuota(ctx, user, app.ID, mem, cpu); err != nil {
 		return err
@@ -1093,6 +1100,9 @@ func (s *Service) checkConsumeQuota(ctx context.Context, app db.App, mem, cpu, e
 // running apps (desired state running, with a deployment), with this app
 // (excludeID, may be "") counted at mem and cpu.
 func (s *Service) checkResourceQuota(ctx context.Context, u db.User, excludeID string, mem, cpu int64) error {
+	if u.Overallocate != 0 {
+		return nil
+	}
 	sum, err := s.Q.SumAppResourcesByUser(ctx, db.SumAppResourcesByUserParams{UserID: u.ID, ID: excludeID})
 	if err != nil {
 		return apperr.Internal(err)

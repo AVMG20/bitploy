@@ -200,7 +200,8 @@ const room = computed(() => {
   const q = quota.value
   const u = me.data.value?.usage
   const a = app.data.value
-  if (!q || !u || !a) return null
+  // Overallocating: nothing is checked, so there is no room to show or enforce.
+  if (!q || !u || !a || q.overallocate) return null
   // A static site is not part of the reserved totals, so there is nothing to take off.
   const runs = a.desired_state === 'running' && !!a.current_deployment && !a.static
   const otherMem = Math.max(0, u.memory_reserved_mb - (runs ? a.memory_mb : 0))

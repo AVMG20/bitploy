@@ -9,7 +9,8 @@ import QueryError from '@/components/QueryError.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -31,6 +32,7 @@ interface QuotaForm {
   deploys_per_hour: number
   domains_per_app: number
   volume_mb: number
+  overallocate: boolean
 }
 
 const qc = useQueryClient()
@@ -54,9 +56,10 @@ const form = useForm({
       deploys_per_hour: whole('Deploys per hour', 1),
       domains_per_app: whole('Domains', 0),
       volume_mb: whole('Storage', 0),
+      overallocate: z.boolean(),
     }),
   ),
-  initialValues: { apps: 10, memory_mb: 2048, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
+  initialValues: { apps: 10, memory_mb: 2048, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600, overallocate: false },
 })
 
 const fields = [
@@ -78,6 +81,7 @@ function edit(u: AdminUser) {
       deploys_per_hour: u.quota.deploys_per_hour,
       domains_per_app: u.quota.domains_per_app,
       volume_mb: u.quota.volume_mb,
+      overallocate: !!u.quota.overallocate,
     },
   })
 }
@@ -92,6 +96,7 @@ const saveQuota = useMutation({
         deploys_per_hour: v.values.deploys_per_hour,
         domains_per_app: v.values.domains_per_app,
         volume_mb: v.values.volume_mb,
+        overallocate: v.values.overallocate,
       },
     }),
   onSuccess: () => {
@@ -182,6 +187,16 @@ const setStatus = useMutation({
               <FormLabel>{{ f.label }}</FormLabel>
               <FormControl><Input type="number" step="any" inputmode="decimal" v-bind="componentField" /></FormControl>
               <FormMessage />
+            </FormItem>
+          </FormField>
+          <!-- For the people who run the server: their apps may ask for more than the quota and the server have. -->
+          <FormField v-slot="{ value, handleChange }" name="overallocate" type="checkbox">
+            <FormItem class="flex items-start justify-between gap-3 rounded-lg border p-3 sm:col-span-2">
+              <div class="grid gap-1">
+                <FormLabel>Allow overallocating memory and CPU</FormLabel>
+                <FormDescription>Memory and CPU are not checked: not against these limits and not against what the server has free. Meant for admins who know what the server can take.</FormDescription>
+              </div>
+              <FormControl><Switch :model-value="value" aria-label="Allow overallocating memory and CPU" @update:model-value="handleChange" /></FormControl>
             </FormItem>
           </FormField>
         </form>

@@ -88,12 +88,15 @@ function mounts(s: ComposeService): { name: string; size: number | null; path: s
 // ---------------------------------------------------------------- does it fit
 const memoryTotal = computed(() => c.value?.memory_mb_total ?? services.value.reduce((n, s) => n + s.memory_mb, 0))
 const cpuTotal = computed(() => c.value?.cpu_millis_total ?? services.value.reduce((n, s) => n + s.cpu_millis, 0))
+// Overallocating: memory and CPU are not checked, so nothing is ever over.
 const memoryLeft = computed(() => {
+  if (me.data.value?.quota.overallocate) return null
   if (c.value?.quota) return c.value.quota.memory_mb_left
   const m = me.data.value
   return m ? Math.max(0, m.quota.memory_mb - m.usage.memory_reserved_mb) : null
 })
 const cpuLeft = computed(() => {
+  if (me.data.value?.quota.overallocate) return null
   if (c.value?.quota) return c.value.quota.cpu_millis_left
   const m = me.data.value
   return m ? Math.max(0, m.quota.cpu_millis - m.usage.cpu_reserved_millis) : null

@@ -72,13 +72,14 @@ func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q Q
 	if err := s.Q.UpdateUserQuota(ctx, db.UpdateUserQuotaParams{
 		QuotaApps: q.Apps, QuotaMemoryMb: q.MemoryMB, QuotaCpuMillis: q.CPUMillis,
 		QuotaDeploysPerHour: q.DeploysPerHour, QuotaDomainsPerApp: q.DomainsPerApp, QuotaVolumeMb: q.VolumeMB,
-		UpdatedAt: s.now(), ID: userID,
+		Overallocate: b2i(q.Overallocate), UpdatedAt: s.now(), ID: userID,
 	}); err != nil {
 		return AdminUser{}, apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "admin.quota_set", "user", userID, map[string]any{
 		"apps": q.Apps, "memory_mb": q.MemoryMB, "cpu_millis": q.CPUMillis,
 		"deploys_per_hour": q.DeploysPerHour, "domains_per_app": q.DomainsPerApp, "volume_mb": q.VolumeMB,
+		"overallocate": q.Overallocate,
 	})
 	u, err := s.Q.GetUser(ctx, userID)
 	if err != nil {
