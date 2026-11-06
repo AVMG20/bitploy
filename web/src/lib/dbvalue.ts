@@ -150,6 +150,16 @@ export function copyableText(v: DbValue): string {
 const COMMON_DB_NAMES = ['app.db', 'data.db', 'database.db', 'db.sqlite', 'database.sqlite', 'sqlite.db', 'db.sqlite3', 'database.sqlite3']
 
 /** The database to open from the Database tab: among the SQLite files of a folder, a common name wins, else the largest. Null when there is none. */
+/** A PostgreSQL, MariaDB or MySQL app: its Database tab opens the server, not a file in /data. */
+export function isServerDb(app: { template?: string | null } | null | undefined): boolean {
+  return /^(postgres|pgvector|mariadb|mysql)$/.test(app?.template ?? '')
+}
+
+/** The engine of a database server as people name it. */
+export function engineName(engine: string | undefined): string {
+  return ({ postgres: 'PostgreSQL', mariadb: 'MariaDB', mysql: 'MySQL' } as Record<string, string>)[engine ?? ''] ?? 'SQLite'
+}
+
 export function pickDatabase(items: { name: string; type: string; size: number }[], slug: string): string | null {
   const dbs = items.filter((f) => f.type === 'file' && isDbFileName(f.name))
   if (!dbs.length) return null

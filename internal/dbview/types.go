@@ -73,6 +73,10 @@ type Request struct {
 
 	SQL   string `json:"sql,omitempty"`
 	Write bool   `json:"write,omitempty"`
+
+	// Server is set for a database server (PostgreSQL, MariaDB, MySQL)
+	// instead of a SQLite file: Path is not used then (server.go).
+	Server *ServerConn `json:"server,omitempty"`
 }
 
 // Filter is one condition of the rows request. Value is in the value shapes.
@@ -110,6 +114,13 @@ type Info struct {
 	PageSize      int64   `json:"page_size"`
 	SQLiteVersion string  `json:"sqlite_version"`
 	Tables        []Table `json:"tables"`
+
+	// A database server: its engine and version, the database shown and the
+	// databases on the server one can switch to.
+	Engine        string   `json:"engine,omitempty"`
+	ServerVersion string   `json:"server_version,omitempty"`
+	Database      string   `json:"database,omitempty"`
+	Databases     []string `json:"databases,omitempty"`
 }
 
 // Table is a table or a view.

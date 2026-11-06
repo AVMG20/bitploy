@@ -898,6 +898,11 @@ export interface DbSchema {
   page_size: number
   sqlite_version: string
   tables: DbTable[]
+  /** A database server (PostgreSQL, MariaDB, MySQL): its engine, version, the database shown and the others on it. */
+  engine?: string
+  server_version?: string
+  database?: string
+  databases?: string[]
 }
 
 export type DbKey = Record<string, DbValue>

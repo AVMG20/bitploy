@@ -209,19 +209,36 @@ func (c *Client) removeOldDBHelperImages(ctx context.Context, keep string) {
 	}
 }
 
-// RunDBHelper runs `bitploy db-helper` in a fresh locked-down container that
-// mounts only the volume, with the JSON request, and returns what it printed.
-// The volume is mounted read-write: SQLite needs that even to read a database
-// in WAL mode (the helper makes the database read-only for reads itself). The
-// helper is root only to look at the owner of the file and then becomes that
-// user, so it never creates files the app can not use. The container has no
-// network and is removed at the end, also when the helper has to be killed.
+// RunDBHelper runs one request of the SQLite viewer against a volume, in a
+// helper container without network that has the volume at /data.
 func (c *Client) RunDBHelper(ctx context.Context, volume string, request []byte) ([]byte, error) {
 	if ok, err := c.VolumeExists(ctx, volume); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, ErrNoVolume
 	}
+	return c.runDBHelper(ctx, request, "0", func(h *container.HostConfig) {
+		h.NetworkMode = "none"
+		// SETUID and SETGID to become the owner of the file; the helper gives
+		// them up itself right after (and checks). A user other than root loses
+		// all of them; for a database of root CHOWN and FOWNER stay.
+		h.CapAdd = append([]string{"SETUID", "SETGID"}, helperCaps...)
+		h.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: volume, Target: DataMount}}
+	})
+}
+
+// RunDBServerHelper runs one request of the viewer for a database server
+// (PostgreSQL, MariaDB, MySQL) in a helper container that shares the network
+// of the database's container: it reaches the server at 127.0.0.1 and nothing
+// else that container could not reach already. It runs as nobody, with no
+// capabilities and no volume.
+func (c *Client) RunDBServerHelper(ctx context.Context, dbContainer string, request []byte) ([]byte, error) {
+	return c.runDBHelper(ctx, request, "65534:65534", func(h *container.HostConfig) {
+		h.NetworkMode = container.NetworkMode("container:" + dbContainer)
+	})
+}
+
+func (c *Client) runDBHelper(ctx context.Context, request []byte, user string, host func(*container.HostConfig)) ([]byte, error) {
 	image, err := c.ensureDBHelperImage(ctx)
 	if err != nil {
 		return nil, err
@@ -230,26 +247,22 @@ func (c *Client) RunDBHelper(ctx context.Context, volume string, request []byte)
 	labels[LabelDBHelper] = "1"
 	name := HelperPrefix + ids.Hex(10)
 	pids, mem := int64(64), int64(256<<20)
+	hc := &container.HostConfig{
+		CapDrop:     []string{"ALL"},
+		SecurityOpt: []string{"no-new-privileges"},
+		LogConfig:   container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "16m", "max-file": "1"}},
+		Resources:   container.Resources{Memory: mem, MemorySwap: mem, PidsLimit: &pids, NanoCPUs: 1_000_000_000},
+		Tmpfs:       map[string]string{"/tmp": "size=64m,mode=1777"},
+	}
+	host(hc)
 	_, err = c.API.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{
-			Image: image, User: "0", Labels: labels,
+			Image: image, User: user, Labels: labels,
 			Cmd: []string{dbHelperBinary, "db-helper", dbHelperReq},
 			Env: []string{"GOMAXPROCS=2", "GOMEMLIMIT=192MiB"},
 		},
-		HostConfig: &container.HostConfig{
-			NetworkMode: "none",
-			// SETUID and SETGID to become the owner of the file; the helper gives
-			// them up itself right after (and checks). A user other than root loses
-			// all of them; for a database of root CHOWN and FOWNER stay.
-			CapDrop:     []string{"ALL"},
-			CapAdd:      append([]string{"SETUID", "SETGID"}, helperCaps...),
-			SecurityOpt: []string{"no-new-privileges"},
-			LogConfig:   container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "16m", "max-file": "1"}},
-			Resources:   container.Resources{Memory: mem, MemorySwap: mem, PidsLimit: &pids, NanoCPUs: 1_000_000_000},
-			Tmpfs:       map[string]string{"/tmp": "size=64m,mode=1777"},
-			Mounts:      []mount.Mount{{Type: mount.TypeVolume, Source: volume, Target: DataMount}},
-		},
+		HostConfig: hc,
 	})
 	if err != nil {
 		return nil, err

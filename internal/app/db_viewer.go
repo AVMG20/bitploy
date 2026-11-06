@@ -1,6 +1,7 @@
 package app
 
-// The SQLite viewer for the databases in /data: the tables of a file, a page of
+// The database viewer: for the SQLite files in /data, and for the database of
+// a PostgreSQL, MariaDB or MySQL app (dbServerTarget). The tables, a page of
 // rows, insert, update and delete of rows, and a SQL console. The access rules
 // are those of the file browser (filesTarget): only the owner's own app, /data
 // on and created, writes need the deploy scope and are refused while a backup
@@ -14,12 +15,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/dbview"
 	"github.com/AVMG20/bitploy/internal/dockerx"
+	"github.com/AVMG20/bitploy/internal/servicetpl"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
@@ -33,6 +36,16 @@ type dbRunner interface {
 
 func (d dockerVolumes) RunDB(ctx context.Context, volume string, request []byte) ([]byte, error) {
 	return d.c.RunDBHelper(ctx, volume, request)
+}
+
+// dbServerRunner runs one request of the viewer for a database server in the
+// network of the named container of the database app.
+type dbServerRunner interface {
+	RunDBServer(ctx context.Context, container string, request []byte) ([]byte, error)
+}
+
+func (d dockerVolumes) RunDBServer(ctx context.Context, container string, request []byte) ([]byte, error) {
+	return d.c.RunDBServerHelper(ctx, container, request)
 }
 
 // The shapes of the viewer's answers are those of dbview.
@@ -312,25 +325,38 @@ type dbWrite struct {
 // for an app and dbMaxTotal for the server; the rest waits a moment, then gets
 // db_busy. Every write that reached the helper is audited, whatever came of it.
 func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string, w *dbWrite, req dbview.Request, out any) error {
-	rel, err := cleanFilePath(path)
+	app, _, err := s.backupApp(ctx, a, ref, w != nil)
 	if err != nil {
 		return err
 	}
-	if rel == "" {
-		return filePathErr("There is no path to a database.")
-	}
-	req.Path = rel
-	row, _, _, vol, err := s.filesTarget(ctx, a, ref, w != nil, volume) // "" is the first volume
-	if err != nil {
-		return err
-	}
-	vs, err := s.volumes()
-	if err != nil {
-		return err
-	}
-	runner, ok := vs.(dbRunner)
-	if !ok {
-		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach the files in /data.", "Try again in a minute.")
+	var (
+		row  db.App
+		rel  string
+		exec func(body []byte) ([]byte, error)
+	)
+	if eng := dumpEngineOf(app); eng != nil && app.UserID == a.UserID {
+		row = app
+		if exec, rel, err = s.dbServerTarget(ctx, app, eng.id, path, &req); err != nil {
+			return err
+		}
+	} else {
+		if rel, err = cleanFilePath(path); err != nil {
+			return err
+		}
+		if rel == "" {
+			return filePathErr("There is no path to a database.")
+		}
+		req.Path = rel
+		var vol volumeSpec
+		row, _, _, vol, err = s.filesTarget(ctx, a, ref, w != nil, volume) // "" is the first volume
+		if err != nil {
+			return err
+		}
+		runner, err := s.dbRunner()
+		if err != nil {
+			return err
+		}
+		exec = func(body []byte) ([]byte, error) { return runner.RunDB(ctx, vol.VolumeName, body) }
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -362,7 +388,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string,
 		defer end()
 	}
 
-	raw, err := runner.RunDB(ctx, vol.VolumeName, body)
+	raw, err := exec(body)
 	if err != nil {
 		// The helper may have been killed after it committed: nobody knows.
 		s.dbAudit(ctx, a, row, rel, w, "unknown", "", nil)
@@ -388,6 +414,78 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string,
 	}
 	s.dbAudit(ctx, a, row, rel, w, "ok", "", nil)
 	return nil
+}
+
+func (s *Service) dbRunner() (dbRunner, error) {
+	vs, err := s.volumes()
+	if err != nil {
+		return nil, err
+	}
+	runner, ok := vs.(dbRunner)
+	if !ok {
+		return nil, apperr.Unavailable("docker_unavailable", "bitploy cannot reach the files in /data.", "Try again in a minute.")
+	}
+	return runner, nil
+}
+
+// serverLogin is how the viewer logs in to each engine: the variables of the
+// database app that hold the user, the password and the database it made.
+// MariaDB and MySQL are opened as root, like their backups, so every database
+// on the server can be looked at; PostgreSQL's user is a superuser already.
+var serverLogin = map[string]struct{ user, userVar, passVar, dbVar string }{
+	servicetpl.EnginePostgres: {userVar: "POSTGRES_USER", passVar: "POSTGRES_PASSWORD", dbVar: "POSTGRES_DB"},
+	servicetpl.EngineMariaDB:  {user: "root", passVar: "MARIADB_ROOT_PASSWORD", dbVar: "MARIADB_DATABASE"},
+	servicetpl.EngineMySQL:    {user: "root", passVar: "MYSQL_ROOT_PASSWORD", dbVar: "MYSQL_DATABASE"},
+}
+
+// dbServerTarget prepares a request for a PostgreSQL, MariaDB or MySQL app:
+// the login from its variables, the database to open (path, else the one the
+// app was made with), and a run that sends the request to a helper in the
+// network of the database's container. It answers db_not_running when there
+// is no container to reach.
+func (s *Service) dbServerTarget(ctx context.Context, app db.App, engine, path string, req *dbview.Request) (func([]byte) ([]byte, error), string, error) {
+	t, _ := templateOf(app)
+	login, ok := serverLogin[engine]
+	if !ok {
+		return nil, "", apperr.BadRequest("not_a_database", "This app has no database the viewer can open.", "")
+	}
+	if !s.dbRunning(ctx, app) {
+		return nil, "", apperr.Conflict("db_not_running", "The database is not running, so there is nothing to look at.",
+			"Start the app (or wait until its deployment is live), then try again.")
+	}
+	env, ae := s.containerEnv(ctx, app, t.Port)
+	if ae != nil {
+		return nil, "", ae
+	}
+	vars := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			vars[k] = v
+		}
+	}
+	user := login.user
+	if user == "" {
+		user = vars[login.userVar]
+	}
+	database := strings.TrimSpace(path)
+	if database == "" {
+		database = vars[login.dbVar]
+	}
+	if database == "" || len(database) > 64 || strings.ContainsRune(database, 0) {
+		return nil, "", apperr.BadRequest("db_not_found", "That is not the name of a database.", "Pick one of the databases in the list.")
+	}
+	req.Path = database
+	req.Server = &dbview.ServerConn{Engine: engine, Port: int(t.Port), User: user, Password: vars[login.passVar], Database: database}
+	name := s.currentContainers(ctx, app)[singleService]
+	vs, err := s.volumes()
+	if err != nil {
+		return nil, "", err
+	}
+	runner, ok := vs.(dbServerRunner)
+	if !ok {
+		return nil, "", apperr.Unavailable("docker_unavailable", "bitploy cannot reach the database.", "Try again in a minute.")
+	}
+	return func(body []byte) ([]byte, error) { return runner.RunDBServer(ctx, name, body) }, database, nil
 }
 
 // dbAudit writes the audit row of a write (db.write): the app, the path, the
@@ -547,6 +645,11 @@ var errDBOnly = errors.New("only the database viewer works here")
 
 func (d dbOnlyVolumes) RunDB(ctx context.Context, v string, req []byte) ([]byte, error) {
 	return d.run(ctx, v, req)
+}
+
+// RunDBServer gets the name of the database's container where RunDB gets a volume.
+func (d dbOnlyVolumes) RunDBServer(ctx context.Context, container string, req []byte) ([]byte, error) {
+	return d.run(ctx, container, req)
 }
 func (dbOnlyVolumes) HasVolume(context.Context, string) (bool, error) { return true, nil }
 func (dbOnlyVolumes) PrepareArchive(context.Context, string) (volumeArchive, error) {

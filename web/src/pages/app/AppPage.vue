@@ -24,7 +24,7 @@ import { useApp, useDataRoot } from '@/composables/queries'
 import { useAppControls } from '@/composables/useAppControls'
 import { ApiError } from '@/lib/api'
 import { APP_TABS } from '@/lib/appTabs'
-import { pickDatabase } from '@/lib/dbvalue'
+import { isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { copyText } from '@/lib/notify'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
@@ -58,8 +58,9 @@ watch(
 )
 
 // The Database tab shows when the saved files hold a SQLite file at the top. A failed or empty look shows no tab and no error.
-const root = useDataRoot(() => props.slug, () => !!data.value?.volume)
-const hasDatabase = computed(() => !!pickDatabase(root.data.value?.items ?? [], props.slug))
+// A PostgreSQL, MariaDB or MySQL app always has it: the tab opens its server.
+const root = useDataRoot(() => props.slug, () => !!data.value?.volume && !isServerDb(data.value))
+const hasDatabase = computed(() => isServerDb(data.value) || !!pickDatabase(root.data.value?.items ?? [], props.slug))
 // Background workers have no visitors and no web address.
 const shownTabs = computed(() =>
   APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value)).map((t) =>

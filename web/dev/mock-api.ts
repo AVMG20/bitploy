@@ -1419,9 +1419,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
           : []
       return send(res, 200, { path: at, items: top, truncated: false, upload_max_bytes: 100 * 1024 * 1024 } satisfies DataFileList)
     }
-    case 'GET /apps/:id/db':
-      needApp(id)
+    case 'GET /apps/:id/db': {
+      const a = needApp(id)
+      // A database app answers like its server: the same tables, named databases instead of a file.
+      if (a.template === 'postgres' || a.template === 'mariadb' || a.template === 'mysql') {
+        const database = q.get('path') || 'app'
+        return send(res, 200, { ...dbSchema('app', database), path: database, journal_mode: '', page_size: 0, sqlite_version: '', engine: a.template, server_version: a.template === 'postgres' ? '18.4' : '11.4.2-MariaDB', database, databases: ['app', 'postgres'] })
+      }
       return send(res, 200, dbSchema('app', q.get('path') ?? 'app.db'))
+    }
     case 'POST /apps/:id/db/rows':
       needApp(id)
       return send(res, 200, dbRows('app', body))

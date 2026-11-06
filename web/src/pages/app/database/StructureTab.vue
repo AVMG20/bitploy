@@ -41,7 +41,7 @@ const indexSql = computed(() =>
               <TableCell class="font-mono text-[13px] font-medium">
                 {{ c.name }}
                 <Lock v-if="c.redacted" class="ml-1 inline size-3 align-middle text-muted-foreground" aria-label="Hidden: the server does not show this column's values" />
-                <Badge v-if="c.generated" variant="secondary" class="ml-1.5 align-middle" title="SQLite computes this column from others">generated</Badge>
+                <Badge v-if="c.generated" variant="secondary" class="ml-1.5 align-middle" title="The database computes this column from others">generated</Badge>
                 <Badge v-else-if="c.hidden" variant="secondary" class="ml-1.5 align-middle" title="Not part of the table's visible columns">hidden</Badge>
               </TableCell>
               <TableCell class="font-mono text-[13px] text-muted-foreground">{{ c.type || 'any' }}</TableCell>
@@ -92,7 +92,7 @@ const indexSql = computed(() =>
     <section class="grid min-w-0 gap-2">
       <h2 class="text-sm font-medium">SQL</h2>
       <CodeBlock v-if="table.sql" :code="table.sql" what="SQL copied" sql />
-      <p v-else class="text-sm text-muted-foreground">SQLite has no definition for this one.</p>
+      <p v-else class="text-sm text-muted-foreground">The database has no definition for this one.</p>
       <CodeBlock v-if="indexSql" :code="indexSql" what="SQL copied" sql />
     </section>
   </div>

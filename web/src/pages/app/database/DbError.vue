@@ -17,6 +17,8 @@ const props = defineProps<{
   error: unknown
   /** Show this error code's words without an API error (for a state the page already knows). */
   code?: string
+  /** A database server (PostgreSQL, MariaDB, MySQL), not a file. */
+  server?: boolean
   /** Where "Back" goes, and what it is called. */
   backTo?: RouteLocationRaw
   backLabel?: string
@@ -58,6 +60,14 @@ const INFO: Record<string, Info> = {
     retry: false,
   },
   admin_only: { icon: Lock, title: 'Only admins can open this.', description: 'Ask an admin if you need to look at bitploy\'s own database.', retry: false },
+  db_not_running: { icon: DatabaseZap, title: 'The database is not running.', description: 'Start it, or wait until its deployment is live, then try again.', retry: true },
+  db_unreachable: { icon: DatabaseZap, title: 'The database does not answer.', description: 'It may still be starting. Check that it is running and healthy, then try again.', retry: true },
+  db_login_failed: {
+    icon: Lock,
+    title: 'The database did not accept the login.',
+    description: 'Its password was probably changed in Variables after the database was made. Set it back to the one it was made with.',
+    retry: false,
+  },
   volume_off: { icon: HardDrive, title: 'Saved files are turned off for this app.', description: 'Turn them on in Storage to look at its files.', retry: false },
   volume_not_ready: { icon: FolderOpen, title: 'The saved files folder is not there yet.', description: 'Restart or redeploy the app to create it.', retry: false },
 }
@@ -80,7 +90,17 @@ const BUSY: Record<string, { icon: Component; title: string; description: string
   backup_busy: { icon: DatabaseZap, title: 'A backup or restore is running.', description: 'Wait until it has finished, then try again.' },
   files_busy: { icon: DatabaseZap, title: 'A backup or restore is running.', description: 'Wait until it has finished, then try again.' },
 }
-const info = computed(() => INFO[code.value])
+// A database server has databases where SQLite has files.
+const SERVER: Record<string, Info> = {
+  db_not_found: { icon: FileQuestion, title: 'There is no such database on this server.', description: 'Pick another one, or open the Database tab again for the main one.', retry: false },
+  db_helper_unavailable: {
+    icon: DatabaseZap,
+    title: "The server's database helper is not available.",
+    description: 'Databases cannot be opened on this server right now. Tell your admin.',
+    retry: false,
+  },
+}
+const info = computed(() => (props.server && SERVER[code.value]) || INFO[code.value])
 const busy = computed(() => BUSY[code.value])
 </script>
 

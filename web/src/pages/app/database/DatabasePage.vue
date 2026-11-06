@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useDataRoot, useDbSchema } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { adminDbSource, appDbSource } from '@/lib/dbSource'
-import { isDbFileName, pickDatabase } from '@/lib/dbvalue'
+import { engineName, isDbFileName, isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { formatBytes } from '@/lib/format'
 import DataTab from './DataTab.vue'
 import DbError from './DbError.vue'
@@ -23,7 +23,8 @@ import StructureTab from './StructureTab.vue'
 import TableSidebar from './TableSidebar.vue'
 
 // The database viewer. It shows a SQLite file in an app's /data (the Database tab, or a file opened
-// from Storage: ?path=app.db) or, with `admin`, bitploy's own database (read-only). Everything below
+// from Storage: ?path=app.db), the server of a PostgreSQL, MariaDB or MySQL app (the Database tab;
+// ?db=name picks another database on it) or, with `admin`, bitploy's own database (read-only). Everything below
 // talks to a DbSource, so both share this UI. The table and the tab live in the address too
 // (&table=users&tab=structure), so a reload or a shared link comes back to the same place.
 const props = defineProps<{ slug?: string; admin?: boolean }>()
@@ -44,16 +45,20 @@ const first = (v: unknown) => (typeof v === 'string' ? v : '')
 // The Database tab (/apps/:slug/database) opens the app's main database from the top of /data;
 // a database opened from Storage names its file in the address (?path=).
 const isTab = computed(() => !props.admin && route.name === 'app-database-default')
-const root = useDataRoot(slug, () => isTab.value && !!app.data.value?.volume)
+const server = computed(() => !props.admin && isServerDb(app.data.value))
+const root = useDataRoot(slug, () => isTab.value && !!app.data.value?.volume && !server.value)
 const rootDatabases = computed(() => (root.data.value?.items ?? []).filter((f) => f.type === 'file' && isDbFileName(f.name)))
 const picked = computed(() => pickDatabase(root.data.value?.items ?? [], slug.value))
-const resolving = computed(() => isTab.value && !picked.value && (!app.data.value || (!!app.data.value.volume && root.isPending.value)))
-const path = computed(() => (props.admin ? '' : isTab.value ? (picked.value ?? '') : first(route.query.path)))
+const resolving = computed(
+  () => isTab.value && (!app.data.value || (!server.value && !picked.value && !!app.data.value.volume && root.isPending.value)),
+)
+// For a database server the path is the name of a database on it; empty is the one the app was made with.
+const path = computed(() => (props.admin ? '' : server.value ? first(route.query.db) : isTab.value ? (picked.value ?? '') : first(route.query.path)))
 // Nothing to show here without a database at the top of /data: Storage says what is there.
 watch(
   [isTab, resolving, picked],
   () => {
-    if (isTab.value && !resolving.value && !picked.value) void router.replace({ name: 'app-storage', params: { slug: slug.value } })
+    if (isTab.value && !resolving.value && !server.value && !picked.value) void router.replace({ name: 'app-storage', params: { slug: slug.value } })
   },
   { immediate: true },
 )
@@ -64,11 +69,16 @@ const source = computed(() => (props.admin ? adminDbSource : appDbSource(slug.va
 // A source can be read-only for good (bitploy's own database); a file in /data has the page's Read-only switch.
 const fixedReadOnly = computed(() => !source.value.write)
 
-const schema = useDbSchema(source, () => props.admin || !!path.value)
+const schema = useDbSchema(source, () => props.admin || server.value || !!path.value)
 const db = computed(() => schema.data.value)
 const tables = computed(() => db.value?.tables ?? [])
 // No (or an unknown) table in the address: the first one.
 const table = computed(() => tables.value.find((t) => t.name === first(route.query.table)) ?? tables.value[0])
+
+// Another database on the server: its first table, the Data tab.
+function pickDb(name: string) {
+  void router.replace({ query: { db: name } })
+}
 
 function go(patch: { tab?: Tab; table?: string; q?: string }) {
   void router.replace({ query: { ...route.query, ...patch } })
@@ -105,12 +115,13 @@ function setReadOnly(on: boolean) {
   }
 }
 
-const volumeOff = computed(() => !props.admin && app.data.value && !app.data.value.volume)
+const volumeOff = computed(() => !props.admin && !server.value && app.data.value && !app.data.value.volume)
 const toStorage = computed(() => ({ name: 'app-storage', params: { slug: slug.value } }))
 const back = computed(() => (props.admin ? { to: { path: '/admin' }, label: 'Admin' } : isTab.value ? null : { to: toStorage.value, label: 'Storage' }))
 const meta = computed(() => {
   const d = db.value
   if (!d) return ''
+  if (d.engine) return [`${engineName(d.engine)} ${(d.server_version ?? '').split(/[-\s]/)[0]}`.trim(), formatBytes(d.size)].join(' · ')
   return [formatBytes(d.size), `${d.journal_mode} journal`, `${formatBytes(d.page_size)} pages`, `SQLite ${d.sqlite_version}`].join(' · ')
 })
 const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) => c.redacted)))
@@ -133,21 +144,28 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
         </RouterLink>
         <div class="flex min-w-0 items-center gap-2">
           <Database class="size-5 shrink-0 text-muted-foreground" />
-          <h2 class="min-w-0 truncate font-mono text-lg font-semibold tracking-tight" :title="`/data/${path}`">{{ fileName || 'Database' }}</h2>
+          <h2 v-if="server" class="min-w-0 truncate font-mono text-lg font-semibold tracking-tight">{{ db?.database || path || 'Database' }}</h2>
+          <h2 v-else class="min-w-0 truncate font-mono text-lg font-semibold tracking-tight" :title="`/data/${path}`">{{ fileName || 'Database' }}</h2>
         </div>
-        <p v-if="path && path !== fileName" class="mt-0.5 truncate font-mono text-xs text-muted-foreground">/data/{{ path }}</p>
+        <p v-if="!server && path && path !== fileName" class="mt-0.5 truncate font-mono text-xs text-muted-foreground">/data/{{ path }}</p>
         <p v-if="meta" class="mt-0.5 text-xs text-muted-foreground">{{ meta }}</p>
         <p v-if="isTab && rootDatabases.length > 1" class="mt-0.5 text-xs text-muted-foreground">
           Other databases are in <RouterLink :to="toStorage" class="underline hover:text-foreground">Storage</RouterLink>.
         </p>
       </div>
       <div v-if="db" class="flex flex-wrap items-center gap-3">
+        <Select v-if="server && (db.databases?.length ?? 0) > 1" :model-value="db.database" @update:model-value="(v) => pickDb(String(v))">
+          <SelectTrigger size="sm" class="font-mono text-[13px]" aria-label="Database on this server"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="name in db.databases" :key="name" :value="name" class="font-mono text-[13px]">{{ name }}</SelectItem>
+          </SelectContent>
+        </Select>
         <label v-if="!fixedReadOnly" class="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground" title="Hides everything that edits data, and keeps the SQL console from writing.">
           <Lock class="size-3.5" /> Read-only
           <Switch size="sm" :model-value="readOnly" aria-label="Read-only" @update:model-value="(v) => setReadOnly(v === true)" />
         </label>
         <Button variant="outline" size="sm" @click="refresh"><RefreshCw :class="schema.isFetching.value && 'animate-spin'" /> Refresh</Button>
-        <Button as-child variant="outline" size="sm">
+        <Button v-if="!server" as-child variant="outline" size="sm">
           <a :href="api.dataFileDownloadUrl(slug, path)" download><Download /> Download</a>
         </Button>
       </div>
@@ -157,11 +175,11 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
       <Skeleton class="h-48 w-full" />
       <Skeleton class="h-80 w-full" />
     </div>
-    <EmptyState v-else-if="!admin && (!path || !isDbFileName(fileName))" title="No database chosen." description="Open a SQLite file from the Storage tab.">
+    <EmptyState v-else-if="!admin && !server && (!path || !isDbFileName(fileName))" title="No database chosen." description="Open a SQLite file from the Storage tab.">
       <Button as-child variant="outline"><RouterLink :to="toStorage">Back to Storage</RouterLink></Button>
     </EmptyState>
     <DbError v-else-if="volumeOff" :error="null" code="volume_off" :back-to="toStorage" />
-    <DbError v-else-if="schema.isError.value && !db" :error="schema.error.value" :back-to="back?.to ?? toStorage" :back-label="back?.label" :download-href="admin ? undefined : api.dataFileDownloadUrl(slug, path)" @retry="schema.refetch()" />
+        <DbError v-else-if="schema.isError.value && !db" :server="server" :error="schema.error.value" :back-to="back?.to ?? toStorage" :back-label="back?.label" :download-href="admin ? undefined : api.dataFileDownloadUrl(slug, path)" @retry="schema.refetch()" />
     <div v-else-if="!db" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
       <Skeleton class="h-48 w-full" />
       <Skeleton class="h-80 w-full" />

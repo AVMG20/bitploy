@@ -86,6 +86,9 @@ func Handle(ctx context.Context, raw []byte, opts HelperOptions) Response {
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return Response{Error: errf("request_invalid", "The request could not be read: "+err.Error(), "")}
 	}
+	if req.Server != nil {
+		return runServer(ctx, req)
+	}
 	file, uid, gid, e := resolve(opts.Root, req.Path)
 	if e != nil {
 		return Response{Error: e}

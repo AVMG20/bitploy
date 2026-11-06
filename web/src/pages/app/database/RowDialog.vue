@@ -141,7 +141,7 @@ const takesFile = (f: Field) => f.aff === 'blob' && f.col.type.toUpperCase().inc
       <form class="flex min-h-0 flex-1 flex-col" @submit.prevent="submit" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit">
         <SheetHeader class="border-b">
           <SheetTitle class="pr-8 font-mono text-sm">New row in {{ table.name }}</SheetTitle>
-          <SheetDescription>Leave a column on Default to let SQLite fill it in.</SheetDescription>
+          <SheetDescription>Leave a column on Default to let the database fill it in.</SheetDescription>
         </SheetHeader>
 
         <div class="grid flex-1 content-start gap-4 overflow-y-auto px-4 py-1">

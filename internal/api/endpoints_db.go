@@ -22,13 +22,15 @@ const dbValues = "Values go in and out as JSON: NULL is null, an integer within 
 func (a *API) dbRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getDatabase", Method: http.MethodGet, Path: "/apps/{app}/db", Tags: []string{"Database"},
-		Summary: "Tables of a SQLite database in /data",
+		Summary: "Tables of a SQLite database in /data, or of a database app",
 		Description: "Lists the tables and views of the SQLite file `path` (relative to /data, like app.db) with their columns, indexes and row counts " +
 			"(`rows` is null when counting took too long). `editable` says whether rows can be changed one by one: tables with a rowid or a primary key can, views cannot. " +
-			"A file that is not SQLite answers 422 not_sqlite. The database is opened read-only, in a throwaway helper container, while the app keeps running.",
+			"A file that is not SQLite answers 422 not_sqlite. The database is opened read-only, in a throwaway helper container, while the app keeps running. " +
+			"For a PostgreSQL, MariaDB or MySQL app (made with add_service) every operation here works on its server instead: `path` names a database on it " +
+			"(empty: the one the app was made with), `databases` lists the others, a row's `key` is its primary key, and 409 db_not_running means the app is not running.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
-		Path   string `query:"path" required:"true" doc:"The database file, relative to /data"`
+		Path   string `query:"path" doc:"The database file, relative to /data. For a PostgreSQL, MariaDB or MySQL app: the name of a database on the server, empty for the one the app was made with."`
 		Volume string `query:"volume" doc:"For an app with several volumes (a compose app): the volume the database is in (default: the first)"`
 	}) (*Out[app.DBInfo], error) {
 		return okOrNil(a.svc.DBInfo(ctx, act, in.App, in.Path, in.Volume))
