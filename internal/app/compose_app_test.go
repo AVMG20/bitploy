@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/deploy"
@@ -148,6 +149,40 @@ func TestValidateComposeQuotaLeavesTheAppOut(t *testing.T) {
 	// Another user's app is not found.
 	if _, err := e.svc.ValidateCompose(ctx, e.other, ValidateComposeInput{Compose: file, App: "duo"}); err == nil {
 		t.Error("another user's app must not be found")
+	}
+}
+
+// With app=, ${VAR} is filled with the app's real variables and the image
+// comes back in the preview, so a read-only token must not get that far.
+func TestValidateComposeWithAnAppNeedsTheDeployScope(t *testing.T) {
+	e := newOpsEnv(t)
+	ctx := context.Background()
+	seedMulti(t, e)
+	if _, err := e.svc.SetEnv(ctx, e.owner, "duo", map[string]string{"TOKEN": "s3cr3tvalue"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	file := "services:\n  web:\n    image: \"${TOKEN}\"\n"
+	ro := e.owner
+	ro.Scope = ScopeRead
+	p, err := e.svc.ValidateCompose(ctx, ro, ValidateComposeInput{Compose: file, App: "duo"})
+	if err == nil {
+		t.Fatalf("a read-only token validated against the app's variables: %+v", p)
+	}
+	if strings.Contains(err.Error(), "s3cr3tvalue") {
+		t.Errorf("the error holds the value: %v", err)
+	}
+	// Without app=, nothing is filled in: allowed for a read-only token.
+	if p, err = e.svc.ValidateCompose(ctx, ro, ValidateComposeInput{Compose: file}); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range p.Services {
+		if strings.Contains(s.Image, "s3cr3tvalue") {
+			t.Errorf("image %q", s.Image)
+		}
+	}
+	// The owner with the deploy scope may (it could print the value from a deploy anyway).
+	if _, err := e.svc.ValidateCompose(ctx, e.owner, ValidateComposeInput{Compose: file, App: "duo"}); err != nil {
+		t.Fatal(err)
 	}
 }
 
