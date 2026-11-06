@@ -203,8 +203,14 @@ watch(
           <p v-if="templateUpdate(data)" class="text-xs text-muted-foreground" data-testid="template-update">{{ templateUpdate(data)!.title }}</p>
           <div v-if="pending.reasons.value.length" role="status" class="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
             <RotateCw class="size-3.5 shrink-0" aria-hidden="true" />
-            <span class="min-w-0 flex-1">Your changes to {{ pending.text.value }} apply after a restart.</span>
-            <button type="button" class="shrink-0 font-medium underline-offset-4 hover:underline" :disabled="busy" @click="restart">Restart now</button>
+            <template v-if="pending.needsBuild.value">
+              <span class="min-w-0 flex-1">Your changes to {{ pending.text.value }} apply after a new deploy.</span>
+              <button type="button" class="shrink-0 font-medium underline-offset-4 hover:underline" :disabled="busy || !canRebuild" @click="rebuild()">Deploy again</button>
+            </template>
+            <template v-else>
+              <span class="min-w-0 flex-1">Your changes to {{ pending.text.value }} apply after a restart.</span>
+              <button type="button" class="shrink-0 font-medium underline-offset-4 hover:underline" :disabled="busy" @click="restart">Restart now</button>
+            </template>
           </div>
         </section>
 
