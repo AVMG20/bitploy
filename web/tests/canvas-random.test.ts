@@ -9,8 +9,8 @@
 //    below it in the other.
 // 3. Nothing a reader would fix by hand helps: swapping the upright runs of
 //    two lines in one gap, or the ports of two lines on one side of a card,
-//    never gives fewer crossings (without running into a card, onto a line,
-//    or into a crossing 1 or 2 rules out).
+//    never gives fewer crossings (without running into a card or closer than
+//    10px past one, onto a line, or into a crossing 1 or 2 rules out).
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { crossesBox, labelSpots, placeLabels, routeLinks, routesBottom } from '../src/lib/canvas.ts'
@@ -19,6 +19,9 @@ import { BOARDS, crossings, layout, overlaps, segs } from './canvas-layouts.ts'
 import type { Layout } from './canvas-layouts.ts'
 
 const hitsBox = (pts: readonly Pt[], boxes: readonly Box[]) => segs(pts).some((s) => boxes.some((b) => crossesBox(s.a, s.b, b)))
+/** A line passing a card keeps 10px from it (lines leave their own cards from the side, so they never meet these). */
+const CLEAR = 10
+const roomy = (boxes: readonly Box[]) => boxes.map((b) => ({ ...b, t: b.t - CLEAR + 1, b: b.b + CLEAR - 1 }))
 
 interface Stats {
   layouts: number
@@ -32,6 +35,7 @@ interface Stats {
 
 function check(L: Layout, label: string, stats: Stats) {
   const boxes = [...L.cards, ...L.extra]
+  const clearBoxes = roomy(boxes)
   const routes = routeLinks(boxes, L.links, { width: L.w })
   const byId = new Map(L.cards.map((b) => [b.id, b]))
   const pts = routes.map((r) => r.points)
@@ -51,6 +55,7 @@ function check(L: Layout, label: string, stats: Stats) {
     assert.ok((r.end.x === b.l || r.end.x === b.r) && r.end.y > b.t && r.end.y < b.b, `${label}: ${r.key} ends on its card's side`)
     // Never through a card or the add button, its own cards included.
     assert.ok(!hitsBox(p, boxes), `${label}: ${r.key} runs through a card`)
+    assert.ok(!hitsBox(p, clearBoxes), `${label}: ${r.key} passes a card closer than ${CLEAR}px`)
     // Inside the board (grown below when lines pass under a lane), never over the lane titles.
     for (const q of p) {
       assert.ok(q.x >= 1 && q.x <= L.w - 1, `${label}: ${r.key} leaves the board at x=${q.x}`)
@@ -101,7 +106,7 @@ function check(L: Layout, label: string, stats: Stats) {
   }
   const before = (i: number, j: number) => routes.reduce((s, _, k) => s + (k !== i ? cross[i]![k]! : 0) + (k !== j && k !== i ? cross[j]![k]! : 0), 0)
   const tryBoth = (i: number, j: number, qi: Pt[], qj: Pt[], what: string) => {
-    if (hitsBox(qi, boxes) || hitsBox(qj, boxes)) return
+    if (hitsBox(qi, clearBoxes) || hitsBox(qj, clearBoxes)) return
     const own = crossings(qi, qj)
     if (overlaps(qi, qj) || own > 1 || (own && needless(i, j))) return
     const a = others(i, qi, j)

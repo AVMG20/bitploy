@@ -70,10 +70,10 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       <ServiceIcon :role="role.key" />
       <div class="min-w-0 flex-1">
         <h3 class="flex min-w-0 items-baseline gap-2">
-          <RouterLink :to="panelOf(app)" :aria-current="selected ? 'true' : undefined" class="truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
+          <RouterLink :to="panelOf(app)" :aria-current="selected ? 'true' : undefined" class="max-w-full shrink-0 truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
             {{ app.name }}
           </RouterLink>
-          <span v-if="aliasOf(app) !== app.name" class="truncate font-mono text-xs text-muted-foreground">{{ aliasOf(app) }}</span>
+          <span v-if="aliasOf(app) !== app.name" class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ aliasOf(app) }}</span>
         </h3>
         <p class="truncate text-xs text-muted-foreground">{{ roleTitle(role) }}</p>
       </div>

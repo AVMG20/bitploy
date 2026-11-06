@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus } from 'lucide-vue-next'
+import { PanelLeftClose, Plus } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import AppPanel from '@/components/project/AppPanel.vue'
 import ProjectAppCard from '@/components/project/ProjectAppCard.vue'
 import { Button } from '@/components/ui/button'
+import { useSidebar } from '@/components/ui/sidebar'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
 import { projectRoute } from '@/lib/appLinks'
-import { labelSpots, placeLabels, routeLinks, routesBottom } from '@/lib/canvas'
+import { labelSpots, laneLayout, laneWidthNeeded, placeLabels, routeLinks, routesBottom } from '@/lib/canvas'
 import type { Box, RoutedLink } from '@/lib/canvas'
 import { formatMB } from '@/lib/format'
 import { aliasOf, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
@@ -31,6 +32,21 @@ const LANES: { key: Lane; title: string; text: string }[] = [
 ]
 const lanes = computed(() =>
   LANES.map((l) => ({ ...l, apps: apps.value.filter((a) => roleOf(a).lane === l.key) })).filter((l) => l.apps.length),
+)
+/** A line skips a lane: the cards in a lane keep room between them for lines to pass. */
+const skips = computed(() => {
+  const laneOf = new Map(lanes.value.flatMap((l, i) => l.apps.map((a) => [a.id, i] as const)))
+  return links.value.some((l) => Math.abs((laneOf.get(l.from) ?? 0) - (laneOf.get(l.to) ?? 0)) > 1)
+})
+
+// ---------------------------------------------------------------- lanes side by side, or one under the other
+const sidebar = useSidebar()
+/** The board's width inside its padding. */
+const inner = ref(0)
+const layout = computed(() => (inner.value ? laneLayout(inner.value, lanes.value.length) : { side: lanes.value.length > 1, gap: 80 }))
+/** Lanes one under the other only because the sidebar takes the room: offer to hide it. */
+const sidebarHint = computed(
+  () => !layout.value.side && lanes.value.length > 1 && !sidebar.isMobile.value && sidebar.open.value && inner.value + 208 >= laneWidthNeeded(lanes.value.length),
 )
 
 // ---------------------------------------------------------------- the open panel
@@ -80,12 +96,20 @@ const routable = ref(false)
 function measure() {
   const el = board.value
   if (!el) return
+  const css = getComputedStyle(el)
+  const w = el.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+  if (w !== inner.value) {
+    // The lanes change places first; the lines follow on the next frame.
+    inner.value = w
+    measureSoon()
+    return
+  }
   // Board coordinates start inside its border, where the lines' svg starts.
   const box = el.getBoundingClientRect()
   const left = box.left + el.clientLeft
   const top = box.top + el.clientTop
   const tops = new Set([...el.querySelectorAll<HTMLElement>('[data-lane]')].map((s) => Math.round(s.getBoundingClientRect().top)))
-  routable.value = tops.size === 1 && lanes.value.length > 1
+  routable.value = layout.value.side && tops.size === 1 && lanes.value.length > 1
   if (!routable.value) {
     paths.value = []
     below.value = 0
@@ -106,6 +130,10 @@ function measure() {
   below.value = Math.max(0, Math.ceil(routesBottom(paths.value) + 16 - base))
   size.value = { w: el.clientWidth, h: base + below.value }
 }
+/** Many lines: at rest they stay faint, and the hovered or open app's lines stand out. */
+const dense = computed(() => paths.value.length > 10)
+/** The lit lines last, so they run on top of the others. */
+const drawn = computed(() => (focus.value ? [...paths.value].sort((a, b) => Number(onLine(a)) - Number(onLine(b))) : paths.value))
 let frame = 0
 function measureSoon() {
   cancelAnimationFrame(frame)
@@ -115,12 +143,8 @@ const labels = computed(() => {
   const f = focus.value
   if (!f) return []
   const spots = labelSpots(paths.value, f, (p) => links.value.find((x) => x.from === p.from && x.to === p.to)?.vars.join(', ') ?? '')
-  // A label is cut short where a card starts and left out where there is no room; the card and the panel name every variable.
-  const placed = new Map(placeLabels(spots, cards.value, size.value).map((p) => [p.key, p]))
-  return spots.flatMap((s) => {
-    const p = placed.get(s.key)
-    return p ? [{ ...p, text: s.text }] : []
-  })
+  // A label wraps where a card starts and is left out where there is no room; the card and the panel name every variable.
+  return placeLabels(spots, cards.value, size.value)
 })
 
 let ro: ResizeObserver | undefined
@@ -136,7 +160,7 @@ onBeforeUnmount(() => {
   ro?.disconnect()
   cancelAnimationFrame(frame)
 })
-watch([links, apps, lanes], () => void nextTick(measureSoon), { deep: true })
+watch([links, apps, lanes, layout], () => void nextTick(measureSoon), { deep: true })
 
 // ---------------------------------------------------------------- one app: what to add next
 const quickPicks = computed(() => {
@@ -192,7 +216,7 @@ const quickPicks = computed(() => {
     </div>
 
     <!-- Several apps: the board -->
-    <div v-else ref="board" class="canvas-dots relative overflow-hidden rounded-xl border p-4 md:p-6 lg:p-8">
+    <div v-else ref="board" class="canvas-dots relative overflow-hidden rounded-xl border p-4 md:p-6 xl:p-8">
       <svg
         v-if="routable"
         class="pointer-events-none absolute inset-0"
@@ -202,29 +226,45 @@ const quickPicks = computed(() => {
         aria-hidden="true"
         data-testid="canvas-lines"
       >
-        <g v-for="p in paths" :key="p.key">
+        <g v-for="p in drawn" :key="p.key">
           <path
             :d="p.d"
             fill="none"
             :class="[
               'transition-[stroke,opacity] duration-150',
-              linkedTo && onLine(p) ? 'link-flow stroke-primary opacity-100' : 'stroke-foreground/35',
+              linkedTo && onLine(p) ? 'link-flow stroke-primary opacity-100' : dense ? 'stroke-foreground/20' : 'stroke-foreground/35',
               linkedTo && !onLine(p) && 'opacity-30',
             ]"
             stroke-width="1.5"
             stroke-linecap="round"
             stroke-linejoin="round"
           />
-          <circle :cx="p.end.x" :cy="p.end.y" r="3" :class="linkedTo && onLine(p) ? 'fill-background stroke-primary' : 'fill-background stroke-foreground/40'" stroke-width="1.5" />
+          <circle
+            :cx="p.end.x"
+            :cy="p.end.y"
+            r="3"
+            :class="linkedTo && onLine(p) ? 'fill-background stroke-primary' : ['fill-background', dense ? 'stroke-foreground/25' : 'stroke-foreground/40', linkedTo && 'opacity-30']"
+            stroke-width="1.5"
+          />
         </g>
       </svg>
 
-      <div class="relative grid gap-6 md:gap-x-20" :style="{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 14rem), 1fr))` }">
-        <section v-for="(l, i) in lanes" :key="l.key" :data-lane="i" class="grid content-start gap-3" :aria-labelledby="`lane-${l.key}`">
+      <!-- Lanes too narrow to sit side by side: one under the other, and no lines. -->
+      <p v-if="sidebarHint" class="relative mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border bg-card/80 px-3 py-2 text-sm text-muted-foreground">
+        The lines between the apps show when the lanes fit side by side.
+        <Button variant="outline" size="sm" @click="sidebar.setOpen(false)"><PanelLeftClose /> Hide the sidebar</Button>
+      </p>
+      <div
+        class="relative grid gap-6"
+        :style="layout.side ? { gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))`, columnGap: `${layout.gap}px` } : { gridTemplateColumns: 'minmax(0, 1fr)' }"
+      >
+        <section v-for="(l, i) in lanes" :key="l.key" :data-lane="i" :class="['grid content-start', layout.side && skips ? 'gap-8' : 'gap-3']" :aria-labelledby="`lane-${l.key}`">
           <div class="px-1">
             <h2 :id="`lane-${l.key}`" class="truncate text-xs font-medium text-foreground/80">{{ l.title }}</h2>
             <p class="truncate text-[11px] text-muted-foreground">{{ l.text }}</p>
           </div>
+          <!-- One under the other, a lane's cards fill the row. -->
+          <div :class="layout.side ? 'contents' : 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-3'">
           <ProjectAppCard
             v-for="a in l.apps"
             :key="a.id"
@@ -247,6 +287,7 @@ const quickPicks = computed(() => {
           >
             <Plus class="size-4" /> Add an app or a database
           </button>
+          </div>
         </section>
       </div>
       <!-- Room for the lines that run below a lane. -->
@@ -256,9 +297,9 @@ const quickPicks = computed(() => {
         <span
           v-for="lb in labels"
           :key="`${lb.key}-label`"
-          class="absolute truncate rounded-md border border-primary/40 bg-card px-1.5 font-mono text-[10.5px] leading-[18px] whitespace-nowrap text-foreground shadow-card"
+          class="absolute overflow-hidden rounded-md border border-primary/40 bg-card px-1 py-px font-mono text-[10.5px] leading-4 text-foreground shadow-card"
           :style="{ left: `${lb.left}px`, top: `${lb.top}px`, width: `${lb.width}px`, height: `${lb.height}px` }"
-        >{{ lb.text }}</span>
+        ><span v-for="(t, k) in lb.lines" :key="k" class="block whitespace-nowrap">{{ t }}</span></span>
       </div>
     </div>
 

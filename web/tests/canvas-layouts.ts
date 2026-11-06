@@ -1,6 +1,6 @@
 // Made-up projects laid out the way the canvas lays them out, and the
 // geometry the canvas tests check lines with.
-import { NEAR } from '../src/lib/canvas.ts'
+import { laneLayout, NEAR } from '../src/lib/canvas.ts'
 import type { Box, Pt } from '../src/lib/canvas.ts'
 
 export function rng(seed: number): () => number {
@@ -25,38 +25,45 @@ export interface Layout {
   top: number
 }
 
-/** The board's inner width at a window width (measured in the dashboard), its padding and the gap between lanes. */
-export const BOARDS = [
-  { name: '1280', w: 938, pad: 32, gap: 80 },
-  { name: '1440', w: 1098, pad: 32, gap: 80 },
-  { name: '1920', w: 1578, pad: 32, gap: 80 },
-  { name: '1024 (narrow lanes)', w: 690, pad: 32, gap: 80 },
+/**
+ * The board's inner width at a window width (measured in the dashboard), its
+ * padding and the gap between lanes: the canvas's (laneLayout), or a fixed
+ * one for lanes narrower than the canvas would draw lines for.
+ */
+export const BOARDS: { name: string; w: number; pad: number; gap?: number }[] = [
+  { name: '1280', w: 938, pad: 32 },
+  { name: '1440', w: 1098, pad: 32 },
+  { name: '1920', w: 1578, pad: 32 },
+  { name: '1024 (narrow lanes)', w: 690, pad: 32, gap: 72 },
 ]
 
 export function layout(seed: number, board: (typeof BOARDS)[number]): Layout {
   const r = rng(seed)
+  // Cards in a lane are 12px apart, or 32px when lines pass between them (a line skips a lane).
+  const cardGap = r() < 0.5 ? 12 : 32
   const count = 1 + Math.floor(r() * 12)
   const lanes: number[][] = [[], [], []]
   for (let i = 0; i < count; i++) lanes[Math.floor(r() * 3)]!.push(i)
   const used = lanes.filter((l) => l.length)
-  const colW = (board.w - 2 * board.pad - (used.length - 1) * board.gap) / used.length
+  const gap = board.gap ?? (laneLayout(board.w - 2 * board.pad, used.length).gap || 72)
+  const colW = (board.w - 2 * board.pad - (used.length - 1) * gap) / used.length
   const top = board.pad + 45
   const cards: Box[] = []
   const extra: Box[] = []
   let bottom = 0
   used.forEach((ids, c) => {
-    const l = board.pad + c * (colW + board.gap)
+    const l = board.pad + c * (colW + gap)
     let t = top
     for (const id of ids) {
       const h = r() < 0.15 ? 320 + Math.round(r() * 140) : 200 + Math.round(r() * 120)
       cards.push({ id: `a${id}`, col: c, l, r: l + colW, t, b: t + h })
-      t += h + 12
+      t += h + cardGap
     }
     if (c === used.length - 1) {
       extra.push({ id: 'add', col: c, l, r: l + colW, t, b: t + 62 })
-      t += 62 + 12
+      t += 62 + cardGap
     }
-    bottom = Math.max(bottom, t - 12)
+    bottom = Math.max(bottom, t - cardGap)
   })
   // Each app reads up to four others.
   const density = 0.05 + r() * 0.3
@@ -79,7 +86,18 @@ export interface Seg {
   a: Pt
   b: Pt
 }
-export const segs = (pts: readonly Pt[]): Seg[] => pts.slice(1).map((b, i) => ({ a: pts[i]!, b })).filter((s) => Math.abs(s.a.x - s.b.x) + Math.abs(s.a.y - s.b.y) > 0.01)
+/** The runs of a line; two runs one after the other on one level (or upright) are one run, so a crossing at the point between them counts. */
+export const segs = (pts: readonly Pt[]): Seg[] => {
+  const out: Seg[] = []
+  for (const s of pts.slice(1).map((b, i) => ({ a: pts[i]!, b }))) {
+    if (Math.abs(s.a.x - s.b.x) + Math.abs(s.a.y - s.b.y) <= 0.01) continue
+    const last = out.at(-1)
+    const lvl = (x: Seg) => Math.abs(x.a.y - x.b.y) < 0.01
+    if (last && lvl(last) === lvl(s) && (lvl(s) ? Math.abs(last.a.y - s.a.y) < 0.01 : Math.abs(last.a.x - s.a.x) < 0.01)) out[out.length - 1] = { a: last.a, b: s.b }
+    else out.push(s)
+  }
+  return out
+}
 const level = (s: Seg) => Math.abs(s.a.y - s.b.y) < 0.01
 const span = (u: number, v: number): [number, number] => (u < v ? [u, v] : [v, u])
 
