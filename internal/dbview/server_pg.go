@@ -11,11 +11,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 )
 
-// pgBackend talks to PostgreSQL with the simple protocol: values come as the
-// server's text and arguments go as quoted literals, which the server reads
-// as the type of the column they are compared with or stored in.
+// pgBackend talks to PostgreSQL in text: values come as the server's text and
+// arguments go as quoted literals (the simple protocol), which the server
+// reads as the type of the column they are compared with or stored in. A
+// statement without arguments, which is how the console runs the user's SQL,
+// goes over the extended protocol: the server runs one statement per call
+// there, so a text the splitter cut wrong fails instead of running more.
 type pgBackend struct {
 	ctx   context.Context
 	conn  *pgx.Conn
@@ -30,9 +34,21 @@ func openPostgres(ctx context.Context, c ServerConn, write bool) (backend, *Erro
 	cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database = "127.0.0.1", uint16(c.Port), c.User, c.Password, c.Database
 	cfg.ConnectTimeout = 5 * time.Second
 	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	cfg.RuntimeParams = map[string]string{"application_name": "bitploy database viewer", "bytea_output": "hex", "DateStyle": "ISO, YMD"}
+	cfg.RuntimeParams = map[string]string{
+		"application_name": "bitploy database viewer", "bytea_output": "hex", "DateStyle": "ISO, YMD",
+		// The server stops a statement itself: a cancelled context only drops the connection.
+		"statement_timeout": strconv.FormatInt(max(QueryTimeout.Milliseconds(), 1), 10),
+		// The splitter reads backslashes in '...' as plain characters.
+		"standard_conforming_strings": "on",
+	}
 	if write {
 		cfg.RuntimeParams["lock_timeout"] = strconv.FormatInt(BusyTimeout.Milliseconds(), 10)
+	} else {
+		// Every transaction of a read session is read-only, also one that starts after the first ends.
+		cfg.RuntimeParams["default_transaction_read_only"] = "on"
+	}
+	cfg.BuildContextWatcherHandler = func(pc *pgconn.PgConn) ctxwatch.Handler {
+		return &pgconn.CancelRequestContextWatcherHandler{Conn: pc, DeadlineDelay: time.Second}
 	}
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
@@ -137,6 +153,9 @@ func readValue(k colKind, raw []byte, isNull bool) any {
 }
 
 func (b *pgBackend) query(q string, args []any, row func(cols []string, vals []any) error) ([]string, int64, error) {
+	if len(args) == 0 {
+		args = []any{pgx.QueryExecModeExec}
+	}
 	rs, err := b.conn.Query(b.ctx, q, args...)
 	if err != nil {
 		return nil, -1, err
@@ -174,7 +193,14 @@ func (b *pgBackend) query(q string, args []any, row func(cols []string, vals []a
 }
 
 func (b *pgBackend) exec(q string, args []any) (int64, *int64, error) {
-	tag, err := b.conn.Exec(b.ctx, q, args...)
+	var tag pgconn.CommandTag
+	var err error
+	if len(args) == 0 {
+		// pgx's Exec takes the simple protocol without arguments, which runs every statement in q.
+		tag, err = b.conn.PgConn().ExecParams(b.ctx, q, nil, nil, nil, nil).Close()
+	} else {
+		tag, err = b.conn.Exec(b.ctx, q, args...)
+	}
 	if err != nil {
 		return 0, nil, err
 	}

@@ -851,9 +851,13 @@ func (s *srvSession) console(req Request) (any, *Error) {
 	reads := s.b.readKeywords()
 	if !req.Write {
 		for i, st := range stmts {
-			if !reads[st.kind] || (s.conn.Engine != EnginePostgres && st.writesFile()) {
+			if !reads[st.kind] {
 				return nil, withStatement(errf("db_read_only", "Turn on writes to change data.",
 					"This query was run read-only, which takes only statements that read (SELECT, WITH, SHOW, EXPLAIN). Run it with write on to run anything else."), i+1, nil)
+			}
+			if s.conn.Engine != EnginePostgres && st.writesInto() {
+				return nil, withStatement(errf("db_read_only", "Turn on writes to use INTO.",
+					"SELECT ... INTO writes a file or a variable, so read-only mode does not take it. Leave out INTO, or run it with write on."), i+1, nil)
 			}
 		}
 	}

@@ -213,8 +213,16 @@ CREATE VIEW cheap AS SELECT id, name FROM items WHERE price < 10;`},
 			wantErr(Request{Op: OpSQL, SQL: "WITH x AS (SELECT 1) SELECT * FROM x; UPDATE items SET name = 'x'"}, "db_read_only")
 			if e.engine != EnginePostgres {
 				wantErr(Request{Op: OpSQL, SQL: "SELECT 1 INTO OUTFILE '/tmp/x'"}, "db_read_only")
+				wantErr(Request{Op: OpSQL, SQL: "SELECT 1 --1 INTO OUTFILE '/tmp/x'"}, "db_read_only")
+				wantErr(Request{Op: OpSQL, SQL: "SELECT 1 /*! INTO OUTFILE '/tmp/y' */"}, "db_read_only")
+				must(Request{Op: OpSQL, SQL: "SELECT 5 --1"}, &sres)
+				if fmt.Sprint(sres.Results[0].Rows[0][0]) != "6" {
+					t.Fatalf("5 --1: %+v", sres.Results[0])
+				}
 			} else {
 				wantErr(Request{Op: OpSQL, SQL: "WITH d AS (DELETE FROM items RETURNING 1) SELECT * FROM d"}, "db_read_only")
+				// Nested comments: the quote is in the comment, so COMMIT and DELETE are statements of their own.
+				wantErr(Request{Op: OpSQL, SQL: "SELECT 1 /* /* */ ' */; COMMIT; DELETE FROM items; SELECT ''"}, "db_read_only")
 			}
 			must(Request{Op: OpSQL, SQL: "INSERT INTO items (name) VALUES ('kiwi'); SELECT count(*) FROM items", Write: true}, &sres)
 			if sres.Results[0].RowsAffected == nil || *sres.Results[0].RowsAffected != 1 {

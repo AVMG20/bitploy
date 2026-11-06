@@ -3,6 +3,7 @@ package dbview
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -19,11 +20,13 @@ import (
 // put into the statement by the driver (interpolateParams), so values always
 // come back as the server's text.
 type myBackend struct {
-	ctx     context.Context
-	db      *sql.DB
-	conn    *sql.Conn
-	mariadb bool
-	cache   []*srvTable
+	ctx       context.Context
+	db        *sql.DB
+	conn      *sql.Conn
+	connector driver.Connector
+	connID    int64 // the server's id of conn, to stop a query that outlived ctx
+	mariadb   bool
+	cache     []*srvTable
 }
 
 // The driver prints connection trouble to stderr; the error comes back anyway.
@@ -41,17 +44,82 @@ func openMySQL(ctx context.Context, c ServerConn, write bool) (backend, *Error) 
 	if err != nil {
 		return nil, b.classify(err, write)
 	}
+	b.connector = conn
 	b.db = sql.OpenDB(conn)
 	b.db.SetMaxOpenConns(1)
 	if b.conn, err = b.db.Conn(ctx); err != nil {
 		_ = b.db.Close()
 		return nil, b.classify(err, write)
 	}
-	if _, err := b.conn.ExecContext(ctx, fmt.Sprintf("SET SESSION innodb_lock_wait_timeout = %d", int(BusyTimeout.Seconds()))); err != nil {
+	if err := b.setup(write); err != nil {
 		b.close()
 		return nil, b.classify(err, write)
 	}
 	return b, nil
+}
+
+// setup readies the session: lock and statement time limits on the server
+// (the driver only drops the connection when ctx ends), read-only
+// transactions for a read session, and an sql_mode the splitter reads the
+// same way as the server.
+func (b *myBackend) setup(write bool) error {
+	if err := b.conn.QueryRowContext(b.ctx, "SELECT CONNECTION_ID()").Scan(&b.connID); err != nil {
+		return err
+	}
+	stmts := []string{fmt.Sprintf("SET SESSION innodb_lock_wait_timeout = %d", max(int(BusyTimeout.Seconds()), 1))}
+	if b.mariadb {
+		// MariaDB stops every kind of statement after max_statement_time.
+		stmts = append(stmts, fmt.Sprintf("SET SESSION max_statement_time = %.3f", QueryTimeout.Seconds()))
+	} else {
+		// MySQL stops a SELECT after max_execution_time; close stops the rest.
+		stmts = append(stmts, fmt.Sprintf("SET SESSION max_execution_time = %d", max(QueryTimeout.Milliseconds(), 1)))
+	}
+	if !write {
+		stmts = append(stmts, "SET SESSION TRANSACTION READ ONLY")
+	}
+	var mode string
+	if err := b.conn.QueryRowContext(b.ctx, "SELECT @@SESSION.sql_mode").Scan(&mode); err != nil {
+		return err
+	}
+	if clean, changed := splitterSQLMode(mode); changed {
+		stmts = append(stmts, "SET SESSION sql_mode = '"+clean+"'")
+	}
+	for i, q := range stmts {
+		if _, err := b.conn.ExecContext(b.ctx, q); err != nil {
+			// An older server without the time limit (unknown variable) still works; close stops its queries.
+			var me *mysql.MySQLError
+			if i == 1 && errors.As(err, &me) && me.Number == 1193 {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// splitterSQLMode takes out of an sql_mode the modes under which the server
+// reads quotes differently from splitServer: ANSI_QUOTES makes "..." a name
+// in which a backslash is a plain character, NO_BACKSLASH_ESCAPES does the
+// same in strings. ANSI and the modes named after other databases turn on
+// ANSI_QUOTES; their other parts are listed in the mode too and stay.
+func splitterSQLMode(mode string) (string, bool) {
+	drop := map[string]bool{"ANSI_QUOTES": true, "NO_BACKSLASH_ESCAPES": true, "ANSI": true,
+		"DB2": true, "MAXDB": true, "MSSQL": true, "ORACLE": true, "POSTGRESQL": true}
+	var keep []string
+	changed := false
+	for _, m := range strings.Split(mode, ",") {
+		m = strings.TrimSpace(m)
+		switch {
+		case m == "":
+		case drop[strings.ToUpper(m)]:
+			changed = true
+		case strings.Trim(strings.ToUpper(m), "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789") != "":
+			changed = true // not a mode name; it cannot go into the SET
+		default:
+			keep = append(keep, m)
+		}
+	}
+	return strings.Join(keep, ","), changed
 }
 
 func (b *myBackend) close() {
@@ -60,6 +128,14 @@ func (b *myBackend) close() {
 	}
 	if b.db != nil {
 		_ = b.db.Close()
+	}
+	// A query cut off by ctx keeps running on the server: stop it there.
+	if b.ctx.Err() != nil && b.connID > 0 && b.connector != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		db := sql.OpenDB(b.connector)
+		_, _ = db.ExecContext(ctx, "KILL QUERY "+strconv.FormatInt(b.connID, 10))
+		_ = db.Close()
 	}
 }
 

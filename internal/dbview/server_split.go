@@ -9,10 +9,12 @@ type srvStatement struct {
 	words []string // the bare words, upper-cased, in order
 }
 
-// writesFile: SELECT ... INTO OUTFILE or DUMPFILE writes a file on the server.
-func (st srvStatement) writesFile() bool {
-	for i, w := range st.words {
-		if w == "INTO" && i+1 < len(st.words) && (st.words[i+1] == "OUTFILE" || st.words[i+1] == "DUMPFILE") {
+// writesInto: a read of MySQL with INTO writes somewhere (INTO OUTFILE or
+// DUMPFILE writes a file on the server). Read-only mode refuses every INTO,
+// so a form the splitter does not know cannot slip through.
+func (st srvStatement) writesInto() bool {
+	for _, w := range st.words {
+		if w == "INTO" || w == "OUTFILE" || w == "DUMPFILE" {
 			return true
 		}
 	}
@@ -24,6 +26,10 @@ func (st srvStatement) writesFile() bool {
 // (the bodies of functions) and E'...' strings; for MySQL, # comments, backslash
 // escapes and backticks. Texts that hold only whitespace and comments give no
 // statement.
+//
+// Comments follow the server: PostgreSQL nests /* */ comments; MySQL starts a
+// -- comment only when whitespace or a control character follows, and runs
+// the text of /*! ... */ and /*M! ... */ comments, so their words count.
 func splitServer(sql string, mysql bool) []srvStatement {
 	var out []srvStatement
 	start, end := -1, 0
@@ -45,22 +51,31 @@ func splitServer(sql string, mysql bool) []srvStatement {
 		end = to
 	}
 	n := len(sql)
+	inCode := false // inside a MySQL /*! ... */ comment, whose text runs
 	for i := 0; i < n; {
 		c := sql[i]
 		switch {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f':
 			i++
-		case c == '-' && i+1 < n && sql[i+1] == '-', mysql && c == '#':
+		case c == '-' && i+1 < n && sql[i+1] == '-' && (!mysql || i+2 >= n || sql[i+2] <= ' '), mysql && c == '#':
 			for i < n && sql[i] != '\n' {
 				i++
 			}
-		case c == '/' && i+1 < n && sql[i+1] == '*':
-			j := strings.Index(sql[i+2:], "*/")
-			if j < 0 {
-				i = n
-			} else {
-				i += j + 4
+		case mysql && inCode && c == '*' && i+1 < n && sql[i+1] == '/':
+			inCode = false
+			i += 2
+		case mysql && c == '/' && i+2 < n && sql[i+1] == '*' && (sql[i+2] == '!' || (i+3 < n && sql[i+2] == 'M' && sql[i+3] == '!')):
+			// The version number after the ! is not part of the text.
+			i += 3
+			if sql[i-1] == 'M' {
+				i++
 			}
+			for i < n && sql[i] >= '0' && sql[i] <= '9' {
+				i++
+			}
+			inCode = true
+		case c == '/' && i+1 < n && sql[i+1] == '*':
+			i = commentEnd(sql, i, !mysql)
 		case c == ';':
 			flush()
 			i++
@@ -117,6 +132,31 @@ func splitServer(sql string, mysql bool) []srvStatement {
 	}
 	flush()
 	return out
+}
+
+// commentEnd is the index after the /* */ comment that starts at i, or the
+// end of the text when it is not closed. PostgreSQL nests these comments.
+func commentEnd(sql string, i int, nested bool) int {
+	n, depth := len(sql), 0
+	for i < n {
+		switch {
+		case i+1 < n && sql[i] == '/' && sql[i+1] == '*':
+			depth++
+			i += 2
+			if !nested && depth > 1 {
+				depth = 1
+			}
+		case i+1 < n && sql[i] == '*' && sql[i+1] == '/':
+			depth--
+			i += 2
+			if depth == 0 {
+				return i
+			}
+		default:
+			i++
+		}
+	}
+	return n
 }
 
 // dollarTag reads the $tag$ that opens a dollar-quoted string, if s starts with one.
