@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ClipboardPaste, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, ClipboardPaste, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormScope from '@/components/FormScope.vue'
@@ -29,6 +29,7 @@ import type { EnvVar } from '@/lib/types'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { ApiError, api } from '@/lib/api'
 import { parseDotenv } from '@/lib/dotenv'
+import { isServerDb } from '@/lib/dbvalue'
 import { toastError, toastOk } from '@/lib/notify'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
 import { useQueryParam } from '@/composables/useQueryParam'
@@ -71,6 +72,21 @@ const scopes = computed(() => [
   { value: '', label: 'Shared', sub: 'every service', count: all.value.filter((v) => !v.service).length },
   ...services.value.map((s) => ({ value: s.name, label: s.name, sub: serviceRole(s).label, count: all.value.filter((v) => v.service === s.name).length })),
 ])
+
+// A database, cache or search engine made from a template: its own variables
+// are the settings its server starts with, shown folded under the card that
+// tells how other apps connect to it.
+const serverApp = computed(() => !!app.data.value?.template && !props.service)
+const showServer = ref(false)
+const serverWhat = computed(() => (app.data.value ? appRole(app.data.value).label.toLowerCase() : 'database'))
+// PostgreSQL, MariaDB and MySQL read the user, password and database name only
+// when they create their files: a later change does not reach them.
+const setOnce = computed(() => isServerDb(app.data.value))
+const serverBlurb = computed(() =>
+  setOnce.value
+    ? 'What this database really runs with: the user, password and database name it was created with. Your other apps do not need these, they use the shortcuts above. Changing one here does not change the database, and breaks the apps connected to it.'
+    : 'What this server really runs with, like its password. Your other apps do not need these, they use the shortcuts above. A change applies after a restart.',
+)
 
 // ---------------------------------------------------------------- references to the other apps of the project
 const { project } = useProject(() => (app.data.value ? projectIdOf(app.data.value) : ''))
@@ -223,12 +239,23 @@ const importAll = useMutation({
 
 <template>
   <div class="grid gap-4">
-    <ConnectionCard v-if="app.data.value?.template && !service" :app="app.data.value" />
-    <Card>
+    <ConnectionCard v-if="serverApp" :app="app.data.value!" />
+    <!-- A database's own variables are what its server starts with: folded away, the card above is what other apps use. -->
+    <Card v-if="serverApp && !showServer">
       <CardHeader class="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="grid min-w-0 gap-1.5">
-          <CardTitle>{{ service ? 'Variables' : 'Environment variables' }}</CardTitle>
-          <CardDescription v-if="scope">
+          <CardTitle>This {{ serverWhat }}'s own variables</CardTitle>
+          <CardDescription>{{ serverBlurb }}</CardDescription>
+        </div>
+        <Button variant="outline" @click="showServer = true"><ChevronDown /> Show {{ list.length || '' }} {{ list.length === 1 ? 'setting' : 'settings' }}</Button>
+      </CardHeader>
+    </Card>
+    <Card v-else>
+      <CardHeader class="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div class="grid min-w-0 gap-1.5">
+          <CardTitle>{{ service ? 'Variables' : serverApp ? `This ${serverWhat}'s own variables` : 'Environment variables' }}</CardTitle>
+          <CardDescription v-if="serverApp">{{ serverBlurb }}</CardDescription>
+          <CardDescription v-else-if="scope">
             Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. Values are hidden once saved; a change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="multi">
@@ -238,7 +265,10 @@ const importAll = useMutation({
             Passwords, API keys and other settings your app reads when it starts. Values are hidden once saved. A change applies after a restart.
           </CardDescription>
         </div>
-        <Button variant="outline" @click="openPaste"><ClipboardPaste /> Paste .env</Button>
+        <div class="flex gap-2">
+          <Button v-if="serverApp" variant="ghost" @click="showServer = false"><ChevronUp /> Hide</Button>
+          <Button variant="outline" @click="openPaste"><ClipboardPaste /> Paste .env</Button>
+        </div>
       </CardHeader>
       <CardContent class="grid gap-4">
         <!-- Whose variables: shared, or one service's own. -->
