@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -200,5 +201,77 @@ func TestServeMaxConns(t *testing.T) {
 	defer c2.Close()
 	if got, err := roundTrip(c2, "two"); err == nil {
 		t.Fatalf("a second connection over the limit was forwarded: %q", got)
+	}
+}
+
+// One address cannot take every slot: the owner can still connect.
+func TestServeMaxPerAddr(t *testing.T) {
+	addr, _, _ := startProxy(t, Options{Target: echoServer(t), MaxPerAddr: 2})
+	var open []net.Conn
+	for i := range 2 {
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		if _, err := roundTrip(c, "x"); err != nil {
+			t.Fatalf("connection %d: %v", i, err)
+		}
+		open = append(open, c)
+	}
+	c3, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c3.Close()
+	if got, err := roundTrip(c3, "three"); err == nil {
+		t.Fatalf("a third connection from the same address was forwarded: %q", got)
+	}
+	// A closed connection gives its place back.
+	open[0].Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := roundTrip(c, "again")
+		c.Close()
+		if err == nil && got == "AGAIN" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the freed place was not given back: %q %v", got, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A connection without traffic either way is closed; one with traffic in
+// either direction stays.
+func TestServeIdleTimeout(t *testing.T) {
+	addr, _, _ := startProxy(t, Options{Target: echoServer(t), IdleTimeout: 300 * time.Millisecond})
+	busy, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	quiet, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer quiet.Close()
+	if _, err := roundTrip(quiet, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 8 { // 800 ms of traffic, longer than the timeout
+		if got, err := roundTrip(busy, "ping"); err != nil || got != "PING" {
+			t.Fatalf("busy connection, round %d: %q %v", i, got, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = quiet.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := quiet.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("the idle connection was not closed: %v", err)
 	}
 }
