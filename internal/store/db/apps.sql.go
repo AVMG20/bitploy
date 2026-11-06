@@ -232,7 +232,7 @@ func (q *Queries) InsertUpload(ctx context.Context, arg InsertUploadParams) erro
 }
 
 const listEnvVars = `-- name: ListEnvVars :many
-SELECT app_id, service, name, value_enc, updated_at, build FROM env_vars WHERE app_id = ? ORDER BY service, name
+SELECT app_id, service, name, value_enc, updated_at FROM env_vars WHERE app_id = ? ORDER BY service, name
 `
 
 func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, error) {
@@ -250,7 +250,6 @@ func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, erro
 			&i.Name,
 			&i.ValueEnc,
 			&i.UpdatedAt,
-			&i.Build,
 		); err != nil {
 			return nil, err
 		}
@@ -538,33 +537,6 @@ type SetAppVolumeEnabledParams struct {
 func (q *Queries) SetAppVolumeEnabled(ctx context.Context, arg SetAppVolumeEnabledParams) error {
 	_, err := q.db.ExecContext(ctx, setAppVolumeEnabled, arg.VolumeEnabled, arg.UpdatedAt, arg.ID)
 	return err
-}
-
-const setEnvVarBuild = `-- name: SetEnvVarBuild :execrows
-UPDATE env_vars SET build = ?, updated_at = ? WHERE app_id = ? AND service = ? AND name = ?
-`
-
-type SetEnvVarBuildParams struct {
-	Build     string
-	UpdatedAt int64
-	AppID     string
-	Service   string
-	Name      string
-}
-
-// build: ” (only at run time), 'public' or 'secret' (see 00310_env_build.sql).
-func (q *Queries) SetEnvVarBuild(ctx context.Context, arg SetEnvVarBuildParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setEnvVarBuild,
-		arg.Build,
-		arg.UpdatedAt,
-		arg.AppID,
-		arg.Service,
-		arg.Name,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const sumAppResourcesByUser = `-- name: SumAppResourcesByUser :one

@@ -68,9 +68,11 @@ func parseRuns(t *testing.T, df string) (runs []*instructions.RunCommand, argsBe
 	return runs, argsBefore
 }
 
+// Every variable reaches the build script of bitploy's own Node builds as a
+// secret mounted in its environment: never a build argument (its value would
+// be in the image history), never in the steps before it.
 func TestWithTemplateBuildVarsNodeTemplates(t *testing.T) {
-	public := map[string]string{"VITE_SUPABASE_URL": "https://x.supabase.co", "NEXT_PUBLIC_A": "a"}
-	secret := map[string]string{"SENTRY_AUTH_TOKEN": "tok"}
+	names := []string{"VITE_SUPABASE_URL", "NEXT_PUBLIC_A", "DATABASE_URL"}
 	pkg := func(lock string) []string { return []string{"package.json", lock, "index.html", "src/main.ts"} }
 	cases := []struct {
 		name  string
@@ -97,7 +99,7 @@ func TestWithTemplateBuildVarsNodeTemplates(t *testing.T) {
 			if !ok {
 				t.Fatal("no template")
 			}
-			out, n := WithTemplateBuildVars(tpl.Dockerfile, public, secret)
+			out, n := WithTemplateBuildVars(tpl.Dockerfile, names)
 			if n != 1 {
 				t.Fatalf("changed %d build lines:\n%s", n, out)
 			}
@@ -107,102 +109,118 @@ func TestWithTemplateBuildVarsNodeTemplates(t *testing.T) {
 				text := strings.Join(r.CmdLine, " ")
 				mounts := instructions.GetMounts(r)
 				if text != c.build {
-					if len(mounts) > 0 {
+					if slices.ContainsFunc(mounts, func(m *instructions.Mount) bool { return m.Type == instructions.MountTypeSecret }) {
 						t.Errorf("step %q mounts secrets", text)
 					}
-					if !found && slices.Contains(before[i], "VITE_SUPABASE_URL") {
-						t.Errorf("step %q before the build sees the build args (its cache would follow them)", text)
+					if !found && slices.Contains(before[i], BuildSecretsArg) {
+						t.Errorf("step %q before the build sees the fingerprint (its cache would follow the values)", text)
 					}
 					continue
 				}
 				found = true
-				for _, a := range []string{"NEXT_PUBLIC_A", "VITE_SUPABASE_URL", BuildSecretsArg} {
-					if !slices.Contains(before[i], a) {
-						t.Errorf("no ARG %s before the build step:\n%s", a, out)
+				if !slices.Contains(before[i], BuildSecretsArg) {
+					t.Errorf("no ARG %s before the build step:\n%s", BuildSecretsArg, out)
+				}
+				for _, a := range names {
+					if slices.Contains(before[i], a) {
+						t.Errorf("%s is a build argument, so its value would be in the image history", a)
 					}
 				}
-				if len(mounts) != 1 || mounts[0].Type != instructions.MountTypeSecret || mounts[0].CacheID != "SENTRY_AUTH_TOKEN" ||
-					mounts[0].Env == nil || *mounts[0].Env != "SENTRY_AUTH_TOKEN" {
-					t.Errorf("build step mounts %+v", *mounts[0])
+				var got []string
+				for _, m := range mounts {
+					if m.Type != instructions.MountTypeSecret || m.Env == nil || *m.Env != m.CacheID {
+						t.Errorf("build step mounts %+v", *m)
+					}
+					got = append(got, m.CacheID)
+				}
+				if want := slices.Sorted(slices.Values(names)); !slices.Equal(got, want) {
+					t.Errorf("mounts %v, want %v", got, want)
 				}
 			}
 			if !found {
 				t.Fatalf("no build step %q:\n%s", c.build, out)
 			}
-			for _, v := range []string{"https://x.supabase.co", "tok"} {
-				if strings.Contains(out, v) {
-					t.Errorf("a value is in the Dockerfile: %s", v)
-				}
-			}
 		})
-	}
-}
-
-func TestWithTemplateBuildVarsPublicOnlyHasNoSecretArg(t *testing.T) {
-	tpl, _ := templates.StaticBuild([]string{"package.json", "package-lock.json"}, "dist", true)
-	out, n := WithTemplateBuildVars(tpl.Dockerfile, map[string]string{"VITE_A": "1"}, nil)
-	if n != 1 || strings.Contains(out, BuildSecretsArg) || strings.Contains(out, "--mount") || !strings.Contains(out, "ARG VITE_A\nRUN npm run build\n") {
-		t.Fatalf("%d\n%s", n, out)
 	}
 }
 
 func TestWithTemplateBuildVarsNoBuildStep(t *testing.T) {
 	for _, stack := range []string{"static", "node"} {
 		tpl, _ := templates.ForFiles(stack, []string{"package.json", "package-lock.json"})
-		out, n := WithTemplateBuildVars(tpl.Dockerfile, map[string]string{"A": "1"}, map[string]string{"B": "2"})
+		out, n := WithTemplateBuildVars(tpl.Dockerfile, []string{"A", "B"})
 		if n != 0 || out != tpl.Dockerfile {
 			t.Fatalf("%s: changed %d lines", stack, n)
 		}
 	}
+	// Without variables the Dockerfile stays as it is; the build step is still counted.
 	tpl, _ := templates.StaticBuild([]string{"package.json"}, "dist", true)
-	if out, n := WithTemplateBuildVars(tpl.Dockerfile, nil, nil); n != 0 || out != tpl.Dockerfile {
-		t.Fatal("changed without variables")
+	if out, n := WithTemplateBuildVars(tpl.Dockerfile, nil); n != 1 || out != tpl.Dockerfile {
+		t.Fatalf("changed without variables (%d)", n)
 	}
 }
 
-func TestPrepareDockerfileBuildVars(t *testing.T) {
-	df := "FROM node:22 AS build\n" +
+func TestReadDockerfileBuildVars(t *testing.T) {
+	df := "ARG BASE=node:22\n" +
+		"FROM $BASE AS build\n" +
 		"ARG VITE_A=default\n" +
 		"COPY . .\n" +
 		"RUN npm ci\n" +
 		"RUN --mount=type=secret,id=TOKEN,env=TOKEN \\\n" +
 		"    npm run build\n" +
 		"FROM nginx:1.27\n" +
-		"RUN --mount=type=secret,id=OTHER cat /run/secrets/OTHER > /dev/null\n" +
+		"RUN --mount=type=secret,target=/run/secrets/OTHER cat /run/secrets/OTHER > /dev/null\n" +
+		"RUN --mount=type=cache,target=/root/.cache true\n" +
 		"COPY --from=build /app/dist /usr/share/nginx/html\n"
-	got := PrepareDockerfileBuildVars([]byte(df), map[string]string{"VITE_A": "x", "VITE_B": "y"}, map[string]string{"TOKEN": "t"})
-	if got.SecretSteps != 2 {
-		t.Fatalf("secret steps %d", got.SecretSteps)
+	got := ReadDockerfileBuildVars([]byte(df))
+	if !slices.Equal(got.Args, []string{"BASE", "VITE_A"}) || !slices.Equal(got.Secrets, []string{"OTHER", "TOKEN"}) || got.AnySecret {
+		t.Fatalf("%+v", got)
 	}
-	if !slices.Equal(got.Undeclared, []string{"VITE_B"}) {
-		t.Fatalf("undeclared %v", got.Undeclared)
+	if !got.Reads("VITE_A") || !got.Reads("TOKEN") || got.Reads("DATABASE_URL") {
+		t.Fatal("Reads")
 	}
+	if !slices.Equal(got.SecretSteps, []int{6, 9}) {
+		t.Fatalf("secret steps %v", got.SecretSteps)
+	}
+	out := got.WithSecretFingerprint([]byte(df))
 	want := strings.Replace(df, "RUN --mount=type=secret,id=TOKEN", "ARG "+BuildSecretsArg+"\nRUN --mount=type=secret,id=TOKEN", 1)
-	want = strings.Replace(want, "RUN --mount=type=secret,id=OTHER", "ARG "+BuildSecretsArg+"\nRUN --mount=type=secret,id=OTHER", 1)
-	if string(got.Dockerfile) != want {
-		t.Fatalf("Dockerfile:\n%s\nwant:\n%s", got.Dockerfile, want)
+	want = strings.Replace(want, "RUN --mount=type=secret,target", "ARG "+BuildSecretsArg+"\nRUN --mount=type=secret,target", 1)
+	if string(out) != want {
+		t.Fatalf("Dockerfile:\n%s\nwant:\n%s", out, want)
 	}
-	runs, before := parseRuns(t, string(got.Dockerfile))
+	// Every secret step sees the fingerprint; npm ci before them does not.
+	runs, before := parseRuns(t, string(out))
 	for i, r := range runs {
 		has := slices.Contains(before[i], BuildSecretsArg)
-		if secretStep := len(instructions.GetMounts(r)) > 0; has != secretStep {
+		secretStep := slices.ContainsFunc(instructions.GetMounts(r), func(m *instructions.Mount) bool { return m.Type == instructions.MountTypeSecret })
+		if secretStep && !has || strings.Join(r.CmdLine, " ") == "npm ci" && has {
 			t.Errorf("step %q: fingerprint ARG %v, mounts a secret %v", strings.Join(r.CmdLine, " "), has, secretStep)
 		}
 	}
 }
 
-func TestPrepareDockerfileBuildVarsLeavesOthersAlone(t *testing.T) {
-	df := []byte("FROM node:22\nARG VITE_A\nRUN npm run build\n")
-	got := PrepareDockerfileBuildVars(df, map[string]string{"VITE_A": "1"}, map[string]string{"S": "2"})
-	if got.Dockerfile != nil || got.SecretSteps != 0 || len(got.Undeclared) != 0 {
+func TestReadDockerfileBuildVarsEdges(t *testing.T) {
+	plain := ReadDockerfileBuildVars([]byte("FROM node:22\nARG VITE_A\nRUN npm run build\n"))
+	if plain.WithSecretFingerprint(nil) != nil || len(plain.Secrets) != 0 || !slices.Equal(plain.Args, []string{"VITE_A"}) {
+		t.Fatalf("%+v", plain)
+	}
+	// An id from a variable may be any of them.
+	if got := ReadDockerfileBuildVars([]byte("FROM node:22\nARG S\nRUN --mount=type=secret,id=$S,env=X true\n")); !got.AnySecret || !got.Reads("ANYTHING") {
 		t.Fatalf("%+v", got)
 	}
-	if got := PrepareDockerfileBuildVars([]byte("FROM node:22\nRUN --mount=type=secret,id=S x\n"), map[string]string{"A": "1"}, nil); got.Dockerfile != nil {
-		t.Fatal("rewritten without secrets")
-	}
 	crlf := []byte("FROM node:22\r\nRUN --mount=type=secret,id=S,env=S npm run build\r\n")
-	got = PrepareDockerfileBuildVars(crlf, nil, map[string]string{"S": "2"})
-	if !bytes.Equal(got.Dockerfile, []byte("FROM node:22\r\nARG "+BuildSecretsArg+"\nRUN --mount=type=secret,id=S,env=S npm run build\r\n")) {
-		t.Fatalf("%q", got.Dockerfile)
+	got := ReadDockerfileBuildVars(crlf)
+	if !bytes.Equal(got.WithSecretFingerprint(crlf), []byte("FROM node:22\r\nARG "+BuildSecretsArg+"\nRUN --mount=type=secret,id=S,env=S npm run build\r\n")) {
+		t.Fatalf("%q", got.WithSecretFingerprint(crlf))
+	}
+}
+
+func TestReservedBuildArg(t *testing.T) {
+	for _, n := range []string{"TARGETARCH", "BUILDPLATFORM", "BUILDKIT_SYNTAX", "SOURCE_DATE_EPOCH"} {
+		if !ReservedBuildArg(n) {
+			t.Errorf("%s not reserved", n)
+		}
+	}
+	if ReservedBuildArg("VITE_A") || ReservedBuildArg("BUILD_ID") || !TemplateBuildEnv("NODE_OPTIONS") || TemplateBuildEnv("PATH") {
+		t.Error("reserved too much")
 	}
 }

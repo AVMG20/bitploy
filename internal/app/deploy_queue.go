@@ -510,6 +510,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind: "rollback", ref: deploymentID, image: target.Image.String,
 		port: target.Port, hasHC: target.HasHealthcheck != 0, warningsJSON: withoutAfterDeployWarning(target.Warnings), buildKind: target.BuildKind,
+		buildReads:     target.BuildReads,
 		catalogVersion: target.CatalogVersion, servicesSpec: target.ServicesSpec,
 	})
 }
@@ -544,6 +545,7 @@ type queueSpec struct {
 	warnings     []deploy.Finding
 	warningsJSON sql.NullString
 	buildKind    string                   // a rollback has the kind of the deployment it returns to; others get theirs when validated
+	buildReads   string                   // a rollback runs the image of its target, built with the variables that one read
 	plannedKind  string                   // files whose build was planned already: only for the early quota check
 	prepare      func(depID string) error // writes the source snapshot before the row exists
 	inTx         func(q *db.Queries) error
@@ -664,6 +666,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 				return err
 			}
 		}
+		if qs.buildReads != "" {
+			if err := q.SetDeploymentBuildReads(ctx, db.SetDeploymentBuildReadsParams{BuildReads: qs.buildReads, ID: depID}); err != nil {
+				return err
+			}
+		}
 		if qs.catalogVersion != "" {
 			if err := q.SetDeploymentCatalogVersion(ctx, db.SetDeploymentCatalogVersionParams{CatalogVersion: qs.catalogVersion, ID: depID}); err != nil {
 				return err
@@ -770,7 +777,8 @@ func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain stri
 		ID: d.ID, AppID: d.AppID, AppSlug: slug, Seq: d.Seq, State: d.State,
 		SourceKind: d.SourceKind, SourceRef: d.SourceRef, Channel: d.Channel,
 		Warnings: []deploy.Finding{}, QueuedAt: ts(d.QueuedAt), AfterDeploy: d.AfterDeploy,
-		StartedAt: tsPtr(d.StartedAt), FinishedAt: tsPtr(d.FinishedAt),
+		BuildReads: decodeBuildReads(d.BuildReads),
+		StartedAt:  tsPtr(d.StartedAt), FinishedAt: tsPtr(d.FinishedAt),
 		CommitSHA: strPtr(d.CommitSha), CommitMessage: strPtr(d.CommitMessage), Image: strPtr(d.Image),
 	}
 	if appType != "worker" {

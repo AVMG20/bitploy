@@ -1,6 +1,6 @@
 import { computed, ref, toValue, watch } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
-import { isServedSite } from '@/lib/buildVars'
+import { variableNeedsDeploy } from '@/lib/buildVars'
 import type { App, EnvVar } from '@/lib/types'
 
 /**
@@ -12,7 +12,7 @@ import type { App, EnvVar } from '@/lib/types'
  * Variables changed elsewhere (an AI assistant, the API) are caught from their
  * own timestamps.
  */
-// build: a variable the image build reads changed, so it needs a new build (a deploy), not only a restart.
+// build: a variable the live version's build read changed, so it needs a new build (a deploy), not only a restart.
 export type RestartReason = 'variables' | 'size' | 'storage' | 'build'
 
 interface Entry {
@@ -84,9 +84,7 @@ export function useRestartNeeded(app: MaybeRefOrGetter<App | null | undefined>, 
     const started = new Date(a.started_at).getTime()
     for (const v of toValue(env) ?? []) {
       if (new Date(v.updated_at).getTime() <= started) continue
-      // A site served by bitploy reads variables only while it is built.
-      if (v.build) out.add('build')
-      else if (!isServedSite(a)) out.add('variables')
+      out.add(variableNeedsDeploy(a, v.name) ? 'build' : 'variables')
     }
     return [...out]
   })

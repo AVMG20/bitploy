@@ -1079,11 +1079,13 @@ func TestRollbackRules(t *testing.T) {
 	if _, err := e.s.Rollback(ctx, e.user, app.Slug, "dep_nope"); depCode(err) != "deployment_not_found" {
 		t.Errorf("unknown: %v", err)
 	}
+	e.exec(t, `UPDATE deployments SET build_reads = 'VITE_A,TOKEN' WHERE id = ?`, d1)
 	d, err := e.s.Rollback(ctx, e.user, app.Slug, d1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.SourceKind != "rollback" || d.SourceRef != d1 || d.Image == nil || *d.Image != "bitploy/"+app.Slug+":1" || d.Seq != 3 {
+	// The image it runs again was built with what the target's build read.
+	if d.SourceKind != "rollback" || d.SourceRef != d1 || d.Image == nil || *d.Image != "bitploy/"+app.Slug+":1" || d.Seq != 3 || strings.Join(d.BuildReads, ",") != "VITE_A,TOKEN" {
 		t.Errorf("%+v", d)
 	}
 	other := e.mustApp(t, CreateAppInput{})

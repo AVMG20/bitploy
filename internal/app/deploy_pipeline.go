@@ -101,9 +101,12 @@ type pipeline struct {
 	extraEnv   map[string]string
 	enableData int64 // MB: /data is turned on when the deployment goes live
 
-	// buildSecrets are the values of the build's secret variables, masked
-	// in the build log (applyBuildVars).
+	// buildSecrets are the values given to the build that may be secrets,
+	// masked in the build log (applyBuildVars).
 	buildSecrets []string
+	// buildReads are the variables the build reads ("*": every one), stored
+	// as deployments.build_reads.
+	buildReads map[string]bool
 }
 
 // serviceRun is one service of a deployment on its way to running.

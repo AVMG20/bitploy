@@ -8,67 +8,60 @@ import (
 	"github.com/AVMG20/bitploy/internal/app"
 )
 
-func TestSetEnvBuildVariables(t *testing.T) {
+func TestSetEnvHasNoBuildChoice(t *testing.T) {
 	e := newEnv(t)
 	cs := e.connect(t, e.deployToken)
 	if res := call(t, cs, "create_app", map[string]any{"name": "Site", "slug": "vite-site"}); res.IsError {
 		t.Fatal(text(res))
 	}
 	res := call(t, cs, "set_env", map[string]any{"app": "vite-site",
-		"set":   map[string]any{"VITE_SUPABASE_URL": "https://x.supabase.co", "SENTRY_AUTH_TOKEN": "sntrys_abc"},
-		"build": map[string]any{"VITE_SUPABASE_URL": "public", "SENTRY_AUTH_TOKEN": "secret"}})
+		"set": map[string]any{"VITE_SUPABASE_URL": "https://x.supabase.co", "SENTRY_AUTH_TOKEN": "sntrys_abc"}})
 	if res.IsError || strings.Contains(text(res), "sntrys_abc") {
 		t.Fatalf("set_env: %s", text(res))
 	}
 	if steps := fmt.Sprint(structured(t, res)["next_steps"]); !strings.Contains(steps, "first deploy") {
 		t.Errorf("next steps: %s", steps)
 	}
-
 	res = call(t, cs, "list_env", map[string]any{"app": "vite-site"})
-	env := structured(t, res)["env"].([]any)
-	got := map[string]any{}
-	for _, v := range env {
-		m := v.(map[string]any)
-		got[m["name"].(string)] = m["build"]
+	for _, v := range structured(t, res)["env"].([]any) {
+		if _, ok := v.(map[string]any)["build"]; ok {
+			t.Errorf("list_env still has build: %v", v)
+		}
 	}
-	if got["VITE_SUPABASE_URL"] != "public" || got["SENTRY_AUTH_TOKEN"] != "secret" {
-		t.Errorf("list_env build = %v", got)
-	}
-
-	// The schema names the choices, so a wrong one is refused before the service.
-	if m := assertErrorShape(t, "bad build", call(t, cs, "set_env", map[string]any{"app": "vite-site", "build": map[string]any{"VITE_SUPABASE_URL": "maybe"}})); m != nil &&
-		(m["code"] != "invalid_arguments" || !strings.Contains(fmt.Sprint(m["message"]), "public secret none")) {
-		t.Errorf("bad build: %v", m)
-	}
-	if m := assertErrorShape(t, "unknown name", call(t, cs, "set_env", map[string]any{"app": "vite-site", "build": map[string]any{"NOPE": "public"}})); m != nil && m["code"] != "env_not_found" {
-		t.Errorf("unknown name: %v", m)
+	if m := assertErrorShape(t, "build", call(t, cs, "set_env", map[string]any{"app": "vite-site", "build": map[string]any{"VITE_SUPABASE_URL": "public"}})); m != nil && m["code"] != "invalid_arguments" {
+		t.Errorf("build: %v", m)
 	}
 }
 
-// A secret build variable with a front-end prefix still ends up in the site
-// when its code reads it: set_env says so instead of letting the AI promise
-// the user a secret.
-func TestSetEnvWarnsSecretWithPublicPrefix(t *testing.T) {
-	e := newEnv(t)
-	cs := e.connect(t, e.deployToken)
-	if res := call(t, cs, "create_app", map[string]any{"name": "Site", "slug": "vite-secret"}); res.IsError {
-		t.Fatal(text(res))
+// set_env asks for a deploy when the live version's build read a changed
+// variable, and for a restart otherwise.
+func TestSetEnvChangeNext(t *testing.T) {
+	running := func(mode string, reads ...string) *app.App {
+		return &app.App{Slug: "a", Status: "running", BuildMode: mode, Current: &app.Deployment{State: "running", BuildReads: reads}}
 	}
-	res := call(t, cs, "set_env", map[string]any{"app": "vite-secret",
-		"set": map[string]any{"VITE_API_TOKEN": "abc123", "NPM_TOKEN": "npm_x"}, "build": map[string]any{"VITE_API_TOKEN": "secret", "NPM_TOKEN": "secret"}})
-	if res.IsError {
-		t.Fatal(text(res))
+	cases := []struct {
+		name    string
+		app     *app.App
+		changed []string
+		deploy  bool
+	}{
+		{"own Dockerfile reads it", running("dockerfile", "VITE_A", "TOKEN"), []string{"OTHER", "TOKEN"}, true},
+		{"own Dockerfile does not read it", running("dockerfile", "VITE_A"), []string{"DATABASE_URL"}, false},
+		{"build script reads every one", running("auto", "*"), []string{"DATABASE_URL"}, true},
+		{"site bitploy serves", running("static_build"), []string{"VITE_A"}, true},
+		{"nothing read", running("auto"), []string{"VITE_A"}, false},
 	}
-	steps := structured(t, res)["next_steps"].([]any)
-	if first := fmt.Sprint(steps[0]); !strings.Contains(first, "VITE_API_TOKEN") || strings.Contains(first, "NPM_TOKEN") || !strings.Contains(first, "every visitor") {
-		t.Errorf("warning: %s", first)
+	for _, c := range cases {
+		steps := strings.Join(setEnvChangeNext("a", c.app, c.changed), " ")
+		if got := strings.Contains(steps, "next deploy"); got != c.deploy {
+			t.Errorf("%s: %s", c.name, steps)
+		}
+		if !c.deploy && !strings.Contains(steps, "restart_app with app=a") {
+			t.Errorf("%s: no restart: %s", c.name, steps)
+		}
 	}
-	if all := fmt.Sprint(steps); !strings.Contains(all, "first deploy") || strings.Count(all, "Careful") != 1 {
-		t.Errorf("next steps: %s", all)
-	}
-	res = call(t, cs, "set_env", map[string]any{"app": "vite-secret", "build": map[string]any{"NPM_TOKEN": "secret"}})
-	if strings.Contains(fmt.Sprint(structured(t, res)["next_steps"]), "Careful") {
-		t.Errorf("warned about NPM_TOKEN: %s", text(res))
+	if steps := fmt.Sprint(setEnvChangeNext("a", running("dockerfile", "TOKEN"), []string{"TOKEN", "B"})); !strings.Contains(steps, "The build reads TOKEN,") {
+		t.Errorf("names: %s", steps)
 	}
 }
 

@@ -48,6 +48,9 @@ UPDATE deployments SET services_spec = ? WHERE id = ?;
 -- name: SetDeploymentPort :exec
 UPDATE deployments SET port = ? WHERE id = ?;
 
+-- name: SetDeploymentBuildReads :exec
+UPDATE deployments SET build_reads = ? WHERE id = ?;
+
 -- name: SetDeploymentBuilt :exec
 UPDATE deployments SET image = ?, image_size_bytes = ?, built_at = ? WHERE id = ?;
 

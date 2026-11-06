@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/deploy"
@@ -394,9 +395,27 @@ type Deployment struct {
 	// Services is set for a deployment of an app with several services.
 	Services []DeploymentService `json:"services,omitempty" doc:"Per service, for an app with several services"`
 
+	// BuildReads are the app variables the build of this version read, so
+	// a change to one of them needs a deploy, not only a restart.
+	BuildReads []string `json:"build_reads,omitempty" doc:"The variables the build of this version read; [\"*\"]: every variable (a build script bitploy runs). A change to one of them applies on the next deploy, a change to any other after a restart. Absent: none."`
+
 	// AfterDeploy is what the app's after-deploy command did in this
 	// deployment's live container; "" when none ran.
 	AfterDeploy string `json:"after_deploy,omitempty" enum:"pending,running,succeeded,failed" doc:"The after-deploy command: pending (runs once live), running, succeeded or failed (a warning; the version stays live). Absent when none ran."`
+}
+
+// VariableNeedsDeploy reports whether a change to the variable name reaches
+// the app only with a new build (a deploy) rather than a restart: the live
+// version's build read it, or the app is a site bitploy serves, which runs
+// none of its code on the server.
+func (a App) VariableNeedsDeploy(name string) bool {
+	if a.Static || a.BuildMode == "static" || a.BuildMode == "static_build" {
+		return true
+	}
+	if a.Current == nil {
+		return false
+	}
+	return slices.Contains(a.Current.BuildReads, "*") || slices.Contains(a.Current.BuildReads, name)
 }
 
 // Terminal reports whether the deployment stopped moving.
@@ -418,11 +437,8 @@ type EnvVar struct {
 	Masked  string `json:"masked"` // e.g. "••••••••" — values are never returned
 	// References are the ${{<alias>.VAR}} references in the value: names of
 	// other apps' variables, shown because they are not secret.
-	References []string `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`
-	// Build says whether the image build gets the variable too (see
-	// BuildPublic and BuildSecret); "" when only the running app does.
-	Build     string    `json:"build,omitempty" enum:"public,secret" doc:"Also given to the image build: public (a build argument; bitploy's own Node builds hand it to the build script, a Dockerfile needs ARG NAME) or secret (a BuildKit secret, only in RUN --mount=type=secret,id=NAME,env=NAME). Left out: only the running app gets it."`
-	UpdatedAt time.Time `json:"updated_at"`
+	References []string  `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type DNSRecord struct {

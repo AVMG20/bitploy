@@ -269,6 +269,8 @@ export interface Deployment {
 
   /** The after-deploy command of this deployment; absent when none ran. A failure is also in warnings. */
   after_deploy?: 'pending' | 'running' | 'succeeded' | 'failed'
+  /** The variables the build of this version read; ["*"]: every one. A change to one of them needs a deploy. */
+  build_reads?: string[]
 }
 
 /** One service of a deployment (Deployment.services). */
@@ -295,11 +297,7 @@ export interface EnvVar {
    * stays masked.
    */
   references?: string[]
-  /** The image build gets it too: as a build argument, or as a secret. Left out: only the running app. */
-  build?: EnvBuild
 }
-
-export type EnvBuild = 'public' | 'secret'
 
 export interface DNSRecord {
   type: 'CNAME' | 'A' | 'AAAA' | 'TXT'

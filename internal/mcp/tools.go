@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -162,7 +164,6 @@ type setEnvIn struct {
 	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
 	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the default). get_app lists the services."`
-	Build   map[string]string `json:"build,omitempty" jsonschema:"Only for variables the BUILD needs, as an object of name to public, secret or none, like {\"VITE_API_URL\":\"public\"}. The name must be in set or already exist; variables you leave out keep their setting. public: a value the build bakes into the site, like VITE_* or NEXT_PUBLIC_* (bitploy's own builds of a front end without a Dockerfile hand it to the build script; your own Dockerfile needs ARG NAME before the step that uses it). secret: a key the build itself needs, like SENTRY_AUTH_TOKEN; never in the image; a Dockerfile reads it with RUN --mount=type=secret,id=NAME,env=NAME. none: only the running app. Applies on the next deploy."`
 }
 
 type setPasswordIn struct {
@@ -416,7 +417,7 @@ func (s *srv) registerTools() {
 			}
 			dockerfileStep := "A static site (plain HTML, or a front end that builds to files) needs no Dockerfile. Other code without one: call get_template and add one. Then call validate_dockerfile."
 			if ap.BuildMode == "auto" {
-				dockerfileStep = "Build mode auto: a Dockerfile in the code is built; without one bitploy builds a Node.js app, a front end or plain HTML by itself. Values the build needs (VITE_*, NEXT_PUBLIC_*): set_env with build={NAME: \"public\"} before the first deploy."
+				dockerfileStep = "Build mode auto: a Dockerfile in the code is built; without one bitploy builds a Node.js app, a front end or plain HTML by itself. Values the build needs (VITE_*, NEXT_PUBLIC_*): set_env before the first deploy."
 			}
 			return &result{
 				Summary: fmt.Sprintf("Created app %s (%s) at %s; nothing is deployed yet.", ap.Slug, ap.Name, url),
@@ -703,13 +704,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project). A value the BUILD needs (a static front end's VITE_* or NEXT_PUBLIC_*, which are baked into the files) also needs build={NAME: \"public\"}, or \"secret\" for a key only the build uses; it reaches the build on the next deploy (deploy with only app=), not on restart_app. Anything in a public build variable ends up in the site's files, readable by every visitor: never put a secret there. The same holds for a secret one the site's code reads (VITE_*, NEXT_PUBLIC_*): front-end builds put those into the files too.",
-		idempotent(), true,
-		func(sc *jsonschema.Schema) {
-			sc.Properties["build"].AdditionalProperties = &jsonschema.Schema{Type: "string", Enum: []any{"public", "secret", "none"}}
-		},
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET, VITE_API_URL). Values are stored encrypted and never shown again; variables you do not mention stay. Every variable reaches the running app and the image build. A change applies to a running app at restart_app, or on the next deploy when the build reads it (a site bitploy builds, a build script, an ARG or secret mount in the Dockerfile); the answer says which. Never put secrets in files or the Dockerfile. Front-end builds put VITE_*, NEXT_PUBLIC_* and PUBLIC_* values into the site's files, readable by every visitor: never a secret there. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project).",
+		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
-			vars, err := svc.SetServiceEnvBuild(ctx, a, in.App, in.Service, in.Set, in.Unset, in.Build)
+			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)
 			if err != nil {
 				return nil, err
 			}
@@ -725,7 +723,7 @@ func (s *srv) registerTools() {
 			return &result{
 				Summary: fmt.Sprintf("%s now has %d variable(s): %s.", in.App, len(vars), strings.Join(names, ", ")),
 				Data:    data("env", nonNil(vars)),
-				Next:    setEnvBuildNext(in.App, cur, in.Set, in.Build, vars),
+				Next:    setEnvChangeNext(in.App, cur, append(slices.Collect(maps.Keys(in.Set)), in.Unset...)),
 			}, nil
 		})
 

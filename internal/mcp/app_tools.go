@@ -49,7 +49,7 @@ func (s *srv) registerAppTools() {
 	svc := s.svc
 
 	addTool(s, "list_env", "List environment variable names",
-		"The names of an app's environment variables, never their values (they are stored encrypted and nobody can read them back). Use it when an app complains about a missing variable: pass names to check which of them are set. Per variable: service (empty when every service of the app gets it), references (the ${{<alias>.VAR}} it uses, like ${{postgres.DATABASE_URL}}), build (public or secret when the image build gets it too; see set_env) and updated_at. Change them with set_env; a change reaches the running app at restart_app.",
+		"The names of an app's environment variables, never their values (they are stored encrypted and nobody can read them back). Use it when an app complains about a missing variable: pass names to check which of them are set. Per variable: service (empty when every service of the app gets it), references (the ${{<alias>.VAR}} it uses, like ${{postgres.DATABASE_URL}}) and updated_at. Change them with set_env; a change reaches the running app at restart_app.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in listEnvIn) (*result, error) {
 			vars, err := svc.ListEnv(ctx, a, in.App)
@@ -60,14 +60,13 @@ func (s *srv) registerAppTools() {
 				Name       string   `json:"name"`
 				Service    string   `json:"service,omitempty"`
 				References []string `json:"references,omitempty"`
-				Build      string   `json:"build,omitempty"`
 				UpdatedAt  string   `json:"updated_at"`
 			}
 			out := make([]envName, len(vars))
 			set := map[string]bool{}
 			names := make([]string, 0, len(vars))
 			for i, v := range vars {
-				out[i] = envName{Name: v.Name, Service: v.Service, References: v.References, Build: v.Build, UpdatedAt: v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
+				out[i] = envName{Name: v.Name, Service: v.Service, References: v.References, UpdatedAt: v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
 				if !set[v.Name] {
 					names = append(names, v.Name)
 				}

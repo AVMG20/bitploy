@@ -195,6 +195,7 @@ type Deployment struct {
 	ServicesSpec    string
 	ErrorService    string
 	AfterDeploy     string
+	BuildReads      string
 }
 
 type DeploymentRestart struct {
@@ -232,7 +233,6 @@ type EnvVar struct {
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
-	Build     string
 }
 
 type GithubApp struct {

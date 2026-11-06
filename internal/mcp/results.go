@@ -336,29 +336,6 @@ func gitFirstDeployStep(ap app.App) string {
 // rollbackNote says what a rollback does not take back.
 const rollbackNote = "Only the code goes back: variables, settings, files in /data and database contents stay as they are, and the before- and after-deploy commands do not run. If the newer version changed the data (a migration), the older code may not fit it: check the app and tell the user."
 
-// publicBuildPrefixes are the names front-end builds put into the files
-// they build, whatever bitploy passes them as.
-var publicBuildPrefixes = []string{"VITE_", "NEXT_PUBLIC_", "PUBLIC_", "REACT_APP_", "NUXT_PUBLIC_", "EXPO_PUBLIC_"}
-
-// secretButPublic lists the names flagged secret that a front-end build
-// would still put into the site's files when its code reads them.
-func secretButPublic(build map[string]string) []string {
-	var out []string
-	for n, f := range build {
-		if !strings.EqualFold(strings.TrimSpace(f), app.BuildSecret) {
-			continue
-		}
-		for _, p := range publicBuildPrefixes {
-			if strings.HasPrefix(strings.ToUpper(n), p) {
-				out = append(out, n)
-				break
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 func bitployFileStep(ap app.App) string {
 	content := fmt.Sprintf(`{"app":%q}`, ap.Slug)
 	if ap.URL != "" {
@@ -542,37 +519,25 @@ func setEnvNext(slug string, cur *app.App) []string {
 	}
 }
 
-// setEnvBuildNext is setEnvNext for a call that may change what the build
-// gets: the build only sees it on a deploy, never on a restart.
-func setEnvBuildNext(slug string, cur *app.App, set, build map[string]string, vars []app.EnvVar) []string {
-	if names := secretButPublic(build); len(names) > 0 {
-		warn := "Careful: " + strings.Join(names, ", ") + " has a name the front-end build puts into the site's files when the code reads it, so every visitor can read the value even though it is a secret build variable. " +
-			"If the site's code reads it, tell the user the value is public (fine for keys meant to be public, like a Supabase anon key); a real secret belongs in a server app, not in the site. If only a build tool reads it, give it a name without that prefix."
-		rest := map[string]string{}
-		for n, f := range build {
-			rest[n] = f
-		}
-		for _, n := range names {
-			rest[n] = "public" // same next steps, without this warning again
-		}
-		return append([]string{warn}, setEnvBuildNext(slug, cur, set, rest, vars)...)
-	}
-	buildChanged := len(build) > 0
-	for _, v := range vars {
-		if v.Build != "" {
-			if _, changed := set[v.Name]; changed {
-				buildChanged = true
-			}
-		}
-	}
-	if !buildChanged {
+// setEnvChangeNext is setEnvNext for a change of the variables changed: a
+// variable the live version's build read (or any variable of a site bitploy
+// serves) reaches the app only with a new build, never on a restart.
+func setEnvChangeNext(slug string, cur *app.App, changed []string) []string {
+	if cur == nil || cur.Current == nil || cur.Status == "new" || cur.Status == "stopped" || cur.Status == "deploying" {
 		return setEnvNext(slug, cur)
 	}
-	if cur != nil && cur.Status == "new" {
-		return []string{"Nothing is deployed yet; the first deploy builds with these variables. Send the code with deploy_files, or set_git_source and deploy."}
+	var built []string
+	for _, n := range changed {
+		if cur.VariableNeedsDeploy(n) {
+			built = append(built, n)
+		}
 	}
+	if len(built) == 0 {
+		return setEnvNext(slug, cur)
+	}
+	sort.Strings(built)
 	return []string{
-		"Build variables reach the build only on the next deploy: call deploy with only app=" + slug + " (rebuilds the last source; for a linked repository it builds the branch again), then get_deployment with wait_seconds=30. restart_app does not rebuild.",
+		"The build reads " + strings.Join(built, ", ") + ", so the change applies on the next deploy: call deploy with only app=" + slug + " (rebuilds the last source; for a linked repository it builds the branch again), then get_deployment with wait_seconds=30. restart_app does not rebuild.",
 	}
 }
 
