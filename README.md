@@ -61,6 +61,18 @@ bitploy creates the app `db` from PostgreSQL 18.6, generates its passwords (stor
 
 A database counts as one app against your app limit, and is backed up, restarted and removed like any app.
 
+### Database migrations and other deploy commands
+
+Give an app a command to run before each new version goes live, and bitploy runs your migrations for you (Settings, "Deploy commands", or the API):
+
+```bash
+curl -X PATCH https://bitploy.example.com/api/v1/apps/shop \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"before_deploy_command": "php artisan migrate --force"}'
+```
+
+It runs after the build, in a one-off container of the new version with the app's variables, network and `/data`, while the current version keeps serving. If it fails or takes longer than 10 minutes the deploy stops and nothing changes for your visitors; its output is in the deployment's log. `after_deploy_command` runs in the live container once the new version serves (a failure only shows as a warning). Rollbacks run neither, and apps with several services (compose) have none yet.
+
 ## Deploying a compose file
 
 Most apps should **not** use compose. One Dockerfile with the data in SQLite under `/data` is simpler, starts faster, uses less memory, and backs up, restores and rolls back as one piece. That is what bitploy and its AI instructions recommend. Do not write a compose file for code that has none, do not split a small app into services, and do not add Postgres or Redis when SQLite and an in-process cache do the job.

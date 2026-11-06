@@ -189,6 +189,10 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if err := validVolumeMB(volMB); err != nil {
 		return App{}, err
 	}
+	cmds, err := checkDeployCommands(in.Slug, buildMode, in.BeforeDeployCommand, in.AfterDeployCommand)
+	if err != nil {
+		return App{}, err
+	}
 
 	// The app-count limits are checked here for a quick answer and again inside
 	// the insert transaction, so parallel create_app calls cannot all pass.
@@ -328,6 +332,13 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		}
 		if composePath != "" {
 			if err := q.SetAppComposePath(ctx, db.SetAppComposePathParams{ComposePath: composePath, UpdatedAt: now, ID: id}); err != nil {
+				return err
+			}
+		}
+		if cmds != (deployCommands{}) {
+			if err := q.SetAppDeployCommands(ctx, db.SetAppDeployCommandsParams{
+				AppID: id, BeforeDeploy: cmds.Before, AfterDeploy: cmds.After, UpdatedAt: now,
+			}); err != nil {
 				return err
 			}
 		}
@@ -509,6 +520,10 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		outputDir = od
 		changed["output_dir"] = od
 	}
+	cmds, err := s.planDeployCommands(ctx, row, buildMode, in.BeforeDeployCommand, in.AfterDeployCommand, changed)
+	if err != nil {
+		return App{}, err
+	}
 	turningOff := in.Volume != nil && !*in.Volume && row.VolumeEnabled != 0
 	if in.Volume != nil {
 		if *in.Volume && row.VolumeEnabled == 0 && isStatic {
@@ -643,6 +658,13 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	}
 	if composePath != row.ComposePath {
 		if err := s.Q.SetAppComposePath(ctx, db.SetAppComposePathParams{ComposePath: composePath, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+			return App{}, apperr.Internal(err)
+		}
+	}
+	if cmds != nil {
+		if err := s.Q.SetAppDeployCommands(ctx, db.SetAppDeployCommandsParams{
+			AppID: row.ID, BeforeDeploy: cmds.Before, AfterDeploy: cmds.After, UpdatedAt: s.now(),
+		}); err != nil {
 			return App{}, apperr.Internal(err)
 		}
 	}
@@ -1258,6 +1280,8 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	}
 	v.Services, v.Volumes = s.serviceViews(ctx, r)
 	s.projectFields(ctx, &v, r)
+	cmds := s.deployCommandsOf(ctx, r.ID)
+	v.BeforeDeployCommand, v.AfterDeployCommand = cmds.Before, cmds.After
 	return v
 }
 

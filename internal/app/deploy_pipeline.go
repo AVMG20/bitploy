@@ -269,10 +269,31 @@ func (p *pipeline) execute(ctx context.Context) *apperr.Error {
 	if ae := p.healthCheck(ctx); ae != nil {
 		return ae
 	}
-	if ae := p.setState(ctx, "swapping"); ae != nil {
+	return p.goLive(ctx)
+}
+
+// goLive swaps the new version in, then runs the after-deploy command in the
+// live container. Waiting for the deployment includes that command
+// (after_deploy pending, then running).
+func (p *pipeline) goLive(ctx context.Context) *apperr.Error {
+	after := p.deployCommand(ctx, "after")
+	if after != "" {
+		p.markAfterDeploy(ctx, afterDeployPending)
+	}
+	ae := p.setState(ctx, "swapping")
+	if ae == nil {
+		ae = p.swap(ctx)
+	}
+	if ae != nil {
+		if after != "" {
+			p.markAfterDeploy(ctx, "")
+		}
 		return ae
 	}
-	return p.swap(ctx)
+	if after != "" {
+		p.afterDeploy(ctx, after)
+	}
+	return nil
 }
 
 // ---- fetching ----
@@ -644,6 +665,11 @@ func (p *pipeline) start(ctx context.Context) *apperr.Error {
 	if ae := p.planRuns(ctx); ae != nil {
 		return ae
 	}
+	// Before the new container starts, and before a /data app's old one is
+	// stopped (deploy_commands.go).
+	if ae := p.beforeDeploy(ctx); ae != nil {
+		return ae
+	}
 	if ae := p.startRuns(ctx); ae != nil {
 		return ae
 	}
@@ -751,6 +777,9 @@ func (p *pipeline) planRuns(ctx context.Context) *apperr.Error {
 // deploying a list of services: planRuns fills p.runs, startRuns brings them up.
 func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 	s := p.s
+	if s.Docker == nil {
+		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
+	}
 	multi := isMulti(p.app)
 	var prevHash map[string]string
 	if multi && p.prev != nil {

@@ -250,6 +250,11 @@ type App struct {
 	References []string  `json:"references" doc:"Short names of the apps in the project this app's variables refer to"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+
+	// BeforeDeployCommand and AfterDeployCommand are the app's deploy
+	// commands (deploy_commands.go); "" when it has none.
+	BeforeDeployCommand string `json:"before_deploy_command" doc:"Shell command run before each new version takes traffic (database migrations), in a one-off container of the new version; empty: none"`
+	AfterDeployCommand  string `json:"after_deploy_command" doc:"Shell command run in the live container after each new version takes traffic; empty: none"`
 }
 
 // ProjectRef names a project (App.project).
@@ -388,12 +393,18 @@ type Deployment struct {
 	NextSteps     []string         `json:"next_steps,omitempty"`
 	// Services is set for a deployment of an app with several services.
 	Services []DeploymentService `json:"services,omitempty" doc:"Per service, for an app with several services"`
+
+	// AfterDeploy is what the app's after-deploy command did in this
+	// deployment's live container; "" when none ran.
+	AfterDeploy string `json:"after_deploy,omitempty" enum:"pending,running,succeeded,failed" doc:"The after-deploy command: pending (runs once live), running, succeeded or failed (a warning; the version stays live). Absent when none ran."`
 }
 
 // Terminal reports whether the deployment stopped moving.
 func (d Deployment) Terminal() bool {
 	switch d.State {
-	case "running", "failed", "superseded", "cancelled":
+	case "running":
+		return !afterDeployBusy(d.AfterDeploy) // live, but its after-deploy command still runs
+	case "failed", "superseded", "cancelled":
 		return true
 	}
 	return false
@@ -618,6 +629,10 @@ type CreateAppInput struct {
 	Project string `json:"project,omitempty" doc:"The project to put the app in (id from list_projects); empty: a new project named after the app"`
 	// Alias is the short name in the project; default: the slug.
 	Alias string `json:"alias,omitempty" doc:"The app's short name in the project (a DNS label); default: the subdomain"`
+
+	// Deploy commands; see UpdateAppInput.
+	BeforeDeployCommand string `json:"before_deploy_command,omitempty" doc:"Shell command run before each new version takes traffic, like php artisan migrate --force (see update app)"`
+	AfterDeployCommand  string `json:"after_deploy_command,omitempty" doc:"Shell command run in the live container after each new version takes traffic (see update app)"`
 }
 
 // UpdateAppInput: nil fields are left unchanged.
@@ -647,6 +662,11 @@ type UpdateAppInput struct {
 	// client learns that instead of getting a generic unknown-field error.
 	Project *string `json:"project,omitempty" hidden:"true"`
 	Alias   *string `json:"alias,omitempty" doc:"The app's short name in its project. References to it in the project's other apps are rewritten, and those apps restart."`
+
+	// BeforeDeployCommand runs with sh -c before each new version takes
+	// traffic; AfterDeployCommand in the live container after. "" clears one.
+	BeforeDeployCommand *string `json:"before_deploy_command,omitempty" doc:"Shell command (sh -c) run on every deploy before the new version takes traffic, in a one-off container of the new image with the app's variables, network and /data: database migrations like php artisan migrate --force, python manage.py migrate or npx prisma migrate deploy. A non-zero exit or 10 minutes stops the deploy and the old version keeps running. Not run on rollbacks. Empty clears it. Applies on the next deploy."`
+	AfterDeployCommand  *string `json:"after_deploy_command,omitempty" doc:"Shell command (sh -c) run in the live container after each new version takes traffic (up to 5 minutes). A failure is a warning on the deployment; the new version stays live. Not run on rollbacks. Empty clears it. Applies on the next deploy."`
 }
 
 type CreateTokenInput struct {

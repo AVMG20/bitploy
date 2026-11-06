@@ -60,6 +60,9 @@ type createAppIn struct {
 	ComposePath string `json:"compose_path,omitempty" jsonschema:"Only with build_mode=compose, when the compose file has another name or folder: its path in the code, like deploy/compose.yaml. Leave out for compose.yaml, compose.yml, docker-compose.yaml or docker-compose.yml."`
 	Project     string `json:"project,omitempty" jsonschema:"Only to put the app next to apps that belong with it (like the app of a database added with add_service): the project id (prj_...) from list_projects. Leave out for a new project named after the app."`
 	Alias       string `json:"alias,omitempty" jsonschema:"The app's short name in its project: its host name for the project's other apps and the name in ${{<alias>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the slug."`
+
+	BeforeDeployCommand string `json:"before_deploy_command,omitempty" jsonschema:"Only when the code has database migrations or another step that must finish before the new version takes traffic: a shell command (sh -c), like php artisan migrate --force, python manage.py migrate or npx prisma migrate deploy. It runs on every deploy in a one-off container of the new image with the app's variables, network and /data; a failure stops the deploy and the old version keeps running. Use it instead of running migrations in the Dockerfile CMD. Not for apps with build_mode=compose."`
+	AfterDeployCommand  string `json:"after_deploy_command,omitempty" jsonschema:"Rarely needed: a shell command run in the live container once the new version serves, like clearing a cache. A failure is only a warning. Leave out unless the user asks."`
 }
 
 type validateComposeIn struct {
@@ -85,6 +88,9 @@ type updateAppIn struct {
 	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build one Dockerfile (the default). compose: run every service of the code's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the code has one); check the file with validate_compose first."`
 	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the code, like deploy/compose.yaml. Empty string: the standard names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
 	Alias          *string `json:"alias,omitempty" jsonschema:"New short name in the project. References to the old name in the project's other apps are rewritten, and those apps restart."`
+
+	BeforeDeployCommand *string `json:"before_deploy_command,omitempty" jsonschema:"Shell command (sh -c) run on every deploy before the new version takes traffic, in a one-off container of the new image with the app's variables, network and /data: database migrations like php artisan migrate --force, python manage.py migrate or npx prisma migrate deploy. A non-zero exit or 10 minutes stops the deploy; the old version keeps running. Use it instead of running migrations in the Dockerfile CMD. Not run on rollbacks. Empty string removes it. Applies on the next deploy."`
+	AfterDeployCommand  *string `json:"after_deploy_command,omitempty" jsonschema:"Shell command (sh -c) run in the live container after each new version takes traffic (up to 5 minutes), like clearing a cache. A failure is a warning on the deployment; the new version stays live. Not run on rollbacks. Empty string removes it. Applies on the next deploy."`
 }
 
 type fileIn struct {
@@ -384,7 +390,8 @@ func (s *srv) registerTools() {
 		enums(map[string][]string{"type": {"web", "worker"}, "build_mode": {"dockerfile", "compose"}}),
 		func(ctx context.Context, a app.Actor, in createAppIn) (*result, error) {
 			ap, err := svc.CreateApp(ctx, a, app.CreateAppInput{Name: in.Name, Type: in.Type, Slug: in.Slug, Domain: in.Domain, Port: in.Port, Volume: in.Volume, VolumeMB: in.VolumeMB,
-				BuildMode: in.BuildMode, ComposePath: in.ComposePath, Project: in.Project, Alias: in.Alias})
+				BuildMode: in.BuildMode, ComposePath: in.ComposePath, Project: in.Project, Alias: in.Alias,
+				BeforeDeployCommand: in.BeforeDeployCommand, AfterDeployCommand: in.AfterDeployCommand})
 			if err != nil {
 				return nil, err
 			}
@@ -423,6 +430,7 @@ func (s *srv) registerTools() {
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis, BuildMode: in.BuildMode, ComposePath: in.ComposePath,
 				Alias: in.Alias,
+				BeforeDeployCommand: in.BeforeDeployCommand, AfterDeployCommand: in.AfterDeployCommand,
 			})
 			if err != nil {
 				return nil, err
