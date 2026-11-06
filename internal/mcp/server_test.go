@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -282,13 +283,24 @@ func TestValidateDockerfile(t *testing.T) {
 		t.Errorf("finding = %v", f)
 	}
 
-	// Empty Dockerfile + one index.html: dockerfile_missing, steps name the static template.
+	// Empty Dockerfile + one index.html: a static site, which must be sent
+	// without a Dockerfile (rule 1), so no template is handed out.
 	res = call(t, cs, "validate_dockerfile", map[string]any{"dockerfile": "", "file_list": []string{"index.html"}})
 	m = structured(t, res)
-	if m["ok"] != false || m["stack"] != "static" {
+	if m["ok"] != true || m["static"] != true || !strings.Contains(text(res), "No Dockerfile needed") {
 		t.Errorf("result = %v", m)
 	}
-	if steps := m["next_steps"].([]any); !strings.Contains(steps[0].(string), `"static"`) {
+	if steps := fmt.Sprint(m["next_steps"]); strings.Contains(steps, "get_template") {
+		t.Errorf("next_steps = %v", steps)
+	}
+
+	// Empty Dockerfile + a server: dockerfile_missing, steps name the template.
+	res = call(t, cs, "validate_dockerfile", map[string]any{"dockerfile": "", "file_list": []string{"requirements.txt", "app.py"}})
+	m = structured(t, res)
+	if m["ok"] != false || m["stack"] != "python" {
+		t.Errorf("result = %v", m)
+	}
+	if steps := m["next_steps"].([]any); !strings.Contains(steps[0].(string), `"python"`) {
 		t.Errorf("next_steps = %v", steps)
 	}
 }

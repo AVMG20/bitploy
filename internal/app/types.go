@@ -598,7 +598,10 @@ type ValidateResult struct {
 	Port           int              `json:"port,omitempty"`
 	HasHealthcheck bool             `json:"has_healthcheck"`
 	Stack          string           `json:"stack,omitempty"`
-	NextSteps      []string         `json:"next_steps,omitempty"`
+	// Static: no Dockerfile was sent, and bitploy builds and serves this
+	// code as a static site by itself, so it needs none.
+	Static    bool     `json:"static,omitempty" doc:"No Dockerfile was sent and none is needed: bitploy builds and serves this code as a static site"`
+	NextSteps []string `json:"next_steps,omitempty"`
 }
 
 // Page is a cursor-paginated list.
