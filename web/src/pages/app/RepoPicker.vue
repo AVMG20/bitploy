@@ -158,7 +158,7 @@ defineExpose({ canPick, configured, loading: computed(() => github.isPending.val
         <div v-if="showFolder" class="grid gap-1.5">
           <Label :for="`${idPrefix}-subdir`">Folder (optional)</Label>
           <Input :id="`${idPrefix}-subdir`" v-model="subdir" placeholder="Whole repository" autocapitalize="off" autocomplete="off" spellcheck="false" class="font-mono" />
-          <p class="text-[0.8rem] text-muted-foreground">Only if the Dockerfile is in a subfolder, like apps/web.</p>
+          <p class="text-[0.8rem] text-muted-foreground">Only if your app is in a subfolder of the repository, like apps/web.</p>
         </div>
       </div>
       <div class="flex items-center justify-between gap-4 text-sm">
