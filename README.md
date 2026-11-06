@@ -111,6 +111,7 @@ Slugs stay unique across all domains. When a person may use more than one domain
 | --- | --- |
 | 22 (SSH) | your own IP only |
 | 80 and 443 | anywhere (custom domains arrive directly, so these cannot be limited to Cloudflare) |
+| the `BITPLOY_PUBLIC_PORTS` range (TCP), only if you turn public ports on | your team's IPs, or anywhere (each open port can have its own allow list) |
 
 ### 3. Install
 
@@ -185,6 +186,9 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
 | `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `6g` | Limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network) |
 | `BITPLOY_DB_HELPER_BIN` | — | A bitploy binary built for Linux for the SQLite viewer's helper image. Only needed when bitploy does not run on Linux itself; `make dev` builds and sets it |
+| `BITPLOY_PUBLIC_PORTS` | empty (off) | A range like `30000-30099` (at most 1000 ports, 1024 and up). Users can then open a port of it for an app without a web address (a database) to connect with psql or TablePlus; it closes after 1 hour unless they choose 24 hours or never. Allow the range in the Hetzner Cloud Firewall and run `systemctl restart bitploy-firewall` after changing it |
+| `BITPLOY_PUBLIC_PORTS_PER_USER` | `3` | Open public ports per user |
+| `BITPLOY_PUBLIC_PORTS_HOST` | `BITPLOY_SERVER_IPV4` | The address shown for public ports |
 | `BITPLOY_MAX_APPS` | `100` | Most apps on the server, all users together. Each user can have 10 by default; change that per user in Admin, Users |
 | `BITPLOY_LISTEN` | `:8080` | Listen address |
 | `BITPLOY_TRAEFIK_CONTAINER` | `bitploy-traefik` | Traefik's container name; joined to every app network |
