@@ -31,6 +31,19 @@ type Quota struct {
 	Overallocate bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have"`
 }
 
+// QuotaInput is what an admin sends to set a user's limits: every number,
+// and overallocate only to change it (left out keeps the switch as it is,
+// so a client that does not know it cannot turn it off).
+type QuotaInput struct {
+	Apps           int64 `json:"apps"`
+	MemoryMB       int64 `json:"memory_mb"`
+	CPUMillis      int64 `json:"cpu_millis"` // 1000 = 1 CPU
+	DeploysPerHour int64 `json:"deploys_per_hour"`
+	DomainsPerApp  int64 `json:"domains_per_app"`
+	VolumeMB       int64 `json:"volume_mb"`
+	Overallocate   *bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have. Left out: unchanged"`
+}
+
 type Usage struct {
 	Apps              int64   `json:"apps"`
 	AppsRunning       int64   `json:"apps_running"`

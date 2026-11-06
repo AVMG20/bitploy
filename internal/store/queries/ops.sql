@@ -42,6 +42,13 @@ UPDATE apps SET desired_state = ?, updated_at = ? WHERE id = ?;
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps
 WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL;
 
+-- name: OpsSumCheckedMemoryLimitsMB :one
+-- The server room guard: the apps of users who may overallocate are left out,
+-- so their limits (which may pass the host's RAM on purpose) do not lock
+-- everyone else out with server_full.
+SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS total FROM apps a JOIN users u ON u.id = a.user_id
+WHERE a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND u.overallocate = 0;
+
 -- ---- metric samples and rollups ----
 
 -- name: OpsInsertSample :exec

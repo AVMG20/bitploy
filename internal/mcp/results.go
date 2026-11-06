@@ -69,6 +69,9 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
 		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",
 			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DeploysPerHour, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
+		if me.Quota.Overallocate {
+			b.WriteString("- Overallocate is on for this user: memory and CPU are not checked, not against the quota above and not against the server's free memory. Apps may ask for more; the app count, storage and deploy rate still apply.\n")
+		}
 		fmt.Fprintf(&b, "- You use %d apps, %d MB memory and %.0f MB of storage right now (%.0f MB app files, %d MB kept for /data).\n",
 			me.Usage.Apps, me.Usage.MemoryReservedMB, me.Usage.FilesMB+float64(me.Usage.VolumeReservedMB), me.Usage.FilesMB, me.Usage.VolumeReservedMB)
 	}

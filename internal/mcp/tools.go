@@ -253,9 +253,13 @@ func (s *srv) registerTools() {
 				}
 				domainsLine = " Other domains this user may use (pass domain= to create_app, update_app or deploy_catalog_app, only when the user asks): " + strings.Join(names, ", ") + "."
 			}
+			memLine := fmt.Sprintf("%d MB of %d MB memory reserved (static sites do not count)", me.Usage.MemoryReservedMB, me.Quota.MemoryMB)
+			if me.Quota.Overallocate {
+				memLine = fmt.Sprintf("%d MB memory reserved; memory and CPU are not checked for this user (overallocate is on), so apps may ask for more than the %d MB / %d CPU millis quota", me.Usage.MemoryReservedMB, me.Quota.MemoryMB, me.Quota.CPUMillis)
+			}
 			return &result{
-				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %d MB of %d MB memory reserved (static sites do not count). Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",
-					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, me.Usage.MemoryReservedMB, me.Quota.MemoryMB, domainsLine),
+				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %s. Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",
+					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, memLine, domainsLine),
 				Data: d,
 				Next: next,
 			}, nil

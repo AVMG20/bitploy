@@ -38,3 +38,24 @@ func TestOverallocateSkipsMemoryAndCPU(t *testing.T) {
 		t.Errorf("without overallocate: %v", err)
 	}
 }
+
+// The server room guard leaves out the apps of a user who may overallocate,
+// so their limits do not make every other user's app fail with server_full.
+// The admin's server overview still shows everything.
+func TestServerRoomLeavesOutOverallocators(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	a := e.mustApp(t, CreateAppInput{})
+	e.exec(t, `UPDATE apps SET desired_state = 'running', current_deployment_id = 'dep_x', memory_mb = 64000 WHERE id = ?`, a.ID)
+	checked, _ := e.s.Q.OpsSumCheckedMemoryLimitsMB(ctx)
+	all, _ := e.s.Q.OpsSumMemoryLimitsMB(ctx)
+	if checked != 64000 || all != 64000 {
+		t.Fatalf("without overallocate: checked %d, all %d", checked, all)
+	}
+	e.exec(t, `UPDATE users SET overallocate = 1 WHERE id = ?`, e.user.UserID)
+	checked, _ = e.s.Q.OpsSumCheckedMemoryLimitsMB(ctx)
+	all, _ = e.s.Q.OpsSumMemoryLimitsMB(ctx)
+	if checked != 0 || all != 64000 {
+		t.Fatalf("with overallocate: checked %d, all %d", checked, all)
+	}
+}

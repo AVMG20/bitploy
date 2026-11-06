@@ -906,6 +906,21 @@ func (q *Queries) OpsSetDomainStatus(ctx context.Context, arg OpsSetDomainStatus
 	return err
 }
 
+const opsSumCheckedMemoryLimitsMB = `-- name: OpsSumCheckedMemoryLimitsMB :one
+SELECT CAST(COALESCE(SUM(a.memory_mb), 0) AS INTEGER) AS total FROM apps a JOIN users u ON u.id = a.user_id
+WHERE a.desired_state = 'running' AND a.current_deployment_id IS NOT NULL AND u.overallocate = 0
+`
+
+// The server room guard: the apps of users who may overallocate are left out,
+// so their limits (which may pass the host's RAM on purpose) do not lock
+// everyone else out with server_full.
+func (q *Queries) OpsSumCheckedMemoryLimitsMB(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, opsSumCheckedMemoryLimitsMB)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const opsSumMemoryLimitsMB = `-- name: OpsSumMemoryLimitsMB :one
 SELECT CAST(COALESCE(SUM(memory_mb), 0) AS INTEGER) AS total FROM apps
 WHERE desired_state = 'running' AND current_deployment_id IS NOT NULL

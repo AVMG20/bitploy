@@ -50,13 +50,15 @@ func HasRoom(hostTotalBytes uint64, known bool, reservedMB, extraMB int64) bool 
 	return (reservedMB+extraMB)<<20 <= budget
 }
 
-// ServerHasRoom checks the memory guard against the apps table.
+// ServerHasRoom checks the memory guard against the apps table. The apps of
+// users who may overallocate do not count: an admin who gives themselves more
+// than the server has must not lock out everyone else.
 func (m *Manager) ServerHasRoom(ctx context.Context, extraMB int64) (bool, error) {
 	total, ok := HostMemTotal()
 	if !ok {
 		return true, nil
 	}
-	reserved, err := m.Store.Q.OpsSumMemoryLimitsMB(ctx)
+	reserved, err := m.Store.Q.OpsSumCheckedMemoryLimitsMB(ctx)
 	if err != nil {
 		return false, err
 	}

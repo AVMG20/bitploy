@@ -14,7 +14,7 @@ import (
 
 type adminUserPatch struct {
 	Status *string    `json:"status,omitempty" enum:"active,suspended" doc:"suspended stops all of the user's apps"`
-	Quota  *app.Quota `json:"quota,omitempty" doc:"Replaces all quota values"`
+	Quota  *app.QuotaInput `json:"quota,omitempty" doc:"Replaces all quota values; overallocate left out stays as it is"`
 }
 
 func (a *API) adminRoutes() {
@@ -56,10 +56,10 @@ func (a *API) adminRoutes() {
 	})
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminSetQuota", Method: http.MethodPut, Path: "/admin/quotas/{user_id}", Tags: []string{"Admin"},
-		Summary: "Set a user's quota", Description: "Admin only. Replaces all quota values.",
+		Summary: "Set a user's quota", Description: "Admin only. Replaces all quota values; overallocate left out stays as it is.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		UserID string `path:"user_id"`
-		Body   app.Quota
+		Body   app.QuotaInput
 	}) (*Out[app.AdminUser], error) {
 		return okOrNil(a.svc.AdminSetQuota(ctx, act, in.UserID, in.Body))
 	})

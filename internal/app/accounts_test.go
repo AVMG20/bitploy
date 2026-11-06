@@ -580,8 +580,9 @@ func TestAdminQuotaUsersAndAudit(t *testing.T) {
 	if _, err := s.AdminListUsers(ctx, adminToken); code(err) != "admin_only" {
 		t.Fatalf("admin token: %v", err)
 	}
+	in := QuotaInput{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DeploysPerHour: 5, DomainsPerApp: 2, VolumeMB: 100}
 	q := Quota{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DeploysPerHour: 5, DomainsPerApp: 2, VolumeMB: 100}
-	au, err := s.AdminSetQuota(ctx, admin, u.ID, q)
+	au, err := s.AdminSetQuota(ctx, admin, u.ID, in)
 	if err != nil || au.Quota != q {
 		t.Fatalf("set quota: %+v %v", au, err)
 	}
@@ -589,10 +590,25 @@ func TestAdminQuotaUsersAndAudit(t *testing.T) {
 	if me.Quota != q {
 		t.Fatalf("me quota: %+v", me.Quota)
 	}
-	if _, err := s.AdminSetQuota(ctx, admin, u.ID, Quota{Apps: -1}); code(err) != "invalid_quota" {
+	// overallocate changes only when it is sent.
+	on := true
+	in.Overallocate = &on
+	if au, err := s.AdminSetQuota(ctx, admin, u.ID, in); err != nil || !au.Quota.Overallocate {
+		t.Fatalf("overallocate on: %+v %v", au.Quota, err)
+	}
+	in.Overallocate, in.Apps = nil, 4
+	if au, err := s.AdminSetQuota(ctx, admin, u.ID, in); err != nil || !au.Quota.Overallocate || au.Quota.Apps != 4 {
+		t.Fatalf("overallocate left out must stay on: %+v %v", au.Quota, err)
+	}
+	off := false
+	in.Overallocate, in.Apps = &off, 3
+	if au, err := s.AdminSetQuota(ctx, admin, u.ID, in); err != nil || au.Quota != q {
+		t.Fatalf("overallocate off: %+v %v", au.Quota, err)
+	}
+	if _, err := s.AdminSetQuota(ctx, admin, u.ID, QuotaInput{Apps: -1}); code(err) != "invalid_quota" {
 		t.Fatalf("negative: %v", err)
 	}
-	if _, err := s.AdminSetQuota(ctx, admin, "usr_nope", q); code(err) != "user_not_found" {
+	if _, err := s.AdminSetQuota(ctx, admin, "usr_nope", in); code(err) != "user_not_found" {
 		t.Fatalf("unknown user: %v", err)
 	}
 

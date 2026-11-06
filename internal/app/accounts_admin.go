@@ -54,7 +54,7 @@ func acctUserNotFound() *apperr.Error {
 	return apperr.NotFound("user_not_found", "There is no user with that ID.", "List users with GET /api/v1/admin/users.")
 }
 
-func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q Quota) (AdminUser, error) {
+func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q QuotaInput) (AdminUser, error) {
 	if err := RequireAdmin(a); err != nil {
 		return AdminUser{}, err
 	}
@@ -64,22 +64,27 @@ func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q Q
 				"Send non-negative whole numbers for every quota field.")
 		}
 	}
-	if _, err := s.Q.GetUser(ctx, userID); errors.Is(err, sql.ErrNoRows) {
+	cur, err := s.Q.GetUser(ctx, userID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return AdminUser{}, acctUserNotFound()
 	} else if err != nil {
 		return AdminUser{}, apperr.Internal(err)
 	}
+	over := cur.Overallocate != 0
+	if q.Overallocate != nil {
+		over = *q.Overallocate
+	}
 	if err := s.Q.UpdateUserQuota(ctx, db.UpdateUserQuotaParams{
 		QuotaApps: q.Apps, QuotaMemoryMb: q.MemoryMB, QuotaCpuMillis: q.CPUMillis,
 		QuotaDeploysPerHour: q.DeploysPerHour, QuotaDomainsPerApp: q.DomainsPerApp, QuotaVolumeMb: q.VolumeMB,
-		Overallocate: b2i(q.Overallocate), UpdatedAt: s.now(), ID: userID,
+		Overallocate: b2i(over), UpdatedAt: s.now(), ID: userID,
 	}); err != nil {
 		return AdminUser{}, apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "admin.quota_set", "user", userID, map[string]any{
 		"apps": q.Apps, "memory_mb": q.MemoryMB, "cpu_millis": q.CPUMillis,
 		"deploys_per_hour": q.DeploysPerHour, "domains_per_app": q.DomainsPerApp, "volume_mb": q.VolumeMB,
-		"overallocate": q.Overallocate,
+		"overallocate": over,
 	})
 	u, err := s.Q.GetUser(ctx, userID)
 	if err != nil {
