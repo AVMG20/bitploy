@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { Check, ChevronDown, ChevronUp, ClipboardPaste, Hammer, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronDown, CircleHelp, ChevronUp, ClipboardPaste, Hammer, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormScope from '@/components/FormScope.vue'
@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { keys, useApp, useProject } from '@/composables/queries'
 import ConnectionCard from '@/components/project/ConnectionCard.vue'
 import { appRoute } from '@/lib/appLinks'
@@ -172,13 +173,13 @@ function pickAddBuild(v: unknown) {
 }
 const addBuildHint = computed(() => {
   const name = (addForm.values.name ?? '').trim()
-  if (addBuild.value === 'none' && site.value) return 'This site runs none of your code on the server, so only its build can read a variable. Choose "Also when it builds" or the site will not see it.'
-  if (addBuild.value === 'none' && looksBuildTime(name)) return `Names like ${name} are read while the site is built. Choose "Also when it builds" or the site will not see it.`
+  if (addBuild.value === 'none' && site.value) return 'This site runs none of your code on the server, so only its build can read a variable. Choose "Also when it builds, public" or the site will not see it.'
+  if (addBuild.value === 'none' && looksBuildTime(name)) return `Names like ${name} are read while the site is built. Choose "Also when it builds, public" or the site will not see it.`
   if (addBuild.value === 'none') return ''
-  const help = buildChoice(addBuild.value).help
-  // bitploy builds a site itself: the note about a Dockerfile of your own does not apply.
-  return site.value ? help.replace(/ With your own Dockerfile.*$/, '') : help
+  return helpOf(addBuild.value)
 })
+// bitploy builds a site itself: the note about a Dockerfile of your own does not apply.
+const helpOf = (c: BuildChoice) => (site.value ? buildChoice(c).help.replace(/ With your own Dockerfile.*$/, '') : buildChoice(c).help)
 // The banner above the tabs offers Deploy again (a new build of the same code).
 const buildApplies = 'The build reads it from the next deploy on. Press Deploy again to use it now.'
 /** Note that a variable change waits for a new build (build variables) or a restart. A site needs no restart. */
@@ -408,6 +409,16 @@ const importAll = useMutation({
             <div v-if="showBuild" class="grid gap-1.5 sm:col-span-3">
               <div class="flex flex-wrap items-center gap-2">
                 <Label for="env-add-build" class="text-xs font-normal text-muted-foreground">Used</Label>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <button type="button" class="-ml-1 grid size-5 place-items-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="What the choices mean">
+                      <CircleHelp class="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" class="grid max-w-sm gap-1.5 py-2">
+                    <p v-for="c in BUILD_CHOICES" :key="c.value"><span class="font-medium">{{ c.label }}:</span> {{ helpOf(c.value) }}</p>
+                  </TooltipContent>
+                </Tooltip>
                 <Select :model-value="addBuild" @update:model-value="pickAddBuild">
                   <SelectTrigger id="env-add-build" size="sm" class="w-full sm:w-64"><SelectValue /></SelectTrigger>
                   <SelectContent>
