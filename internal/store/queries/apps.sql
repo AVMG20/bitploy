@@ -132,3 +132,7 @@ UPDATE apps SET catalog_id = ?, catalog_version = ?, updated_at = ? WHERE id = ?
 
 -- name: SetAppCatalogVersion :exec
 UPDATE apps SET catalog_version = ?, updated_at = ? WHERE id = ? AND catalog_id != '';
+
+-- name: SetEnvVarHidden :exec
+-- hidden 1: the API never returns the value (00340_env_hidden.sql).
+UPDATE env_vars SET hidden = ? WHERE app_id = ? AND service = ? AND name = ?;

@@ -164,6 +164,7 @@ type setEnvIn struct {
 	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
 	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the default). get_app lists the services."`
+	Hidden  map[string]bool   `json:"hidden,omitempty" jsonschema:"Per name: true keeps the value write-only (list_env never shows it), false makes it readable. Leave a name out and it is hidden when it contains SECRET, TOKEN, KEY or PASSWORD, else readable; a hidden variable stays hidden. Making a hidden one readable needs its value in set."`
 }
 
 type setPasswordIn struct {
@@ -704,10 +705,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET, VITE_API_URL). Values are stored encrypted and never shown again; variables you do not mention stay. Every variable reaches the running app and the image build. A change applies to a running app at restart_app, or on the next deploy when the build reads it (a site bitploy builds, a build script, an ARG or secret mount in the Dockerfile); the answer says which. Never put secrets in files or the Dockerfile. Front-end builds put VITE_*, NEXT_PUBLIC_* and PUBLIC_* values into the site's files, readable by every visitor: never a secret there. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project).",
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET, VITE_API_URL). Values are stored encrypted; list_env shows them, except hidden ones (see hidden). Variables you do not mention stay. Every variable reaches the running app and the image build. A change applies to a running app at restart_app, or on the next deploy when the build reads it (a site bitploy builds, a build script, an ARG or secret mount in the Dockerfile); the answer says which. Never put secrets in files or the Dockerfile. Front-end builds put VITE_*, NEXT_PUBLIC_* and PUBLIC_* values into the site's files, readable by every visitor: never a secret there. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project).",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
-			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)
+			vars, err := svc.ChangeEnv(ctx, a, in.App, app.EnvChange{Service: in.Service, Set: in.Set, Unset: in.Unset, Hidden: in.Hidden, GuessHidden: looksSecretName})
 			if err != nil {
 				return nil, err
 			}
@@ -720,10 +721,14 @@ func (s *srv) registerTools() {
 			if ap, err := svc.GetApp(ctx, a, in.App); err == nil {
 				cur = &ap
 			}
+			next := setEnvChangeNext(in.App, cur, append(slices.Collect(maps.Keys(in.Set)), in.Unset...))
+			if len(in.Set) == 0 && len(in.Unset) == 0 {
+				next = []string{"Only the hidden flags changed: the values stay the same, so the app needs no restart."}
+			}
 			return &result{
 				Summary: fmt.Sprintf("%s now has %d variable(s): %s.", in.App, len(vars), strings.Join(names, ", ")),
 				Data:    data("env", nonNil(vars)),
-				Next:    setEnvChangeNext(in.App, cur, append(slices.Collect(maps.Keys(in.Set)), in.Unset...)),
+				Next:    next,
 			}, nil
 		})
 

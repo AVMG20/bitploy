@@ -48,8 +48,8 @@ func scheduleLine(st app.BackupSettings) string {
 func (s *srv) registerAppTools() {
 	svc := s.svc
 
-	addTool(s, "list_env", "List environment variable names",
-		"The names of an app's environment variables, never their values (they are stored encrypted and nobody can read them back). Use it when an app complains about a missing variable: pass names to check which of them are set. Per variable: service (empty when every service of the app gets it), references (the ${{<alias>.VAR}} it uses, like ${{postgres.DATABASE_URL}}) and updated_at. Change them with set_env; a change reaches the running app at restart_app.",
+	addTool(s, "list_env", "List environment variables",
+		"An app's environment variables with their values, except hidden ones: those are write-only and show only masked. Use it when an app complains about a missing or wrong variable: pass names to check which of them are set. Per variable: value (or hidden and masked), service (empty when every service of the app gets it), references (the ${{<alias>.VAR}} it uses, like ${{postgres.DATABASE_URL}}) and updated_at. Change them with set_env; a change reaches the running app at restart_app.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in listEnvIn) (*result, error) {
 			vars, err := svc.ListEnv(ctx, a, in.App)
@@ -58,6 +58,9 @@ func (s *srv) registerAppTools() {
 			}
 			type envName struct {
 				Name       string   `json:"name"`
+				Value      *string  `json:"value,omitempty"`
+				Hidden     bool     `json:"hidden,omitempty"`
+				Masked     string   `json:"masked,omitempty"`
 				Service    string   `json:"service,omitempty"`
 				References []string `json:"references,omitempty"`
 				UpdatedAt  string   `json:"updated_at"`
@@ -66,7 +69,10 @@ func (s *srv) registerAppTools() {
 			set := map[string]bool{}
 			names := make([]string, 0, len(vars))
 			for i, v := range vars {
-				out[i] = envName{Name: v.Name, Service: v.Service, References: v.References, UpdatedAt: v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
+				out[i] = envName{Name: v.Name, Value: v.Value, Hidden: v.Hidden, Service: v.Service, References: v.References, UpdatedAt: v.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
+				if v.Hidden || v.Value == nil {
+					out[i].Masked = v.Masked
+				}
 				if !set[v.Name] {
 					names = append(names, v.Name)
 				}
@@ -79,7 +85,7 @@ func (s *srv) registerAppTools() {
 				sum += ": " + strings.Join(names, ", ")
 			}
 			sum += "."
-			next := []string{"Values are never shown. To add or change one: set_env, then restart_app."}
+			next := []string{"Hidden values are never shown. To add or change one: set_env, then restart_app."}
 			if len(in.Names) > 0 {
 				checked := map[string]bool{}
 				var missing []string

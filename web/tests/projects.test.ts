@@ -102,6 +102,7 @@ const MEILI: ServiceTemplate = { ...POSTGRES, id: 'meilisearch', name: 'Meilisea
 const env = (name: string, masked: string, value?: string): EnvVar => ({
   name,
   masked,
+  hidden: true,
   updated_at: '2026-11-04T10:00:00Z',
   service: '',
   references: value?.match(/\$\{\{[^}]+\}\}/g) ?? undefined,

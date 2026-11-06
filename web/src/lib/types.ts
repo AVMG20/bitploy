@@ -287,7 +287,12 @@ export interface DeploymentService {
 
 export interface EnvVar {
   name: string
+  /** A mask like ••••••••; the value is in value unless hidden. */
   masked: string
+  /** Write-only: the server never returns the value. */
+  hidden: boolean
+  /** The value as saved (references unresolved); missing when hidden. */
+  value?: string
   updated_at: string
   /** The service of the app it is for; "": shared by every service of the app. */
   service: string

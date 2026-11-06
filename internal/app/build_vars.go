@@ -21,36 +21,45 @@ import (
 
 // buildVars decrypts the variables the build of one service gets: the shared
 // ones and the service's own (which win), with their ${{alias.VAR}}
-// references filled in like at run time.
-func (s *Service) buildVars(ctx context.Context, app db.App, service string) (map[string]string, *apperr.Error) {
+// references filled in like at run time. hidden are the names of the hidden
+// ones among them.
+func (s *Service) buildVars(ctx context.Context, app db.App, service string) (vars map[string]string, hidden map[string]bool, ae *apperr.Error) {
 	rows, err := s.Q.ListServiceEnvVars(ctx, db.ListServiceEnvVarsParams{AppID: app.ID, Service: service})
 	if err != nil {
-		return nil, apperr.Internal(err)
+		return nil, nil, apperr.Internal(err)
 	}
 	shared, own := map[string]string{}, map[string]string{}
+	sharedHidden, ownHidden := map[string]bool{}, map[string]bool{}
 	for _, r := range rows {
 		v, err := s.Crypto.Open(r.ValueEnc, envAADFor(app.ID, r.Service, r.Name))
 		if err != nil {
-			return nil, apperr.Unprocessable("env_unreadable", "The environment variable "+r.Name+" cannot be decrypted.",
+			return nil, nil, apperr.Unprocessable("env_unreadable", "The environment variable "+r.Name+" cannot be decrypted.",
 				"Set it again with set_env. (This happens when the server's secret key changed.)").WithNext("set_env")
 		}
 		if r.Service == "" {
-			shared[r.Name] = string(v)
+			shared[r.Name], sharedHidden[r.Name] = string(v), r.Hidden != 0
 		} else {
-			own[r.Name] = string(v)
+			own[r.Name], ownHidden[r.Name] = string(v), r.Hidden != 0
 		}
 	}
 	if app.ProjectID != "" {
 		rv := s.newResolver(app)
 		if ae := rv.resolveAll(ctx, shared); ae != nil {
-			return nil, ae
+			return nil, nil, ae
 		}
 		if ae := rv.resolveAll(ctx, own); ae != nil {
-			return nil, ae
+			return nil, nil, ae
 		}
 	}
 	maps.Copy(shared, own)
-	return shared, nil
+	maps.Copy(sharedHidden, ownHidden)
+	hidden = map[string]bool{}
+	for n, h := range sharedHidden {
+		if h {
+			hidden[n] = true
+		}
+	}
+	return shared, hidden, nil
 }
 
 // maxBuildVarBytes caps the values one build gets together: they are in the
@@ -88,11 +97,14 @@ func fitBuildVars(vars map[string]string, names []string) (kept, dropped []strin
 	return kept, dropped
 }
 
-// maskedInBuildLog reports a value the build log masks: one that may be a
-// secret. Short values, plain words (production) and the values front ends
-// put into the pages anyway (VITE_*, NEXT_PUBLIC_*) would only hide
-// ordinary text.
-func maskedInBuildLog(name, v string) bool {
+// maskedInBuildLog reports a value the build log masks: a hidden one, or a
+// readable one that may be a secret all the same. Short values, plain words
+// (production) and the values front ends put into the pages anyway (VITE_*,
+// NEXT_PUBLIC_*) would only hide ordinary text.
+func maskedInBuildLog(name, v string, hidden bool) bool {
+	if hidden {
+		return len(v) >= 4
+	}
 	if len(v) < 6 || strings.IndexFunc(v, func(r rune) bool { return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') }) < 0 {
 		return false
 	}
@@ -119,7 +131,7 @@ var publicBuildPrefixes = []string{"VITE_", "NEXT_PUBLIC_", "PUBLIC_", "REACT_AP
 // cleanup removes that copy.
 func (p *pipeline) applyBuildVars(ctx context.Context, spec *deploy.BuildSpec, service string, generated bool) (cleanup func(), ae *apperr.Error) {
 	cleanup = func() {}
-	vars, ae := p.s.buildVars(ctx, p.app, service)
+	vars, hidden, ae := p.s.buildVars(ctx, p.app, service)
 	if ae != nil {
 		return cleanup, ae
 	}
@@ -202,7 +214,7 @@ func (p *pipeline) applyBuildVars(ctx context.Context, spec *deploy.BuildSpec, s
 	}
 
 	for _, n := range slices.Concat(args, secrets) {
-		if maskedInBuildLog(n, vars[n]) && !slices.Contains(p.buildSecrets, vars[n]) {
+		if maskedInBuildLog(n, vars[n], hidden[n]) && !slices.Contains(p.buildSecrets, vars[n]) {
 			p.buildSecrets = append(p.buildSecrets, vars[n])
 		}
 	}

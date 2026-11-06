@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ChevronDown, ChevronUp, ClipboardPaste, KeyRound, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, ClipboardPaste, KeyRound, Lock, Pencil, Plus, SearchX, Trash2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormScope from '@/components/FormScope.vue'
@@ -15,6 +15,7 @@ import RelativeTime from '@/components/RelativeTime.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
@@ -30,6 +31,7 @@ import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { ApiError, api } from '@/lib/api'
 import { parseDotenv } from '@/lib/dotenv'
 import { isServedSite, variableNeedsDeploy } from '@/lib/buildVars'
+import { looksSecretName } from '@/lib/secretName'
 import { isServerDb } from '@/lib/dbvalue'
 import { toastError, toastOk } from '@/lib/notify'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
@@ -37,8 +39,9 @@ import { useQueryParam } from '@/composables/useQueryParam'
 import type { Ref } from 'vue'
 
 // Environment variables: settings and secrets the app reads when it starts.
-// Values are write-only; the list shows a masked hint. A change applies after a
-// restart, which the app page offers as soon as one is saved.
+// The list shows each value, except a hidden one: that is write-only and shows
+// as dots. A change applies after a restart, which the app page offers as soon
+// as one is saved.
 const props = defineProps<{
   slug: string
   /** Only this service's own variables (the service panel); no scope picker then. */
@@ -60,6 +63,7 @@ const scope = computed(() => props.service ?? (multi.value && services.value.som
 const all = computed(() => env.data.value ?? [])
 const list = computed(() => all.value.filter((v) => (v.service ?? '') === scope.value))
 const names = computed(() => new Set(list.value.map((v) => v.name)))
+const byName = computed(() => new Map(list.value.map((v) => [v.name, v])))
 // In a service's scope: the shared ones it also gets.
 const inherited = computed(() => (scope.value ? all.value.filter((v) => !v.service) : []))
 const forWhom = computed(() => (scope.value ? ` for ${scope.value}` : multi.value ? ' for every service' : ''))
@@ -98,7 +102,7 @@ const byAlias = computed(() => new Map((project.value?.apps ?? []).map((a) => [a
  * ("••••${{api.HOST}}••••"), so the row shows that there is more to the value.
  */
 function valueParts(v: EnvVar) {
-  const src = v.masked.includes('${{') ? v.masked : v.references?.length ? v.references.join(' ') : v.masked
+  const src = v.value ?? (v.masked.includes('${{') ? v.masked : v.references?.length ? v.references.join(' ') : v.masked)
   const parts = referenceParts(src).filter((p) => 'ref' in p || p.text.trim())
   return parts.some((p) => 'ref' in p) ? parts : null
 }
@@ -146,6 +150,13 @@ const addForm = useForm({
   initialValues: { name: '', value: '' },
 })
 const addingExisting = computed(() => names.value.has((addForm.values.name ?? '').trim()))
+// Hidden follows the name (SECRET, TOKEN, KEY, PASSWORD) until the box is clicked.
+const addHiddenPicked = ref<boolean | null>(null)
+const addHidden = computed(() => {
+  if (addHiddenPicked.value !== null) return addHiddenPicked.value
+  const name = (addForm.values.name ?? '').trim()
+  return !!byName.value.get(name)?.hidden || looksSecretName(name)
+})
 
 // ---------------------------------------------------------------- build
 // Every variable reaches the build too. A change to one the live version's
@@ -163,9 +174,16 @@ function appliesFor(names: string[]) {
   return app.data.value?.current_deployment && names.some((n) => variableNeedsDeploy(app.data.value, n)) ? buildApplies : appliesWhen.value
 }
 
+/** value undefined: only the hidden flag changes, and the app needs no restart. */
 const save = useMutation({
-  mutationFn: (v: { name: string; value: string }) => api.setEnv(props.slug, { [v.name]: v.value }, [], scope.value || undefined),
+  mutationFn: (v: { name: string; value?: string; hidden: boolean }) =>
+    api.setEnv(props.slug, v.value === undefined ? {} : { [v.name]: v.value }, [], scope.value || undefined, { [v.name]: v.hidden }),
   onSuccess: (_r, v) => {
+    if (v.value === undefined) {
+      toastOk(v.hidden ? `${v.name} is hidden` : `${v.name} is readable`)
+      void qc.invalidateQueries({ queryKey: keys.env(props.slug) })
+      return
+    }
     toastOk(`Saved ${v.name}${forWhom.value}`, appliesFor([v.name]))
     changed([v.name])
   },
@@ -173,10 +191,11 @@ const save = useMutation({
 })
 const submitAdd = addForm.handleSubmit((v) =>
   save.mutate(
-    { name: v.name.trim(), value: v.value },
+    { name: v.name.trim(), value: v.value, hidden: addHidden.value },
     {
       onSuccess: () => {
         addForm.resetForm({ values: { name: '', value: '' } })
+        addHiddenPicked.value = null
         // Ready for the next one. After the fields are empty on the page: moving the
         // focus earlier makes the value box report its old text as a change and keep it.
         void nextTick(() => document.querySelector<HTMLInputElement>('#env-add input')?.focus())
@@ -193,22 +212,31 @@ function onAddKey(e: KeyboardEvent) {
 }
 
 // ---------------------------------------------------------------- edit one, in its row
+// A readable value starts in the box; a hidden one cannot be read, so the box
+// starts empty and turning it readable needs the value again.
 const editing = ref<string | null>(null)
 const editValue = ref('')
-async function startEdit(name: string) {
-  editing.value = name
-  editValue.value = ''
+const editHidden = ref(false)
+const editVar = computed(() => (editing.value ? byName.value.get(editing.value) : undefined))
+const editNeedsValue = computed(() => !!editVar.value?.hidden && !editHidden.value && editValue.value === '')
+async function startEdit(v: EnvVar) {
+  editing.value = v.name
+  editValue.value = v.value ?? ''
+  editHidden.value = v.hidden
   await nextTick()
-  document.querySelector<HTMLTextAreaElement>(`#env-edit-${name}`)?.focus()
+  document.querySelector<HTMLTextAreaElement>(`#env-edit-${v.name}`)?.focus()
 }
 function cancelEdit() {
   editing.value = null
   editValue.value = ''
 }
 function saveEdit() {
-  const name = editing.value
-  if (!name) return
-  save.mutate({ name, value: editValue.value }, { onSuccess: cancelEdit })
+  const v = editVar.value
+  if (!v || editNeedsValue.value) return
+  // An empty box for a hidden value keeps the value; so does the same text.
+  const same = v.hidden ? editValue.value === '' : editValue.value === v.value
+  if (same && editHidden.value === v.hidden) return cancelEdit()
+  save.mutate({ name: v.name, value: same ? undefined : editValue.value, hidden: editHidden.value }, { onSuccess: cancelEdit })
 }
 function onEditKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -243,12 +271,16 @@ const pasteOpen = ref(false)
 const pasteText = ref('')
 const parsed = computed(() => parseDotenv(pasteText.value))
 const replacing = computed(() => parsed.value.vars.filter((v) => names.value.has(v.name)).length)
+// Each line follows the name rule of the add form; a hidden variable stays hidden.
+const pasteHidden = computed(() => Object.fromEntries(parsed.value.vars.map((v) => [v.name, !!byName.value.get(v.name)?.hidden || looksSecretName(v.name)])))
+const pasteHiddenCount = computed(() => Object.values(pasteHidden.value).filter(Boolean).length)
 function openPaste() {
   pasteText.value = ''
   pasteOpen.value = true
 }
 const importAll = useMutation({
-  mutationFn: () => api.setEnv(props.slug, Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])), [], scope.value || undefined),
+  mutationFn: () =>
+    api.setEnv(props.slug, Object.fromEntries(parsed.value.vars.map((v) => [v.name, v.value])), [], scope.value || undefined, pasteHidden.value),
   onSuccess: () => {
     const names = parsed.value.vars.map((v) => v.name)
     toastOk(`Saved ${names.length} ${names.length === 1 ? 'variable' : 'variables'}${forWhom.value}`, appliesFor(names))
@@ -278,17 +310,17 @@ const importAll = useMutation({
           <CardTitle>{{ service ? 'Variables' : serverApp ? `This ${serverWhat}'s own variables` : 'Environment variables' }}</CardTitle>
           <CardDescription v-if="serverApp">{{ serverBlurb }}</CardDescription>
           <CardDescription v-else-if="scope">
-            Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. Values are hidden once saved; a change applies after a restart.
+            Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. A change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="multi">
-            Shared variables: every service of this app gets them. Passwords, API keys and other settings, hidden once saved. A change applies after a restart.
+            Shared variables: every service of this app gets them. A hidden value is never shown again. A change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="site">
             Settings your site needs while it is built, like VITE_API_URL. bitploy serves the built files, so none of your code runs on the server and only the build reads a
             variable. Anyone can read a VITE_ or NEXT_PUBLIC_ value in the site, so never put a password in one. A change applies on the next deploy.
           </CardDescription>
           <CardDescription v-else>
-            Passwords, API keys and other settings your app reads when it starts and while it is built. Values are hidden once saved. A change applies after a restart, or on the next deploy when the build reads it.
+            Passwords, API keys and other settings your app reads when it starts and while it is built. A hidden value is never shown again. A change applies after a restart, or on the next deploy when the build reads it.
           </CardDescription>
         </div>
         <div class="flex gap-2">
@@ -337,6 +369,10 @@ const importAll = useMutation({
                   />
                 </FormControl>
                 <FormMessage />
+                <label class="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="The value is never shown again, not even to you">
+                  <Checkbox :model-value="addHidden" @update:model-value="(v) => (addHiddenPicked = v === true)" />
+                  Hidden
+                </label>
               </FormItem>
             </FormField>
             <Button type="submit" class="max-sm:order-last sm:mt-[1.375rem]" :disabled="save.isPending.value && !editing">
@@ -386,33 +422,46 @@ const importAll = useMutation({
                       :title="`${part.ref.variable} of ${part.ref.app}, kept up to date by bitploy`"
                     ><span class="text-primary">{{ part.ref.app }}</span><span class="text-muted-foreground">.</span>{{ part.ref.variable }}</RouterLink>
                     <span v-else-if="'ref' in part" class="rounded-md border border-dashed px-1.5 py-0.5 text-xs" :title="`No app called ${part.ref.app} in this project`">{{ part.ref.raw }}</span>
-                    <span v-else-if="part.text.includes('•')" class="tracking-tight" title="The rest of the value is hidden, like every saved value">{{ part.text }}</span>
+                    <span v-else-if="part.text.includes('•')" class="tracking-tight" title="The rest of the value is hidden">{{ part.text }}</span>
                     <span v-else>{{ part.text }}</span>
                   </template>
                 </span>
-                <span v-else class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
+                <span v-else-if="v.value !== undefined" class="min-w-0 max-w-full truncate font-mono text-sm text-muted-foreground sm:max-w-md" :title="v.value">{{ v.value }}</span>
+                <span v-else class="inline-flex items-center gap-1 font-mono text-sm text-muted-foreground" title="Hidden: the value is never shown again">
+                  {{ v.masked }}<Lock class="size-3" />
+                </span>
                 <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
                 <div v-if="editing !== v.name" class="ml-auto flex gap-1">
-                  <Button size="sm" variant="ghost" :aria-label="`Change the value of ${v.name}`" @click="startEdit(v.name)"><Pencil /> Change</Button>
+                  <Button size="sm" variant="ghost" :aria-label="`Change ${v.name}`" @click="startEdit(v)"><Pencil /> Change</Button>
                   <Button size="sm" variant="ghost" class="text-muted-foreground hover:text-destructive" :aria-label="`Remove ${v.name}`" @click="toRemove = v.name"><Trash2 /> Remove</Button>
                 </div>
               </div>
               <form v-if="editing === v.name" class="mt-2 grid gap-2" novalidate @submit.prevent="saveEdit">
-                <Label :for="`env-edit-${v.name}`" class="sr-only">New value for {{ v.name }}</Label>
+                <Label :for="`env-edit-${v.name}`" class="sr-only">Value of {{ v.name }}</Label>
                 <Textarea
                   :id="`env-edit-${v.name}`"
                   v-model="editValue"
                   rows="1"
-                  placeholder="The new value"
+                  :placeholder="v.hidden ? 'The new value' : 'The value'"
                   autocomplete="off"
                   spellcheck="false"
                   class="min-h-8 resize-y py-[5px] leading-5 font-mono"
                   @keydown="onEditKey"
                 />
                 <div class="flex flex-wrap items-center gap-2">
-                  <Button type="submit" size="sm" :disabled="save.isPending.value">{{ save.isPending.value ? 'Saving...' : 'Save new value' }}</Button>
+                  <Button type="submit" size="sm" :disabled="save.isPending.value || editNeedsValue">{{ save.isPending.value ? 'Saving...' : 'Save' }}</Button>
                   <Button type="button" size="sm" variant="ghost" :disabled="save.isPending.value" @click="cancelEdit">Cancel</Button>
-                  <span class="text-xs text-muted-foreground">The old value is not shown. Enter saves, Esc cancels.</span>
+                  <label class="flex items-center gap-2 text-xs text-muted-foreground" title="The value is never shown again, not even to you">
+                    <Checkbox v-model="editHidden" />
+                    Hidden
+                  </label>
+                  <span class="text-xs text-muted-foreground">{{
+                    editNeedsValue
+                      ? 'Enter the value again to make it readable.'
+                      : v.hidden
+                        ? 'The old value is not shown; leave the box empty to keep it. Enter saves, Esc cancels.'
+                        : 'Enter saves, Esc cancels.'
+                  }}</span>
                 </div>
               </form>
             </li>
@@ -422,7 +471,7 @@ const importAll = useMutation({
             <ul class="divide-y rounded-lg border border-dashed">
               <li v-for="v in shownInherited" :key="v.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2" :class="names.has(v.name) && 'opacity-60'">
                 <span class="font-mono text-sm break-all" :class="names.has(v.name) && 'line-through'">{{ v.name }}</span>
-                <span class="font-mono text-sm text-muted-foreground">{{ v.masked }}</span>
+                <span class="min-w-0 max-w-full truncate font-mono text-sm text-muted-foreground sm:max-w-md" :title="v.value">{{ v.value ?? v.masked }}</span>
                 <Badge variant="outline" class="ml-auto font-normal">{{ names.has(v.name) ? 'replaced by its own' : 'shared' }}</Badge>
               </li>
             </ul>
@@ -445,9 +494,18 @@ const importAll = useMutation({
           </p>
           <ul v-if="parsed.vars.length" class="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
             <li v-for="v in parsed.vars" :key="v.name">
-              <Badge :variant="names.has(v.name) ? 'outline' : 'secondary'" class="font-mono" :title="names.has(v.name) ? 'Replaces the value you have' : 'New'">{{ v.name }}</Badge>
+              <Badge
+                :variant="names.has(v.name) ? 'outline' : 'secondary'"
+                class="font-mono"
+                :title="(names.has(v.name) ? 'Replaces the value you have' : 'New') + (pasteHidden[v.name] ? ', hidden' : '')"
+              >
+                {{ v.name }}<Lock v-if="pasteHidden[v.name]" />
+              </Badge>
             </li>
           </ul>
+          <p v-if="pasteHiddenCount" class="text-xs text-muted-foreground">
+            <Lock class="inline size-3" /> Saved hidden: names with SECRET, TOKEN, KEY or PASSWORD, and the ones hidden already. Change one afterwards in its row.
+          </p>
           <p v-if="parsed.skipped.length" class="text-xs text-destructive">
             Not understood, left out: line {{ parsed.skipped.map((s) => s.line).join(', ') }}.
           </p>

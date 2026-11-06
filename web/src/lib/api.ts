@@ -518,8 +518,9 @@ export const api = {
    * `build` says, per name, whether the image build gets the variable too
    * ('none' takes that away); names left out keep what they have.
    */
-  setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string) =>
-    request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset, ...(service ? { service } : {}) } }),
+  /** hidden: the flag per name; a name left out keeps its flag (a new one is readable). */
+  setEnv: (slug: string, set: Record<string, string>, unset: string[], service?: string, hidden?: Record<string, boolean>) =>
+    request<unknown>('PUT', paths.appEnv(slug), { body: { set, unset, ...(service ? { service } : {}), ...(hidden && Object.keys(hidden).length ? { hidden } : {}) } }),
   /** Without a service: the sum over all services. */
   metrics: (slug: string, window: MetricWindow, service?: string) =>
     request<Metrics>('GET', paths.appMetrics(slug), { query: { window, service } }),

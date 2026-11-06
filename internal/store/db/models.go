@@ -233,6 +233,7 @@ type EnvVar struct {
 	Name      string
 	ValueEnc  []byte
 	UpdatedAt int64
+	Hidden    int64
 }
 
 type GithubApp struct {

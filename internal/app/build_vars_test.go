@@ -169,12 +169,16 @@ func TestFitBuildVars(t *testing.T) {
 
 func TestMaskedInBuildLog(t *testing.T) {
 	for v, want := range map[string]bool{"production": false, "abc": false, "sk_live_123456": true, "postgres://u:p@db/x": true, "3000": false} {
-		if got := maskedInBuildLog("X", v); got != want {
+		if got := maskedInBuildLog("X", v, false); got != want {
 			t.Errorf("%q: %v", v, got)
 		}
 	}
-	if maskedInBuildLog("VITE_API_URL", "https://api.example.com") {
+	if maskedInBuildLog("VITE_API_URL", "https://api.example.com", false) {
 		t.Error("a value the site shows anyway is masked")
+	}
+	// A hidden value is masked even when it looks like a plain word.
+	if !maskedInBuildLog("VITE_API_URL", "https://api.example.com", true) || !maskedInBuildLog("X", "production", true) || maskedInBuildLog("X", "abc", true) {
+		t.Error("hidden")
 	}
 }
 

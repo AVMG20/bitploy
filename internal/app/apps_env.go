@@ -1,7 +1,7 @@
 package app
 
 // OWNER: deploy agent. Environment variables: encrypted at rest (AES-GCM,
-// aad "env:<app id>:<name>"), values are never returned.
+// aad "env:<app id>:<name>"); the value of a hidden one is never returned.
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 	}
 	out := make([]EnvVar, 0, len(rows))
 	for _, r := range rows {
-		ev := EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, UpdatedAt: ts(r.UpdatedAt)}
+		ev := EnvVar{Name: r.Name, Service: r.Service, Masked: envMask, Hidden: r.Hidden != 0, UpdatedAt: ts(r.UpdatedAt)}
 		// A reference names another app's variable, not a secret: it is shown.
 		if v, err := s.Crypto.Open(r.ValueEnc, envAADFor(appID, r.Service, r.Name)); err == nil {
 			for _, ref := range refsIn(string(v)) {
@@ -44,6 +44,10 @@ func (s *Service) listEnv(ctx context.Context, appID string) ([]EnvVar, error) {
 			}
 			if ev.References != nil {
 				ev.Masked = maskAroundRefs(string(v))
+			}
+			if !ev.Hidden {
+				val := string(v)
+				ev.Value = &val
 			}
 		}
 		out = append(out, ev)
@@ -86,6 +90,28 @@ func (s *Service) SetEnv(ctx context.Context, a Actor, ref string, set map[strin
 // own variable wins over a shared one of the same name. A single-service app
 // accepts its own service name (app) and stores shared variables.
 func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service string, set map[string]string, unset []string) ([]EnvVar, error) {
+	return s.ChangeEnv(ctx, a, ref, EnvChange{Service: service, Set: set, Unset: unset})
+}
+
+// EnvChange is one change of an app's variables (ChangeEnv).
+type EnvChange struct {
+	Service string
+	Set     map[string]string
+	Unset   []string
+	// Hidden says per name whether the value stays write-only (docs/decisions.md,
+	// "Variables are readable unless hidden"). A name not in Set must be a
+	// variable the app has; making a hidden one readable needs its value in
+	// Set, since nobody can read the old one.
+	Hidden map[string]bool
+	// GuessHidden decides for a name in Set without an entry in Hidden; nil
+	// keeps what the variable has (a new one is readable). A hidden variable
+	// never turns readable by a guess.
+	GuessHidden func(name string) bool
+}
+
+// ChangeEnv is SetServiceEnv that also says which variables are hidden.
+func (s *Service) ChangeEnv(ctx context.Context, a Actor, ref string, c EnvChange) ([]EnvVar, error) {
+	service, set, unset := c.Service, c.Set, c.Unset
 	row, err := s.LoadApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, err
@@ -134,8 +160,16 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 		return nil, apperr.Internal(err)
 	}
 	names := map[string]bool{}
+	wasHidden := map[string]bool{} // the variables of this scope, by name: hidden
 	for _, e := range existing {
 		names[e.Service+"/"+e.Name] = true
+		if e.Service == service {
+			wasHidden[e.Name] = e.Hidden != 0
+		}
+	}
+	hidden, ae := hiddenChanges(c, wasHidden)
+	if ae != nil {
+		return nil, ae
 	}
 	for n := range set {
 		names[service+"/"+n] = true
@@ -161,6 +195,11 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 				return err
 			}
 		}
+		for n, h := range hidden {
+			if err := q.SetEnvVarHidden(ctx, db.SetEnvVarHiddenParams{Hidden: b2i(h), AppID: row.ID, Service: service, Name: n}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -172,9 +211,48 @@ func (s *Service) SetServiceEnv(ctx context.Context, a Actor, ref, service strin
 	}
 	sort.Strings(setNames)
 	meta := map[string]any{"set": setNames, "unset": unset}
+	if len(hidden) > 0 {
+		meta["hidden"] = hidden // names and flags, never values
+	}
 	if service != "" {
 		meta["service"] = service
 	}
 	s.Audit(ctx, a, "env.set", "app", row.ID, meta)
 	return s.listEnv(ctx, row.ID)
+}
+
+// hiddenChanges validates c.Hidden and returns the hidden flag to store per
+// name, only where it changes. wasHidden are the variables the app has in
+// the scope.
+func hiddenChanges(c EnvChange, wasHidden map[string]bool) (map[string]bool, *apperr.Error) {
+	gone := map[string]bool{}
+	for _, n := range c.Unset {
+		gone[n] = true
+	}
+	out := map[string]bool{}
+	for n, h := range c.Hidden {
+		_, inSet := c.Set[n]
+		was, exists := wasHidden[n]
+		switch {
+		case gone[n]:
+			return nil, apperr.BadRequest("env_conflict", "The variable "+quote(n)+" is in both unset and hidden.", "Send each name in only one of them.")
+		case !inSet && !exists:
+			return nil, apperr.NotFound("env_not_found", "The app has no variable "+quote(n)+".", "Set it in the same call: put the value in set and the flag in hidden.")
+		case !inSet && was && !h:
+			return nil, apperr.BadRequest("env_value_needed", "The value of "+quote(n)+" is hidden, so it cannot become readable without a new value.",
+				"Send its value again in set, with hidden false.")
+		}
+		if h != was {
+			out[n] = h
+		}
+	}
+	for n := range c.Set {
+		if _, given := c.Hidden[n]; given || c.GuessHidden == nil {
+			continue
+		}
+		if h := wasHidden[n] || c.GuessHidden(n); h != wasHidden[n] {
+			out[n] = h
+		}
+	}
+	return out, nil
 }

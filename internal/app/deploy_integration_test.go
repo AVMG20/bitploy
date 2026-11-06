@@ -372,7 +372,7 @@ func TestIntegrationDeploy(t *testing.T) {
 	}
 	e.waitServing(t, slug, "version one")
 
-	// 6. Env vars apply on restart; values are never returned.
+	// 6. Env vars apply on restart.
 	if _, err := s.SetEnv(ctx, e.user, slug, map[string]string{"GREETING": "hello"}, nil); err != nil {
 		t.Fatal(err)
 	}

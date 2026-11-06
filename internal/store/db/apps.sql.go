@@ -232,7 +232,7 @@ func (q *Queries) InsertUpload(ctx context.Context, arg InsertUploadParams) erro
 }
 
 const listEnvVars = `-- name: ListEnvVars :many
-SELECT app_id, service, name, value_enc, updated_at FROM env_vars WHERE app_id = ? ORDER BY service, name
+SELECT app_id, service, name, value_enc, updated_at, hidden FROM env_vars WHERE app_id = ? ORDER BY service, name
 `
 
 func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, error) {
@@ -250,6 +250,7 @@ func (q *Queries) ListEnvVars(ctx context.Context, appID string) ([]EnvVar, erro
 			&i.Name,
 			&i.ValueEnc,
 			&i.UpdatedAt,
+			&i.Hidden,
 		); err != nil {
 			return nil, err
 		}
@@ -536,6 +537,28 @@ type SetAppVolumeEnabledParams struct {
 
 func (q *Queries) SetAppVolumeEnabled(ctx context.Context, arg SetAppVolumeEnabledParams) error {
 	_, err := q.db.ExecContext(ctx, setAppVolumeEnabled, arg.VolumeEnabled, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setEnvVarHidden = `-- name: SetEnvVarHidden :exec
+UPDATE env_vars SET hidden = ? WHERE app_id = ? AND service = ? AND name = ?
+`
+
+type SetEnvVarHiddenParams struct {
+	Hidden  int64
+	AppID   string
+	Service string
+	Name    string
+}
+
+// hidden 1: the API never returns the value (00340_env_hidden.sql).
+func (q *Queries) SetEnvVarHidden(ctx context.Context, arg SetEnvVarHiddenParams) error {
+	_, err := q.db.ExecContext(ctx, setEnvVarHidden,
+		arg.Hidden,
+		arg.AppID,
+		arg.Service,
+		arg.Name,
+	)
 	return err
 }
 

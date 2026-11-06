@@ -434,7 +434,11 @@ type EnvVar struct {
 	// Service is the service the variable belongs to; "" for a variable every
 	// service of the app gets (always "" for an app with one service).
 	Service string `json:"service" doc:"The service it belongs to; empty when every service gets it"`
-	Masked  string `json:"masked"` // e.g. "••••••••" — values are never returned
+	Masked  string `json:"masked"` // e.g. "••••••••"; the value itself is in Value unless hidden
+	// Hidden variables are write-only: Value is left out and only Masked
+	// says there is one.
+	Hidden bool    `json:"hidden" doc:"The value is write-only: never returned, only masked"`
+	Value  *string `json:"value,omitempty" doc:"The value; left out when hidden"`
 	// References are the ${{<alias>.VAR}} references in the value: names of
 	// other apps' variables, shown because they are not secret.
 	References []string  `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`

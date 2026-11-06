@@ -38,8 +38,11 @@ type rollbackRequest struct {
 }
 
 type envRequest struct {
-	Set   map[string]string `json:"set,omitempty" doc:"Variables to set. Values are encrypted and never returned."`
+	Set   map[string]string `json:"set,omitempty" doc:"Variables to set. Values are encrypted at rest."`
 	Unset []string          `json:"unset,omitempty" doc:"Variable names to remove"`
+	// Hidden is the flag per name; a name left out keeps its flag (a new
+	// variable is readable).
+	Hidden map[string]bool `json:"hidden,omitempty" doc:"Per name: true keeps the value write-only (never returned, only masked). Left out: a new variable is readable and an existing one keeps its flag. Making a hidden variable readable needs its value in set."`
 	// Service limits the change to one service of an app with several services.
 	Service string `json:"service,omitempty" doc:"For an app with several services: set or unset the variables of this service only (they win over shared ones of the same name). Leave it out for variables every service gets."`
 }
@@ -310,7 +313,7 @@ func (a *API) appRoutes() {
 	// ---- env ----
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "listEnv", Method: http.MethodGet, Path: "/apps/{app}/env", Tags: []string{"Environment"},
-		Summary: "Environment variable names", Description: "Names and masked values only. Nobody can read values back.",
+		Summary: "Environment variable names", Description: "Names and values. The value of a hidden variable is never returned, only masked.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
 		PageParams
@@ -325,7 +328,7 @@ func (a *API) appRoutes() {
 		AppRef
 		Body envRequest
 	}) (*Out[app.Page[app.EnvVar]], error) {
-		items, err := a.svc.SetServiceEnv(ctx, act, in.App, in.Body.Service, in.Body.Set, in.Body.Unset)
+		items, err := a.svc.ChangeEnv(ctx, act, in.App, app.EnvChange{Service: in.Body.Service, Set: in.Body.Set, Unset: in.Body.Unset, Hidden: in.Body.Hidden})
 		return pageOut(items, err, PageParams{Limit: 100})
 	})
 
