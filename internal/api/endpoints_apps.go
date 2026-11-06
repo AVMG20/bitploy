@@ -340,6 +340,27 @@ func (a *API) appRoutes() {
 	}) (*Out[app.App], error) {
 		return okOrNil(a.svc.SetPasswordProtection(ctx, act, in.App, in.Body))
 	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "setPublicPort", Method: http.MethodPut, Path: "/apps/{app}/public-port", Tags: []string{"Apps"},
+		Summary: "Open or close a public port",
+		Description: "For debugging: a port on the server (public_port.address) that forwards to an app without a web address, like a database from a service template, " +
+			"so psql, TablePlus or redis-cli can connect. enabled=true opens it (or changes close_after and allow_from while it is open; the port stays the same); " +
+			"enabled=false closes it. Closes by itself after close_after (1h when left out). The app does not restart. " +
+			"422 public_ports_off when the server hands out none, 422 public_port_web_app for an app with a web address, 409 public_port_limit at the per-user limit. Needs the deploy scope.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		AppRef
+		Body app.PublicPortInput
+	}) (*Out[app.App], error) {
+		return okOrNil(a.svc.SetPublicPort(ctx, act, in.App, in.Body))
+	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "revealPublicConnection", Method: http.MethodPost, Path: "/apps/{app}/public-port/reveal", Tags: []string{"Apps"},
+		Summary: "Show the connection URL of a public port with the password",
+		Description: "Service template apps with an open public port: the connection URL for the public address with the password in it, and the generated passwords and keys. " +
+			"Owner only (deploy scope); every call is in the audit log. 409 public_port_closed when no port is open.",
+	}, func(ctx context.Context, act app.Actor, in *AppRef) (*Out[app.PublicConnection], error) {
+		return okOrNil(a.svc.RevealPublicConnection(ctx, act, in.App))
+	})
 
 	// ---- lifecycle ----
 	reg(a, anyAuth, huma.Operation{

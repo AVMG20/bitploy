@@ -219,6 +219,9 @@ func appLine(ap app.App) string {
 	if ap.Protected {
 		s += ", password-protected"
 	}
+	if ap.PublicPort.Enabled {
+		s += ", public port " + ap.PublicPort.Address + " open (close it with set_public_port when done)"
+	}
 	if ap.Static {
 		s += ", static site: does not count towards memory/CPU"
 	}

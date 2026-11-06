@@ -165,6 +165,16 @@ type setPasswordIn struct {
 	Password *string `json:"password,omitempty" jsonschema:"8 to 72 characters. Needed when turning it on; leave out to keep the current one."`
 }
 
+type setPublicPortIn struct {
+	App        string   `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
+	Enabled    bool     `json:"enabled" jsonschema:"true opens the port (or changes close_after/allow_from while it is open), false closes it."`
+	Service    *string  `json:"service,omitempty" jsonschema:"Only for an app with several services: the one to reach, like db. Leave out for a single app."`
+	CloseAfter *string  `json:"close_after,omitempty" jsonschema:"1h (default when opening), 24h or never. Pick the shortest that fits the work."`
+	AllowFrom  []string `json:"allow_from,omitempty" jsonschema:"IPv4 addresses or networks that may connect, like 203.0.113.7 or 198.51.100.0/24. Leave out to keep the current list; [] lets every address connect."`
+	OnlyMyIP   bool     `json:"only_my_ip,omitempty" jsonschema:"Add the IPv4 address this MCP request comes from to allow_from. Right when the MCP client runs on the user's computer; a client in the cloud has another address than the user, so ask for their address then."`
+	ShowPass   bool     `json:"show_password,omitempty" jsonschema:"Also return the connection URL with the password (service templates). Only when the user needs it to connect; every call is in the audit log."`
+}
+
 type rollbackIn struct {
 	App          string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	DeploymentID string `json:"deployment_id,omitempty" jsonschema:"The earlier deployment (dep_...) to run again, from list_deployments (state running or superseded, one of the newest 3). Leave out to use the newest older deployment that ran."`
@@ -720,6 +730,63 @@ func (s *srv) registerTools() {
 					"To remove the prompt later, call set_password_protection with enabled=false, only when the user asks.",
 				},
 			}, nil
+		})
+
+	addTool(s, "set_public_port", "Open a database port for debugging",
+		"For debugging only: gives an app without a web address (a database or cache from add_service, a worker, or a non-public service with service=) a port on the server, "+
+			"so the user can connect from their computer with psql, TablePlus, DBeaver or redis-cli. The app does not restart. Returns public_port.address (host:port) and, "+
+			"for service templates, public_port.connection_url with the password as ********; show_password=true returns it with the password. "+
+			"Anyone who has the address and password can connect, so: only open it when the user asks to look at the data, prefer only_my_ip or allow_from, keep close_after short (1h by default), "+
+			"and call set_public_port(enabled=false) when they are done. Apps connect to each other inside the project without it. "+
+			"Errors: public_ports_off (the server has none; tell the user to ask the admin), public_port_web_app (web apps have a URL), public_port_limit.",
+		idempotent(), true, nil,
+		func(ctx context.Context, a app.Actor, in setPublicPortIn) (*result, error) {
+			ap, err := svc.SetPublicPort(ctx, a, in.App, app.PublicPortInput{
+				Enabled: in.Enabled, Service: in.Service, CloseAfter: in.CloseAfter, AllowFrom: in.AllowFrom, OnlyMyIP: in.OnlyMyIP,
+			})
+			if err != nil {
+				return nil, err
+			}
+			pp := ap.PublicPort
+			if !pp.Enabled {
+				return &result{
+					Summary: ap.Slug + " has no public port: it is reachable only from inside its project.",
+					Data:    data("app", ap),
+					Next:    []string{"Tell the user the port is closed."},
+				}, nil
+			}
+			closes := "stays open until closed"
+			if pp.ExpiresAt != nil {
+				closes = "closes by itself at " + pp.ExpiresAt.Format(time.RFC3339)
+			}
+			who := "every address"
+			if len(pp.AllowFrom) > 0 {
+				who = strings.Join(pp.AllowFrom, ", ")
+			}
+			give := "Give the user the address"
+			if pp.ConnectionURL != "" {
+				give += " and the connection URL (call again with show_password=true if they need the password)"
+			}
+			res := &result{
+				Summary: fmt.Sprintf("%s is reachable at %s (to port %d inside), from %s; it %s.", ap.Slug, pp.Address, pp.TargetPort, who, closes),
+				Data:    data("app", ap),
+				Next: []string{
+					give + ", and say anyone with the password can connect while it is open.",
+					"Call set_public_port with enabled=false when the user is done.",
+				},
+			}
+			if in.ShowPass {
+				c, err := svc.RevealPublicConnection(ctx, a, in.App)
+				if err != nil {
+					return nil, err
+				}
+				res.Data = data("app", ap, "connection", c)
+				res.Next[0] = "Give the user connection.connection_url once; do not repeat the password in later answers or write it to files."
+			}
+			if pp.Error != "" {
+				res.Next = append([]string{"The forwarder is not running yet: " + pp.Error + " bitploy retries every minute; call get_app to check public_port.running."}, res.Next...)
+			}
+			return res, nil
 		})
 
 	lifecycle := func(name, title, desc, verb string, ann *mcp.ToolAnnotations, call func(ctx context.Context, a app.Actor, ref string) (app.App, error)) {
