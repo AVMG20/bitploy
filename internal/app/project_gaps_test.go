@@ -73,15 +73,6 @@ func TestProjectHostNameClashes(t *testing.T) {
 	if ae == nil || ae.Code != "network_name_taken" || ae.Details["service"] != "db" || ae.Details["name"] != "blog-db" || ae.HTTPStatus != 422 {
 		t.Fatalf("clash = %+v", ae)
 	}
-
-	// Moving an app with services into a project where its names clash picks
-	// a free alias.
-	q, _ := e.s.CreateProject(ctx, e.user, CreateProjectInput{Name: "Q"})
-	e.mustApp(t, CreateAppInput{Name: "q", Slug: "q-one", Project: q.ID, Alias: "site-api"})
-	moved, err := e.s.UpdateApp(ctx, e.user, web.Slug, UpdateAppInput{Project: strp(q.ID)})
-	if err != nil || moved.Alias != "site-2" {
-		t.Fatalf("move = %q, %v", moved.Alias, err)
-	}
 }
 
 // deploy_catalog_app with a project adds the app and its services there; a

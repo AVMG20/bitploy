@@ -406,7 +406,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if err := perServiceSettings(row, in); err != nil {
 		return App{}, err
 	}
-	pc, err := s.planProjectChange(ctx, a, row, in)
+	ac, err := s.planAliasChange(ctx, row, in)
 	if err != nil {
 		return App{}, err
 	}
@@ -655,11 +655,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["old_slug"] = row.Slug
 		s.Audit(ctx, a, "app.update", "app", row.ID, changed)
 	}
-	if pc != nil {
+	if ac != nil {
 		if cur, err := s.Q.GetApp(ctx, row.ID); err == nil {
 			row = cur
 		}
-		if err := s.applyProjectChange(ctx, a, row, pc); err != nil {
+		if err := s.applyAliasChange(ctx, a, row, ac); err != nil {
 			return App{}, err
 		}
 	}

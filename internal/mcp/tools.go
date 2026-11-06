@@ -84,7 +84,6 @@ type updateAppIn struct {
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
 	BuildMode      *string `json:"build_mode,omitempty" jsonschema:"dockerfile: build one Dockerfile (the default). compose: run every service of the code's compose file from the next deploy on; the app's /data volume is kept and there is NO way back to one service. Only when the user wants the compose file's services (a deploy warns with compose_ignored when the code has one); check the file with validate_compose first."`
 	ComposePath    *string `json:"compose_path,omitempty" jsonschema:"With build_mode=compose: the compose file's path in the code, like deploy/compose.yaml. Empty string: the standard names (compose.yaml, docker-compose.yml, ...). Applies on the next deploy."`
-	Project        *string `json:"project,omitempty" jsonschema:"Move the app to another project (id prj_... from list_projects). Refused while other apps of its project refer to its variables, or its variables refer to apps of its project."`
 	Alias          *string `json:"alias,omitempty" jsonschema:"New short name in the project. References to the old name in the project's other apps are rewritten, and those apps restart."`
 }
 
@@ -423,7 +422,7 @@ func (s *srv) registerTools() {
 				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis, BuildMode: in.BuildMode, ComposePath: in.ComposePath,
-				Project: in.Project, Alias: in.Alias,
+				Alias: in.Alias,
 			})
 			if err != nil {
 				return nil, err

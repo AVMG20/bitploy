@@ -45,7 +45,7 @@ Any other published image works too: deploy a Dockerfile that is only `FROM <ima
 
 ## Projects and databases
 
-Every app is in a project. An app created on its own gets a project named after it, and that project goes away with the app. Make a project yourself (`POST /api/v1/projects` or `create_project`) to keep apps that belong together in one place, like a shop and its database.
+Every app is in a project. An app created on its own gets a project named after it, and that project goes away with the app. Make a project yourself (`POST /api/v1/projects` or `create_project`) to keep apps that belong together in one place, like a shop and its database. An app stays in the project it was created in; to have it in another one, deploy it again as a new app there.
 
 Apps of one project reach each other on a private network by their short name in the project (`alias`, the subdomain unless you pick another), for example `db:5432`. Nothing outside the project reaches them there, and a database has no web address at all.
 

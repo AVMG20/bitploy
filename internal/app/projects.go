@@ -385,7 +385,7 @@ func (s *Service) DeleteProject(ctx context.Context, a Actor, ref, confirm strin
 		}
 		return apperr.Conflict("project_not_empty",
 			fmt.Sprintf("The project has %d apps: %s.", len(apps), strings.Join(slugs, ", ")),
-			"Move them to another project (update_app with project), delete them, or call delete_project with with_apps=true to delete the apps and their data too.").
+			"Delete them first, or call delete_project with with_apps=true to delete the apps and their data too.").
 			WithNext("delete_project").WithDetail("apps", slugs)
 	}
 	for _, ap := range apps {
@@ -562,21 +562,6 @@ func strangers(members, owned map[string]bool) []string {
 	return out
 }
 
-// unwireApp takes the containers of an app off a project network (the app
-// moved to another project).
-func (s *Service) unwireApp(ctx context.Context, app db.App, projectID string) {
-	dk := s.Docker
-	if dk == nil || projectID == "" {
-		return
-	}
-	name := dockerx.ProjectNetworkName(projectID)
-	if cs, err := dk.ListAppContainers(ctx, app.ID); err == nil {
-		for _, c := range cs {
-			_ = dk.DisconnectNetwork(ctx, name, dockerx.SummaryName(c))
-		}
-	}
-}
-
 // reconcileProjectNetworks removes project networks whose project is gone
 // or has fewer than two apps, and attaches containers that are missing.
 func (s *Service) reconcileProjectNetworks(ctx context.Context, apps []db.App) {
@@ -623,133 +608,75 @@ func newAutoProject(ctx context.Context, q *db.Queries, userID, name string, now
 	return id, q.InsertProject(ctx, db.InsertProjectParams{ID: id, UserID: userID, Name: name, Auto: 1, CreatedAt: now, UpdatedAt: now})
 }
 
-// projectChange is a move to another project and/or a new alias, checked
-// before UpdateApp changes anything.
-type projectChange struct {
-	from, to         string
-	oldAlias, alias  string
-	rewrite, realias bool
+// aliasChange is a new short name for an app in its project, checked before
+// UpdateApp changes anything.
+type aliasChange struct {
+	oldAlias, alias string
 }
 
-// planProjectChange validates update_app's project and alias.
-func (s *Service) planProjectChange(ctx context.Context, a Actor, row db.App, in UpdateAppInput) (*projectChange, error) {
-	if in.Project == nil && in.Alias == nil {
-		return nil, nil
-	}
-	pc := &projectChange{from: row.ProjectID, to: row.ProjectID, oldAlias: row.Alias, alias: row.Alias}
-	if in.Project != nil && strings.TrimSpace(*in.Project) != "" && strings.TrimSpace(*in.Project) != row.ProjectID {
-		p, err := s.loadProject(ctx, a, *in.Project, true)
-		if err != nil {
-			return nil, err
-		}
-		if p.UserID != row.UserID {
-			return nil, projectNotFound(*in.Project)
-		}
-		if p.ID != row.ProjectID {
-			pc.to = p.ID
-		}
-	}
-	if in.Alias != nil {
-		al, ae := normalizeAlias(*in.Alias)
-		if ae != nil {
-			return nil, ae
-		}
-		pc.alias = al
-	}
-	moving := pc.to != pc.from
-	if moving {
-		// References would break: the apps that use this one stay behind.
-		deps, err := s.dependents(ctx, row, row.Alias)
-		if err != nil {
-			return nil, apperr.Internal(err)
-		}
-		if len(deps) > 0 {
-			return nil, apperr.Conflict("app_referenced",
-				"Other apps in this project refer to this app's variables: "+describeDependents(deps)+".",
-				"Change those variables with set_env first, or move those apps too.").WithNext("set_env").
-				WithDetail("apps", dependentSlugs(deps)).WithDetail("dependents", deps)
-		}
-		if mine := s.appReferences(ctx, row.ID); len(mine) > 0 {
-			return nil, apperr.Conflict("app_has_references",
-				"This app's variables refer to "+strings.Join(mine, ", ")+" in its project, which the other project does not have.",
-				"Change those variables with set_env first, then move the app.").WithNext("set_env").WithDetail("references", mine)
-		}
-	}
-	if pc.alias == pc.oldAlias && !moving {
-		return nil, nil
-	}
-	if in.Alias != nil || moving {
-		svcs, err := networkServices(ctx, s.Q, row)
-		if err != nil {
-			return nil, apperr.Internal(err)
-		}
-		if err := checkHostNames(ctx, s.Q, pc.to, row.ID, pc.alias, svcs); err != nil {
-			if in.Alias != nil || apperr.As(err).Code != "alias_taken" {
-				return nil, apperr.As(err)
-			}
-			al, err := freeAlias(ctx, s.Q, pc.to, pc.alias, row.ID, svcs)
-			if err != nil {
-				return nil, apperr.Internal(err)
-			}
-			pc.alias = al
-		}
-	}
-	pc.rewrite = !moving && pc.alias != pc.oldAlias
-	pc.realias = pc.alias != pc.oldAlias
-	return pc, nil
+// errProjectMove answers update_app with project: apps no longer move
+// between projects (docs/decisions.md). The field stays in UpdateAppInput,
+// hidden from the API docs, so an old client gets this instead of a generic
+// unknown-field error.
+func errProjectMove() *apperr.Error {
+	return apperr.Unprocessable("project_move_unsupported",
+		"An app cannot move to another project.",
+		"To have the app in another project, create a new app there (create_app with project), set its variables and deploy the code to it. "+
+			"Delete the old app only if the user asks.").WithNext("create_app")
 }
 
-// applyProjectChange stores a planned change, rewrites references to the old
-// alias, rewires the networks and restarts the apps whose variables changed.
-func (s *Service) applyProjectChange(ctx context.Context, a Actor, row db.App, pc *projectChange) error {
+// planAliasChange validates update_app's alias.
+func (s *Service) planAliasChange(ctx context.Context, row db.App, in UpdateAppInput) (*aliasChange, error) {
+	if in.Project != nil {
+		return nil, errProjectMove()
+	}
+	if in.Alias == nil {
+		return nil, nil
+	}
+	al, ae := normalizeAlias(*in.Alias)
+	if ae != nil {
+		return nil, ae
+	}
+	if al == row.Alias {
+		return nil, nil
+	}
+	svcs, err := networkServices(ctx, s.Q, row)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	if err := checkHostNames(ctx, s.Q, row.ProjectID, row.ID, al, svcs); err != nil {
+		return nil, apperr.As(err)
+	}
+	return &aliasChange{oldAlias: row.Alias, alias: al}, nil
+}
+
+// applyAliasChange stores a new alias, rewrites references to the old one,
+// rewires the project network and restarts the apps whose variables changed.
+func (s *Service) applyAliasChange(ctx context.Context, a Actor, row db.App, ac *aliasChange) error {
 	now := s.now()
 	var rewritten []string
 	err := s.Store.Tx(ctx, func(q *db.Queries) error {
-		if err := q.SetAppProject(ctx, db.SetAppProjectParams{ProjectID: pc.to, Alias: pc.alias, UpdatedAt: now, ID: row.ID}); err != nil {
+		if err := q.SetAppProject(ctx, db.SetAppProjectParams{ProjectID: row.ProjectID, Alias: ac.alias, UpdatedAt: now, ID: row.ID}); err != nil {
 			return err
 		}
-		if pc.to != pc.from {
-			// Adding an app to a project on purpose makes it a lasting one.
-			if err := q.SetProjectManual(ctx, db.SetProjectManualParams{UpdatedAt: now, ID: pc.to}); err != nil {
-				return err
-			}
-			if err := q.DeleteAutoProjectIfEmpty(ctx, pc.from); err != nil {
-				return err
-			}
-		}
-		if pc.rewrite {
-			var err error
-			rewritten, err = s.rewriteRefs(ctx, q, row, pc.oldAlias, pc.alias)
-			return err
-		}
-		return nil
+		var err error
+		rewritten, err = s.rewriteRefs(ctx, q, row, ac.oldAlias, ac.alias)
+		return err
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return aliasTaken(pc.alias)
+			return aliasTaken(ac.alias)
 		}
 		return apperr.Internal(err)
 	}
-	meta := map[string]any{"slug": row.Slug}
-	if pc.to != pc.from {
-		meta["project"], meta["old_project"] = pc.to, pc.from
-	}
-	if pc.realias {
-		meta["alias"], meta["old_alias"] = pc.alias, pc.oldAlias
-	}
+	meta := map[string]any{"slug": row.Slug, "alias": ac.alias, "old_alias": ac.oldAlias}
 	if len(rewritten) > 0 {
 		meta["rewritten"] = rewritten
 	}
 	s.Audit(ctx, a, "app.project", "app", row.ID, meta)
 
 	bg := context.WithoutCancel(ctx)
-	if pc.to != pc.from {
-		s.unwireApp(bg, row, pc.from)
-		s.wireProject(bg, pc.from)
-		s.wireProject(bg, pc.to, row.ID)
-	} else {
-		s.wireProject(bg, pc.to, row.ID)
-	}
+	s.wireProject(bg, row.ProjectID, row.ID)
 	for _, slug := range rewritten {
 		s.restartIfRunning(bg, row.UserID, slug)
 	}

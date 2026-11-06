@@ -59,7 +59,7 @@ const me = useMe()
 const quota = computed(() => me.data.value?.quota)
 // Several services: build and size come from the compose file, one per service.
 const multi = computed(() => isMulti(app.data.value))
-// Without projects on the server each app is its own project: nothing to move or rename.
+// Without projects on the server each app is its own project: no short name to rename.
 const projectList = useProjects()
 const templates = useServiceTemplates()
 // A database, cache or search engine: no web address, nothing to protect with a password.
@@ -418,7 +418,7 @@ const deleteText = computed(() => {
       </div>
     </SettingsSection>
 
-    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one, and which project it is in.">
+    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one.">
       <ProjectSettings :app="app.data.value" />
     </SettingsSection>
 

@@ -600,8 +600,6 @@ export interface CreateAppInput {
 
 export interface UpdateAppInput {
   name?: string
-  /** Move it to another project (phase 4b). */
-  project?: string
   /** Its short name in the project (phase 4b). */
   alias?: string
   slug?: string
