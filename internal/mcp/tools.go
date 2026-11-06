@@ -1010,6 +1010,9 @@ func (s *srv) registerTools() {
 				next = []string{"A backup is being made. Call list_backups again in a few seconds."}
 			case len(l.Items) == 0:
 				next = []string{"There are no backups yet. Call create_backup if the user wants one."}
+				if ap, err := svc.GetApp(ctx, a, in.App); err == nil && !ap.BackupsSupported {
+					next = []string{"bitploy makes no backups of this app: its data can be rebuilt. Do not offer create_backup for it."}
+				}
 			}
 			return &result{
 				Summary: fmt.Sprintf("%d backup(s) of %s.", len(l.Items), in.App),
