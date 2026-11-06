@@ -274,7 +274,7 @@ const submit = form.handleSubmit((v) => {
         </Alert>
 
         <div class="flex flex-wrap items-center gap-3">
-          <Button type="submit" :disabled="deploy.isPending.value">{{ deploy.isPending.value ? 'Creating the app...' : target ? `Deploy to ${target.name}` : 'Deploy' }}</Button>
+          <Button type="submit" :disabled="deploy.isPending.value">{{ deploy.isPending.value ? 'Creating the app...' : target ? `Deploy to ${target.name}` : `Deploy ${entry.data.value?.name ?? 'app'}` }}</Button>
           <Button as-child variant="ghost" :disabled="deploy.isPending.value"><RouterLink :to="target ? projectRoute(target.id) : { name: 'ready-made' }">Cancel</RouterLink></Button>
         </div>
       </form>

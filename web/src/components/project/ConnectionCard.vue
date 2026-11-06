@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Cable, Lock, Plus } from 'lucide-vue-next'
+import { Cable, Plus } from 'lucide-vue-next'
 import CopyButton from '@/components/CopyButton.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +11,7 @@ import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { toastError, toastOk } from '@/lib/notify'
-import { aliasOf, connectable, internalHostOf, projectIdOf, projectLinks, referenceText, usedBy } from '@/lib/projects'
+import { aliasOf, connectable, projectIdOf, projectLinks, referenceText, usedBy } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
 // How the other apps of the project use a database (or cache, or search
@@ -55,9 +55,9 @@ const connect = useMutation({
   <Card>
     <CardHeader>
       <CardTitle class="flex items-center gap-2"><Cable class="size-4 text-muted-foreground" /> Connect your apps</CardTitle>
+      <!-- Where it is reached (Private, at postgres:5432) is in the header above. -->
       <CardDescription>
-        <span class="inline-flex items-center gap-1"><Lock class="size-3" /> Private.</span>
-        The other apps of {{ project?.name ?? 'the project' }} reach it at <span class="font-mono text-foreground/80">{{ internalHostOf(app) }}</span>. Copy a reference into an app's variables; it keeps working when the password changes.
+        Paste a reference as the value of a variable in another app of {{ project?.name ?? 'the project' }}. It stays right when the password changes.
       </CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">

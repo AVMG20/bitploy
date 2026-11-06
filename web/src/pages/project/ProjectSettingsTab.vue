@@ -69,7 +69,7 @@ const deleteText = computed(() => {
           </div>
           <template #hint>Up to 80 characters.</template>
           <template #actions>
-            <Button type="submit" :disabled="!name.trim() || unchanged || rename.isPending.value">{{ rename.isPending.value ? 'Saving...' : 'Save' }}</Button>
+            <Button type="submit" :disabled="!name.trim() || unchanged || rename.isPending.value">{{ rename.isPending.value ? 'Saving...' : 'Save name' }}</Button>
           </template>
         </FormCard>
       </form>

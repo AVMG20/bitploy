@@ -84,7 +84,7 @@ function readyMade() {
       <template v-else>
         <DialogHeader class="border-b px-5 py-4">
           <DialogTitle>Add to {{ project?.name ?? 'the project' }}</DialogTitle>
-          <DialogDescription>Each app runs in its own container. Apps of a project reach each other by their short name.</DialogDescription>
+          <DialogDescription>Apps of a project reach each other by their short name, like postgres:5432.</DialogDescription>
         </DialogHeader>
 
         <section class="grid gap-2 px-5 pt-4" aria-labelledby="add-code">
@@ -122,7 +122,8 @@ function readyMade() {
                 <span class="flex items-baseline gap-1.5 text-sm font-medium">{{ t.name }} <span class="text-xs font-normal text-muted-foreground">{{ t.version }}</span></span>
                 <span class="block text-xs text-muted-foreground">{{ t.description }}</span>
                 <span class="mt-1.5 block text-[11px] text-muted-foreground tabular-nums">
-                  Reserves {{ formatMB(t.memory_mb) }}<template v-if="memLeft !== null">, {{ formatMB(memLeft) }} left</template>
+                  Reserves {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb"> and {{ formatMB(t.volume_mb) }} storage</template>
+                  <span v-if="memLeft !== null && memLeft < t.memory_mb" class="block font-medium text-destructive">You have {{ formatMB(memLeft) }} memory left</span>
                 </span>
               </span>
               <ChevronRight class="mt-1 size-4 shrink-0 text-muted-foreground/60 group-hover:text-foreground" />

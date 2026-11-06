@@ -49,7 +49,7 @@ const healthText = computed(() => projectHealthText(props.project.apps))
         <p v-else class="mt-0.5 text-xs text-muted-foreground">{{ apps.length ? 'No web address' : 'No apps yet' }}</p>
       </div>
       <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <StatusDot :status="health.status === 'empty' ? 'new' : health.status" />
+        <StatusDot :status="health.status === 'empty' ? 'new' : health.status" aria-hidden="true" />
         <span>{{ healthText }}</span>
       </span>
     </div>
