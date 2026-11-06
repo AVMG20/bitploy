@@ -67,7 +67,7 @@ const open = computed({ get: () => !!picked.value, set: (v) => !v && (picked.val
             <span class="min-w-0 flex-1">
               <span class="flex items-baseline gap-1.5 text-sm font-medium">{{ t.name }} <span class="text-xs font-normal text-muted-foreground">{{ t.version }}</span></span>
               <span class="block text-xs text-muted-foreground">{{ t.description }}</span>
-              <span class="mt-1.5 block text-[11px] text-muted-foreground tabular-nums">Reserves {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb"> and {{ formatMB(t.volume_mb) }} storage</template></span>
+              <span class="mt-1.5 block text-[11px] text-muted-foreground tabular-nums">Up to {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb">, {{ formatMB(t.volume_mb) }} storage</template></span>
             </span>
           </button>
         </div>

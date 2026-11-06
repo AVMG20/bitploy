@@ -44,10 +44,11 @@ const to = computed(() => ({ query: { ...route.query, service: props.service.nam
       <div class="min-w-0 flex-1">
         <h3 class="flex min-w-0 items-baseline gap-2">
           <!-- The link covers the card, so the whole card opens the panel. -->
-          <RouterLink :to="to" class="truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none" :aria-label="`${role.label} ${service.name}: open its logs, usage and settings`">
-            {{ role.label }}
+          <!-- Its name, then what it is: the same order as on the project canvas (web Website). -->
+          <RouterLink :to="to" class="truncate font-mono font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none" :aria-label="`${service.name} (${role.label}): open its logs, usage and settings`">
+            {{ service.name }}
           </RouterLink>
-          <span class="truncate font-mono text-xs text-muted-foreground">{{ service.name }}</span>
+          <span class="truncate text-xs text-muted-foreground">{{ role.label }}</span>
         </h3>
         <p class="truncate text-xs text-muted-foreground" :title="service.image || undefined">
           {{ detail }}<template v-if="service.kind === 'image' && role.product"> · <span class="font-mono">{{ service.image }}</span></template>

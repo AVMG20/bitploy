@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUpRight, Cable, Eye, HardDrive, Lock } from 'lucide-vue-next'
+import { ArrowUpRight, Cable, Eye, Globe, HardDrive, Lock } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { useAppMetrics } from '@/composables/queries'
+import { nowMs } from '@/composables/useNow'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
-import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, roleTitle, templateUpdate } from '@/lib/projects'
+import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, publicPortText, roleTitle, templateUpdate } from '@/lib/projects'
 import type { AppRole } from '@/lib/projects'
 import { isMulti, serviceRole, serviceStatus, sortServices } from '@/lib/services'
 import type { App, ServiceTemplate } from '@/lib/types'
@@ -37,6 +38,8 @@ const running = computed(() => props.app.status === 'running')
 const status = computed(() => appStatusInfo(props.app.status))
 const publicApp = computed(() => isPublicApp(props.app))
 const host = computed(() => internalHostOf(props.app))
+// A database with an open public port is not private any more: the card says so first.
+const openPort = computed(() => publicPortText(props.app, nowMs.value))
 const metrics = useAppMetrics(() => props.app.slug, '1h', running, '', true)
 const points = computed(() => metrics.data.value?.points ?? [])
 const latest = computed(() => (running.value ? (metrics.data.value?.latest ?? props.app.live ?? points.value.at(-1) ?? null) : null))
@@ -100,16 +103,18 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       <a v-if="publicApp" :href="app.url" target="_blank" rel="noopener noreferrer" class="inline-flex max-w-full items-center gap-1 font-mono text-foreground hover:underline">
         <span class="truncate">{{ hostOf(app.url) }}</span><ArrowUpRight class="size-3 shrink-0 text-muted-foreground" />
       </a>
+      <span
+        v-else-if="openPort"
+        class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-medium text-primary"
+        :title="openPort.title"
+        data-testid="public-port-badge"
+      >
+        <Globe class="size-3 shrink-0" /> <span class="truncate">{{ openPort.text }}</span>
+      </span>
       <span v-else-if="host" class="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" :title="`The other apps of this project reach it at ${host}. The internet cannot.`">
         <Lock class="size-3 shrink-0" /> Private, at <span class="truncate font-mono text-foreground/80">{{ host }}</span>
       </span>
       <span v-else class="inline-flex items-center gap-1.5 text-muted-foreground"><Lock class="size-3 shrink-0" /> No web address</span>
-      <span
-        v-if="app.public_port?.enabled"
-        class="ml-1.5 inline-flex items-center rounded border border-primary/40 bg-primary/10 px-1 font-mono text-[10.5px] text-primary"
-        :title="`Public port open at ${app.public_port.address ?? ''}, for connecting from outside. Close it in the app's panel when you are done.`"
-        data-testid="public-port-badge"
-      >public</span>
     </div>
 
     <!-- A compose app: its services, each with its own status. -->
@@ -119,7 +124,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
         <span class="truncate font-mono">{{ s.name }}</span>
         <span class="truncate text-muted-foreground">{{ serviceRole(s).label }}</span>
         <span class="ml-auto flex shrink-0 items-center gap-2">
-          <span v-if="s.depends_on?.length" class="hidden text-muted-foreground sm:inline" :title="`${s.name} reaches ${s.depends_on.join(', ')} by name`">uses {{ s.depends_on.join(', ') }}</span>
+          <span v-if="s.depends_on?.length" class="hidden text-muted-foreground sm:inline" :title="`${s.name} reaches ${s.depends_on.join(', ')} by name`">talks to {{ s.depends_on.join(', ') }}</span>
           <StatusDot :status="serviceStatus(app, s)" />
         </span>
       </li>
@@ -155,7 +160,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       <p class="flex min-w-0 items-center gap-1.5">
         <span class="truncate">{{ source }}</span>
         <span v-if="templateUpdate(app)" class="relative z-10 shrink-0 rounded border px-1 text-[10.5px]" :title="templateUpdate(app)!.title">{{ templateUpdate(app)!.text }}</span>
-        <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" title="Saved files, kept between deploys and backed up">
+        <span v-if="app.volumes.length && role.lane === 'data'" class="ml-auto inline-flex shrink-0 items-center gap-1" :title="app.backups_supported ? 'Saved files, kept between deploys and backed up' : 'Saved files, kept between deploys. Not backed up.'">
           <HardDrive class="size-3" /> {{ formatMB(storedMB) }}
         </span>
       </p>

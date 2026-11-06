@@ -2,27 +2,27 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQueryClient } from '@tanstack/vue-query'
-import { ArrowLeft, Check, Loader2, Lock, Plus, X } from 'lucide-vue-next'
+import { ArrowLeft, Check, Info, Loader2, Lock, Plus, X } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import { keys, useApp, useMe, useProjects } from '@/composables/queries'
+import { keys, useApp, useMe, useProjectEnv, useProjects } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB, pct } from '@/lib/format'
-import { aliasOf, appRole, connectable, defaultConnect, freeAlias, referenceText, roleTitle, templateRole } from '@/lib/projects'
+import { aliasOf, appRole, connectable, defaultConnect, freeAlias, roleTitle, sharedVar, templateRole, varSource } from '@/lib/projects'
 import { listWords } from '@/lib/services'
 import type { RoleKey } from '@/lib/services'
 import type { App, ServiceTemplate } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 // Add a database (or another ready service) to a project: its short name,
-// which apps get its connection variable, what it reserves, then live
+// which apps get its connection variable, what it takes of your allowance, then live
 // progress until it runs. Without a fixed project (the Ready-made page) it
 // first asks which project, or makes a new one.
 const props = defineProps<{ template: ServiceTemplate; projectId?: string; showBack?: boolean }>()
@@ -35,7 +35,8 @@ const projects = useProjects()
 const NEW = '__new__'
 const chosen = ref(props.projectId ?? '')
 const newName = ref('')
-const list = computed(() => projects.data.value?.projects ?? [])
+// Newest first, as in the sidebar.
+const list = computed(() => [...(projects.data.value?.projects ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)))
 watch(
   list,
   (l) => {
@@ -54,6 +55,8 @@ watch(
   () => (name.value = freeAlias(props.template.id, taken.value)),
   { immediate: true },
 )
+// The template's own name is taken: say why it is called postgres-2.
+const renamed = computed(() => taken.value.includes(props.template.id) && name.value.trim() !== props.template.id && !nameError.value)
 const nameError = computed(() => {
   const n = name.value.trim()
   if (!n) return 'Give it a short name.'
@@ -63,12 +66,34 @@ const nameError = computed(() => {
 })
 
 const candidates = computed(() => connectable(project.value?.apps ?? []))
+const mainVar = computed(() => props.template.main_var || props.template.connection_vars[0] || '')
+// An app that already has the variable (web has DATABASE_URL from postgres) is
+// not ticked and cannot be: connecting would replace its working connection, and
+// the server refuses it. Its variables say where it points now.
+const env = useProjectEnv(candidates)
+const envReady = computed(() => candidates.value.every((a) => env.value[a.slug] !== undefined))
+const hasVar = (slug: string) => !!sharedVar(env.value[slug], mainVar.value)
+const blocked = computed(() => candidates.value.filter((a) => hasVar(a.slug)).map((a) => a.slug))
 const connect = ref<string[]>([])
-watch(project, (p) => (connect.value = p ? defaultConnect(p) : []), { immediate: true })
+const touched = ref(false)
+watch(project, () => (touched.value = false))
+watch(
+  [project, envReady, blocked],
+  ([p, ready]) => {
+    if (touched.value) connect.value = connect.value.filter((s) => !blocked.value.includes(s))
+    // Wait for the variables before ticking anything, so an app that has the variable is never ticked.
+    else connect.value = p && ready ? defaultConnect(p, blocked.value) : []
+  },
+  { immediate: true },
+)
 function toggle(slug: string, on: boolean | 'indeterminate') {
+  touched.value = true
   connect.value = on === true ? [...new Set([...connect.value, slug])] : connect.value.filter((s) => s !== slug)
 }
-const mainVar = computed(() => props.template.main_var || props.template.connection_vars[0] || '')
+function usesNow(slug: string): string {
+  const from = varSource(sharedVar(env.value[slug], mainVar.value))
+  return from ? `Already has ${mainVar.value}, from ${from}.` : `Already has its own ${mainVar.value}.`
+}
 const role = computed<RoleKey>(() => templateRole(props.template))
 
 // ---------------------------------------------------------------- does it fit
@@ -77,6 +102,7 @@ const storageLeft = computed(() => {
   const m = me.data.value
   return m ? Math.max(0, m.quota.volume_mb - m.usage.files_mb - m.usage.backups_mb - m.usage.volume_reserved_mb) : null
 })
+const backedUp = computed(() => templateRole(props.template) === 'database')
 const memOver = computed(() => memLeft.value !== null && props.template.memory_mb > memLeft.value)
 const storageOver = computed(() => storageLeft.value !== null && props.template.volume_mb > storageLeft.value)
 const appsFull = computed(() => !!me.data.value && me.data.value.usage.apps >= me.data.value.quota.apps)
@@ -179,9 +205,15 @@ const busy = computed(() => stage.value === 'adding')
         <Label for="tpl-name">Short name</Label>
         <Input id="tpl-name" v-model="name" class="font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :disabled="busy" :aria-invalid="!!nameError || undefined" />
         <p v-if="nameError" class="text-[0.8rem] text-destructive">{{ nameError }}</p>
-        <p v-else class="flex items-center gap-1.5 text-[0.8rem] text-muted-foreground">
-          <Lock class="size-3 shrink-0" /> Private. The other apps of {{ isNew ? 'the project' : project?.name }} reach it at <span class="font-mono text-foreground/80">{{ name.trim() }}:{{ template.port }}</span>; the internet cannot.
-        </p>
+        <template v-else>
+          <p v-if="renamed" class="text-[0.8rem] text-foreground/85" data-testid="tpl-renamed">
+            <Info class="mr-1 inline size-3 align-[-1px]" />Named <span class="font-mono">{{ name.trim() }}</span> because {{ project?.name }} already has an app called <span class="font-mono">{{ template.id }}</span>. You can change it.
+          </p>
+          <p class="text-[0.8rem] text-muted-foreground">
+            <Lock class="mr-1 inline size-3 align-[-1px]" />Private. The other apps of {{ isNew ? 'the project' : project?.name }} reach it at
+            <span class="font-mono whitespace-nowrap text-foreground/80">{{ name.trim() }}:{{ template.port }}</span>; the internet cannot.
+          </p>
+        </template>
       </div>
 
       <div v-if="!isNew && candidates.length && mainVar" class="grid gap-2">
@@ -190,31 +222,38 @@ const busy = computed(() => stage.value === 'adding')
           <label
             v-for="a in candidates"
             :key="a.slug"
-            class="flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary/40"
+            :class="cn(
+              'flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors has-[[data-state=checked]]:border-primary/40',
+              hasVar(a.slug) ? 'bg-muted/30' : 'cursor-pointer hover:bg-accent/40',
+            )"
           >
-            <Checkbox :model-value="connect.includes(a.slug)" :disabled="busy" @update:model-value="(v) => toggle(a.slug, v)" />
+            <Checkbox :model-value="connect.includes(a.slug)" :disabled="busy || hasVar(a.slug)" @update:model-value="(v) => toggle(a.slug, v)" />
             <span class="min-w-0 flex-1">
               <span class="font-medium">{{ a.name }}</span>
               <span class="ml-2 text-xs text-muted-foreground">{{ roleTitle(appRole(a)) }}</span>
+              <span v-if="hasVar(a.slug)" class="block text-xs text-muted-foreground" data-testid="tpl-has-var">
+                {{ usesNow(a.slug) }} It keeps using that. To switch it to <span class="font-mono">{{ name.trim() || template.id }}</span>, change {{ mainVar }} in its Variables after adding.
+              </span>
             </span>
             <span v-if="aliasOf(a) !== a.name" class="hidden truncate font-mono text-xs text-muted-foreground sm:inline">{{ aliasOf(a) }}</span>
           </label>
         </div>
         <p class="text-[0.8rem] text-muted-foreground">
-          Each ticked app gets <span class="font-mono text-foreground/80">{{ mainVar }}={{ referenceText(name.trim() || template.id, mainVar) }}</span> and restarts to use it.
+          Each ticked app gets a variable <span class="font-mono text-foreground/80">{{ mainVar }}</span> with the address and password of
+          <span class="font-mono text-foreground/80">{{ name.trim() || template.id }}</span>, and restarts to use it.
         </p>
       </div>
 
       <div class="grid gap-2 rounded-lg border bg-muted/30 p-3">
         <div class="flex items-baseline justify-between gap-3 text-xs">
-          <span class="text-muted-foreground">Memory it reserves</span>
+          <span class="text-muted-foreground">Memory it can use</span>
           <span class="tabular-nums" :class="memOver && 'font-medium text-destructive'">
             {{ formatMB(template.memory_mb) }}<span v-if="memLeft !== null" class="text-muted-foreground"> of {{ formatMB(memLeft) }} left</span>
           </span>
         </div>
         <Progress :class="cn(memOver ? '[&>[data-slot=progress-indicator]]:bg-destructive' : '[&>[data-slot=progress-indicator]]:bg-success')" :model-value="memLeft ? Math.min(100, pct(template.memory_mb, memLeft)) : 100" />
         <div v-if="template.volume_mb" class="flex items-baseline justify-between gap-3 text-xs">
-          <span class="text-muted-foreground">Storage for its data, backed up</span>
+          <span class="text-muted-foreground">{{ backedUp ? 'Storage for its data, backed up' : 'Storage for its data' }}</span>
           <span class="tabular-nums" :class="storageOver && 'font-medium text-destructive'">
             {{ formatMB(template.volume_mb) }}<span v-if="storageLeft !== null" class="text-muted-foreground"> of {{ formatMB(storageLeft) }} left</span>
           </span>

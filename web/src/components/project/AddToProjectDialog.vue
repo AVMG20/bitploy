@@ -50,9 +50,9 @@ const memLeft = computed(() => (me.data.value && !me.data.value.quota.overalloca
 
 const SOURCES = [
   { key: 'github', icon: Github, title: 'GitHub repository', text: 'Any repository. bitploy finds its Dockerfile, compose file, Node.js app or website.' },
-  { key: 'upload', icon: Upload, title: 'Upload', text: 'Drop a folder or a .zip from your computer.' },
-  { key: 'docker', icon: FileCode2, title: 'Dockerfile or compose file', text: 'Paste a Dockerfile, or a compose file for several services.' },
-  { key: 'image', icon: Container, title: 'Docker image', text: 'Run a published image, like nginx:1.27 or ghcr.io/you/app.' },
+  { key: 'upload', icon: Upload, title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.' },
+  { key: 'dockerfile', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.' },
+  { key: 'image', icon: Container, title: 'Docker image', text: 'A published image, like nginx:1.27 or ghcr.io/owner/app.' },
 ] as const
 
 function go(source: string) {
@@ -122,7 +122,7 @@ function readyMade() {
                 <span class="flex items-baseline gap-1.5 text-sm font-medium">{{ t.name }} <span class="text-xs font-normal text-muted-foreground">{{ t.version }}</span></span>
                 <span class="block text-xs text-muted-foreground">{{ t.description }}</span>
                 <span class="mt-1.5 block text-[11px] text-muted-foreground tabular-nums">
-                  Reserves {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb"> and {{ formatMB(t.volume_mb) }} storage</template>
+                  Up to {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb">, {{ formatMB(t.volume_mb) }} storage</template>
                   <span v-if="memLeft !== null && memLeft < t.memory_mb" class="block font-medium text-destructive">You have {{ formatMB(memLeft) }} memory left</span>
                 </span>
               </span>
@@ -135,7 +135,7 @@ function readyMade() {
           <Skeleton v-for="i in 4" :key="i" class="h-20 rounded-lg" />
         </div>
         <p v-else-if="!groups.length" class="mx-5 mt-5 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
-          This server cannot add databases on their own. A compose file can bring its own: choose "Dockerfile or compose file" above.
+          This server cannot add databases on their own. A compose file can bring its own: choose "Dockerfile or compose" above.
         </p>
 
         <div class="px-5 pt-5 pb-5">

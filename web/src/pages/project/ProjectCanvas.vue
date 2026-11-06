@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useEventListener } from '@vueuse/core'
 import { PanelLeftClose, Plus } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import AppPanel from '@/components/project/AppPanel.vue'
@@ -13,7 +14,7 @@ import { projectRoute } from '@/lib/appLinks'
 import { labelSpots, laneLayout, laneWidthNeeded, placeLabels, routeLinks, routesBottom } from '@/lib/canvas'
 import type { Box, RoutedLink } from '@/lib/canvas'
 import { formatMB } from '@/lib/format'
-import { aliasOf, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
+import { aliasOf, projectHasRole, talksTo, templateLabel, templateRole, usedBy } from '@/lib/projects'
 import type { Lane } from '@/lib/projects'
 
 // The canvas: the apps of a project as cards in three lanes (what visitors
@@ -71,6 +72,27 @@ watch(
   { immediate: true },
 )
 
+/**
+ * The panel opens on the right, over the canvas. When it would cover the
+ * selected card there (a narrow screen, the card in the last lane) and the card
+ * leaves room on its left, the panel opens on the left instead.
+ */
+const panelSide = ref<'left' | 'right'>('right')
+function placePanel() {
+  const id = selectedApp.value?.id
+  const card = id ? document.querySelector<HTMLElement>(`[data-app="${CSS.escape(id)}"]`) : null
+  const vw = window.innerWidth
+  if (!card || vw < 768) {
+    panelSide.value = 'right'
+    return
+  }
+  const w = Math.min(544, vw - 16) + 8 + 8
+  const r = card.getBoundingClientRect()
+  panelSide.value = r.right > vw - w && r.left >= w ? 'left' : 'right'
+}
+watch(selectedApp, () => void nextTick(placePanel), { immediate: true })
+useEventListener(window, 'resize', placePanel)
+
 // ---------------------------------------------------------------- hover: light up an app and what it is linked to
 const hovered = ref<string | null>(null)
 /** The app whose lines are lit and labelled: the hovered one, else the open one. */
@@ -98,6 +120,7 @@ const below = ref(0)
 /** Lines are drawn when the lanes sit side by side; stacked lanes show the names on the cards. */
 const routable = ref(false)
 function measure() {
+  placePanel()
   const el = board.value
   if (!el) return
   const css = getComputedStyle(el)
@@ -167,9 +190,13 @@ onBeforeUnmount(() => {
 watch([links, apps, lanes, layout], () => void nextTick(measureSoon), { deep: true })
 
 // ---------------------------------------------------------------- one app: what to add next
+// A compose file that brings its own database (or cache, or search) gets no suggestion to add another.
 const quickPicks = computed(() => {
   const want = ['postgres', 'valkey', 'meilisearch']
-  return want.map((id) => tpls.value.find((t) => t.id === id)).filter((t) => !!t)
+  return want
+    .map((id) => tpls.value.find((t) => t.id === id))
+    .filter((t) => !!t)
+    .filter((t) => !projectHasRole(apps.value, templateRole(t), tpls.value))
 })
 </script>
 
@@ -195,7 +222,9 @@ const quickPicks = computed(() => {
         <div>
           <h2 class="font-medium">Add to {{ project.name }}</h2>
           <p class="mt-1 text-sm text-muted-foreground">
-            A project holds the apps and databases of one product. Add a database and {{ aliasOf(apps[0]!) }} gets its address as a variable, or add an API or a worker from another repository.
+            A project holds the apps and databases of one product.
+            <template v-if="quickPicks.some((t) => templateRole(t) === 'database')">Add a database and {{ aliasOf(apps[0]!) }} gets its address as a variable, or add</template><template v-else>Add</template>
+            an API or a worker from another repository.
           </p>
         </div>
         <div v-if="quickPicks.length" class="grid gap-2 sm:grid-cols-3">
@@ -307,6 +336,6 @@ const quickPicks = computed(() => {
       </div>
     </div>
 
-    <AppPanel v-if="selectedApp" :slug="selectedApp.slug" :project-id="project.id" @close="closePanel" />
+    <AppPanel v-if="selectedApp" :slug="selectedApp.slug" :project-id="project.id" :side="panelSide" @close="closePanel" />
   </div>
 </template>

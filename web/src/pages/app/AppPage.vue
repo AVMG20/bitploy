@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { ArrowUpCircle, ExternalLink, GitBranch, Hammer, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
+import { useEventListener, useResizeObserver } from '@vueuse/core'
+import { ArrowUpCircle, ExternalLink, GitBranch, Globe, Hammer, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
@@ -22,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useDataRoot } from '@/composables/queries'
 import { useAppControls } from '@/composables/useAppControls'
+import { nowMs } from '@/composables/useNow'
 import { ApiError } from '@/lib/api'
 import { APP_TABS } from '@/lib/appTabs'
 import { isServerDb, pickDatabase } from '@/lib/dbvalue'
@@ -33,7 +35,7 @@ import ServiceSheet from './ServiceSheet.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { useProject, useServiceTemplates } from '@/composables/queries'
 import { projectRoute } from '@/lib/appLinks'
-import { appRole, internalHostOf, projectIdOf, roleTitle, templateUpdate } from '@/lib/projects'
+import { appRole, internalHostOf, projectIdOf, publicPortText, roleTitle, templateUpdate } from '@/lib/projects'
 
 const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
@@ -60,7 +62,10 @@ watch(
 // The Database tab shows when the saved files hold a SQLite file at the top. A failed or empty look shows no tab and no error.
 // A PostgreSQL, MariaDB or MySQL app always has it: the tab opens its server.
 const root = useDataRoot(() => props.slug, () => !!data.value?.volume && !isServerDb(data.value))
-const hasDatabase = computed(() => isServerDb(data.value) || !!pickDatabase(root.data.value?.items ?? [], props.slug))
+// On a database page the tab stays while the app or its files load, so the highlighted tab does not vanish.
+const onDatabase = computed(() => String(route.name ?? '').startsWith('app-database') && route.meta.tab !== 'app-storage')
+const hasDatabase = computed(() => onDatabase.value || isServerDb(data.value) || !!pickDatabase(root.data.value?.items ?? [], props.slug))
+const openPort = computed(() => (data.value ? publicPortText(data.value, nowMs.value) : null))
 // Background workers have no visitors and no web address.
 const shownTabs = computed(() =>
   APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value)).map((t) =>
@@ -73,13 +78,40 @@ const notFound = computed(() => app.error.value instanceof ApiError && app.error
 
 // The browser tab says which app this is.
 const tabLabel = computed(() => (route.meta.title as string | undefined) ?? APP_TABS.find((t) => t.name === current.value && t.name !== 'app')?.label ?? '')
+// route.fullPath too: the router's own title (set after every navigation, also
+// within a tab, like the Data and SQL views of the Database tab) would drop the app name.
 watch(
-  () => [data.value?.name, tabLabel.value, project.value?.name] as const,
+  () => [data.value?.name, tabLabel.value, project.value?.name, route.fullPath] as const,
   ([name, tab, pname]) => {
     if (name) document.title = `${tab ? `${tab} - ` : ''}${name}${pname && pname !== name ? ` - ${pname}` : ''} - bitploy`
   },
-  { immediate: true },
+  { immediate: true, flush: 'post' },
 )
+
+// ---------------------------------------------------------------- the tab bar on a narrow screen
+// It scrolls sideways: the current tab is scrolled into view, and a faded edge
+// shows there are more tabs that way.
+const tabBar = ref<HTMLElement | null>(null)
+const fade = ref({ left: false, right: false })
+function updateFade() {
+  const el = tabBar.value
+  if (!el) return
+  fade.value = { left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 }
+}
+function showCurrentTab() {
+  const el = tabBar.value
+  const active = el?.querySelector<HTMLElement>('[data-state="active"], [aria-current="page"]')
+  if (el && active) {
+    const left = active.offsetLeft - el.offsetLeft
+    if (left < el.scrollLeft || left + active.offsetWidth > el.scrollLeft + el.clientWidth) {
+      el.scrollTo({ left: Math.max(0, left - (el.clientWidth - active.offsetWidth) / 2) })
+    }
+  }
+  updateFade()
+}
+watch([current, () => shownTabs.value.length, tabBar], () => void nextTick(showCurrentTab), { immediate: true })
+useResizeObserver(tabBar, updateFade)
+useEventListener(tabBar, 'scroll', updateFade, { passive: true })
 
 // ---------------------------------------------------------------- actions (in the header, so every tab has them)
 // Several services (a compose file): the overview is the service grid, actions act on all of them.
@@ -129,6 +161,9 @@ const deleteOpen = ref(false)
               <Lock class="size-3.5" aria-hidden="true" /> Private
             </span>
           </span>
+          <span v-else-if="openPort" class="inline-flex items-center gap-1 font-medium text-primary" :title="openPort.title" data-testid="header-public-port">
+            <Globe class="size-3.5" aria-hidden="true" /> {{ openPort.text }}
+          </span>
           <span v-else-if="internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
             <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
           </span>
@@ -147,15 +182,16 @@ const deleteOpen = ref(false)
         </template>
 
           <template v-if="isWeb && primary !== 'open'">
-            <Button v-if="dep" as-child variant="outline">
-              <a :href="data.url" target="_blank" rel="noopener noreferrer">{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></a>
+            <!-- On a phone it is the icon alone, so the header's buttons fit on one row. -->
+            <Button v-if="dep" as-child variant="outline" class="max-sm:px-2.5">
+              <a :href="data.url" target="_blank" rel="noopener noreferrer" aria-label="Open website" title="Open website"><span class="max-sm:sr-only">Open website</span> <ExternalLink /></a>
             </Button>
             <span v-else title="Available once the first deploy is live">
-              <Button variant="outline" disabled>{{ multi ? 'Open website' : 'Open app' }} <ExternalLink /></Button>
+              <Button variant="outline" disabled class="max-sm:px-2.5" aria-label="Open website"><span class="max-sm:sr-only">Open website</span> <ExternalLink /></Button>
             </span>
           </template>
           <Button v-if="!canStart" variant="outline" :disabled="busy || !dep" :title="multi ? 'Restart every service of this app' : undefined" @click="restart">
-            <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : multi ? 'Restart all' : 'Restart' }}
+            <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart' }}
             <span v-if="pending.reasons.value.length" class="size-1.5 rounded-full bg-warning" aria-label="(changes waiting)" />
           </Button>
           <Button v-if="canStart" variant="outline" :disabled="busy" @click="actions.start.mutate()">
@@ -168,7 +204,7 @@ const deleteOpen = ref(false)
           <UploadVersionButton v-else-if="primary === 'upload'" :slug="slug" variant="default" :label="dep ? 'Upload new version' : 'Upload files'" />
           <Button v-else-if="primary === 'update'" @click="updateOpen = true"><ArrowUpCircle /> Update to {{ data.catalog_update }}</Button>
           <Button v-else-if="primary === 'open'" as-child>
-            <a :href="data.url" target="_blank" rel="noopener noreferrer">Open app <ExternalLink /></a>
+            <a :href="data.url" target="_blank" rel="noopener noreferrer">Open website <ExternalLink /></a>
           </Button>
 
           <DropdownMenu>
@@ -210,7 +246,14 @@ const deleteOpen = ref(false)
       </div>
 
       <Tabs :model-value="current" class="min-w-0">
-        <div class="overflow-x-auto overflow-y-hidden border-b">
+        <div
+          ref="tabBar"
+          :class="[
+            'scrollbar-none overflow-x-auto overflow-y-hidden border-b',
+            fade.left && fade.right ? 'tabs-fade-both' : fade.right ? 'tabs-fade-right' : fade.left ? 'tabs-fade-left' : '',
+          ]"
+          data-testid="app-tabs"
+        >
           <TabsList variant="line" class="-ml-1.5">
             <TabsTrigger v-for="t in shownTabs" :key="t.name" :value="t.name" as-child>
               <RouterLink :to="{ name: t.name, params: { slug } }">{{ t.label }}</RouterLink>
@@ -235,3 +278,22 @@ const deleteOpen = ref(false)
     <CatalogUpdateDialog v-if="data?.catalog_update && updateOpen" v-model:open="updateOpen" :app="data" />
   </div>
 </template>
+
+<style scoped>
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+/* More tabs past the edge: the edge fades out. */
+.tabs-fade-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+}
+.tabs-fade-left {
+  mask-image: linear-gradient(to left, #000 calc(100% - 2.5rem), transparent);
+}
+.tabs-fade-both {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+}
+</style>
