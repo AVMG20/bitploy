@@ -426,7 +426,7 @@ func (p *pipeline) afterDeploy(ctx context.Context, cmd string) {
 	case rctx.Err() != nil:
 		p.afterDeployFailed(bg, fmt.Sprintf("It did not finish within %s.", durationText(afterDeployTimeout)))
 	case errors.As(err, &ex):
-		p.afterDeployFailed(bg, fmt.Sprintf("It failed with exit code %d.", ex.Code))
+		p.afterDeployFailed(bg, fmt.Sprintf("It stopped with exit code %d.", ex.Code))
 	default:
 		p.afterDeployFailed(bg, "bitploy could not run it: "+apperr.Redact(dockerx.DescribeError(err))+".")
 	}

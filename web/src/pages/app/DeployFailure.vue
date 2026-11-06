@@ -14,7 +14,11 @@ const props = defineProps<{ error: DeployError; logTail?: string[]; multi?: bool
 
 const summary = computed(() => deployErrorSummary(props.error, props.logTail))
 const message = computed(() => (props.multi ? aboutService(summary.value.message, props.error.service) : summary.value.message))
+// A deploy command that failed: a link to where it is set.
+const isHookError = computed(() => props.error.code === 'before_deploy_failed' || props.error.code === 'before_deploy_timeout')
 const hint = computed(() => {
+  if (isHookError.value && /out of memory/i.test(props.error.message))
+    return 'The command gets the memory of the app. Give the app more memory under Settings, Size, or make the command use less, then deploy again.'
   const h = plainHint(props.error.code, props.error.hint)
   if (h) return h
   if (props.error.code === 'build_failed') return 'Fix this in your code or Dockerfile, then deploy again.'
@@ -30,6 +34,9 @@ const hint = computed(() => {
     <p v-if="hint" class="mt-2">{{ hint }}</p>
     <p v-if="slug && !multi && isPortError(error.code)" class="mt-2">
       <RouterLink :to="{ name: 'app-settings', params: { slug }, hash: '#run' }" class="font-medium underline underline-offset-2">Set the port</RouterLink>
+    </p>
+    <p v-if="slug && !multi && isHookError" class="mt-2">
+      <RouterLink :to="{ name: 'app-settings', params: { slug }, hash: '#deploy-commands' }" class="font-medium underline underline-offset-2">Change the deploy commands</RouterLink>
     </p>
     <slot />
   </div>

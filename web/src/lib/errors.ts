@@ -14,6 +14,13 @@ const HINTS: Record<string, string> = {
   dockerfile_missing: 'Add a Dockerfile at the top of your code folder. For a site of HTML files, set the type to Plain website.',
   port_unknown: 'Fill in the port your app listens on under Settings, How it runs, or add one EXPOSE line with that port to the Dockerfile. Then deploy again. A bot without a web address: choose Worker there.',
   port_ambiguous: 'Fill in the one port visitors should reach under Settings, How it runs, or keep only that EXPOSE line in the Dockerfile. Then deploy again.',
+  // deploy commands (Settings, Deploy commands)
+  before_deploy_failed: 'Open the build log and read the lines marked [before-deploy] to see why. Fix your code or the command under Settings, Deploy commands, then deploy again.',
+  before_deploy_timeout:
+    'Open the build log and read the lines marked [before-deploy]. A command that waits for a database it cannot reach hangs: check the variables it uses, like DATABASE_URL. Then deploy again.',
+  after_deploy_failed: 'Open the build log and read the lines marked [after-deploy] to see why. Fix your code or the command under Settings, Deploy commands. It runs again on the next deploy.',
+  deploy_commands_unsupported: 'Only an app built from your own code with one service has deploy commands. Set them on the app that runs your code.',
+  deploy_command_invalid: 'Put longer steps in a script in your code, like scripts/migrate.sh, and run that script.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
   server_app_limit: 'Delete an app you no longer need, or ask your admin to raise the limit.',
   slug_taken: 'Pick another name for the address.',

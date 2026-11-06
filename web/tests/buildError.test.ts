@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deployErrorSummary, firstErrorLine, firstRuntimeError } from '../src/lib/buildError.ts'
+import { deployErrorSummary, firstErrorLine, firstRuntimeError, hookErrorLine } from '../src/lib/buildError.ts'
 
 const VITE_FAIL = [
   '#7 [build 5/6] RUN apt-get install -y curl',
@@ -75,4 +75,20 @@ test('a crashed app shows the exception it printed', () => {
   assert.equal(firstRuntimeError(['2026-11-06T10:00:05Z ERROR missing DATABASE_URL']), 'missing DATABASE_URL')
   assert.equal(deployErrorSummary({ code: 'app_crashed', message: 'Your app stopped right after starting (exited 1).' }, log).line, firstRuntimeError(log))
   assert.equal(firstRuntimeError(['listening on 8080']), '')
+})
+
+test('a failed before-deploy command shows the line of its own output that says why', () => {
+  const tail = [
+    '#14 DONE 2.1s',
+    'Running before-deploy command: npx prisma migrate deploy',
+    '[before-deploy] Datasource "db": PostgreSQL database "shop" at "postgres:5432"',
+    '[before-deploy] Error: P3009 migrate found failed migrations in the target database',
+    '[before-deploy] npm notice',
+  ]
+  assert.equal(
+    deployErrorSummary({ code: 'before_deploy_failed', message: 'The before-deploy command failed with exit code 1.' }, tail).line,
+    'Error: P3009 migrate found failed migrations in the target database',
+  )
+  assert.equal(hookErrorLine(['[after-deploy] cache cleared', '[after-deploy] done'], 'after-deploy'), 'done')
+  assert.equal(hookErrorLine(['nothing of its own'], 'before-deploy'), '')
 })
