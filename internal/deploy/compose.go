@@ -274,6 +274,18 @@ func ExpandEnvRefs(s string, lookup func(name string) (string, bool)) string {
 // Service names are DNS labels: they become network aliases and part of
 // container names (bp-<slug>_<service>-<n>), where _ separates the service.
 var serviceNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+// ReservedServiceName reports whether a service name could stand for one of
+// bitploy's own containers in Docker's DNS. A service name is a network alias
+// on bp-<slug>, and Traefik, which sits on every web app's network, finds
+// upstreams by container name (bp-<slug>-<n>): an alias bp-<other app>-<n> on
+// a network that Docker searches first would take that app's traffic,
+// password and cookies included. bitploy's own containers (bitploy,
+// bitploy-traefik, bitploy-port-*) start with bitploy.
+func ReservedServiceName(name string) bool {
+	return strings.HasPrefix(name, "bp-") || strings.HasPrefix(name, "bitploy")
+}
+
 var imageRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}$`)
 var volumeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
 
@@ -824,6 +836,10 @@ func (p *composeParser) scanService(name string, m map[string]any) {
 		p.errf(CodeComposeServiceNameInvalid, name, "services."+name,
 			"Rename the service to lowercase letters, digits and - (at most 32 characters, starting with a letter or digit; celery_worker becomes celery-worker), and use the new name where other services connect to it.",
 			"The service name %q is not allowed.", name)
+	} else if ReservedServiceName(name) {
+		p.errf(CodeComposeServiceNameInvalid, name, "services."+name,
+			"Rename the service, for example to web, db or worker, and use the new name where other services connect to it.",
+			"The service name %q is reserved by bitploy (names starting with bp- or bitploy).", name)
 	}
 	for _, k := range sortedKeys(m) {
 		v := m[k]

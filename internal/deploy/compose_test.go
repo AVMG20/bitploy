@@ -567,6 +567,16 @@ services:
 			errCode: CodeComposeServiceNameInvalid, errService: "celery_worker", errText: "celery_worker",
 		},
 		{
+			name:    "service name like another app's container",
+			file:    "services:\n  bp-victim-3:\n    image: nginx\n",
+			errCode: CodeComposeServiceNameInvalid, errService: "bp-victim-3", errText: "reserved",
+		},
+		{
+			name:    "service name like Traefik's container",
+			file:    "services:\n  bitploy-traefik:\n    image: nginx\n",
+			errCode: CodeComposeServiceNameInvalid, errService: "bitploy-traefik", errText: "reserved",
+		},
+		{
 			name:    "image name with spaces",
 			file:    "services:\n  web:\n    image: \"nginx RUN rm\"\n",
 			errCode: CodeComposeInvalid, errService: "web", errKey: "image",

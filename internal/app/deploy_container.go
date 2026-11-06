@@ -174,6 +174,11 @@ func (s *Service) runSpec(ctx context.Context, p startPlan) (dockerx.RunSpec, *a
 		Aliases: []string{spec.Name}, MemoryMB: app.MemoryMb, CPUMillis: app.CpuMillis,
 		Extra: s.projectAttach(ctx, app, spec),
 	}
+	if deploy.ReservedServiceName(spec.Name) {
+		// A deployment stored before such names were refused: no alias that
+		// could answer for another app's container in Traefik's DNS.
+		rs.Aliases = nil
+	}
 	if !isMulti(app) {
 		if app.VolumeEnabled != 0 {
 			rs.Volume = appVolumeName(app)
