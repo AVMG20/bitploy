@@ -213,7 +213,7 @@ func (s *Service) checkComposeServices(app db.App, proj *deploy.ComposeProject, 
 			svc.Port = res.Port
 		}
 		for _, f := range res.Findings {
-			if f.Severity == "error" || f.Code == deploy.CodeComposeIgnored || (!svc.Public && f.Code == deploy.CodePortFromImage) {
+			if f.Severity == "error" || f.Code == deploy.CodeComposeIgnored {
 				continue
 			}
 			f.Message = "Service " + svc.Name + ": " + f.Message

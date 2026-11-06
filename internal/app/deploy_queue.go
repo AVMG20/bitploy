@@ -927,7 +927,9 @@ func buildCheckInput(app db.App, allFiles []string, read func(rel string) []byte
 
 func (s *Service) runChecks(app db.App, allFiles []string, read func(rel string) []byte) (deploy.CheckResult, []string) {
 	in := buildCheckInput(app, allFiles, read)
-	return deploy.CheckDockerfile(in), in.Files
+	res := deploy.CheckDockerfile(in)
+	res.Findings = dropNormalFindings(res.Findings)
+	return res, in.Files
 }
 
 // checkError turns a failed check into the error to return, or nil when OK.

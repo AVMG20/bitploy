@@ -1299,8 +1299,9 @@ func dbDep(state string) db.Deployment {
 	return db.Deployment{ID: "dep_x", AppID: "app_x", Seq: 1, State: state, SourceKind: "files", Channel: "api", QueuedAt: time.Now().Unix()}
 }
 
-// A Dockerfile that is only FROM <image> has no EXPOSE: the check passes with
-// an info finding and the port is read from the image after the build.
+// A Dockerfile that is only FROM <image> has no EXPOSE: the check passes and
+// the port is read from the image after the build. The deployment lists no
+// note about it, nor about the missing HEALTHCHECK: both are normal.
 func TestDeployFilesPortFromImage(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()
@@ -1309,14 +1310,14 @@ func TestDeployFilesPortFromImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("one-line Dockerfile: %v", err)
 	}
-	found := false
-	for _, w := range d.Warnings {
-		if w.Code == "port_from_image" {
-			found = true
-		}
+	got, err := e.s.GetDeployment(ctx, e.user, d.ID, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Errorf("want a port_from_image finding in %+v", d.Warnings)
+	for _, w := range append(d.Warnings, got.Warnings...) {
+		if w.Code == "port_from_image" || w.Code == "no_healthcheck" {
+			t.Errorf("unexpected %s note in %+v", w.Code, w)
+		}
 	}
 }
 

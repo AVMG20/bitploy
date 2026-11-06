@@ -384,12 +384,6 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 	res = templateFindings(plan, res)
 	res.Findings = p.s.dropSingleServiceComposeWarning(ctx, p.app, res.Findings, files, read)
 	res.Findings = append(res.Findings, p.findings...)
-	for i, f := range res.Findings {
-		if f.Code == deploy.CodeNoHealthcheck {
-			res.Findings[i].Message = fmt.Sprintf("Checked GET %s after deploy.", healthPathOr(p.app.HealthPath))
-			res.Findings[i].Hint = ""
-		}
-	}
 	for _, f := range res.Findings {
 		p.logf("check %s (%s): %s", f.Code, f.Severity, f.Message)
 	}
@@ -1490,10 +1484,16 @@ func (s *Service) settleStatusAfterFailure(ctx context.Context, appID, msg strin
 	}
 }
 
-// healthPathOr returns the app's health path, or / when none is set.
-func healthPathOr(path string) string {
-	if path == "" {
-		return "/"
+// dropNormalFindings removes notes that describe what bitploy does anyway (its
+// own HTTP check without a HEALTHCHECK, the image's port without EXPOSE), so a
+// deployment only lists what needs a look. The build log shows the health
+// check it runs.
+func dropNormalFindings(fs []deploy.Finding) []deploy.Finding {
+	kept := fs[:0:0]
+	for _, f := range fs {
+		if f.Code != deploy.CodeNoHealthcheck && f.Code != deploy.CodePortFromImage {
+			kept = append(kept, f)
+		}
 	}
-	return path
+	return kept
 }
