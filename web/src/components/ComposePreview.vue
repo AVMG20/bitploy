@@ -7,6 +7,7 @@ import { useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { composeIssueText } from '@/lib/errors'
 import { formatCPUMillis, formatMB, pct } from '@/lib/format'
+import { composeFit } from '@/lib/quota'
 import { listWords, serviceRole, serviceSource, sortServices } from '@/lib/services'
 import type { ComposeCheck, ComposeIssue, ComposeService } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -21,6 +22,8 @@ const props = defineProps<{
   from?: string
   /** The app's address, for the public service. */
   address: string
+  /** The file was pasted on its own, so services with build: have no code to build. */
+  pasted?: boolean
 }>()
 /** The outcome: undefined while checking, null when the server cannot check compose files. */
 const check = defineModel<ComposeCheck | null | undefined>('check', { default: undefined })
@@ -86,32 +89,25 @@ function mounts(s: ComposeService): { name: string; size: number | null; path: s
 }
 
 // ---------------------------------------------------------------- does it fit
+// The same rule the Add dialog and the server use (lib/quota.ts): overallocating
+// skips memory and CPU, storage is always checked.
+const fit = computed(() => (c.value ? composeFit(c.value, me.data.value) : null))
 const memoryTotal = computed(() => c.value?.memory_mb_total ?? services.value.reduce((n, s) => n + s.memory_mb, 0))
 const cpuTotal = computed(() => c.value?.cpu_millis_total ?? services.value.reduce((n, s) => n + s.cpu_millis, 0))
-// Overallocating: memory and CPU are not checked, so nothing is ever over.
-const memoryLeft = computed(() => {
-  if (me.data.value?.quota.overallocate) return null
-  if (c.value?.quota) return c.value.quota.memory_mb_left
-  const m = me.data.value
-  return m ? Math.max(0, m.quota.memory_mb - m.usage.memory_reserved_mb) : null
-})
-const cpuLeft = computed(() => {
-  if (me.data.value?.quota.overallocate) return null
-  if (c.value?.quota) return c.value.quota.cpu_millis_left
-  const m = me.data.value
-  return m ? Math.max(0, m.quota.cpu_millis - m.usage.cpu_reserved_millis) : null
-})
+const memoryLeft = computed(() => fit.value?.memoryLeft ?? null)
+const cpuLeft = computed(() => fit.value?.cpuLeft ?? null)
 const storageTotal = computed(() => c.value?.volume_mb_total ?? volumes.value.reduce((n, v) => n + v.size_mb, 0))
-const storageLeft = computed(() => {
-  if (c.value?.quota) return c.value.quota.storage_mb_left
-  const m = me.data.value
-  return m ? Math.max(0, m.quota.volume_mb - m.usage.files_mb - m.usage.backups_mb - m.usage.volume_reserved_mb) : null
-})
-const memoryOver = computed(() => memoryLeft.value !== null && memoryTotal.value > memoryLeft.value)
+const storageLeft = computed(() => fit.value?.storageLeft ?? null)
+const memoryOver = computed(() => !!fit.value?.memoryOver)
 // The server's own sentence when it says the file does not fit.
-const quotaMessage = computed(() => (c.value?.quota && !c.value.quota.fits ? c.value.quota.message : ''))
-const cpuOver = computed(() => cpuLeft.value !== null && cpuTotal.value > cpuLeft.value)
-const storageOver = computed(() => storageLeft.value !== null && storageTotal.value > storageLeft.value)
+const quotaMessage = computed(() => fit.value?.message ?? '')
+const cpuOver = computed(() => !!fit.value?.cpuOver)
+const storageOver = computed(() => !!fit.value?.storageOver)
+const overallocating = computed(() => !!me.data.value?.quota.overallocate)
+/** A pasted file comes without your code: a service with build: has nothing to build. */
+function cannotBuild(s: ComposeService): boolean {
+  return !!props.pasted && s.kind === 'build'
+}
 const noPublic = computed(() => services.value.length > 0 && !services.value.some((s) => s.public))
 </script>
 
@@ -147,7 +143,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
       </ul>
 
       <ul v-if="services.length" class="divide-y overflow-hidden rounded-lg border bg-card">
-        <li v-for="s in services" :key="s.name" class="grid gap-1.5 px-3 py-2.5">
+        <li v-for="s in services" :key="s.name" :class="cn('grid gap-1.5 px-3 py-2.5', cannotBuild(s) && 'bg-destructive/5')" :data-testid="cannotBuild(s) ? 'compose-cannot-build' : undefined">
           <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <ServiceIcon :role="serviceRole(s).key" size="sm" />
             <div class="min-w-0 flex-1">
@@ -155,7 +151,10 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
                 <span class="font-medium">{{ serviceRole(s).label }}</span>
                 <span class="truncate font-mono text-xs text-muted-foreground">{{ s.name }}</span>
               </p>
-              <p class="truncate text-xs text-muted-foreground" :title="serviceSource(s)">
+              <p v-if="cannotBuild(s)" class="text-xs text-destructive">
+                Needs an <span class="font-mono">image:</span> line. <span class="font-mono">build:</span> does not work in a pasted file, because your code is not sent with it.
+              </p>
+              <p v-else class="truncate text-xs text-muted-foreground" :title="serviceSource(s)">
                 {{ serviceRole(s).product || serviceSource(s) }}<template v-if="serviceRole(s).product && s.image"> · <span class="font-mono">{{ s.image }}</span></template>
               </p>
             </div>
@@ -196,6 +195,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
           <Progress :class="cn(memoryOver ? '[&>[data-slot=progress-indicator]]:bg-destructive' : '[&>[data-slot=progress-indicator]]:bg-success')" :model-value="memoryLeft ? Math.min(100, pct(memoryTotal, memoryLeft)) : 0" />
           <p class="text-xs text-muted-foreground" :class="cpuOver && 'text-destructive'">
             and {{ formatCPUMillis(cpuTotal) }}<template v-if="cpuLeft !== null"> of {{ formatCPUMillis(cpuLeft) }} left</template>
+            <template v-else-if="overallocating">. Not checked: your account may use more memory and CPU than its limit.</template>
           </p>
         </div>
         <div class="grid content-start gap-1.5">
@@ -210,8 +210,8 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
           <p class="text-xs text-muted-foreground">{{ volumes.length ? 'Kept between deploys and backed up.' : 'Nothing is kept between deploys.' }}</p>
         </div>
       </div>
-      <p v-if="quotaMessage || memoryOver || cpuOver || storageOver" class="text-xs text-destructive">
-        {{ quotaMessage || 'This does not fit in what is left of your allowance.' }} Lower the limits in the file (mem_limit, cpus, volume size), or delete another app first.
+      <p v-if="fit && !fit.fits" class="text-xs text-destructive" data-testid="compose-over">
+        {{ quotaMessage || 'This does not fit in what is left of your allowance.' }} Deploy stays off until it fits: lower the limits in the file (mem_limit, cpus, volume size), delete another app, or ask your admin for more.
       </p>
 
       <ul v-if="warnings.length" class="grid gap-1 text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">

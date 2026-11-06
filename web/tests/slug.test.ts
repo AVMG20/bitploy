@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addressParts } from '../src/lib/slug.ts'
+import { addressParts, freeSlug } from '../src/lib/slug.ts'
+
+test('a taken address gets the first free number', () => {
+  assert.equal(freeSlug('portfolio', new Set(['shop'])), 'portfolio')
+  assert.equal(freeSlug('portfolio', new Set(['portfolio'])), 'portfolio-2')
+  assert.equal(freeSlug('portfolio', ['portfolio', 'portfolio-2']), 'portfolio-3')
+  assert.equal(freeSlug('', ['portfolio']), '')
+  const long = 'a'.repeat(39) + 'b'
+  const next = freeSlug(long, [long])
+  assert.equal(next.length, 40)
+  assert.ok(next.endsWith('-2'))
+})
 
 const me = {
   apps_domain: 'bitploy.nl',
