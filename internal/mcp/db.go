@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/AVMG20/bitploy/internal/app"
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/dbview"
 )
@@ -158,17 +160,70 @@ func formatSQLResults(rs []dbview.StatementResult) (text string, rowsShown, rows
 	return strings.TrimRight(b.String(), "\n"), rowsShown, rowsTotal, cut
 }
 
-// queryDBError says in which statement a console request failed. Statements
-// before it ran already; their results stay out of the error (they can be big).
-func queryDBError(err error) error {
+// serverDB reports whether app is a PostgreSQL, MySQL or MariaDB service,
+// whose path is a database name instead of a file.
+func serverDB(ctx context.Context, svc *app.Service, a app.Actor, ref string) bool {
+	ap, err := svc.GetApp(ctx, a, ref)
+	if err != nil || ap.Template == nil {
+		return false
+	}
+	switch *ap.Template {
+	case "postgres", "pgvector", "mysql", "mariadb":
+		return true
+	}
+	return false
+}
+
+// listTablesSQL says how to list the tables of each kind of database.
+const listTablesSQL = "SQLite: SELECT name FROM sqlite_schema WHERE type IN ('table','view'); PostgreSQL: SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema'); MySQL and MariaDB: SHOW TABLES."
+
+// queryDBError turns an error of the database viewer into one for an AI: it
+// says in which statement a request failed, and the hints name tools and
+// SQL instead of the dashboard's lists. Statements before a failed one ran
+// already; their results stay out of the error (they can be big).
+func queryDBError(ctx context.Context, svc *app.Service, a app.Actor, in queryDBIn, write bool, err error) error {
 	ae := apperr.As(err)
-	if ae.Code != "sql_error" || ae.Details == nil || ae.Details["statement"] == nil {
+	if ae == nil {
 		return err
 	}
-	n := ae.Details["statement"]
-	out := apperr.BadRequest("sql_error", fmt.Sprintf("Statement %v failed: %s", n, ae.Message),
-		"Fix that statement and run it again. Statements before it already ran (each one is committed on its own, unless you opened a transaction with BEGIN).")
-	out.HTTPStatus = ae.HTTPStatus
-	out.Details = map[string]any{"statement": n}
-	return out
+	redo := func(hint, next string) error {
+		out := apperr.New(ae.HTTPStatus, ae.Code, ae.Message, hint)
+		out.Details = ae.Details
+		return out.WithNext(next)
+	}
+	switch ae.Code {
+	case "sql_error":
+		if ae.Details == nil || ae.Details["statement"] == nil {
+			return err
+		}
+		n := ae.Details["statement"]
+		out := apperr.BadRequest("sql_error", fmt.Sprintf("Statement %v failed: %s", n, ae.Message),
+			"Fix that statement and run it again. Statements before it already ran (each one is committed on its own, unless you opened a transaction with BEGIN).")
+		out.HTTPStatus = ae.HTTPStatus
+		out.Details = map[string]any{"statement": n}
+		return out
+	case "db_read_only":
+		// The read-only console refused a change; the other db_read_only
+		// errors (file permissions, bitploy's own database) stay as they are.
+		if !write && strings.Contains(ae.Hint, "write on") {
+			out := apperr.New(ae.HTTPStatus, ae.Code, "query_db is read-only, so nothing was changed.",
+				"If the user asked for this change, run the same SQL with write_db (it needs a deploy token). Otherwise only read with SELECT.")
+			out.Details = ae.Details
+			return out.WithNext("write_db")
+		}
+	case "db_not_found":
+		if serverDB(ctx, svc, a, in.App) {
+			return redo("Leave path out to open the database the service was made with, or list its databases with query_db: SELECT datname FROM pg_database (PostgreSQL) or SHOW DATABASES (MySQL, MariaDB).", "query_db")
+		}
+		return redo("path is the SQLite file relative to /data (or to the volume's folder), like app.db. Find it where the app's code opens its database, or ask the user; do not try names one after another.", "get_app")
+	case "not_sqlite":
+		return redo("Point path at the SQLite file the app's code opens (often .db, .sqlite or .sqlite3; not the -wal, -shm or -journal file next to it). Ask the user when the code does not say.", "get_app")
+	case "path_invalid":
+		if strings.TrimSpace(in.Path) == "" {
+			return redo("Pass path: the SQLite file relative to /data, like app.db, from where the app's code opens its database.", "query_db")
+		}
+	case "table_not_found":
+		return redo("List the tables with query_db first and use one of those names. "+listTablesSQL, "query_db")
+	}
+	return err
 }

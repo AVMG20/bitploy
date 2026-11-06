@@ -93,6 +93,7 @@ func NewServer(svc *app.Service) *mcp.Server {
 		&mcp.ServerOptions{Instructions: Instructions(svc)})
 	s.registerTools()
 	s.registerProjectTools()
+	s.registerAppTools()
 	s.registerResources()
 	s.registerPrompts()
 	return s.mcp
@@ -242,8 +243,10 @@ func defaultNextTool(tool string, ae *apperr.Error) string {
 		return "get_app"
 	case "no_container":
 		return "get_deployment"
-	case "db_not_found", "table_not_found", "row_not_found", "not_sqlite":
+	case "table_not_found", "row_not_found":
 		return "query_db"
+	case "db_not_found", "not_sqlite":
+		return "get_app" // where the database is: the app's code or the user, not a guess
 	}
 	switch {
 	case ae.HTTPStatus == 401 || ae.HTTPStatus == 403:

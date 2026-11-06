@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/dbview"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	_ "modernc.org/sqlite"
 )
@@ -89,12 +90,15 @@ func TestQueryDB(t *testing.T) {
 		t.Errorf("text is %d bytes", len(text(res)))
 	}
 
-	// Read-only by default.
+	// query_db is always read-only and points at write_db.
 	res = call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "DELETE FROM users"})
-	if m := assertErrorShape(t, "write without write=true", res); m != nil && m["code"] != "db_read_only" {
+	if m := assertErrorShape(t, "change with query_db", res); m != nil && (m["code"] != "db_read_only" || m["next_tool"] != "write_db" || !strings.Contains(m["hint"].(string), "write_db")) {
 		t.Errorf("error = %v", m)
 	}
-	res = call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "write": true, "sql": "DELETE FROM users WHERE id = 2; UPDATE users SET email = 'z@x.nl'"})
+	if m := assertErrorShape(t, "write=true on query_db", call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "write": true, "sql": "DELETE FROM users"})); m != nil && m["code"] != "invalid_arguments" {
+		t.Errorf("write=true on query_db: %v", m)
+	}
+	res = call(t, cs, "write_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "DELETE FROM users WHERE id = 2; UPDATE users SET email = 'z@x.nl'"})
 	if res.IsError || !strings.Contains(text(res), "OK, 1 row(s) affected") {
 		t.Fatalf("write: %s", text(res))
 	}
@@ -121,8 +125,9 @@ func TestQueryDB(t *testing.T) {
 		if m != nil && (m["code"] != code) {
 			t.Errorf("%s: %v", path, m)
 		}
-		if m != nil && code == "db_not_found" && m["next_tool"] != "query_db" {
-			t.Errorf("db_not_found next_tool = %v", m["next_tool"])
+		// No guessing loop: find the file in the code or ask the user.
+		if m != nil && code == "db_not_found" && (m["next_tool"] != "get_app" || !strings.Contains(m["hint"].(string), "ask the user") || strings.Contains(m["hint"].(string), "list")) {
+			t.Errorf("db_not_found = %v", m)
 		}
 	}
 	assertErrorShape(t, "missing arguments", call(t, cs, "query_db", map[string]any{"app": "notes-app"}))
@@ -132,8 +137,8 @@ func TestQueryDB(t *testing.T) {
 	if res := call(t, ro, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "SELECT count(*) AS n FROM users"}); res.IsError {
 		t.Errorf("read token: %s", text(res))
 	}
-	res = call(t, ro, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "DELETE FROM users", "write": true})
-	if m := assertErrorShape(t, "read token with write", res); m != nil && m["code"] != "token_read_only" {
+	res = call(t, ro, "write_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "DELETE FROM users"})
+	if m := assertErrorShape(t, "read token with write_db", res); m != nil && m["code"] != "token_read_only" {
 		t.Errorf("error = %v", m)
 	}
 	res = call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "SELECT count(*) FROM users"})
@@ -141,24 +146,50 @@ func TestQueryDB(t *testing.T) {
 		t.Errorf("rows left = %s", text(res))
 	}
 
-	// The tool is documented for a model, and is not marked read-only (it can write).
+	// query_db is read-only and documented for every kind of database;
+	// write_db is the destructive one.
 	tools, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := map[string][]string{
+		"query_db": {"sqlite_schema", "PostgreSQL", "MySQL", "information_schema", "SHOW TABLES", "write_db", "200 rows"},
+		"write_db": {"create_backup", "query_db", "the user asked"},
+	}
 	for _, tl := range tools.Tools {
-		if tl.Name != "query_db" {
+		words, ok := want[tl.Name]
+		if !ok {
 			continue
 		}
-		if tl.Annotations == nil || tl.Annotations.ReadOnlyHint || tl.Annotations.DestructiveHint == nil || !*tl.Annotations.DestructiveHint {
-			t.Errorf("annotations = %+v", tl.Annotations)
+		delete(want, tl.Name)
+		a := tl.Annotations
+		if tl.Name == "query_db" && (a == nil || !a.ReadOnlyHint || strings.Contains(tl.Description, "SQLite-only")) {
+			t.Errorf("query_db annotations = %+v", a)
 		}
-		for _, s := range []string{"sqlite_schema", "create_backup", "write=true", "200 rows"} {
+		if tl.Name == "write_db" && (a == nil || a.ReadOnlyHint || a.DestructiveHint == nil || !*a.DestructiveHint) {
+			t.Errorf("write_db annotations = %+v", a)
+		}
+		for _, s := range words {
 			if !strings.Contains(tl.Description, s) {
-				t.Errorf("description lacks %q", s)
+				t.Errorf("%s description lacks %q", tl.Name, s)
 			}
 		}
 	}
+	if len(want) > 0 {
+		t.Errorf("tools missing: %v", want)
+	}
+	if b, _ := json.Marshal(toolByName(tools.Tools, "query_db").InputSchema); strings.Contains(string(b), `"write"`) {
+		t.Errorf("query_db still takes write: %s", b)
+	}
+}
+
+func toolByName(ts []*mcp.Tool, name string) *mcp.Tool {
+	for _, t := range ts {
+		if t.Name == name {
+			return t
+		}
+	}
+	return &mcp.Tool{}
 }
 
 func TestFormatSQLResultsStaysWithinTheLimit(t *testing.T) {
