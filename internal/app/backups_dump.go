@@ -103,9 +103,19 @@ func mysqlEngine(id, dumpBin, client, passVar, extra string) dumpEngine {
 		version: dumpBin + ` --version`,
 		// Every database but the system ones, in one transaction (one
 		// consistent moment for InnoDB tables), with routines, events and
-		// triggers. Each one is dropped and made again on restore.
+		// triggers. Each one is dropped and made again on restore. A name
+		// that starts with - would be read as an option (--no-data makes a
+		// dump without rows that still looks complete), and the tools have
+		// no reliable end of options for --databases, so such a name fails
+		// the dump; a backup of the stopped app copies the files instead.
 		dump: mysqlScript(passVar, client+` --defaults-extra-file="$f" -N -B -r -e "`+userDBs+` ORDER BY schema_name" > "$t"
 if [ ! -s "$t" ]; then echo '-- bitploy: no databases to dump'; exit 0; fi
+while IFS= read -r n; do
+  case "$n" in -*)
+    echo "bitploy: the database $n has a name that starts with -, which `+dumpBin+` would read as an option. Rename the database, or stop the app and back it up then (that copies its files)." >&2
+    exit 3;;
+  esac
+done < "$t"
 set -f
 IFS='
 '

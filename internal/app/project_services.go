@@ -100,7 +100,7 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 		seen[row.ID] = true
 		if row.ProjectID != p.ID {
 			return res, apperr.BadRequest("connect_to_other_project", "The app "+quote(row.Slug)+" is in another project.",
-				"Only apps of the same project can connect; move it first with update_app project="+p.ID+".").WithNext("update_app")
+				"Only apps of the same project can connect. Call add_service with the project of "+quote(row.Slug)+" (get_app shows it), or leave it out of connect_to.").WithNext("add_service")
 		}
 		vars, ae := s.sharedVars(ctx, row.ID)
 		if ae != nil {

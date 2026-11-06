@@ -1402,7 +1402,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         if (q.get('confirm') !== row.name) throw new HttpError(422, 'confirm_mismatch', `Type ${row.name} to confirm.`)
         const own = apps.filter((a) => a.project?.id === row.id)
         if (own.length && q.get('with_apps') !== 'true')
-          throw new HttpError(409, 'project_not_empty', `${row.name} still has ${own.length} apps.`, 'Move or delete them first, or pass with_apps=true.')
+          throw new HttpError(409, 'project_not_empty', `${row.name} still has ${own.length} apps.`, 'Delete them first, or pass with_apps=true.')
         for (const a of own) apps.splice(apps.indexOf(a), 1)
         projects.splice(projects.indexOf(row), 1)
         return send(res, 204)
@@ -1489,17 +1489,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       return send(res, 200, needApp(id))
     case 'PATCH /apps/:id': {
       const a = needApp(id)
+      if (body.project !== undefined) throw new HttpError(422, 'project_move_unsupported', 'An app cannot move to another project.', 'Create a new app in the other project and deploy the code to it.')
       if (typeof body.name === 'string') a.name = body.name
       if (typeof body.alias === 'string') {
         const taken = apps.some((x) => x !== a && x.project?.id === a.project?.id && (x.alias || x.slug) === body.alias)
         if (taken) throw new HttpError(409, 'alias_taken', `Another app in ${a.project?.name} is called ${body.alias}.`, 'Pick another short name.')
         a.alias = body.alias
         if (a.port) a.internal_host = `${a.alias}:${a.port}`
-      }
-      if (typeof body.project === 'string') {
-        const row = projects.find((p) => p.id === body.project)
-        if (!row) throw new HttpError(404, 'project_not_found', `There is no project ${body.project}.`)
-        a.project = { id: row.id, name: row.name }
       }
       for (const k of ['memory_mb', 'cpu_millis', 'port', 'volume_mb'] as const) if (typeof body[k] === 'number') (a[k] as number) = body[k] as number
       return send(res, 200, a)

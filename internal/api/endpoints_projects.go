@@ -41,7 +41,7 @@ func (a *API) projectRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "updateProject", Method: http.MethodPatch, Path: "/projects/{id}", Tags: []string{"Projects"},
 		Summary:     "Rename a project",
-		Description: "A renamed project stays when its last app is deleted or moved out.",
+		Description: "A renamed project stays when its last app is deleted.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		ProjectRef
 		Body app.UpdateProjectInput

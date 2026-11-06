@@ -406,7 +406,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	if err := perServiceSettings(row, in); err != nil {
 		return App{}, err
 	}
-	pc, err := s.planProjectChange(ctx, a, row, in)
+	ac, err := s.planAliasChange(ctx, row, in)
 	if err != nil {
 		return App{}, err
 	}
@@ -655,11 +655,11 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["old_slug"] = row.Slug
 		s.Audit(ctx, a, "app.update", "app", row.ID, changed)
 	}
-	if pc != nil {
+	if ac != nil {
 		if cur, err := s.Q.GetApp(ctx, row.ID); err == nil {
 			row = cur
 		}
-		if err := s.applyProjectChange(ctx, a, row, pc); err != nil {
+		if err := s.applyAliasChange(ctx, a, row, ac); err != nil {
 			return App{}, err
 		}
 	}
@@ -934,10 +934,10 @@ func validPort(p int64) *apperr.Error {
 }
 
 func validResources(memMB, cpuMillis int64) *apperr.Error {
-	if memMB < minMemoryMB || memMB > 64*1024 {
+	if memMB < minMemoryMB || memMB > deploy.MaxMemoryMB {
 		return apperr.BadRequest("memory_invalid", fmt.Sprintf("%d MB of memory is not a valid amount.", memMB), fmt.Sprintf("Use at least %d MB.", minMemoryMB))
 	}
-	if cpuMillis < minCPUMillis || cpuMillis > 64*1000 {
+	if cpuMillis < minCPUMillis || cpuMillis > deploy.MaxCPUMillis {
 		return apperr.BadRequest("cpu_invalid", fmt.Sprintf("%d CPU millis is not a valid amount.", cpuMillis), "cpu_millis is thousandths of a CPU: 500 is half a CPU, 1000 is one. Use at least 50.")
 	}
 	return nil

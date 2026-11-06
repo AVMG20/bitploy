@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -463,6 +464,56 @@ func TestDumpScriptsKeepPasswordsOffTheCommandLine(t *testing.T) {
 	for _, want := range []string{"--single-transaction", "--routines", "--events", "--triggers"} {
 		if !strings.Contains(mariadbEngine.dump, want) || !strings.Contains(mysqlEngineV.dump, want) {
 			t.Errorf("mysql dumps miss %s", want)
+		}
+	}
+}
+
+// The MariaDB and MySQL dump scripts run for real in sh, with the client and
+// the dump tool replaced by scripts that list the databases and print the
+// arguments they got.
+func TestMySQLDumpScriptDatabaseNames(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	for _, eng := range []*dumpEngine{&mariadbEngine, &mysqlEngineV} {
+		client, passVar := "mariadb", "MARIADB_ROOT_PASSWORD"
+		if eng == &mysqlEngineV {
+			client, passVar = "mysql", "MYSQL_ROOT_PASSWORD"
+		}
+		bin := t.TempDir()
+		stub := func(name, body string) {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		stub(client, `printf '%s' "$TEST_DBS"`+"\n")
+		stub(eng.tool, `for a in "$@"; do printf '[%s]\n' "$a"; done; echo '-- Dump completed'`+"\n")
+		run := func(dbs string) (string, string, error) {
+			cmd := exec.Command(sh, "-c", eng.dump)
+			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), passVar+"=pw", "TEST_DBS="+dbs)
+			var out, errb bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &errb
+			err := cmd.Run()
+			return out.String(), errb.String(), err
+		}
+
+		out, stderr, err := run("app\nmy shop\n")
+		if err != nil || !strings.Contains(out, "[--databases]\n[app]\n[my shop]\n-- Dump completed") {
+			t.Errorf("%s: plain names: %q %q %v", eng.tool, out, stderr, err)
+		}
+		// A name that looks like an option stops the dump with a reason
+		// instead of a dump without rows that looks complete.
+		out, stderr, err = run("app\n--no-data\n")
+		if err == nil || strings.Contains(out, "Dump completed") || !strings.Contains(stderr, "the database --no-data has a name that starts with -") {
+			t.Errorf("%s: option-like name: %q %q %v", eng.tool, out, stderr, err)
+		}
+		if got := toolTail(stderr); !strings.Contains(got, "Rename the database") {
+			t.Errorf("%s: tail %q", eng.tool, got)
+		}
+		out, _, err = run("")
+		if err != nil || !strings.Contains(out, "-- bitploy: no databases to dump") {
+			t.Errorf("%s: no databases: %q %v", eng.tool, out, err)
 		}
 	}
 }

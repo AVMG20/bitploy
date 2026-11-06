@@ -642,8 +642,10 @@ type UpdateAppInput struct {
 	VolumeMB   *int64 `json:"volume_mb,omitempty"`
 	MemoryMB   *int64 `json:"memory_mb,omitempty"`
 	CPUMillis  *int64 `json:"cpu_millis,omitempty"`
-	// Project moves the app to another project (id); Alias renames it there.
-	Project *string `json:"project,omitempty" doc:"Move the app to another of your projects (id). Refused while other apps in its project refer to its variables."`
+	// Project is refused (422 project_move_unsupported): apps no longer move
+	// between projects. It is kept, hidden from the API docs, so an old
+	// client learns that instead of getting a generic unknown-field error.
+	Project *string `json:"project,omitempty" hidden:"true"`
 	Alias   *string `json:"alias,omitempty" doc:"The app's short name in its project. References to it in the project's other apps are rewritten, and those apps restart."`
 }
 
