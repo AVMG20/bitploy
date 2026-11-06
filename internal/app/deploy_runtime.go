@@ -22,6 +22,7 @@ type deployRuntime struct {
 	candidates    map[string]string             // appID -> candidate upstream being health-checked
 	draining      map[string]bool               // container names that will be stopped after a swap
 	locks         map[string]*sync.Mutex        // per-app lifecycle lock
+	quotaMu       sync.Mutex                    // held from the last quota check of a swap until it is written
 	restore       map[string]int                // appID -> consecutive failed restore attempts
 	foreignLogged bool
 	builderOnce   sync.Once

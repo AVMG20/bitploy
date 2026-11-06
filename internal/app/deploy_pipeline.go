@@ -474,6 +474,22 @@ func (p *pipeline) settleResources(ctx context.Context) *apperr.Error {
 	return nil
 }
 
+// quotaAtSwap checks the allowance again right before the deployment goes
+// live. The checks before the build and in settleResources count only the
+// apps that are live at that moment, so two deployments built at the same
+// time could each fit alone and both go live over the quota.
+func (p *pipeline) quotaAtSwap(ctx context.Context, fresh db.App) *apperr.Error {
+	switch {
+	case p.compose:
+		return p.s.composeQuotaErr(ctx, fresh, p.specs, p.vols)
+	case deploy.IsStaticKind(p.kind):
+		return nil
+	case p.setSize: // a static site that turns into an app starts to count
+		return apperr.As(p.s.checkConsumeQuota(ctx, fresh, p.sizeMem, p.sizeCPU, p.sizeMem-staticMemoryMB))
+	}
+	return apperr.As(p.s.checkStartQuota(ctx, fresh))
+}
+
 func cpuText(millis int64) string {
 	return strconv.FormatFloat(float64(millis)/1000, 'f', -1, 64)
 }
@@ -1164,14 +1180,28 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 	if ctx.Err() != nil {
 		return errCancelled
 	}
-	if _, err := s.Q.GetApp(ctx, p.app.ID); err != nil {
+	fresh, err := s.Q.GetApp(ctx, p.app.ID)
+	if err != nil {
 		return errCancelled // app deleted
+	}
+	if ae := p.quotaAtSwap(ctx, fresh); ae != nil {
+		return ae
 	}
 	if p.app.Type == "web" {
 		s.waitForLiveRoute(ctx, p)
 	}
+	// Again under the lock, so two deployments that each fit alone cannot both
+	// go live over the allowance.
+	s.deployRT.quotaMu.Lock()
+	defer s.deployRT.quotaMu.Unlock()
+	if fresh, err = s.Q.GetApp(ctx, p.app.ID); err != nil {
+		return errCancelled
+	}
+	if ae := p.quotaAtSwap(ctx, fresh); ae != nil {
+		return ae
+	}
 	now := s.now()
-	err := s.Store.Tx(ctx, func(q *db.Queries) error {
+	err = s.Store.Tx(ctx, func(q *db.Queries) error {
 		if err := q.SupersedeDeployments(ctx, db.SupersedeDeploymentsParams{AppID: p.app.ID, ID: p.dep.ID}); err != nil {
 			return err
 		}
