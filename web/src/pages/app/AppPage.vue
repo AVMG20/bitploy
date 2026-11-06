@@ -49,6 +49,9 @@ const pid = computed(() => props.projectId || (data.value ? projectIdOf(data.val
 const { list: projectList, project } = useProject(pid)
 const templates = useServiceTemplates()
 const role = computed(() => (data.value ? appRole(data.value, templates.data.value ?? []) : null))
+// Several services (a compose file): the overview is the service grid, actions act on all of them.
+// Before the tab bar below, which reads isWeb and multi at once.
+const { actions, isWeb, multi, dep, canRebuild, canStart, canStop, busy, shownStatus, primary, pending, restart, rebuild: startRebuild } = useAppControls(() => props.slug, data)
 // The address names the project; an old link with the wrong one is put right.
 watch(
   () => data.value,
@@ -114,8 +117,6 @@ useResizeObserver(tabBar, updateFade)
 useEventListener(tabBar, 'scroll', updateFade, { passive: true })
 
 // ---------------------------------------------------------------- actions (in the header, so every tab has them)
-// Several services (a compose file): the overview is the service grid, actions act on all of them.
-const { actions, isWeb, multi, dep, canRebuild, canStart, canStop, busy, shownStatus, primary, pending, restart, rebuild: startRebuild } = useAppControls(() => props.slug, data)
 // Show the new deployment's progress where it is listed.
 function rebuild() {
   startRebuild(() => void router.push({ name: 'app-deployments', params: { slug: props.slug } }))
