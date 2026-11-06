@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Database, Download, Lock, RefreshCw } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -117,20 +118,25 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
 
 <template>
   <div class="grid min-w-0 gap-4">
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+    <!-- bitploy's own database is a page of its own (the crumbs lead back to Admin); a file in /data sits in its app's page. -->
+    <PageHeader v-if="admin" title="bitploy database" class="mb-1">
+      <template #meta>
+        <span v-if="meta">{{ meta }}</span>
+        <span><Lock class="mr-1 inline size-3.5 align-[-2px]" />Read-only. Secrets are hidden<template v-if="hasRedacted"> (shown as <span class="font-medium">hidden</span>)</template>.</span>
+      </template>
+      <Button v-if="db" variant="outline" size="sm" @click="refresh"><RefreshCw :class="schema.isFetching.value && 'animate-spin'" /> Refresh</Button>
+    </PageHeader>
+    <div v-else class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
       <div class="min-w-0">
         <RouterLink v-if="back" :to="back.to" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft class="size-4" /> {{ back.label }}
         </RouterLink>
         <div class="flex min-w-0 items-center gap-2">
           <Database class="size-5 shrink-0 text-muted-foreground" />
-          <h2 class="min-w-0 truncate font-mono text-lg font-semibold tracking-tight" :title="admin ? undefined : `/data/${path}`">{{ admin ? 'bitploy database' : fileName || 'Database' }}</h2>
+          <h2 class="min-w-0 truncate font-mono text-lg font-semibold tracking-tight" :title="`/data/${path}`">{{ fileName || 'Database' }}</h2>
         </div>
-        <p v-if="!admin && path && path !== fileName" class="mt-0.5 truncate font-mono text-xs text-muted-foreground">/data/{{ path }}</p>
+        <p v-if="path && path !== fileName" class="mt-0.5 truncate font-mono text-xs text-muted-foreground">/data/{{ path }}</p>
         <p v-if="meta" class="mt-0.5 text-xs text-muted-foreground">{{ meta }}</p>
-        <p v-if="admin" class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-          <Lock class="size-3" /> Read-only. Secrets are hidden<template v-if="hasRedacted"> (shown as <span class="font-medium">hidden</span>)</template>.
-        </p>
         <p v-if="isTab && rootDatabases.length > 1" class="mt-0.5 text-xs text-muted-foreground">
           Other databases are in <RouterLink :to="toStorage" class="underline hover:text-foreground">Storage</RouterLink>.
         </p>
@@ -141,13 +147,13 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
           <Switch size="sm" :model-value="readOnly" aria-label="Read-only" @update:model-value="(v) => setReadOnly(v === true)" />
         </label>
         <Button variant="outline" size="sm" @click="refresh"><RefreshCw :class="schema.isFetching.value && 'animate-spin'" /> Refresh</Button>
-        <Button v-if="!admin" as-child variant="outline" size="sm">
+        <Button as-child variant="outline" size="sm">
           <a :href="api.dataFileDownloadUrl(slug, path)" download><Download /> Download</a>
         </Button>
       </div>
     </div>
 
-    <div v-if="resolving" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[18rem_minmax(0,1fr)]">
+    <div v-if="resolving" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
       <Skeleton class="h-48 w-full" />
       <Skeleton class="h-80 w-full" />
     </div>
@@ -156,12 +162,12 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
     </EmptyState>
     <DbError v-else-if="volumeOff" :error="null" code="volume_off" :back-to="toStorage" />
     <DbError v-else-if="schema.isError.value && !db" :error="schema.error.value" :back-to="back?.to ?? toStorage" :back-label="back?.label" :download-href="admin ? undefined : api.dataFileDownloadUrl(slug, path)" @retry="schema.refetch()" />
-    <div v-else-if="!db" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[18rem_minmax(0,1fr)]">
+    <div v-else-if="!db" class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
       <Skeleton class="h-48 w-full" />
       <Skeleton class="h-80 w-full" />
     </div>
 
-    <div v-else class="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 md:grid-cols-[18rem_minmax(0,1fr)]">
+    <div v-else class="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 md:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)]">
       <InlineError v-if="schema.isError.value" class="md:col-span-2" :error="schema.error.value" @retry="schema.refetch()" />
       <div class="hidden md:sticky md:top-16 md:block">
         <TableSidebar :tables="tables" :selected="tab === 'sql' ? undefined : table?.name" @select="selectTable" />
