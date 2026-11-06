@@ -38,6 +38,8 @@ import { queryClient } from '@/lib/queryClient'
 import type { BuildMode, UpdateAppInput } from '@/lib/types'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
+import DeployCommands from './DeployCommands.vue'
+import { offersDeployCommands } from '@/lib/deployCommands'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
@@ -47,6 +49,7 @@ const sections = computed(() => [
   { id: 'general', label: 'General' },
   ...(inProjects.value ? [{ id: 'project', label: 'Project' }] : []),
   { id: 'build', label: app.data.value?.template ? 'Image' : 'Build' },
+  ...(showDeployCommands.value ? [{ id: 'deploy-commands', label: 'Deploy commands' }] : []),
   { id: 'size', label: 'Size' },
   { id: 'danger', label: 'Danger zone' },
 ])
@@ -59,6 +62,7 @@ const me = useMe()
 const quota = computed(() => me.data.value?.quota)
 // Several services: build and size come from the compose file, one per service.
 const multi = computed(() => isMulti(app.data.value))
+const showDeployCommands = computed(() => offersDeployCommands(app.data.value))
 // Without projects on the server each app is its own project: nothing to move or rename.
 const projectList = useProjects()
 const templates = useServiceTemplates()
@@ -496,6 +500,8 @@ const deleteText = computed(() => {
         </form>
       </div>
     </SettingsSection>
+
+    <DeployCommands v-if="showDeployCommands && app.data.value" :app="app.data.value" />
 
     <SettingsSection
       v-if="multi"
