@@ -25,6 +25,22 @@ func TestInstructionsMatchSpec(t *testing.T) {
 	}
 }
 
+// Every deploy error code an AI can meet has a fix in the rulebook, and
+// removed features are answered instead of left out.
+func TestRulesCoverNewCodes(t *testing.T) {
+	for _, s := range []string{
+		"- before_deploy_failed / before_deploy_timeout:", "- after_deploy_failed", "- nothing_to_build",
+		"project_move_unsupported", "compose_image_variable", "Only the code goes back",
+	} {
+		if !strings.Contains(RuntimeContract, s) {
+			t.Errorf("runtime contract lacks %q", s)
+		}
+	}
+	if strings.Contains(RuntimeContract, "chosen in the dashboard") {
+		t.Error("build_mode auto is described as dashboard-only")
+	}
+}
+
 func TestInstructionsUseConfiguredDomain(t *testing.T) {
 	got := Instructions("http://<slug>.localhost:8000", "localhost")
 	if !strings.Contains(got, "http://<slug>.localhost:8000.") || strings.Contains(got, "bitploy.nl") {
