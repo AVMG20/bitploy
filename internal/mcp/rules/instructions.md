@@ -34,7 +34,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
-   reads DATABASE_URL (or REDIS_URL, ...) from its environment.
+   reads DATABASE_URL (or REDIS_URL, ...) from its environment. Database
+   migrations go in before_deploy_command (update_app), like
+   php artisan migrate --force, not in the Dockerfile CMD.
    create_backup of a database service dumps its databases while it runs;
    Redis and Meilisearch hold data that can be rebuilt and get no backups.
    When the code already has a compose file (compose.yaml,

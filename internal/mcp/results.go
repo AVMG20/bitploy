@@ -470,6 +470,9 @@ func updateAppNext(in updateAppIn, ap app.App) []string {
 			out = append(out, "These settings apply at the first deploy.")
 		}
 	}
+	if (in.BeforeDeployCommand != nil && *in.BeforeDeployCommand != "") || (in.AfterDeployCommand != nil && *in.AfterDeployCommand != "") {
+		out = append(out, "The deploy commands run from the next deploy on (deploy with only app="+ap.Slug+" rebuilds the last source); its log shows their output in the lines marked [before-deploy] and [after-deploy]. Remove migrations from the Dockerfile CMD if they ran there.")
+	}
 	if in.Volume != nil && *in.Volume {
 		out = append(out, "The app must save files it needs to keep in /data, and its user must own that folder: in the Dockerfile add RUN mkdir /data && chown <user> /data before USER. Anything outside /data is lost on redeploy.")
 	}
@@ -581,6 +584,14 @@ func deploymentResult(verb string, d app.Deployment) *result {
 	summary := fmt.Sprintf("%s %s of %s (#%d): %s", verb, d.ID, d.AppSlug, d.Seq, d.State)
 	switch d.State {
 	case "running":
+		if d.AfterDeploy == "pending" || d.AfterDeploy == "running" {
+			summary += ". Live; its after-deploy command still runs"
+			next = []string{"Call get_deployment with id=" + d.ID + " and wait_seconds=30 until after_deploy is succeeded or failed."}
+			break
+		}
+		if d.AfterDeploy == "failed" {
+			summary += ". Its after-deploy command failed (a warning: the new version stays live)"
+		}
 		if d.URL != "" {
 			summary += ". Live at " + d.URL
 		} else {
@@ -601,6 +612,9 @@ func deploymentResult(verb string, d app.Deployment) *result {
 		)
 		if len(d.Warnings) > 0 {
 			next = append(next, "Mention the warnings only if they matter to the user.")
+		}
+		if d.AfterDeploy == "failed" {
+			next = append([]string{"The after-deploy command failed: read the [after-deploy] lines with get_logs kind=build, fix after_deploy_command (update_app) or the code, and tell the user. It runs again on the next deploy."}, next...)
 		}
 	case "failed":
 		if d.Error != nil {
@@ -626,7 +640,7 @@ func deploymentResult(verb string, d app.Deployment) *result {
 			next = append(next, "While waiting there is nothing else to do; do not call deploy again.")
 		}
 	}
-	if len(d.NextSteps) > 0 && !d.Terminal() {
+	if len(d.NextSteps) > 0 && !d.Terminal() && d.State != "running" {
 		next = append(next, d.NextSteps...)
 	}
 	d.NextSteps = nil

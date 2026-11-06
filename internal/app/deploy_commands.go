@@ -70,10 +70,10 @@ func normalizeDeployCommand(field, v string) (string, error) {
 	if len(v) > maxDeployCommand {
 		return "", apperr.BadRequest("deploy_command_invalid",
 			fmt.Sprintf("The %s is longer than %d characters.", field, maxDeployCommand),
-			"Put the steps in a script in the code (like scripts/migrate.sh) and run that script.")
+			"Put the steps in a script in the code (like scripts/migrate.sh) and run that script.").WithNext("update_app")
 	}
 	if strings.ContainsRune(v, 0) {
-		return "", apperr.BadRequest("deploy_command_invalid", "The "+field+" contains a NUL character.", "Send the command as plain text.")
+		return "", apperr.BadRequest("deploy_command_invalid", "The "+field+" contains a NUL character.", "Send the command as plain text.").WithNext("update_app")
 	}
 	return v, nil
 }
@@ -84,16 +84,16 @@ func deployCommandsRefused(row db.App, buildMode string) error {
 	switch {
 	case row.Template != "" || row.CatalogID != "":
 		return apperr.Unprocessable("deploy_commands_unsupported",
-			"The app "+row.Slug+" is a ready-made service (a database or one-click app), so it has no deploy commands.",
-			"Set before_deploy_command on the app whose code needs it, like the app that runs the database migrations.")
+			"This app is a ready-made service (a database or one-click app), so it has no deploy commands.",
+			"Set before_deploy_command on the app whose code needs it, like the app that runs the database migrations.").WithNext("get_app")
 	case isMulti(row) || buildMode == deploy.BuildModeCompose:
 		return apperr.Unprocessable("deploy_commands_unsupported",
-			"The app "+row.Slug+" runs the services of a compose file, and deploy commands are not supported for such apps yet.",
-			"Run the migrations when the service starts (in its command in the compose file), or deploy the code that needs them as an app with one Dockerfile.")
+			"This app runs the services of a compose file, and deploy commands are not supported for such apps yet.",
+			"Run the migrations when the service starts (in its command in the compose file), or deploy the code that needs them as an app with one Dockerfile.").WithNext("get_app")
 	case deploy.AlwaysStaticMode(buildMode):
 		return apperr.Unprocessable("deploy_commands_unsupported",
-			"The app "+row.Slug+" is a static site: it runs no code of its own, so it has no deploy commands.",
-			"Leave before_deploy_command and after_deploy_command out for a static site.")
+			"This app is a static site: it runs no code of its own, so it has no deploy commands.",
+			"Leave before_deploy_command and after_deploy_command out for a static site.").WithNext("get_app")
 	}
 	return nil
 }
