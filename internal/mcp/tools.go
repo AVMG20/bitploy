@@ -434,7 +434,7 @@ func (s *srv) registerTools() {
 				Name: in.Name, Slug: in.Slug, Domain: in.Domain, Type: in.Type, Port: in.Port, HealthPath: in.HealthPath,
 				DockerfilePath: in.DockerfilePath, ContextDir: in.ContextDir, Volume: in.Volume, DeleteData: in.DeleteData,
 				VolumeMB: in.VolumeMB, MemoryMB: in.MemoryMB, CPUMillis: in.CPUMillis, BuildMode: in.BuildMode, ComposePath: in.ComposePath,
-				Alias: in.Alias,
+				Alias:               in.Alias,
 				BeforeDeployCommand: in.BeforeDeployCommand, AfterDeployCommand: in.AfterDeployCommand,
 			})
 			if err != nil {
