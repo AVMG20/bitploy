@@ -41,8 +41,9 @@ function toggle(id: string, on: boolean) {
 }
 
 const label = computed(() => {
-  const n = extra.value.filter((d) => granted.value.has(d.id)).length
-  return n === 0 ? 'Default domain only' : n === 1 ? 'Default + 1 domain' : `Default + ${n} domains`
+  // The server's own domain is always allowed, so it counts in both numbers.
+  const n = extra.value.filter((d) => granted.value.has(d.id)).length + 1
+  return `${n} of ${extra.value.length + 1} domains`
 })
 </script>
 

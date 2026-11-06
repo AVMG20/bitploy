@@ -91,18 +91,19 @@
     --destructive: oklch(0.56 0.2 25);
     --success: oklch(0.58 0.14 152);
     --warning: oklch(0.68 0.15 70);
-    --info: oklch(0.55 0.2 295);
+    --info: oklch(0.6 0.16 50);
 
-    /* SQL syntax colours: quiet, readable on --card and --muted */
-    --sql-keyword: oklch(0.46 0.15 295);
+    /* SQL syntax colours: quiet, readable on --card and --muted. Warm hues and
+       greys only (orange keywords, green strings, yellow numbers): no blue or purple. */
+    --sql-keyword: oklch(0.54 0.16 40);
     --sql-string: oklch(0.47 0.11 152);
-    --sql-number: oklch(0.5 0.12 60);
+    --sql-number: oklch(0.52 0.11 95);
     --sql-comment: oklch(0.58 0 0);
     --sql-operator: oklch(0.45 0 0);
     /* Dockerfile, compose and log colours on top of the SQL ones: YAML keys,
        flags, URLs and steps; $VARIABLES and anchors; warning text that reads on white */
-    --code-key: oklch(0.5 0.13 245);
-    --code-variable: oklch(0.52 0.17 350);
+    --code-key: oklch(0.45 0.05 65);
+    --code-variable: oklch(0.54 0.14 15);
     --log-warn: oklch(0.55 0.13 65);
 
     --border: oklch(0.915 0 0);
@@ -112,7 +113,7 @@
     --chart-1: oklch(0.64 0.19 40);
     --chart-2: oklch(0.6 0.12 170);
     --chart-3: oklch(0.72 0.14 80);
-    --chart-4: oklch(0.56 0.18 295);
+    --chart-4: oklch(0.55 0.02 60);
     --chart-5: oklch(0.6 0.19 355);
 
     --sidebar: oklch(0.97 0 0);
@@ -149,15 +150,15 @@
     --destructive: oklch(0.66 0.19 25);
     --success: oklch(0.72 0.15 152);
     --warning: oklch(0.8 0.14 78);
-    --info: oklch(0.7 0.15 295);
+    --info: oklch(0.74 0.15 55);
 
-    --sql-keyword: oklch(0.76 0.12 295);
+    --sql-keyword: oklch(0.76 0.14 45);
     --sql-string: oklch(0.76 0.11 152);
-    --sql-number: oklch(0.8 0.1 75);
+    --sql-number: oklch(0.84 0.11 95);
     --sql-comment: oklch(0.58 0 0);
     --sql-operator: oklch(0.7 0 0);
-    --code-key: oklch(0.78 0.1 240);
-    --code-variable: oklch(0.78 0.13 350);
+    --code-key: oklch(0.8 0.04 70);
+    --code-variable: oklch(0.78 0.11 15);
     --log-warn: oklch(0.8 0.14 78);
 
     --border: oklch(1 0 0 / 8%);
@@ -167,7 +168,7 @@
     --chart-1: oklch(0.7 0.17 42);
     --chart-2: oklch(0.72 0.11 170);
     --chart-3: oklch(0.8 0.13 80);
-    --chart-4: oklch(0.7 0.14 295);
+    --chart-4: oklch(0.7 0.02 60);
     --chart-5: oklch(0.7 0.16 355);
 
     --sidebar: oklch(0.135 0 0);

@@ -95,6 +95,8 @@ export function auditGroup(action: string): AuditGroup {
   return 'apps'
 }
 
+const ROLE_WORDS: Record<string, string> = { user: 'Member', admin: 'Admin' }
+
 /** The details of an entry as short "key: value" parts, without ids nobody can read. */
 export function auditDetails(d: Record<string, unknown> | null): string[] {
   if (!d) return []
@@ -103,7 +105,9 @@ export function auditDetails(d: Record<string, unknown> | null): string[] {
     if (v === null || v === undefined || v === '' || /(^|_)id$/.test(k)) continue
     // A list of names or numbers reads as a list; other objects stay JSON.
     const plain = Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string' || typeof x === 'number')
-    const val = plain ? (v as unknown[]).join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
+    let val = plain ? (v as unknown[]).join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
+    // Roles in the words the invite form uses.
+    if (k === 'role') val = ROLE_WORDS[val] ?? val
     out.push(`${k.replace(/_/g, ' ')}: ${val.length > 80 ? `${val.slice(0, 77)}...` : val}`)
   }
   return out

@@ -109,7 +109,8 @@ const filtering = computed(() => kind.value !== 'all' || !!search.value.trim())
                 <span class="block text-xs text-muted-foreground">{{ channelLabel(e.channel) }}</span>
               </TableCell>
               <TableCell class="align-top">
-                <span class="text-sm">{{ auditLabel(e.action) }}</span>
+                <!-- The action's code (deployment.queue) is on hover and in the search, not in the way. -->
+                <span class="text-sm" :title="e.action">{{ auditLabel(e.action) }}</span>
                 <template v-if="target(e)">
                   <span class="text-sm text-muted-foreground">: </span>
                   <RouterLink v-if="target(e)?.slug" :to="appPath(target(e)!.slug!)" class="text-sm font-medium hover:underline">{{ target(e)!.text }}</RouterLink>
@@ -118,7 +119,6 @@ const filtering = computed(() => kind.value !== 'all' || !!search.value.trim())
                 <span v-if="auditDetails(e.details).length" class="block max-w-md truncate text-xs text-muted-foreground" :title="auditDetails(e.details).join('\n')">
                   {{ auditDetails(e.details).join(' · ') }}
                 </span>
-                <span class="block font-mono text-[11px] text-muted-foreground/70">{{ e.action }}</span>
               </TableCell>
               <TableCell class="hidden align-top font-mono text-xs md:table-cell">{{ e.ip }}</TableCell>
             </TableRow>

@@ -123,9 +123,9 @@ export const router = createRouter({
         {
           path: 'admin/database',
           name: 'admin-database',
-          component: () => import('./pages/app/database/DatabasePage.vue'),
-          props: { admin: true },
-          meta: { title: 'Database', admin: true, wide: true },
+          // Not wide: it sits under the Admin tab bar, which keeps the width of the other Admin tabs.
+          component: () => import('./pages/admin/AdminDatabasePage.vue'),
+          meta: { title: 'Database', admin: true },
         },
       ],
     },
@@ -168,8 +168,10 @@ router.beforeEach(async (to) => {
   return true
 })
 
-router.afterEach((to) => {
-  // Project and app pages set their own title once their name is known.
+router.afterEach((to, from) => {
+  // Project and app pages set their own title once their name is known. A change of
+  // the query only (a subtab of the database viewer, a filter) keeps the page's title.
+  if (from.matched.length && to.path === from.path) return
   const slug = typeof to.params.slug === 'string' ? to.params.slug : ''
   const title = to.meta.title || slug
   document.title = title ? `${title} - bitploy` : 'bitploy'
