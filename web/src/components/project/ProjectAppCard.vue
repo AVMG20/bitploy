@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUpRight, Cable, HardDrive, Lock } from 'lucide-vue-next'
+import { ArrowUpRight, Cable, Eye, HardDrive, Lock } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { useAppMetrics } from '@/composables/queries'
-import { projectRoute } from '@/lib/appLinks'
+import { appRoute, projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
 import { aliasOf, appSourceText, internalHostOf, isPublicApp, projectIdOf, roleTitle, templateUpdate } from '@/lib/projects'
 import type { AppRole } from '@/lib/projects'
@@ -16,7 +16,8 @@ import { cn } from '@/lib/utils'
 
 // One app on the project canvas: what it is for, whether it runs, where it is
 // reached, how busy it is, and which apps it talks to. A compose app shows its
-// services inside. The whole card opens the app's panel over the canvas.
+// services inside. The whole card opens the app's page; the eye opens a quick
+// look at it in a panel over the canvas.
 const props = defineProps<{
   app: App
   role: AppRole
@@ -70,7 +71,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       <ServiceIcon :role="role.key" />
       <div class="min-w-0 flex-1">
         <h3 class="flex min-w-0 items-baseline gap-2">
-          <RouterLink :to="panelOf(app)" :aria-current="selected ? 'true' : undefined" class="max-w-full shrink-0 truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
+          <RouterLink :to="appRoute(app)" class="max-w-full shrink-0 truncate font-medium after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
             {{ app.name }}
           </RouterLink>
           <span v-if="aliasOf(app) !== app.name" class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ aliasOf(app) }}</span>
@@ -79,6 +80,16 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       </div>
       <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
         <StatusDot :status="app.status" /> <span aria-hidden="true">{{ status.label }}</span>
+        <RouterLink
+          :to="panelOf(app)"
+          :aria-current="selected ? 'true' : undefined"
+          :aria-label="`Quick look at ${app.name}`"
+          title="Quick look"
+          :class="cn(
+            'relative z-10 -my-1 -mr-1.5 ml-0.5 grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            selected && 'bg-muted text-foreground',
+          )"
+        ><Eye class="size-4" /></RouterLink>
       </span>
     </div>
 
@@ -135,7 +146,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
         <RouterLink
           v-for="t in row.apps"
           :key="t.id"
-          :to="panelOf(t)"
+          :to="appRoute(t)"
           class="relative z-10 rounded-md border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground/85 hover:border-foreground/30"
         >{{ aliasOf(t) }}</RouterLink>
       </p>

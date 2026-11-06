@@ -18,8 +18,8 @@ import type { Lane } from '@/lib/projects'
 
 // The canvas: the apps of a project as cards in three lanes (what visitors
 // open, what runs in the background, what keeps data), with lines from each
-// app to the apps whose variables it reads. A card opens the app's panel over
-// the canvas; the address keeps it (?app=<slug>).
+// app to the apps whose variables it reads. A card opens the app's page; its
+// eye opens a quick look in a panel over the canvas (?app=<slug>).
 const props = defineProps<{ projectId: string }>()
 const route = useRoute()
 const router = useRouter()

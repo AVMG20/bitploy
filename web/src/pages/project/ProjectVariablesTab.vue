@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
-import { appRoute, projectRoute } from '@/lib/appLinks'
+import { appRoute } from '@/lib/appLinks'
 import { aliasOf, envReferences, referenceText } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
@@ -26,7 +26,7 @@ const connections = computed(() =>
     return from && to ? [{ key: `${l.from}>${l.to}`, from, to, vars: l.vars }] : []
   }),
 )
-const panel = (a: App) => projectRoute(props.projectId, { app: a.slug })
+const panel = (a: App) => appRoute(a)
 </script>
 
 <template>

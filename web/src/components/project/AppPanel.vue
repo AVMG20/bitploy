@@ -128,7 +128,7 @@ watch(
     tabindex="-1"
     :aria-label="data ? `${data.name}, on the canvas` : 'App'"
     data-testid="app-panel"
-    class="fixed inset-0 z-40 flex flex-col overflow-hidden bg-background outline-none md:inset-y-2 md:right-2 md:left-auto md:w-[min(28rem,calc(100vw-1rem))] md:rounded-xl md:border md:shadow-2xl"
+    class="fixed inset-0 z-40 flex flex-col overflow-hidden bg-background outline-none md:inset-y-2 md:right-2 md:left-auto md:w-[min(34rem,calc(100vw-1rem))] md:rounded-xl md:border md:shadow-2xl"
   >
     <!-- Header -->
     <div class="flex shrink-0 items-start gap-3 border-b px-4 py-3">

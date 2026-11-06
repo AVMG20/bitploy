@@ -26,7 +26,7 @@ import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB } from '@/lib/format'
 import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, freeAlias, projectIdOf } from '@/lib/projects'
+import { aliasOf, freeAlias } from '@/lib/projects'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
@@ -127,7 +127,7 @@ const deploy = useMutation({
     void qc.invalidateQueries({ queryKey: keys.me })
     void qc.invalidateQueries({ queryKey: keys.deployments(r.app.slug) })
     // Into a project: back to its canvas with the new app open in the panel.
-    await router.push(intoProject.value ? projectRoute(projectIdOf(r.app), { app: r.app.slug }) : appRoute(r.app))
+    await router.push(appRoute(r.app))
   },
   onError: (e) => {
     const f = friendlyError(e)
