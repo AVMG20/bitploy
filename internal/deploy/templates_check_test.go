@@ -27,6 +27,8 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 		"poetry":         {"pyproject.toml", "poetry.lock"},
 		"pyproject":      {"pyproject.toml"},
 		"composer":       {"composer.json", "composer.lock"},
+		"go":             {"go.mod", "go.sum", "main.go"},
+		"go, no go.sum":  {"go.mod", "main.go"},
 	}
 	stacks := append(append([]string{}, templates.Stacks...), "node+build")
 	for _, stack := range stacks {
@@ -60,6 +62,11 @@ func checkTemplate(t *testing.T, name string, tpl templates.Template, files []st
 		t.Errorf("%s: no port found", name)
 	}
 	for _, f := range res.Findings {
+		// A project without a lock file is told to add one: that is about
+		// the code, not the template, which installs with npm install then.
+		if f.Code == CodeNoLockfile && !hasLockFile(files) {
+			continue
+		}
 		if f.Severity == sevError || f.Severity == sevWarning {
 			t.Errorf("%s: %s %s: %s\n%s", name, f.Severity, f.Code, f.Message, tpl.Dockerfile)
 		}
@@ -67,4 +74,13 @@ func checkTemplate(t *testing.T, name string, tpl templates.Template, files []st
 	if strings.Contains(tpl.Dockerfile, "\r") {
 		t.Errorf("%s: carriage return in the Dockerfile", name)
 	}
+}
+
+func hasLockFile(files []string) bool {
+	for _, f := range files {
+		if containsString(jsLockFiles, f) {
+			return true
+		}
+	}
+	return false
 }

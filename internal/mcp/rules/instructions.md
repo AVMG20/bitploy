@@ -1,8 +1,12 @@
 You are connected to bitploy. It deploys the user's code to https://<slug>.bitploy.nl.
 
-1. Every app is built from a Dockerfile; bitploy refuses to deploy without one.
-   If the code has none, call get_template with the stack and file_list,
-   adapt it, and add a .dockerignore.
+1. A static site needs no Dockerfile: plain HTML/CSS/JS files, or a front
+   end that builds to files (Vite, React, Vue, Astro, SvelteKit static,
+   Next.js export). Send the files as they are, without a Dockerfile or nginx
+   config; bitploy builds and serves it for free (it does not count towards
+   the memory and CPU quota). Every other app is built from a Dockerfile;
+   bitploy refuses to deploy a server without one. If the code has none, call
+   get_template with the stack and file_list, adapt it, and add a .dockerignore.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.

@@ -639,10 +639,16 @@ func TestNewFindings(t *testing.T) {
 		{"yarn lock", "FROM node:24-alpine\nRUN npm install && npm ci" + tail, []string{"package.json", "yarn.lock"}, "lockfile_mismatch", 2, "yarn install --frozen-lockfile"},
 		{"bun lock", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json", "bun.lockb"}, "lockfile_mismatch", 2, "bun"},
 		{"npm lock present", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json", "package-lock.json", "pnpm-lock.yaml"}, "", 0, ""},
-		{"no lock at all", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json"}, "", 0, ""},
+		{"no lock at all", "FROM node:24-alpine\nRUN npm ci" + tail, []string{"package.json"}, "no_lockfile", 2, "pin exact versions"},
+		{"no lock, npm install", "FROM node:22-bookworm-slim\nCOPY . .\nRUN npm install --omit=dev" + tail, []string{"package.json", "server.js"}, "no_lockfile", 3, "lock file"},
+		{"no lock, bun", "FROM oven/bun:1-slim\nRUN bun install" + tail, []string{"package.json", "index.ts"}, "no_lockfile", 2, "USER bun"},
+		{"no lock, global tool only", "FROM node:22-bookworm-slim\nRUN npm install -g serve" + tail, []string{"package.json"}, "", 0, ""},
+		{"no lock, nothing installed", "FROM nginx:1.29-alpine\nCOPY dist /usr/share/nginx/html" + tail, []string{"package.json", "dist/index.html"}, "", 0, ""},
+		{"lock in a sub-folder only", "FROM node:22-bookworm-slim\nRUN yarn" + tail, []string{"package.json", "web/yarn.lock"}, "no_lockfile", 2, ""},
+		{"bun lock", "FROM oven/bun:1-slim\nRUN bun install --frozen-lockfile" + tail, []string{"package.json", "bun.lock"}, "", 0, ""},
 		{"pnpm used properly", "FROM node:24-alpine\nRUN corepack enable && pnpm install --frozen-lockfile" + tail, []string{"package.json", "pnpm-lock.yaml"}, "", 0, ""},
 	}
-	all := []string{"compose_ignored", "database_server_in_image", "lockfile_mismatch"}
+	all := []string{"compose_ignored", "database_server_in_image", "lockfile_mismatch", "no_lockfile"}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res := CheckDockerfile(CheckInput{Dockerfile: []byte(tc.df), Files: tc.files})
@@ -676,5 +682,51 @@ func TestFirstErrorNewStacks(t *testing.T) {
 		if got := describeStack(stack); !strings.Contains(got, name) {
 			t.Errorf("describeStack(%q) = %q", stack, got)
 		}
+	}
+}
+
+func TestNativeModuleOnAlpine(t *testing.T) {
+	const tail = "\nUSER node\nEXPOSE 3000\nCMD [\"node\",\"x.js\"]\n"
+	sqlite := `{"dependencies": {"express": "^4.21.0", "better-sqlite3": "^11.3.0"}, "devDependencies": {"sharp": "0.33.5"}}`
+	tests := []struct {
+		name string
+		df   string
+		pkg  string
+		want bool
+		line int
+		in   string // in the message
+	}{
+		{"alpine", "FROM node:24-alpine\nCOPY package*.json ./\nRUN npm ci" + tail, sqlite, true, 1, "better-sqlite3, sharp"},
+		{"alpine build stage", "FROM node:24-alpine AS build\nRUN npm ci\nFROM node:22-bookworm-slim\nCOPY --from=build /app /app" + tail, sqlite, true, 1, "node:24-alpine"},
+		{"stage built on an alpine stage", "ARG V=24\nFROM node:${V}-alpine AS base\nFROM base AS deps\nRUN yarn install --frozen-lockfile" + tail, sqlite, true, 3, "node:24-alpine"},
+		{"bun on alpine", "FROM oven/bun:1-alpine\nRUN bun install" + tail, `{"dependencies": {"bcrypt": "5.1.1"}}`, true, 1, "bcrypt"},
+		{"debian", "FROM node:22-bookworm-slim\nRUN npm ci" + tail, sqlite, false, 0, ""},
+		{"alpine without native modules", "FROM node:24-alpine\nRUN npm ci" + tail, `{"dependencies": {"express": "^4.21.0"}}`, false, 0, ""},
+		{"alpine final stage installs nothing", "FROM node:22-bookworm-slim AS build\nRUN npm ci\nFROM node:24-alpine\nCOPY --from=build /app /app" + tail, sqlite, false, 0, ""},
+		{"package.json unknown", "FROM node:24-alpine\nRUN npm ci" + tail, "", false, 0, ""},
+		{"package.json unreadable", "FROM node:24-alpine\nRUN npm ci" + tail, "{not json", false, 0, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := CheckInput{Dockerfile: []byte(tc.df)}
+			if tc.pkg != "" {
+				in.PackageJSON = []byte(tc.pkg)
+			}
+			res := CheckDockerfile(in)
+			f, has := codes(res)[CodeNativeOnAlpine]
+			if has != tc.want {
+				t.Fatalf("present=%v, want %v: %+v", has, tc.want, res.Findings)
+			}
+			if !has {
+				return
+			}
+			if f.Severity != "warning" || f.Line != tc.line || !strings.Contains(f.Message, tc.in) ||
+				!strings.Contains(f.Hint, "node:22-bookworm-slim") || strings.Contains(f.Hint, "apk add --no-cache") {
+				t.Errorf("finding %+v", f)
+			}
+			if !res.OK {
+				t.Errorf("a warning must not block: %+v", res.Findings)
+			}
+		})
 	}
 }

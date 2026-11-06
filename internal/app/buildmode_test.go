@@ -81,10 +81,15 @@ func TestDeployFilesAutoMode(t *testing.T) {
 		t.Errorf("neither: %v", err)
 	}
 
-	// The default mode keeps requiring a Dockerfile.
+	// The default mode keeps requiring a Dockerfile for anything but a static site.
 	strict := e.mustApp(t, CreateAppInput{})
-	if _, err := e.s.DeployFiles(ctx, e.user, strict.Slug, []FileInput{{Path: "index.html", Content: "hi"}}); depCode(err) != "dockerfile_missing" {
+	if _, err := e.s.DeployFiles(ctx, e.user, strict.Slug, []FileInput{{Path: "main.py", Content: "print(1)"}, {Path: "requirements.txt", Content: ""}}); depCode(err) != "dockerfile_missing" {
 		t.Errorf("strict app: %v", err)
+	}
+	// ... and serves plain website files itself, free.
+	site := e.mustApp(t, CreateAppInput{})
+	if _, err := e.s.DeployFiles(ctx, e.user, site.Slug, []FileInput{{Path: "index.html", Content: "hi"}}); err != nil {
+		t.Errorf("static site in the default mode: %v", err)
 	}
 }
 
@@ -198,9 +203,9 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 			t.Fatalf("validate: %v", ae)
 		}
 	})
-	t.Run("the default mode still needs a Dockerfile", func(t *testing.T) {
+	t.Run("the default mode still needs a Dockerfile for a server", func(t *testing.T) {
 		e := depTestSvc(t)
-		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{}), makeZipBytes(t, site))
+		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{}), makeZipBytes(t, map[string]string{"main.py": "print(1)", "requirements.txt": ""}))
 		if ae == nil || ae.Code != "dockerfile_missing" {
 			t.Fatalf("validate: %v", ae)
 		}
@@ -208,7 +213,7 @@ func TestPipelineDetectsTheSource(t *testing.T) {
 	t.Run("the build uses the mode the app has when it runs", func(t *testing.T) {
 		e := depTestSvc(t)
 		a := e.mustApp(t, CreateAppInput{BuildMode: "auto"})
-		_, ae := e.runSourceThen(t, a, makeZipBytes(t, site), func() {
+		_, ae := e.runSourceThen(t, a, makeZipBytes(t, map[string]string{"server.js": "x", "package.json": `{"scripts":{"start":"node server.js"},"dependencies":{"express":"4"}}`}), func() {
 			e.exec(t, `UPDATE apps SET build_mode = 'dockerfile' WHERE id = ?`, a.ID)
 		})
 		if ae == nil || ae.Code != "dockerfile_missing" {
@@ -395,10 +400,10 @@ func TestPipelineHomePage(t *testing.T) {
 			t.Fatalf("validate: %v", ae)
 		}
 	})
-	t.Run("the default mode ignores pages", func(t *testing.T) {
+	t.Run("the default mode serves a single page too", func(t *testing.T) {
 		e := depTestSvc(t)
 		_, ae := e.runSource(t, e.mustApp(t, CreateAppInput{HomePage: "tool.html"}), makeZipBytes(t, map[string]string{"tool.html": "x"}))
-		if ae == nil || ae.Code != "dockerfile_missing" {
+		if ae != nil {
 			t.Fatalf("validate: %v", ae)
 		}
 	})

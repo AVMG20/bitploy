@@ -298,7 +298,7 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	assertErrorShape(t, "restart before deploy", res)
 
 	// A Dockerfile-less folder: the error carries the template and next_tool.
-	res = call(t, cs, "deploy_files", map[string]any{"app": "bakery-shop", "files": []map[string]any{{"path": "index.html", "content": "<h1>hi</h1>"}}})
+	res = call(t, cs, "deploy_files", map[string]any{"app": "bakery-shop", "files": []map[string]any{{"path": "main.py", "content": "print(1)"}, {"path": "requirements.txt", "content": ""}}})
 	if m := assertErrorShape(t, "deploy without Dockerfile", res); m != nil {
 		if m["code"] != "dockerfile_missing" || m["next_tool"] != "get_template" || !strings.Contains(m["hint"].(string), "deploy_files again with ALL files") {
 			t.Errorf("dockerfile_missing = %v", m)

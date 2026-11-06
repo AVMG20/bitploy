@@ -1,5 +1,5 @@
 # Stage 1: install dependencies and build. next.config needs: output: "standalone"
-FROM node:24-alpine AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ RUN mkdir -p public
 RUN npm run build
 
 # Stage 2: run only the standalone output (no node_modules install, small image).
-FROM node:24-alpine
+FROM node:22-bookworm-slim
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000

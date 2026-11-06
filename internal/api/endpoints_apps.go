@@ -19,9 +19,10 @@ type AppRef struct {
 }
 
 type validateRequest struct {
-	Dockerfile string   `json:"dockerfile" doc:"Full Dockerfile text"`
-	FileList   []string `json:"file_list,omitempty" doc:"Paths of the files in your code, to improve the checks (.dockerignore, .env, node_modules...)"`
-	Port       int      `json:"port,omitempty" doc:"The app's port setting, if you set one"`
+	Dockerfile  string   `json:"dockerfile" doc:"Full Dockerfile text"`
+	FileList    []string `json:"file_list,omitempty" doc:"Paths of the files in your code, to improve the checks (.dockerignore, .env, node_modules...)"`
+	Port        int      `json:"port,omitempty" doc:"The app's port setting, if you set one"`
+	PackageJSON string   `json:"package_json,omitempty" doc:"The text of package.json, if the code has one: lets the checks warn about native modules (better-sqlite3, bcrypt, sharp) on an Alpine image"`
 }
 
 type filesRequest struct {
@@ -70,7 +71,7 @@ func (a *API) appRoutes() {
 		OperationID: "validateDockerfile", Method: http.MethodPost, Path: "/dockerfile/validate", Tags: []string{"Templates"},
 		Summary: "Validate a Dockerfile", Description: "Static checks, no build. Read scope is enough.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body validateRequest }) (*Out[app.ValidateResult], error) {
-		return okOrNil(a.svc.ValidateDockerfile(ctx, act, in.Body.Dockerfile, in.Body.FileList, in.Body.Port))
+		return okOrNil(a.svc.ValidateDockerfile(ctx, act, in.Body.Dockerfile, in.Body.FileList, in.Body.Port, in.Body.PackageJSON))
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "validateCompose", Method: http.MethodPost, Path: "/compose/validate", Tags: []string{"Templates"},

@@ -27,6 +27,8 @@ func ForFiles(stack string, files []string) (Template, bool) {
 		adaptNode(&tpl, top)
 	case "python", "django":
 		adaptPython(&tpl, top)
+	case "go":
+		adaptGo(&tpl, top)
 	case "laravel":
 		if !top["package.json"] {
 			dropLaravelAssets(&tpl)
@@ -61,19 +63,21 @@ func replaceLine(df, old, replacement string) string {
 	return strings.ReplaceAll(df, old+"\n", replacement+"\n")
 }
 
-// Lines of the base Node templates that adaptNode swaps.
+// Lines of the base Node templates that adaptNode swaps. The bun image is the
+// Debian one: its binary is copied into the Debian node build stages, and an
+// Alpine (musl) binary does not run there.
 const (
 	nodeCopyLine        = "COPY package*.json ./"
 	nodeInstallProd     = "RUN npm ci --omit=dev"
 	nodeInstallDev      = "RUN npm ci"
 	nodeBuildLine       = "RUN npm run build"
-	nodeFromRuntime     = "FROM node:24-alpine"
-	nodeFromBuild       = "FROM node:24-alpine AS build"
-	nodeFromAssets      = "FROM node:24-alpine AS assets"
+	nodeFromRuntime     = "FROM node:22-bookworm-slim"
+	nodeFromBuild       = "FROM node:22-bookworm-slim AS build"
+	nodeFromAssets      = "FROM node:22-bookworm-slim AS assets"
 	nodeUserLine        = "USER node"
 	nodeUserComment     = `# Run as the unprivileged "node" user that ships with the image.`
 	nodeStartLine       = `CMD ["npm", "start"]`
-	bunImage            = "oven/bun:1-alpine"
+	bunImage            = "oven/bun:1-slim"
 	bunCopyFromOfficial = "COPY --from=" + bunImage + " /usr/local/bin/bun /usr/local/bin/bun"
 )
 
@@ -175,7 +179,7 @@ func nodeNote(stack string, pm pkgManager) string {
 	var n string
 	switch pm.name {
 	case "npm-nolock":
-		n = "No lock file was found, so the Dockerfile runs `npm install`. Builds are not reproducible; commit a `package-lock.json` and switch back to `npm ci`."
+		n = "No lock file was found, so the Dockerfile runs `npm install` and every build installs the newest versions that `package.json` allows: a build can break although the code did not change. Ship the lock file (`package-lock.json`, or `bun.lock`, `pnpm-lock.yaml`, `yarn.lock`) and switch back to `npm ci`, or pin exact versions in `package.json` (`\"3.13.0\"`, not `\"^3.13.0\"`)."
 	case "pnpm":
 		n = "Adapted for pnpm: the Dockerfile runs `pnpm install --frozen-lockfile` (needs `pnpm-lock.yaml` to match `package.json`). Set `\"packageManager\": \"pnpm@x.y.z\"` in `package.json` to pin the version; corepack uses it. If the install stops with `ERR_PNPM_IGNORED_BUILDS`, approve the build scripts locally (`pnpm approve-builds`) and commit the result."
 	case "yarn":
@@ -183,7 +187,7 @@ func nodeNote(stack string, pm pkgManager) string {
 	case "bun":
 		n = "Adapted for bun: the Dockerfile runs `bun install --frozen-lockfile`."
 		if stack == "node" {
-			n += " The image is `oven/bun`, so the start command is `bun run start`."
+			n += " The image is `oven/bun`, so the start command is `bun run start`. Its unprivileged user is `bun`, not `node`: for saved files use `RUN mkdir /data && chown bun:bun /data` before `USER bun`."
 		} else {
 			n += " Node stays in the build stage; bun is copied from the official image."
 		}
@@ -227,6 +231,22 @@ func adaptPython(t *Template, top map[string]bool) {
 	}
 	t.Dockerfile = strings.Replace(t.Dockerfile, pyDefaultBlock, block, 1)
 	t.Readme += "\n- " + note + "\n"
+}
+
+// goBuildLine is the line of the go template that compiles the program.
+const goBuildLine = `RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/app .`
+
+// adaptGo handles a Go project without go.sum: go build refuses to run
+// ("missing go.sum entry"), so the Dockerfile runs go mod tidy first. tidy
+// takes the newest version of a module that go.mod does not list, which is
+// why the note asks for go.sum; GOTOOLCHAIN=auto in the template covers a
+// module that needs a newer Go.
+func adaptGo(t *Template, top map[string]bool) {
+	if !top["go.mod"] || top["go.sum"] {
+		return
+	}
+	t.Dockerfile = replaceLine(t.Dockerfile, goBuildLine, "RUN go mod tidy\n"+goBuildLine)
+	t.Readme += "\n- No `go.sum` was found, so the Dockerfile runs `go mod tidy` before the build. It picks the newest version of every module `go.mod` does not pin, so builds can change by themselves. Run `go mod tidy` on your computer, ship `go.mod` and `go.sum`, and remove the `go mod tidy` line.\n"
 }
 
 // dropLaravelAssets removes the Vite stage for projects without package.json.

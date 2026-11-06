@@ -56,6 +56,21 @@ func TestQueryDB(t *testing.T) {
 	if m["rows_shown"].(float64) != 2 || m["truncated"] != false || m["statements"].(float64) != 1 || len(m["next_steps"].([]any)) == 0 {
 		t.Errorf("data = %v", m)
 	}
+	// The table is in the structured data too (a client may show only that),
+	// and in the text content exactly once.
+	if tbl, _ := m["table"].(string); !strings.Contains(tbl, "name\nmany\nusers") {
+		t.Errorf("structured table = %q", m["table"])
+	}
+	if n := strings.Count(out, "[1] SELECT name FROM sqlite_schema"); n != 1 {
+		t.Errorf("the table is %d times in the text:\n%s", n, out)
+	}
+
+	// One row: the row itself comes back, not only the counts.
+	res = call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "SELECT id, email FROM users WHERE id = 1"})
+	m = structured(t, res)
+	if tbl, _ := m["table"].(string); m["rows_returned"].(float64) != 1 || m["rows_shown"].(float64) != 1 || !strings.Contains(tbl, "id | email\n1 | a@x.nl") || !strings.Contains(text(res), "1 | a@x.nl") {
+		t.Errorf("one row: %v\n%s", m, text(res))
+	}
 
 	// Values on one line, blobs and NULL spelled out.
 	res = call(t, cs, "query_db", map[string]any{"app": "notes-app", "path": "app.db", "sql": "SELECT id, bio, avatar FROM users ORDER BY id"})

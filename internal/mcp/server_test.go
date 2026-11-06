@@ -156,13 +156,12 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 		t.Errorf("domain not substituted:\n%s", init.Instructions)
 	}
 	for _, line := range []string{
-		"1. Every app is built from a Dockerfile. Bitploy refuses to deploy without one.",
 		"9. Never stop, delete or roll back an app the user did not name.",
 		"after 3 failures with the same error code, stop and\n   explain the problem to the user in plain words.",
 	} {
 		_ = line
 	}
-	for _, s := range []string{"Every app is built from a Dockerfile", "wait_seconds=30", "set_git_source with the remote's HTTPS URL", "Never stop, delete or roll back an app the user did not name."} {
+	for _, s := range []string{"A static site needs no Dockerfile", "Every other app is built from a Dockerfile", "wait_seconds=30", "set_git_source with the remote's HTTPS URL", "Never stop, delete or roll back an app the user did not name."} {
 		if !strings.Contains(init.Instructions, s) {
 			t.Errorf("instructions lack %q", s)
 		}
@@ -394,7 +393,7 @@ func TestResourcesAndPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(r.Contents[0].Text, "Runtime contract") || !strings.Contains(r.Contents[0].Text, "Every app is built from a Dockerfile") {
+	if !strings.Contains(r.Contents[0].Text, "Runtime contract") || !strings.Contains(r.Contents[0].Text, "Every other app is built from a Dockerfile") {
 		t.Errorf("rules = %s", r.Contents[0].Text)
 	}
 	r, err = cs.ReadResource(ctx, &sdk.ReadResourceParams{URI: "bitploy://templates/node-spa"})

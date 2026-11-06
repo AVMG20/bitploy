@@ -119,7 +119,8 @@ func TestCancelQueuedDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.State != "cancelled" || d.FinishedAt == nil || d.Error == nil || d.Error.Code != "cancelled" || d.Error.Message != "Cancelled by the user." {
+	// e.user is an API token: the message says so, not "by the user".
+	if d.State != "cancelled" || d.FinishedAt == nil || d.Error == nil || d.Error.Code != "cancelled" || d.Error.Message != "Cancelled through the API." {
 		t.Errorf("deployment = %+v", d)
 	}
 	if len(d.NextSteps) == 0 || strings.Contains(strings.Join(d.NextSteps, " "), "newer deployment") || strings.Contains(strings.ToLower(strings.Join(d.NextSteps, " ")), "fix this") {
@@ -215,12 +216,14 @@ func TestCancelDuringBuild(t *testing.T) {
 				t.Fatal("the fake pipeline does not hold the app")
 			}
 
-			d, err := e.s.CancelDeployment(ctx, e.user, "dep_b")
+			agent := e.user
+			agent.Channel = ChannelMCP
+			d, err := e.s.CancelDeployment(ctx, agent, "dep_b")
 			if err != nil {
 				t.Fatal(err)
 			}
 			<-done
-			if d.State != "cancelled" || d.Error == nil || d.Error.Code != "cancelled" || d.Error.Message != "Cancelled by the user." {
+			if d.State != "cancelled" || d.Error == nil || d.Error.Code != "cancelled" || d.Error.Message != "Cancelled through MCP (an AI agent)." {
 				t.Errorf("answer = %s %+v", d.State, d.Error)
 			}
 			if len(e.s.buildSlots()) != 0 {
@@ -229,7 +232,7 @@ func TestCancelDuringBuild(t *testing.T) {
 			if e.s.appBusy(app.ID) || e.s.activeDeployment("dep_b") {
 				t.Error("the busy flag is stuck")
 			}
-			if st, code, msg := e.depRow(t, "dep_b"); st != "cancelled" || code != "cancelled" || msg != "Cancelled by the user." {
+			if st, code, msg := e.depRow(t, "dep_b"); st != "cancelled" || code != "cancelled" || msg != "Cancelled through MCP (an AI agent)." {
 				t.Errorf("row = %s %s %q", st, code, msg)
 			}
 			// Not a failure.
@@ -384,5 +387,21 @@ func TestCancelConcurrent(t *testing.T) {
 	}
 	if len(e.s.buildSlots()) != 0 || e.s.appBusy(app.ID) {
 		t.Error("slot or busy flag left")
+	}
+}
+
+// The message of a cancelled deployment names where the cancel came from, so
+// an agent that cancelled does not read it as the user stepping in.
+func TestCancelledMessage(t *testing.T) {
+	for ch, want := range map[Channel]string{
+		ChannelDashboard: "Cancelled in the dashboard.",
+		ChannelMCP:       "Cancelled through MCP (an AI agent).",
+		ChannelAPI:       "Cancelled through the API.",
+		ChannelSystem:    "Cancelled.",
+		ChannelGitHub:    "Cancelled.",
+	} {
+		if got := cancelledMessage(Actor{Channel: ch}); got != want {
+			t.Errorf("%s: %q, want %q", ch, got, want)
+		}
 	}
 }

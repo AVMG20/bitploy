@@ -254,6 +254,17 @@ func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []s
 			}
 		}
 		return BuildPlan{}, nothingToBuild(files, len(rootPages(has)) > 0)
+	case BuildModeDockerfile:
+		// A static site needs no Dockerfile in any mode: an agent (MCP and
+		// REST make apps in this mode) that sends plain website files, or a
+		// Vite, React, Astro or other front end that builds to files, gets
+		// bitploy's own static hosting, which is free, instead of an error or
+		// a hand-written nginx image. Anything else still needs a Dockerfile.
+		if !hasDockerfile {
+			if plan, err := PlanBuild(BuildModeAuto, dockerfilePath, homePageChoice, outputDir, files, read); err == nil && IsStaticKind(plan.Kind) {
+				return plan, nil
+			}
+		}
 	}
 	return BuildPlan{Kind: BuildKindDockerfile}, nil
 }

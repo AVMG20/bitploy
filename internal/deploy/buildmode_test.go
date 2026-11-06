@@ -15,7 +15,9 @@ func TestPlanBuild(t *testing.T) {
 		wantCode string
 	}{
 		{"dockerfile mode, Dockerfile", BuildModeDockerfile, []string{"Dockerfile", "index.html"}, BuildKindDockerfile, ""},
-		{"dockerfile mode never switches to static", BuildModeDockerfile, []string{"index.html"}, BuildKindDockerfile, ""},
+		{"dockerfile mode serves a website without a Dockerfile", BuildModeDockerfile, []string{"index.html"}, BuildKindStatic, ""},
+		{"dockerfile mode builds a Dockerfile it has", BuildModeDockerfile, []string{"index.html", "Dockerfile"}, BuildKindDockerfile, ""},
+		{"dockerfile mode still wants a Dockerfile for a server", BuildModeDockerfile, []string{"main.go", "go.mod"}, BuildKindDockerfile, ""},
 		{"empty mode is dockerfile mode", "", []string{"index.html"}, BuildKindDockerfile, ""},
 		{"auto, Dockerfile wins over index.html", BuildModeAuto, []string{"Dockerfile", "index.html"}, BuildKindDockerfile, ""},
 		{"auto, Dockerfile only", BuildModeAuto, []string{"Dockerfile", "app.py"}, BuildKindDockerfile, ""},
@@ -144,7 +146,7 @@ func TestPlanBuildHomePage(t *testing.T) {
 		{"one page, chosen one is gone: the only page", BuildModeAuto, "old.html", []string{"new.html"}, "new.html", ""},
 		{"a choice outside the top folder is ignored", BuildModeAuto, "sub/x.html", []string{"sub/x.html", "a.html", "b.html"}, "", CodeHomePageUnclear},
 		{"a choice that is not a page is ignored", BuildModeAuto, "notes.txt", []string{"notes.txt", "a.html"}, "a.html", ""},
-		{"dockerfile mode ignores pages", BuildModeDockerfile, "a.html", []string{"a.html"}, "", ""},
+		{"dockerfile mode serves the one page too", BuildModeDockerfile, "a.html", []string{"a.html"}, "a.html", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -221,7 +223,8 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 		{"Dockerfile present", BuildModeAuto, append([]string{"Dockerfile"}, site...), vite, BuildKindDockerfile, "", ""},
 		{"index.html with package.json is still not a website", BuildModeAuto, append([]string{"index.html"}, files...), neither, "", "", CodeNothingToBuild},
 		{"go.mod wins over package.json", BuildModeAuto, append([]string{"go.mod"}, files...), start, "", "", CodeNothingToBuild},
-		{"dockerfile mode is unaffected", BuildModeDockerfile, site, vite, BuildKindDockerfile, "", ""},
+		{"dockerfile mode builds a static front end itself", BuildModeDockerfile, site, vite, BuildKindNodeSPA, NodeSPADockerfilePath, ""},
+		{"dockerfile mode keeps a Node server on the Dockerfile path", BuildModeDockerfile, files, start, BuildKindDockerfile, "", ""},
 		{"empty mode is unaffected", "", files, start, BuildKindDockerfile, "", ""},
 		{"static mode is unaffected", BuildModeStatic, files, vite, "", "", "static_index_missing"},
 	}

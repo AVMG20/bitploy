@@ -1,4 +1,6 @@
-FROM node:24-alpine
+FROM node:22-bookworm-slim
+# Debian slim, not Alpine: native modules (better-sqlite3, bcrypt, sharp) install
+# ready-made binaries here instead of compiling from source.
 ENV NODE_ENV=production
 WORKDIR /app
 

@@ -108,6 +108,10 @@ type result struct {
 	Summary string         // one line
 	Data    map[string]any // becomes structuredContent
 	Next    []string       // next_steps
+	// TextKey names a string in Data that is long text meant to be read as
+	// it is (query_db's table). It goes into its own text block after the
+	// summary instead of into the JSON block, so it is in the content once.
+	TextKey string
 }
 
 func toMap(v any) map[string]any {
@@ -137,7 +141,17 @@ func (r *result) toolResult() *mcp.CallToolResult {
 		m["next_steps"] = r.Next
 	}
 	text := []mcp.Content{&mcp.TextContent{Text: apperr.Redact(r.Summary)}}
-	if b, err := json.Marshal(m); err == nil {
+	inJSON := m
+	if body, ok := m[r.TextKey].(string); ok && r.TextKey != "" {
+		text = append(text, &mcp.TextContent{Text: apperr.Redact(body)})
+		inJSON = make(map[string]any, len(m))
+		for k, v := range m {
+			if k != r.TextKey {
+				inJSON[k] = v
+			}
+		}
+	}
+	if b, err := json.Marshal(inJSON); err == nil {
 		// Some clients show only text content to the model, so the data goes there too.
 		text = append(text, &mcp.TextContent{Text: apperr.Redact(string(b))})
 	}

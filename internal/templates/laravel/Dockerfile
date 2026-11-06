@@ -7,7 +7,7 @@ COPY . .
 RUN composer dump-autoload --no-dev --no-scripts --optimize
 
 # Stage 2: Vite assets. No package.json? Delete this stage and the "COPY --from=assets" line below.
-FROM node:24-alpine AS assets
+FROM node:22-bookworm-slim AS assets
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

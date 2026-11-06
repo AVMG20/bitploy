@@ -211,7 +211,7 @@ func TestAppUploadChecksSourceFirst(t *testing.T) {
 		{"auto-app", map[string]string{"site/Index.html": "x", "site/about.html": "x"}, "home_page_unclear"},
 		{"auto-app", map[string]string{"tool.html": "x", "package.json": "{}"}, "nothing_to_build"},
 		{"auto-app", map[string]string{"index.html": "x", "package.json": "{}"}, "nothing_to_build"},
-		{"strict-app", map[string]string{"index.html": "x"}, "dockerfile_missing"},
+		{"strict-app", map[string]string{"main.py": "x", "requirements.txt": ""}, "dockerfile_missing"},
 		{"strict-app", map[string]string{"Dockerfile": "FROM\n"}, ""}, // any error code from the checks
 	}
 	for _, tc := range cases {

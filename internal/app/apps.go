@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"runtime"
@@ -180,9 +181,7 @@ func (s *Service) CreateApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 			return apperr.Internal(err)
 		}
 		if n >= user.QuotaApps {
-			return apperr.Forbidden("apps_quota_exceeded",
-				fmt.Sprintf("You already have %d apps, which is the maximum for your account.", n),
-				"Delete an app you no longer need with delete_app, or ask a bitploy admin to raise your quota.").WithNext("list_apps")
+			return appsQuotaErr(ctx, q, user.ID, n)
 		}
 		if s.Cfg.MaxApps > 0 {
 			total, err := q.CountAllApps(ctx)
@@ -1066,7 +1065,9 @@ func (s *Service) checkStartQuota(ctx context.Context, app db.App) error {
 // source builds into (a static site or an app) is only known once the build is
 // planned, so apps in build mode auto or static are checked by the pipeline
 // (settleResources) before the container starts, not here: a static site must
-// not be refused because the account's allowance is full.
+// not be refused because the account's allowance is full. In build mode
+// dockerfile a source without a Dockerfile can be a static site too; the
+// caller passes the planned kind when it knows it (deploy_files).
 func (s *Service) checkDeployQuota(ctx context.Context, app db.App, rollbackKind string) error {
 	if deploy.IsStaticKind(rollbackKind) || app.BuildMode != deploy.BuildModeDockerfile {
 		return nil
@@ -1228,4 +1229,46 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v.Services, v.Volumes = s.serviceViews(ctx, r)
 	s.projectFields(ctx, &v, r)
 	return v
+}
+
+// maxQuotaApps is how many apps the apps_quota_exceeded message names.
+const maxQuotaApps = 20
+
+// appsQuotaErr is the apps_quota_exceeded error. It lists the user's apps
+// (slug, status, last deploy) in the message and in details.apps, so an agent
+// can ask the user which one to remove without calling list_apps first.
+func appsQuotaErr(ctx context.Context, q *db.Queries, userID string, n int64) *apperr.Error {
+	msg := fmt.Sprintf("You already have %d apps, which is the maximum for your account.", n)
+	rows, err := q.ListAppsByUser(ctx, userID)
+	if err != nil {
+		rows = nil // the list only helps; the refusal stands without it
+	}
+	var list []map[string]any
+	var parts []string
+	for i, r := range rows {
+		item := map[string]any{"slug": r.Slug, "status": r.Status, "last_deployed_at": nil}
+		when := "never deployed"
+		if ds, err := q.ListDeploymentsByApp(ctx, db.ListDeploymentsByAppParams{AppID: r.ID, Seq: math.MaxInt64, Limit: 1}); err == nil && len(ds) > 0 {
+			at := ts(ds[0].QueuedAt)
+			item["last_deployed_at"] = at
+			when = "last deployed " + at.Format("2006-01-02")
+		}
+		list = append(list, item)
+		if i < maxQuotaApps {
+			parts = append(parts, fmt.Sprintf("%s (%s, %s)", r.Slug, r.Status, when))
+		}
+	}
+	if len(parts) > 0 {
+		msg = fmt.Sprintf("You already have %d apps, which is the maximum for your account: %s", n, strings.Join(parts, ", "))
+		if len(rows) > maxQuotaApps {
+			msg += fmt.Sprintf(" and %d more", len(rows)-maxQuotaApps)
+		}
+		msg += "."
+	}
+	e := apperr.Forbidden("apps_quota_exceeded", msg,
+		"Ask the user which of these apps they no longer need and delete only that one with delete_app, or ask a bitploy admin to raise the quota.").WithNext("delete_app")
+	if list != nil {
+		e.WithDetail("apps", list)
+	}
+	return e
 }

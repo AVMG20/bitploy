@@ -63,14 +63,16 @@ func (s *Service) DeployRules(ctx context.Context, a Actor) (string, error) {
 
 const maxDockerfileBytes = 256 << 10
 
-// ValidateDockerfile runs the static checks without building.
-func (s *Service) ValidateDockerfile(ctx context.Context, a Actor, dockerfile string, fileList []string, appPort int) (ValidateResult, error) {
-	return s.validate(dockerfile, fileList, appPort, "web")
+// ValidateDockerfile runs the static checks without building. packageJSON is
+// the text of the code's package.json, or "" when the caller did not send it;
+// with it the checks can warn about native modules on an Alpine image.
+func (s *Service) ValidateDockerfile(ctx context.Context, a Actor, dockerfile string, fileList []string, appPort int, packageJSON string) (ValidateResult, error) {
+	return s.validate(dockerfile, fileList, appPort, "web", packageJSON)
 }
 
 // ValidateDockerfileFor validates against an existing app: its port setting,
 // type (workers skip port checks) and Dockerfile path are used.
-func (s *Service) ValidateDockerfileFor(ctx context.Context, a Actor, ref, dockerfile string, fileList []string) (ValidateResult, error) {
+func (s *Service) ValidateDockerfileFor(ctx context.Context, a Actor, ref, dockerfile string, fileList []string, packageJSON string) (ValidateResult, error) {
 	row, err := s.LoadApp(ctx, a, ref, false)
 	if err != nil {
 		return ValidateResult{}, err
@@ -79,14 +81,19 @@ func (s *Service) ValidateDockerfileFor(ctx context.Context, a Actor, ref, docke
 	if row.Port.Valid {
 		port = int(row.Port.Int64)
 	}
-	return s.validate(dockerfile, fileList, port, row.Type)
+	return s.validate(dockerfile, fileList, port, row.Type, packageJSON)
 }
 
-func (s *Service) validate(dockerfile string, fileList []string, appPort int, appType string) (ValidateResult, error) {
+func (s *Service) validate(dockerfile string, fileList []string, appPort int, appType, packageJSON string) (ValidateResult, error) {
 	if len(dockerfile) > maxDockerfileBytes {
 		return ValidateResult{}, apperr.BadRequest("dockerfile_too_large",
 			"The Dockerfile is larger than 256 KB, which is far more than a Dockerfile needs.",
 			"Send only the Dockerfile text, not other files.")
+	}
+	if len(packageJSON) > maxDockerfileBytes {
+		return ValidateResult{}, apperr.BadRequest("package_json_too_large",
+			"The package.json is larger than 256 KB.",
+			"Send only the text of package.json, or leave package_json out.")
 	}
 	if len(fileList) > 20000 {
 		fileList = fileList[:20000]
@@ -99,6 +106,9 @@ func (s *Service) validate(dockerfile string, fileList []string, appPort int, ap
 	}
 	if strings.TrimSpace(dockerfile) != "" {
 		in.Dockerfile = []byte(dockerfile)
+	}
+	if strings.TrimSpace(packageJSON) != "" {
+		in.PackageJSON = []byte(packageJSON)
 	}
 	res := deploy.CheckDockerfile(in)
 	out := ValidateResult{

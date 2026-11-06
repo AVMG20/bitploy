@@ -613,7 +613,7 @@ func TestDeployFilesErrors(t *testing.T) {
 	ctx := context.Background()
 	app := e.mustApp(t, CreateAppInput{})
 	tests := map[string][]FileInput{
-		"dockerfile_missing":    {{Path: "index.html", Content: "hi"}},
+		"dockerfile_missing":    {{Path: "main.py", Content: "print(1)"}, {Path: "requirements.txt", Content: ""}},
 		"files_empty":           nil,
 		"files_invalid_path":    {{Path: "../x", Content: "x"}},
 		"files_invalid_content": {{Path: "a", Content: "!!", Encoding: "base64"}},
@@ -632,7 +632,7 @@ func TestDeployFilesErrors(t *testing.T) {
 		t.Errorf("failed validation must not queue a deployment, got %d", n)
 	}
 	// dockerfile_missing carries the template for the detected stack.
-	_, err := e.s.DeployFiles(ctx, e.user, app.Slug, []FileInput{{Path: "index.html", Content: "hi"}})
+	_, err := e.s.DeployFiles(ctx, e.user, app.Slug, []FileInput{{Path: "main.py", Content: "print(1)"}, {Path: "requirements.txt", Content: ""}})
 	var ae *apperr.Error
 	if !errors.As(err, &ae) || ae.Hint == "" || ae.Next == "" {
 		t.Errorf("dockerfile_missing needs a hint and next tool: %+v", ae)

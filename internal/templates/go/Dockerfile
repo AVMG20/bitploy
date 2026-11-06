@@ -1,5 +1,8 @@
 # Stage 1: compile a static binary.
 FROM golang:1.26-alpine AS build
+# A module that needs a newer Go than this image makes Go download that version
+# instead of failing with "requires go >= ...".
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download

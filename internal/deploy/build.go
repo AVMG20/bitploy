@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -120,8 +121,6 @@ func RunBuild(ctx context.Context, b BuildSpec, onLine func(string)) error {
 	return nil
 }
 
-// BuildFailureSummary picks the most useful single line from a failed build's
-// output: the last line that looks like an error, else the last line.
 // BuildOutOfMemory reports whether a failed build's log shows that it ran out
 // of memory: BuildKit's ResourceExhausted, ENOMEM, or a step killed with 137.
 func BuildOutOfMemory(lines []string) bool {
@@ -138,6 +137,8 @@ func BuildOutOfMemory(lines []string) bool {
 // MemoryLimit is the builder's memory limit as configured, such as "6g".
 func (b *Builder) MemoryLimit() string { return b.memory() }
 
+// BuildFailureSummary picks the most useful single line from a failed build's
+// output: the last line that looks like an error, else the last line.
 func BuildFailureSummary(lines []string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := strings.TrimSpace(lines[i])
@@ -148,6 +149,36 @@ func BuildFailureSummary(lines []string) string {
 	}
 	if len(lines) > 0 {
 		return strings.TrimSpace(lines[len(lines)-1])
+	}
+	return ""
+}
+
+var goRequiresRe = regexp.MustCompile(`requires go >= ?(\d+)\.(\d+)`)
+
+// BuildFailureHint names the fix for build failures agents keep running into,
+// in plain words, or returns "" when the log shows none of them. Each hint is
+// one line under 300 characters, so get_deployment shows it as the fix.
+func BuildFailureHint(lines []string) string {
+	for _, l := range lines {
+		low := strings.ToLower(l)
+		switch {
+		case strings.Contains(low, "requires go >="):
+			// go mod tidy or a dependency asks for a newer Go than the image has,
+			// and the golang images set GOTOOLCHAIN=local, so Go stops.
+			need, tag := "a newer Go", "the golang: tag"
+			if m := goRequiresRe.FindStringSubmatch(low); m != nil {
+				v := m[1] + "." + m[2]
+				need, tag = "Go "+v+" or newer", "the tag (FROM golang:"+v+"-alpine or newer)"
+			}
+			return fmt.Sprintf("A Go module needs %s and the golang: image in the Dockerfile is older. Raise %s or add ENV GOTOOLCHAIN=auto to the build stage, and pin versions in go.mod with go.sum instead of running go mod tidy in the Dockerfile.", need, tag)
+		case strings.Contains(low, "gyp err!") || strings.Contains(low, "node-gyp") || strings.Contains(low, "prebuild-install"):
+			// A native module without a ready-made binary for the image. On
+			// Alpine that is common, and installing compilers there is slow.
+			return "A native Node module (better-sqlite3, bcrypt, sharp...) had no ready-made binary for this image and could not be compiled. Use FROM node:22-bookworm-slim instead of an -alpine image in every stage that installs packages; do not add compilers with apk add."
+		case strings.Contains(low, "node:node") && (strings.Contains(low, "invalid user") || strings.Contains(low, "unknown user")),
+			strings.Contains(low, "unable to find user node"):
+			return "The image has no user named node. On an oven/bun image the unprivileged user is bun: write USER bun and chown bun:bun instead of node."
+		}
 	}
 	return ""
 }

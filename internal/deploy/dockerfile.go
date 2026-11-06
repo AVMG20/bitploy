@@ -6,6 +6,7 @@ package deploy
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -44,6 +45,8 @@ const (
 	CodeDatabaseInImage   = "database_server_in_image"
 	CodeLockfileMismatch  = "lockfile_mismatch"
 	CodeCacheMount        = "cache_mount_forbidden"
+	CodeNoLockfile        = "no_lockfile"
+	CodeNativeOnAlpine    = "native_module_on_alpine"
 )
 
 // ReservedPort is Traefik's internal entrypoint. firewall.sh drops connections
@@ -78,6 +81,7 @@ type CheckInput struct {
 	DockerfilePath string   // as configured on the app, for messages
 	Files          []string // relative slash paths in the build context (may be empty if unknown)
 	Dockerignore   []byte   // nil when there is no .dockerignore
+	PackageJSON    []byte   // package.json of the build context; nil when unknown or absent
 	AppPort        int      // 0 when the app has no port setting
 	AppType        string   // web | worker
 }
@@ -253,6 +257,11 @@ func CheckDockerfile(in CheckInput) CheckResult {
 		add(f)
 	}
 
+	// Native Node modules installed on Alpine.
+	if f, ok := g.nativeOnAlpine(in.PackageJSON); ok {
+		add(f)
+	}
+
 	// Files in the build context.
 	if len(in.Files) > 0 {
 		files := make([]string, 0, len(in.Files))
@@ -263,6 +272,9 @@ func CheckDockerfile(in CheckInput) CheckResult {
 			add(f)
 		}
 		if f, ok := g.lockfileMismatch(files); ok {
+			add(f)
+		}
+		if f, ok := g.noLockfile(files); ok {
 			add(f)
 		}
 		ignored := newIgnorer(in.Dockerignore)
@@ -306,7 +318,7 @@ func noFromFinding(path string, empty bool) Finding {
 		Code:     CodeNoFrom,
 		Severity: sevError,
 		Message:  msg,
-		Hint:     "Start the file with a FROM line that names a base image with a version, for example `FROM node:24-alpine`. Call get_template for a complete example.",
+		Hint:     "Start the file with a FROM line that names a base image with a version, for example `FROM node:22-bookworm-slim`. Call get_template for a complete example.",
 	}
 }
 
@@ -567,7 +579,7 @@ func (g *graph) unpinned(i int) (Finding, bool) {
 			Severity: sevWarning,
 			Line:     line,
 			Message:  fmt.Sprintf("The base image %q has no version tag, so it means :latest and can change under you.", name),
-			Hint:     fmt.Sprintf("Write a version, for example `FROM %s:<version>` (such as node:24-alpine or python:3.14-slim).", name),
+			Hint:     fmt.Sprintf("Write a version, for example `FROM %s:<version>` (such as node:22-bookworm-slim or python:3.14-slim).", name),
 		}, true
 	case "latest":
 		return Finding{
@@ -897,7 +909,7 @@ func (g *graph) forbiddenImages() []Finding {
 			Severity: sevError,
 			Line:     line,
 			Message:  fmt.Sprintf("The Dockerfile uses the image %q, which is an app image built by bitploy. Apps cannot use each other's images.", ref),
-			Hint:     "Start from a public image instead, such as node:24-alpine, python:3.14-slim or nginx:1.29-alpine, and copy your own files into it. Remove every FROM, COPY --from and RUN --mount from= that names bitploy/....",
+			Hint:     "Start from a public image instead, such as node:22-bookworm-slim, python:3.14-slim or nginx:1.29-alpine, and copy your own files into it. Remove every FROM, COPY --from and RUN --mount from= that names bitploy/....",
 		})
 	}
 	check := func(raw string, vars map[string]string, line int) {
@@ -1121,9 +1133,9 @@ func (g *graph) lockfileMismatch(files []string) (Finding, bool) {
 	case top["yarn.lock"]:
 		lock, hint = "yarn.lock", "Use `RUN corepack enable && yarn install --frozen-lockfile` and `COPY package.json yarn.lock ./`."
 	case top["bun.lock"]:
-		lock, hint = "bun.lock", "Use an oven/bun base image with `bun install --frozen-lockfile`."
+		lock, hint = "bun.lock", "Use an oven/bun base image with `bun install --frozen-lockfile` (its user is bun, not node: `USER bun`)."
 	case top["bun.lockb"]:
-		lock, hint = "bun.lockb", "Use an oven/bun base image with `bun install --frozen-lockfile`."
+		lock, hint = "bun.lockb", "Use an oven/bun base image with `bun install --frozen-lockfile` (its user is bun, not node: `USER bun`)."
 	default:
 		return Finding{}, false
 	}
@@ -1134,4 +1146,141 @@ func (g *graph) lockfileMismatch(files []string) (Finding, bool) {
 		Message:  fmt.Sprintf("The Dockerfile runs npm ci, but your code has %s and no package-lock.json, so npm ci will fail.", lock),
 		Hint:     hint + " Or call get_template with file_list so the Dockerfile matches your code.",
 	}, true
+}
+
+// jsLockFiles are the lock files of npm, pnpm, yarn and bun.
+var jsLockFiles = []string{"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"}
+
+// jsInstall is the package manager a shell command installs JavaScript
+// packages with ("npm", "pnpm", "yarn" or "bun"), or "".
+func jsInstall(seg string) string {
+	toks := strings.Fields(seg)
+	for i, t := range toks {
+		next := ""
+		if i+1 < len(toks) {
+			next = toks[i+1]
+		}
+		switch path.Base(t) {
+		case "npm":
+			// `npm install -g pnpm` installs a tool, not the project's packages.
+			if (next == "ci" || next == "install" || next == "i") && !containsString(toks, "-g") && !containsString(toks, "--global") {
+				return "npm"
+			}
+		case "pnpm", "bun":
+			if next == "install" || next == "i" {
+				return path.Base(t)
+			}
+		case "yarn":
+			// A bare `yarn` installs too.
+			if next == "" || next == "install" || strings.HasPrefix(next, "-") {
+				return "yarn"
+			}
+		}
+	}
+	return ""
+}
+
+// jsInstallLine is the first RUN line of stage i that installs JavaScript
+// packages, with the package manager it uses.
+func (g *graph) jsInstallLine(i int) (line int, pm string) {
+	for _, c := range g.stages[i].Commands {
+		run, ok := c.(*instructions.RunCommand)
+		if !ok {
+			continue
+		}
+		for _, seg := range shellSplit.Split(runText(run), -1) {
+			if pm := jsInstall(seg); pm != "" {
+				return firstLine(run.Location()), pm
+			}
+		}
+	}
+	return 0, ""
+}
+
+// noLockfile flags a JavaScript project that installs its packages without a
+// lock file. The versions in package.json are ranges (^3.13.0), so every
+// build installs whatever is newest at that moment: an agent saw a Nuxt app
+// break on a new release although its code had not changed.
+func (g *graph) noLockfile(files []string) (Finding, bool) {
+	top := map[string]bool{}
+	for _, f := range files {
+		if !strings.Contains(f, "/") {
+			top[f] = true
+		}
+	}
+	if !top["package.json"] {
+		return Finding{}, false
+	}
+	for _, l := range jsLockFiles {
+		if top[l] {
+			return Finding{}, false
+		}
+	}
+	line, pm := 0, ""
+	for i := range g.stages {
+		if line, pm = g.jsInstallLine(i); pm != "" {
+			break
+		}
+	}
+	if pm == "" {
+		return Finding{}, false // nothing is installed during the build
+	}
+	msg := "Your code has package.json but no lock file (package-lock.json, bun.lock, pnpm-lock.yaml or yarn.lock), so every build installs the newest versions package.json allows: a build can break although your code did not change."
+	if _, ci := g.runsNpmCi(); ci {
+		msg += " npm ci also fails without package-lock.json."
+	}
+	hint := "Ship the lock file: run the install once on your computer (npm install, bun install, pnpm install or yarn) and send the file it writes with the code. Or pin exact versions in package.json (\"3.13.0\", not \"^3.13.0\")."
+	if pm == "bun" {
+		hint += " With bun: send bun.lock and use `bun install --frozen-lockfile`. The oven/bun image's user is bun, not node (`USER bun`, `chown bun:bun /data`)."
+	}
+	return Finding{Code: CodeNoLockfile, Severity: sevWarning, Line: line, Message: msg, Hint: hint}, true
+}
+
+// nativeModules are npm packages with compiled code. Their ready-made
+// binaries are built for Debian (glibc) first; on Alpine (musl) npm often has
+// to compile them, which needs python3, make and g++ and can take many
+// minutes or fail.
+var nativeModules = []string{"better-sqlite3", "sqlite3", "bcrypt", "argon2", "sharp", "canvas", "node-pty", "re2"}
+
+// nativeOnAlpine flags native modules in package.json when a stage that
+// installs packages builds on an Alpine image. Only the deploy pipeline (and
+// validate_dockerfile when the caller passes package.json) knows the file.
+func (g *graph) nativeOnAlpine(pkgJSON []byte) (Finding, bool) {
+	if len(pkgJSON) == 0 {
+		return Finding{}, false
+	}
+	var pkg struct {
+		Dependencies         map[string]any `json:"dependencies"`
+		DevDependencies      map[string]any `json:"devDependencies"`
+		OptionalDependencies map[string]any `json:"optionalDependencies"`
+	}
+	if json.Unmarshal(pkgJSON, &pkg) != nil {
+		return Finding{}, false
+	}
+	var found []string
+	for _, m := range nativeModules {
+		if pkg.Dependencies[m] != nil || pkg.DevDependencies[m] != nil || pkg.OptionalDependencies[m] != nil {
+			found = append(found, m)
+		}
+	}
+	if len(found) == 0 {
+		return Finding{}, false
+	}
+	for i := range g.stages {
+		if _, pm := g.jsInstallLine(i); pm == "" {
+			continue
+		}
+		base, ok := g.externalBase(i)
+		if !ok || !strings.Contains(strings.ToLower(base), "alpine") {
+			continue
+		}
+		return Finding{
+			Code:     CodeNativeOnAlpine,
+			Severity: sevWarning,
+			Line:     stageLine(g.stages[i]),
+			Message:  fmt.Sprintf("package.json uses %s, which has compiled code, and the Dockerfile installs it on %s. Alpine often has no ready-made build of it, so it is compiled from source: that needs python3, make and g++ and can take many minutes or fail.", strings.Join(found, ", "), base),
+			Hint:     "Use a Debian image in every stage that installs packages, for example `FROM node:22-bookworm-slim` (the node templates of get_template use it). Do not add compilers with apk add.",
+		}, true
+	}
+	return Finding{}, false
 }

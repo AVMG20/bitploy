@@ -524,7 +524,7 @@ func failureSteps(d app.Deployment) []string {
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")
 	case "build_failed":
-		out = append(out, "Read log_tail: the first error line is the cause (a missing file, a wrong package name, a missing package-lock.json for npm ci). node-gyp or better-sqlite3 errors on Alpine: RUN apk add --no-cache python3 make g++ before npm ci. Prisma on Alpine: RUN apk add --no-cache openssl. Fix it, then "+redo+".")
+		out = append(out, "Read log_tail: the first error line is the cause (a missing file, a wrong package name, a missing package-lock.json for npm ci). node-gyp, better-sqlite3, bcrypt or sharp errors: use FROM node:22-bookworm-slim instead of an -alpine image, not apk add. Prisma on Alpine: RUN apk add --no-cache openssl. Fix it, then "+redo+".")
 	case "start_failed":
 		out = append(out, "Check the Dockerfile's CMD/ENTRYPOINT, then "+redo+". If the message says it is a server problem, tell the user to contact the bitploy admin.")
 	case "unhealthy", "out_of_memory", "app_crashed":

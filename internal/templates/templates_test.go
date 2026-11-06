@@ -197,14 +197,14 @@ func TestForFilesNodeDetails(t *testing.T) {
 
 	// bun: the node stack runs on the bun image; build stages keep node.
 	tpl, _ = ForFiles("node", []string{"package.json", "bun.lock"})
-	for _, w := range []string{"FROM oven/bun:1-alpine", "USER bun", `CMD ["bun", "run", "start"]`} {
+	for _, w := range []string{"FROM oven/bun:1-slim", "USER bun", `CMD ["bun", "run", "start"]`} {
 		if !strings.Contains(tpl.Dockerfile, w) {
 			t.Errorf("node + bun: missing %q in\n%s", w, tpl.Dockerfile)
 		}
 	}
 	for _, stack := range []string{"node-spa", "node-static", "nextjs"} {
 		tpl, _ = ForFiles(stack, []string{"package.json", "bun.lock"})
-		if !strings.Contains(tpl.Dockerfile, "FROM node:24-alpine AS build\nCOPY --from=oven/bun:1-alpine") ||
+		if !strings.Contains(tpl.Dockerfile, "FROM node:22-bookworm-slim AS build\nCOPY --from=oven/bun:1-slim") ||
 			!strings.Contains(tpl.Dockerfile, "RUN bun run build") {
 			t.Errorf("%s + bun:\n%s", stack, tpl.Dockerfile)
 		}
@@ -286,5 +286,55 @@ func TestForFilesOtherStacksUnchanged(t *testing.T) {
 	}
 	if _, ok := ForFiles("ruby", []string{"Gemfile"}); ok {
 		t.Error("ruby should be unknown")
+	}
+}
+
+// Native modules such as better-sqlite3 have ready-made binaries for Debian
+// (glibc) but often not for Alpine, where npm compiles them from source. Every
+// Node stage of every template, and the bun binary copied into one, is Debian.
+func TestNodeStagesAreDebian(t *testing.T) {
+	for _, stack := range append([]string{"laravel"}, nodeStacks...) {
+		for _, files := range [][]string{nil, {"package.json", "bun.lock"}, {"package.json", "pnpm-lock.yaml"}} {
+			tpl, _ := ForFiles(stack, files)
+			for _, l := range strings.Split(tpl.Dockerfile, "\n") {
+				if (strings.HasPrefix(l, "FROM node:") || strings.Contains(l, "oven/bun")) && strings.Contains(l, "alpine") {
+					t.Errorf("%s %v: %s", stack, files, l)
+				}
+			}
+			if !strings.Contains(tpl.Dockerfile, "FROM node:22-bookworm-slim") && !strings.Contains(tpl.Dockerfile, "FROM oven/bun:1-slim") {
+				t.Errorf("%s %v: no Debian Node image:\n%s", stack, files, tpl.Dockerfile)
+			}
+		}
+	}
+	node, _ := Get("node")
+	if !strings.Contains(node.Readme, "better-sqlite3") || !strings.Contains(node.Readme, "-alpine") {
+		t.Errorf("node notes do not explain the image:\n%s", node.Readme)
+	}
+	bun, _ := ForFiles("node", []string{"package.json", "bun.lock"})
+	if !strings.Contains(bun.Readme, "chown bun:bun /data") {
+		t.Errorf("bun notes do not name the bun user:\n%s", bun.Readme)
+	}
+	nolock, _ := ForFiles("nextjs", []string{"package.json"})
+	if !strings.Contains(nolock.Readme, "pin exact versions") {
+		t.Errorf("no lock file notes:\n%s", nolock.Readme)
+	}
+}
+
+func TestForFilesGo(t *testing.T) {
+	base, _ := Get("go")
+	if !strings.Contains(base.Dockerfile, "ENV GOTOOLCHAIN=auto\n") {
+		t.Errorf("go template must let Go download a newer toolchain:\n%s", base.Dockerfile)
+	}
+	if got, _ := ForFiles("go", []string{"go.mod", "go.sum", "main.go"}); got != base {
+		t.Error("go with go.sum should equal Get")
+	}
+	tpl, _ := ForFiles("go", []string{"go.mod", "main.go"})
+	parses(t, "go without go.sum", tpl.Dockerfile)
+	tidy, build := strings.Index(tpl.Dockerfile, "RUN go mod tidy\n"), strings.Index(tpl.Dockerfile, "go build")
+	if copyAll := strings.Index(tpl.Dockerfile, "COPY . ."); tidy < 0 || tidy < copyAll || build < tidy {
+		t.Errorf("go mod tidy must run after COPY . . and before the build:\n%s", tpl.Dockerfile)
+	}
+	if !strings.Contains(tpl.Readme, "No `go.sum`") {
+		t.Errorf("notes:\n%s", tpl.Readme)
 	}
 }

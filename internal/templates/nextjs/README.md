@@ -4,7 +4,8 @@ For a Next.js app that runs its own server (App Router, API routes, server compo
 For a Next.js site exported to plain files (`output: "export"`) use `node-static` instead.
 
 - Add `output: "standalone"` to `next.config.js` or `next.config.ts`. Without it the build has no `.next/standalone` folder and the image fails.
-- `package-lock.json` must exist (the build runs `npm ci`; without a lock file the adapted template uses `npm install`).
+- `package-lock.json` must exist (the build runs `npm ci`; without a lock file the adapted template uses `npm install`, and every build installs the newest versions `package.json` allows, so ship the lock file).
+- The image is Debian slim (`node:22-bookworm-slim`) so native modules (better-sqlite3, sharp) install ready-made binaries. Do not switch to an `-alpine` image.
 - The server listens on `0.0.0.0` and `PORT` (3000) by itself. `node server.js` is the start command; `next start` is not used.
 - Environment variables used while the server runs: `set_env`, then `restart_app`. `NEXT_PUBLIC_*` values are baked in during the build and are public; add them as `ENV` lines before `RUN npm run build`, never put secrets there.
 - Keeping files (SQLite, uploads): turn on the volume, write only to `/data`, and add `RUN mkdir /data && chown node:node /data` before `USER node`.

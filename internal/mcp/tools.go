@@ -42,9 +42,10 @@ type templateIn struct {
 }
 
 type validateIn struct {
-	Dockerfile string   `json:"dockerfile" jsonschema:"The full text of the Dockerfile (not a path). An empty string when the code has none returns the template to use."`
-	FileList   []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the code folder, relative with forward slashes, like [\"package.json\",\"src/index.js\",\".env\"]. Lets bitploy name the right stack and warn about .env files and a missing .dockerignore."`
-	App        string   `json:"app,omitempty" jsonschema:"Optional app slug. Uses that app's port setting and skips port checks for a worker."`
+	Dockerfile  string   `json:"dockerfile" jsonschema:"The full text of the Dockerfile (not a path). An empty string when the code has none returns the template to use."`
+	FileList    []string `json:"file_list,omitempty" jsonschema:"Paths of all files in the code folder, relative with forward slashes, like [\"package.json\",\"src/index.js\",\".env\"]. Lets bitploy name the right stack and warn about .env files and a missing .dockerignore."`
+	App         string   `json:"app,omitempty" jsonschema:"Optional app slug. Uses that app's port setting and skips port checks for a worker."`
+	PackageJSON string   `json:"package_json,omitempty" jsonschema:"Optional: the text of package.json when the code has one. Lets bitploy warn about native modules (better-sqlite3, bcrypt, sharp) on an Alpine image."`
 }
 
 type createAppIn struct {
@@ -289,21 +290,21 @@ func (s *srv) registerTools() {
 				Next: []string{
 					"Save dockerfile as Dockerfile and dockerignore as .dockerignore in the top folder of the code; read notes for what to change.",
 					"Adapt it: the start command (CMD), and make the app listen on 0.0.0.0 at the EXPOSE port ($PORT), never on localhost. A bot or other app without a web port: use create_app with type=worker.",
-					"Call validate_dockerfile with the Dockerfile text and the list of files.",
+					"Call validate_dockerfile with the Dockerfile text and the list of files (and package_json, the text of package.json, for a Node project).",
 				},
 			}, nil
 		})
 
 	addTool(s, "validate_dockerfile", "Validate a Dockerfile",
-		"Checks a Dockerfile without building. Call it before every deploy and fix every finding with severity error. Pass the Dockerfile text and file_list (all file paths) so it can name the stack and warn about .env files. Returns ok, the detected port and findings (code, severity, message, hint, line). If ok is true, send the code next.",
+		"Checks a Dockerfile without building. Call it before every deploy and fix every finding with severity error. Pass the Dockerfile text and file_list (all file paths) so it can name the stack and warn about .env files and a missing lock file; for a Node project also package_json (its text). Returns ok, the detected port and findings (code, severity, message, hint, line). If ok is true, send the code next.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in validateIn) (*result, error) {
 			var res app.ValidateResult
 			var err error
 			if strings.TrimSpace(in.App) != "" {
-				res, err = svc.ValidateDockerfileFor(ctx, a, in.App, in.Dockerfile, in.FileList)
+				res, err = svc.ValidateDockerfileFor(ctx, a, in.App, in.Dockerfile, in.FileList, in.PackageJSON)
 			} else {
-				res, err = svc.ValidateDockerfile(ctx, a, in.Dockerfile, in.FileList, 0)
+				res, err = svc.ValidateDockerfile(ctx, a, in.Dockerfile, in.FileList, 0, in.PackageJSON)
 			}
 			if err != nil {
 				return nil, err
@@ -432,7 +433,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "deploy_files", "Deploy files",
-		"Publishes the code from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile? You get the template back as an error. A compose app (build_mode=compose) needs the compose file and every Dockerfile it builds; with only image: services the compose file alone is enough. An app linked to a git repository refuses this with git_source_linked: push to the repository instead.",
+		"Publishes the code from inline files and returns at once (then poll get_deployment). This is a FULL SNAPSHOT, not a patch: send every file every time, including Dockerfile and .dockerignore; the previous source is replaced. Use it for first deploys and for later updates (same app, same URL). Which app: the one in the .bitploy file; no .bitploy means create_app first (never pick an app by similar name). At most 200 files and 2 MB; bigger: create_upload. Never send node_modules, .git, .env or .bitploy. No Dockerfile: a static site (plain HTML, or a Vite/React/Vue/Astro front end that builds to files) is built and served by bitploy for free; anything else gets the template back as an error. A compose app (build_mode=compose) needs the compose file and every Dockerfile it builds; with only image: services the compose file alone is enough. An app linked to a git repository refuses this with git_source_linked: push to the repository instead.",
 		write(), true,
 		nil,
 		func(ctx context.Context, a app.Actor, in deployFilesIn) (*result, error) {
@@ -1047,11 +1048,15 @@ func (s *srv) registerTools() {
 			if in.Write {
 				next = append(next, "Tell the user what you changed. create_backup before the next risky change.")
 			}
+			// The table is part of the data, not only of the summary: some
+			// clients hand the model only structuredContent when a tool has
+			// it, and then saw rows_shown=1 without the row.
 			return &result{
-				Summary: fmt.Sprintf("Ran %d statement(s) on %s in %s (%s); %d row(s) shown of %d.\n%s", len(r.Results), in.Path, in.App, mode, shown, total, text),
+				Summary: fmt.Sprintf("Ran %d statement(s) on %s in %s (%s); %d row(s) shown of %d.", len(r.Results), in.Path, in.App, mode, shown, total),
 				Data: data("statements", len(r.Results), "rows_shown", shown, "rows_returned", total, "rows_affected", affected,
-					"truncated", cut, "took_ms", r.TookMS),
-				Next: next,
+					"truncated", cut, "took_ms", r.TookMS, "table", text),
+				Next:    next,
+				TextKey: "table",
 			}, nil
 		})
 }

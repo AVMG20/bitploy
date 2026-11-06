@@ -555,8 +555,11 @@ func (p *pipeline) buildFailed(ctx context.Context, err error, bld *deploy.Build
 	if summary != "" {
 		msg = "The build failed: " + summary
 	}
-	return apperr.Unprocessable("build_failed", msg,
-		"Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again.")
+	hint := deploy.BuildFailureHint(p.failTail)
+	if hint == "" {
+		hint = "Read log_tail for the failing step, fix the Dockerfile or the code, then deploy again."
+	}
+	return apperr.Unprocessable("build_failed", msg, hint)
 }
 
 // resolveImagePort picks the port of a web app that had none before the build
@@ -1315,9 +1318,9 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 			// cancel_deployment: the live version stays, the app settles, and it is
 			// audited. Not a failure: no error hint, no failure audit row.
 			_ = s.Q.FinishCancelledDeployment(bg, db.FinishCancelledDeploymentParams{
-				ErrorMessage: nullStr(cancelledMessage), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+				ErrorMessage: nullStr(cancelledMessage(who)), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
 			})
-			p.logf("Cancelled by the user.")
+			p.logf("%s", cancelledMessage(who))
 			s.settleStatusAfterCancel(bg, p.app.ID)
 			s.auditCancel(bg, who, p.app.Slug, p.dep.ID, p.dep.Seq, p.dep.State)
 			s.metricsMgr().MeasureSoon() // the image of the build is gone

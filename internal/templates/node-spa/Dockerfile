@@ -1,5 +1,5 @@
 # Stage 1: build the site with Node.
-FROM node:24-alpine AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

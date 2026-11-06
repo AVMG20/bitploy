@@ -77,8 +77,14 @@ func (s *Service) deployFiles(ctx context.Context, a Actor, ref string, files []
 	if ae != nil {
 		return Deployment{}, ae
 	}
+	// What the files build into, for the early quota check: a static site is free.
+	planned := ""
+	if plan, perr := deploy.PlanBuild(row.BuildMode, row.DockerfilePath, row.HomePage, row.OutputDir, paths, func(p string) []byte { return byPath[path.Clean(p)] }); perr == nil {
+		planned = plan.Kind
+	}
 	return s.queueDeployment(ctx, a, row, queueSpec{
 		kind:           "files",
+		plannedKind:    planned,
 		port:           portOf(res.Port),
 		hasHC:          res.HasHealthcheck,
 		warnings:       res.Findings,
@@ -538,6 +544,7 @@ type queueSpec struct {
 	warnings     []deploy.Finding
 	warningsJSON sql.NullString
 	buildKind    string                   // a rollback has the kind of the deployment it returns to; others get theirs when validated
+	plannedKind  string                   // files whose build was planned already: only for the early quota check
 	prepare      func(depID string) error // writes the source snapshot before the row exists
 	inTx         func(q *db.Queries) error
 	// catalogVersion is the catalog version this deployment builds ("" when
@@ -587,7 +594,11 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 			return Deployment{}, err
 		}
 	}
-	if err := s.checkDeployQuota(ctx, app, qs.buildKind); err != nil { // first deploy of an app, or a stopped one
+	kind := qs.buildKind
+	if kind == "" {
+		kind = qs.plannedKind
+	}
+	if err := s.checkDeployQuota(ctx, app, kind); err != nil { // first deploy of an app, or a stopped one
 		return Deployment{}, err
 	}
 	depID := ids.New(ids.Deployment)
@@ -903,8 +914,10 @@ func buildCheckInput(app db.App, allFiles []string, read func(rel string) []byte
 	}
 	if ctxDir == "." {
 		in.Dockerignore = read(".dockerignore")
+		in.PackageJSON = read("package.json")
 	} else {
 		in.Dockerignore = read(ctxDir + "/.dockerignore")
+		in.PackageJSON = read(ctxDir + "/package.json")
 	}
 	if app.Port.Valid {
 		in.AppPort = int(app.Port.Int64)
@@ -1047,8 +1060,20 @@ func (s *Service) checkZipSource(ctx context.Context, row db.App, zipPath string
 
 // ---- cancel ----
 
-// cancelledMessage is the error_message of a deployment its user cancelled.
-const cancelledMessage = "Cancelled by the user."
+// cancelledMessage is the error_message of a cancelled deployment. It names
+// where the cancel came from: an agent reading "by the user" after its own
+// cancel_deployment call would think the user stepped in.
+func cancelledMessage(a Actor) string {
+	switch a.Channel {
+	case ChannelDashboard:
+		return "Cancelled in the dashboard."
+	case ChannelMCP:
+		return "Cancelled through MCP (an AI agent)."
+	case ChannelAPI:
+		return "Cancelled through the API."
+	}
+	return "Cancelled."
+}
 
 // CancelDeployment cancels a deployment of the actor's own app.
 //
@@ -1090,7 +1115,7 @@ func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Dep
 		switch d.State {
 		case "queued":
 			n, err := s.Q.CancelQueuedDeployment(ctx, db.CancelQueuedDeploymentParams{
-				ErrorMessage: nullStr(cancelledMessage), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: id,
+				ErrorMessage: nullStr(cancelledMessage(a)), FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: id,
 			})
 			if err != nil {
 				return Deployment{}, apperr.Internal(err)
