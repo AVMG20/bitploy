@@ -70,6 +70,8 @@ type App struct {
 	Alias               string
 	Template            string
 	TemplateVersion     string
+	BackupScheduleSet   int64
+	BackupDefaultAt     int64
 }
 
 type AppBackup struct {

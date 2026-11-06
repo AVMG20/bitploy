@@ -328,10 +328,11 @@ func (s *Service) uploadLimit(ctx context.Context, row db.App, owner db.User) (l
 }
 
 func (s *Service) backupSettings(ctx context.Context, row db.App) BackupSettings {
-	st := BackupSettings{Schedule: row.BackupSchedule, KeepMode: row.BackupKeepMode, Keep: row.BackupKeep}
+	minute := backupMinute(row.ID)
+	st := BackupSettings{Schedule: row.BackupSchedule, KeepMode: row.BackupKeepMode, Keep: row.BackupKeep, TimeUTC: backupClock(minute)}
 	if row.BackupSchedule != "off" {
 		last, _ := s.Q.LatestScheduledBackupAt(ctx, row.ID)
-		next := nextBackupAt(row.BackupSchedule, last, s.Now())
+		next := nextBackupAt(row.BackupSchedule, minute, backupSince(row, last), s.Now())
 		st.NextAt = &next
 	}
 	return st
@@ -368,13 +369,20 @@ func (s *Service) UpdateBackupSettings(ctx context.Context, a Actor, ref string,
 		}
 		return BackupSettings{}, apperr.BadRequest("backup_keep_invalid", fmt.Sprintf("%d is not a valid number to keep.", keep), fmt.Sprintf("Use a number from 1 to %d.", max))
 	}
+	// A schedule bitploy turned on by itself keeps waiting for its first
+	// backup time when only the retention changes; a schedule the user turns
+	// on or changes makes its first backup at the next check.
+	defaultAt := row.BackupDefaultAt
+	if schedule != row.BackupSchedule {
+		defaultAt = 0
+	}
 	if err := s.Q.UpdateAppBackupSettings(ctx, db.UpdateAppBackupSettingsParams{
-		BackupSchedule: schedule, BackupKeepMode: mode, BackupKeep: keep, UpdatedAt: s.now(), ID: row.ID,
+		BackupSchedule: schedule, BackupKeepMode: mode, BackupKeep: keep, BackupDefaultAt: defaultAt, UpdatedAt: s.now(), ID: row.ID,
 	}); err != nil {
 		return BackupSettings{}, apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "app.backup_settings", "app", row.ID, map[string]any{"schedule": schedule, "keep_mode": mode, "keep": keep})
-	row.BackupSchedule, row.BackupKeepMode, row.BackupKeep = schedule, mode, keep
+	row.BackupSchedule, row.BackupKeepMode, row.BackupKeep, row.BackupDefaultAt = schedule, mode, keep, defaultAt
 	return s.backupSettings(ctx, row), nil
 }
 

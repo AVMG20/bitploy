@@ -132,7 +132,7 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 	var created App
 	for i := 0; i < 20; i++ {
 		create.Slug = trimAlias(alias) + "-" + strings.ToLower(ids.Base62(4))
-		created, err = s.CreateApp(ctx, a, create)
+		created, err = s.createApp(ctx, a, create)
 		if ae := apperr.As(err); err == nil || (ae.Code != "slug_taken" && ae.Code != "slug_reserved") {
 			break
 		}
@@ -174,6 +174,7 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 		err = apperr.Internal(err)
 		return res, err
 	}
+	s.defaultBackups(ctx, created.ID) // a database gets them, a cache does not
 	for _, c := range connect {
 		if _, err = s.SetEnv(ctx, a, c.ID, map[string]string{tpl.MainVar: ref}, nil); err != nil {
 			return res, err

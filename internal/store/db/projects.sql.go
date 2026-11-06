@@ -41,7 +41,7 @@ func (q *Queries) DeleteProjectRow(ctx context.Context, id string) error {
 }
 
 const getAppByProjectAlias = `-- name: GetAppByProjectAlias :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version FROM apps WHERE project_id = ? AND alias = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE project_id = ? AND alias = ?
 `
 
 type GetAppByProjectAliasParams struct {
@@ -100,6 +100,8 @@ func (q *Queries) GetAppByProjectAlias(ctx context.Context, arg GetAppByProjectA
 		&i.Alias,
 		&i.Template,
 		&i.TemplateVersion,
+		&i.BackupScheduleSet,
+		&i.BackupDefaultAt,
 	)
 	return i, err
 }
@@ -165,7 +167,7 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 }
 
 const listAppsByProject = `-- name: ListAppsByProject :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version FROM apps WHERE project_id = ? ORDER BY created_at, id
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE project_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListAppsByProject(ctx context.Context, projectID string) ([]App, error) {
@@ -225,6 +227,8 @@ func (q *Queries) ListAppsByProject(ctx context.Context, projectID string) ([]Ap
 			&i.Alias,
 			&i.Template,
 			&i.TemplateVersion,
+			&i.BackupScheduleSet,
+			&i.BackupDefaultAt,
 		); err != nil {
 			return nil, err
 		}
