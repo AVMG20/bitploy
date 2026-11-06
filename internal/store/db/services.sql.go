@@ -441,7 +441,7 @@ func (q *Queries) ListDeploymentServices(ctx context.Context, deploymentID strin
 
 const listServiceEnvVars = `-- name: ListServiceEnvVars :many
 
-SELECT app_id, service, name, value_enc, updated_at FROM env_vars WHERE app_id = ? AND (service = '' OR service = ?2) ORDER BY service, name
+SELECT app_id, service, name, value_enc, updated_at, build FROM env_vars WHERE app_id = ? AND (service = '' OR service = ?2) ORDER BY service, name
 `
 
 type ListServiceEnvVarsParams struct {
@@ -466,6 +466,7 @@ func (q *Queries) ListServiceEnvVars(ctx context.Context, arg ListServiceEnvVars
 			&i.Name,
 			&i.ValueEnc,
 			&i.UpdatedAt,
+			&i.Build,
 		); err != nil {
 			return nil, err
 		}

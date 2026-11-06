@@ -10,7 +10,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy and fix all errors.
-4. Never put secrets in the Dockerfile or the source. Use set_env.
+4. Never put secrets in the Dockerfile or the source. Use set_env. A value
+   the build bakes in (VITE_*, NEXT_PUBLIC_*) also needs build={NAME:
+   "public"} in set_env and applies on the next deploy.
 5. Send the code. If it has a GitHub remote, prefer git: commit and push, then
    set_git_source with the remote's HTTPS URL and deploy once; after that
    every push to the branch deploys by itself. No GitHub remote, or the

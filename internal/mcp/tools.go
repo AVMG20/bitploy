@@ -157,6 +157,7 @@ type setEnvIn struct {
 	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
 	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the default). get_app lists the services."`
+	Build   map[string]string `json:"build,omitempty" jsonschema:"Only for variables the BUILD needs, as an object of name to public, secret or none, like {\"VITE_API_URL\":\"public\"}. The name must be in set or already exist; variables you leave out keep their setting. public: a value the build bakes into the site, like VITE_* or NEXT_PUBLIC_* (bitploy's own builds of a front end without a Dockerfile hand it to the build script; your own Dockerfile needs ARG NAME before the step that uses it). secret: a key the build itself needs, like SENTRY_AUTH_TOKEN; never in the image; a Dockerfile reads it with RUN --mount=type=secret,id=NAME,env=NAME. none: only the running app. Applies on the next deploy."`
 }
 
 type setPasswordIn struct {
@@ -688,10 +689,10 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "set_env", "Set environment variables",
-		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project).",
+		"Adds, changes or removes environment variables (API keys, DISCORD_TOKEN, SESSION_SECRET). Values are stored encrypted and never shown again; variables you do not mention stay. NOT applied to a running app until restart_app (or a deploy for an app that never ran or failed). Never put secrets in files or the Dockerfile. A compose app: variables go to every service and fill ${VAR} in the compose file; pass service to set one service's own variables. A value may use another app of the same project: ${{<alias>.VAR}}, like DATABASE_URL=${{postgres.DATABASE_URL}}, is filled in when the app starts (the alias and the variable must exist, see get_project). A value the BUILD needs (a static front end's VITE_* or NEXT_PUBLIC_*, which are baked into the files) also needs build={NAME: \"public\"}, or \"secret\" for a key only the build uses; it reaches the build on the next deploy (deploy with only app=), not on restart_app. Anything in a public build variable ends up in the site's files, readable by every visitor: never put a secret there.",
 		idempotent(), true, nil,
 		func(ctx context.Context, a app.Actor, in setEnvIn) (*result, error) {
-			vars, err := svc.SetServiceEnv(ctx, a, in.App, in.Service, in.Set, in.Unset)
+			vars, err := svc.SetServiceEnvBuild(ctx, a, in.App, in.Service, in.Set, in.Unset, in.Build)
 			if err != nil {
 				return nil, err
 			}
@@ -707,7 +708,7 @@ func (s *srv) registerTools() {
 			return &result{
 				Summary: fmt.Sprintf("%s now has %d variable(s): %s.", in.App, len(vars), strings.Join(names, ", ")),
 				Data:    data("env", nonNil(vars)),
-				Next:    setEnvNext(in.App, cur),
+				Next:    setEnvBuildNext(in.App, cur, in.Set, in.Build, vars),
 			}, nil
 		})
 

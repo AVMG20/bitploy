@@ -407,8 +407,11 @@ type EnvVar struct {
 	Masked  string `json:"masked"` // e.g. "••••••••" — values are never returned
 	// References are the ${{<alias>.VAR}} references in the value: names of
 	// other apps' variables, shown because they are not secret.
-	References []string  `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	References []string `json:"references,omitempty" doc:"The ${{<alias>.VAR}} references in the value, like ${{postgres.DATABASE_URL}}"`
+	// Build says whether the image build gets the variable too (see
+	// BuildPublic and BuildSecret); "" when only the running app does.
+	Build     string    `json:"build,omitempty" enum:"public,secret" doc:"Also given to the image build: public (a build argument; bitploy's own Node builds hand it to the build script, a Dockerfile needs ARG NAME) or secret (a BuildKit secret, only in RUN --mount=type=secret,id=NAME,env=NAME). Left out: only the running app gets it."`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type DNSRecord struct {
