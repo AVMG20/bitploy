@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/app"
@@ -60,5 +61,30 @@ func TestRuntimeFailureIsNotCalledAFailedDeploy(t *testing.T) {
 	ap.Current = nil
 	if b := newAppBrief(ap, nil); b.Problem[:20] != "the last deploy fail" {
 		t.Errorf("first deploy failed: %q", b.Problem)
+	}
+}
+
+// A rollback brings back the code only; the AI must not tell the user the
+// data or the variables went back too.
+func TestRollbackSaysWhatStays(t *testing.T) {
+	d := app.Deployment{ID: "dep_2", AppSlug: "shop", Seq: 2, State: "running", URL: "https://shop.bitploy.test", SourceKind: "rollback"}
+	r := deploymentResult("Deployment", d)
+	if all := strings.Join(r.Next, " "); !strings.Contains(all, "/data") || !strings.Contains(all, "variables") || !strings.Contains(all, "deploy commands do not run") {
+		t.Errorf("running rollback: %v", r.Next)
+	}
+	d.SourceKind = "files"
+	if all := strings.Join(deploymentResult("Deployment", d).Next, " "); strings.Contains(all, rollbackNote) {
+		t.Errorf("a normal deploy got the rollback note: %v", all)
+	}
+}
+
+func TestBeforeDeployFailureSteps(t *testing.T) {
+	d := app.Deployment{ID: "dep_3", AppSlug: "shop", Seq: 3, State: "failed", SourceKind: "files",
+		Error: &app.DeployError{Code: "before_deploy_failed", Message: "The before-deploy command failed with exit code 1.", Hint: "Read the command's output.", Next: "get_logs"}}
+	all := strings.Join(failureSteps(d), " ")
+	for _, want := range []string{"[before-deploy]", "deploy with only app=shop", "before_deploy_command", "keeps running"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("steps lack %q: %s", want, all)
+		}
 	}
 }

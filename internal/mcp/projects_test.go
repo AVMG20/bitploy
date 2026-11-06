@@ -120,3 +120,24 @@ func TestTemplateAppNext(t *testing.T) {
 		t.Errorf("next: %s", next)
 	}
 }
+
+// Moving an app was removed. An agent that still sends update_app project=
+// gets the answer that says what to do now, not a list of arguments.
+func TestUpdateAppProjectSaysAppsDoNotMove(t *testing.T) {
+	e := newEnv(t)
+	ds := e.connect(t, e.deployToken)
+	if res := call(t, ds, "create_app", map[string]any{"name": "Shop", "slug": "move-me"}); res.IsError {
+		t.Fatal(text(res))
+	}
+	m := assertErrorShape(t, "move", call(t, ds, "update_app", map[string]any{"app": "move-me", "project": "prj_other", "name": "Shop 2"}))
+	if m == nil {
+		return
+	}
+	if m["code"] != "project_move_unsupported" || m["next_tool"] != "create_app" || !strings.Contains(m["hint"].(string), "create_app") {
+		t.Errorf("move: %v", m)
+	}
+	res := call(t, ds, "get_app", map[string]any{"app": "move-me"})
+	if ap := structured(t, res)["app"].(map[string]any); ap["name"] != "Shop" {
+		t.Errorf("the other fields changed: %v", ap["name"])
+	}
+}

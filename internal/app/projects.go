@@ -614,11 +614,11 @@ type aliasChange struct {
 	oldAlias, alias string
 }
 
-// errProjectMove answers update_app with project: apps no longer move
+// ProjectMoveError answers update_app with project: apps no longer move
 // between projects (docs/decisions.md). The field stays in UpdateAppInput,
 // hidden from the API docs, so an old client gets this instead of a generic
-// unknown-field error.
-func errProjectMove() *apperr.Error {
+// unknown-field error; MCP's update_app gives the same answer.
+func ProjectMoveError() *apperr.Error {
 	return apperr.Unprocessable("project_move_unsupported",
 		"An app cannot move to another project.",
 		"To have the app in another project, create a new app there (create_app with project), set its variables and deploy the code to it. "+
@@ -628,7 +628,7 @@ func errProjectMove() *apperr.Error {
 // planAliasChange validates update_app's alias.
 func (s *Service) planAliasChange(ctx context.Context, row db.App, in UpdateAppInput) (*aliasChange, error) {
 	if in.Project != nil {
-		return nil, errProjectMove()
+		return nil, ProjectMoveError()
 	}
 	if in.Alias == nil {
 		return nil, nil

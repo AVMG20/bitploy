@@ -125,7 +125,7 @@ func deployPrompt(app, instructions string) string {
 	return `Put the code in the current folder online with bitploy. Follow these steps in order, and do not skip validation.
 
 1. Look at the code: which files exist, what language, and what port the app listens on. Check for an existing Dockerfile and for a .bitploy file.
-2. No Dockerfile? Call get_template with the stack that fits and file_list. Save its Dockerfile and .dockerignore in the code folder and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost. A bot with no web port: create the app with type=worker.
+2. No Dockerfile? A static site (plain HTML, or a front end that builds to files: Vite, React, Vue, Astro) needs none: send it as it is. Otherwise call get_template with the stack that fits and file_list. Save its Dockerfile and .dockerignore in the code folder and adapt them. The app must listen on 0.0.0.0 at the EXPOSE port (also in $PORT), never on localhost. A bot with no web port: create the app with type=worker.
 3. Call validate_dockerfile with the Dockerfile text and the list of files. Fix every error. Read the warnings.
 4. ` + target + ` An app that keeps data (SQLite, uploads) needs volume=true (rule 8).
 5. Secrets (API keys, passwords, bot tokens) never go into files. Set them with set_env. They reach the app after restart_app, or with the first deploy.

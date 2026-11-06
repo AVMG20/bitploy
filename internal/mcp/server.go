@@ -342,6 +342,14 @@ func addTool[In any](s *srv, name, title, desc string, ann *mcp.ToolAnnotations,
 	})
 }
 
+// retiredArgs are arguments a tool no longer has, with the answer an agent
+// that still sends one gets instead of a generic invalid_arguments: it tells
+// what to do now. They are not in the schema, so only an agent that guesses
+// (or remembers an older bitploy) sends them.
+var retiredArgs = map[string]map[string]func() error{
+	"update_app": {"project": func() error { return app.ProjectMoveError() }},
+}
+
 // parseArgs validates raw arguments against the tool schema and decodes them.
 func parseArgs(tool string, schema *jsonschema.Schema, resolved *jsonschema.Resolved, raw json.RawMessage, in any) error {
 	bad := func(why string) error {
@@ -353,6 +361,11 @@ func parseArgs(tool string, schema *jsonschema.Schema, resolved *jsonschema.Reso
 	if len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return bad("the arguments must be a JSON object.")
+		}
+	}
+	for arg, answer := range retiredArgs[tool] {
+		if _, ok := v[arg]; ok {
+			return answer()
 		}
 	}
 	// Models often send null (or "" for a choice) for an optional argument they

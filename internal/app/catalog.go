@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -110,6 +111,11 @@ func (s *Service) validate(dockerfile string, fileList []string, appPort int, ap
 	if strings.TrimSpace(packageJSON) != "" {
 		in.PackageJSON = []byte(packageJSON)
 	}
+	if in.Dockerfile == nil {
+		if out, ok := staticWithoutDockerfile(fileList, in.PackageJSON); ok {
+			return out, nil
+		}
+	}
 	res := deploy.CheckDockerfile(in)
 	out := ValidateResult{
 		OK:             res.OK,
@@ -130,9 +136,37 @@ func (s *Service) validate(dockerfile string, fileList []string, appPort int, ap
 		out.NextSteps = []string{"Fix every finding with severity error, then call validate_dockerfile again."}
 		if e := deploy.FirstError(res, fileList); e != nil && e.Code == deploy.CodeDockerfileMissing {
 			out.NextSteps = []string{"Call get_template with stack \"" + templateName(e) + "\", save its Dockerfile and .dockerignore in the code folder, adapt them, then call validate_dockerfile again."}
+			if in.PackageJSON == nil && slices.Contains(fileList, "package.json") {
+				out.NextSteps = append([]string{"A front end that builds to files (Vite, React, Vue, Astro) needs no Dockerfile: call validate_dockerfile again with package_json (the text of package.json) to see whether bitploy builds it as a static site."}, out.NextSteps...)
+			}
 		}
 	}
 	return out, nil
+}
+
+// staticWithoutDockerfile answers validate_dockerfile without a Dockerfile
+// for code that a deploy in the default build mode serves as a static site
+// (deploy.PlanBuild): plain website files, or a front end whose package.json
+// builds it to files. Such code must be sent without a Dockerfile; a
+// Dockerfile of the user's own is never a static site.
+func staticWithoutDockerfile(fileList []string, packageJSON []byte) (ValidateResult, bool) {
+	read := func(rel string) []byte {
+		if rel == "package.json" {
+			return packageJSON
+		}
+		return nil
+	}
+	plan, perr := deploy.PlanBuild(deploy.BuildModeDockerfile, "Dockerfile", "", "", fileList, read)
+	if perr != nil || !deploy.IsStaticKind(plan.Kind) {
+		return ValidateResult{}, false
+	}
+	return ValidateResult{
+		OK: true, Findings: []deploy.Finding{}, Stack: deploy.DetectStack(fileList), Static: true,
+		NextSteps: []string{
+			"No Dockerfile needed: bitploy builds and serves this as a static site (free of the memory and CPU quota). Do not add a Dockerfile or an nginx config. " + plan.Why,
+			"Send the files as they are: deploy_files with ALL files (up to 2 MB and 200 files, without node_modules and the build output), create_upload for a zip, or a linked repository.",
+		},
+	}, true
 }
 
 func templateName(e *apperr.Error) string {

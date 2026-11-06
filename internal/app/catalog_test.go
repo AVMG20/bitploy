@@ -76,9 +76,24 @@ func TestCatalogValidateDockerfile(t *testing.T) {
 	if err != nil || !res.OK || res.Port != 3000 || res.Stack != "node" || len(res.NextSteps) == 0 {
 		t.Fatalf("res = %+v, %v", res, err)
 	}
+	// No Dockerfile: a static site needs none, so the answer must not hand
+	// out a template (a Dockerfile of the user's own is never static).
 	res, _ = s.ValidateDockerfile(ctx, Actor{}, "", []string{"index.html"}, 0, "")
-	if res.OK || res.Findings[0].Code != "dockerfile_missing" || res.Stack != "static" {
-		t.Fatalf("res = %+v", res)
+	if !res.OK || !res.Static || res.Stack != "static" || len(res.Findings) != 0 || !strings.Contains(res.NextSteps[0], "No Dockerfile needed") {
+		t.Fatalf("plain site: %+v", res)
+	}
+	vite := []string{"package.json", "package-lock.json", "index.html", "vite.config.ts", "src/main.tsx"}
+	vitePkg := `{"scripts": {"dev": "vite", "build": "vite build"}, "devDependencies": {"vite": "^6.0.0"}}`
+	if res, _ = s.ValidateDockerfile(ctx, Actor{}, "", vite, 0, vitePkg); !res.OK || !res.Static {
+		t.Fatalf("vite site: %+v", res)
+	}
+	// Without package.json's text it cannot tell, and says how to find out.
+	if res, _ = s.ValidateDockerfile(ctx, Actor{}, "", vite, 0, ""); res.OK || res.Static || !strings.Contains(res.NextSteps[0], "package_json") {
+		t.Fatalf("vite without package.json: %+v", res)
+	}
+	server := `{"scripts": {"start": "node server.js"}, "dependencies": {"express": "^4.21.0"}}`
+	if res, _ = s.ValidateDockerfile(ctx, Actor{}, "", []string{"package.json", "server.js"}, 0, server); res.OK || res.Static || res.Findings[0].Code != "dockerfile_missing" {
+		t.Fatalf("a server still needs a Dockerfile: %+v", res)
 	}
 	res, _ = s.ValidateDockerfile(ctx, Actor{}, "FROM alpine:3.22\n", nil, 8080, "")
 	if !res.OK || res.Port != 8080 {
