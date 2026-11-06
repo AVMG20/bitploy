@@ -4,6 +4,7 @@
 #   firewall.sh [apply]   install the rules (default; safe to run again)
 #   firewall.sh remove    take the rules out again
 #   firewall.sh status    show the rules and their packet counters
+#   firewall.sh ports     print the public port range (LO:HI) it opens, if any
 #
 # What it does, for traffic that comes from the app subnets (default
 # 10.200.0.0/16, set in /etc/docker/daemon.json as /24 blocks, one per app):
@@ -28,6 +29,21 @@
 #       this is the second lock.
 #     - everything else (the internet): pass
 #
+#   and for traffic from outside the app subnets to a published port of a
+#   container in them (Docker DNATs it, so it goes through FORWARD, not INPUT):
+#     - the public port range (BITPLOY_PUBLIC_PORTS, like 30000-30099): pass.
+#       bitploy publishes those ports for the forwarder container of a public
+#       port (a database opened for debugging), and nothing else.
+#     - 80 and 443: pass, in case Docker maps Traefik's ports to its address
+#       on an app network
+#     - any other published port into the app subnets: DROP. bitploy never
+#       publishes one, so this only stops a mistake from opening an app.
+#   The range is read from the environment, else from /etc/bitploy/bitploy.env.
+#   Unset (or "off"): no published port into the app subnets passes. After
+#   changing it, run this script again (systemctl restart bitploy-firewall).
+#   Apps cannot reach the public port of another app through the server's
+#   address: after the DNAT that is app-to-app traffic, dropped above.
+#
 #   INPUT: connections from the app subnets to the host itself are DROPPED,
 #   except replies. Traefik is a container on the same bridge as the app, so
 #   its traffic is switched on the bridge or forwarded and never reaches INPUT;
@@ -48,6 +64,7 @@ METADATA_IP="169.254.169.254"
 TRAEFIK_INTERNAL_PORT=8081   # unpublished "internal" entrypoint of Traefik; apps cannot listen on it
 FWD_CHAIN="BITPLOY-APPS"
 IN_CHAIN="BITPLOY-INPUT"
+ENV_FILE="${BITPLOY_ENV_FILE:-/etc/bitploy/bitploy.env}"
 # Never reachable from an app. 10.0.0.0/8 includes the whole app pool and the bitploy network.
 BLOCKED_RANGES=(
   10.0.0.0/8 172.16.0.0/12 192.168.0.0/16   # RFC 1918
@@ -70,13 +87,41 @@ pool_prefix() {
 
 jump_present() { iptables -C "$1" -j "$2" 2>/dev/null; }
 
+# Prints the public port range as "LO:HI" (iptables syntax), or nothing when
+# there is none. Same rules as bitploy's config: 1024-65535, at most 1000
+# ports, low port first. A bad value opens nothing (a warning, not an error:
+# the rest of the isolation must still be applied).
+public_ports() {
+  local v lo hi
+  if [ -n "${BITPLOY_PUBLIC_PORTS+x}" ]; then
+    v="$BITPLOY_PUBLIC_PORTS"
+  elif [ -r "$ENV_FILE" ]; then
+    v="$(grep -E '^BITPLOY_PUBLIC_PORTS=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d "\"' ")"
+  else
+    v=""
+  fi
+  case "$v" in "" | off) return 0 ;; esac
+  if [[ "$v" =~ ^([0-9]{4,5})(-([0-9]{4,5}))?$ ]]; then
+    lo="${BASH_REMATCH[1]}"
+    hi="${BASH_REMATCH[3]:-$lo}"
+    lo=$((10#$lo))
+    hi=$((10#$hi))
+    if [ "$lo" -ge 1024 ] && [ "$hi" -le 65535 ] && [ "$lo" -le "$hi" ] && [ $((hi - lo)) -lt 1000 ]; then
+      echo "$lo:$hi"
+      return 0
+    fi
+  fi
+  echo "firewall.sh: WARNING: BITPLOY_PUBLIC_PORTS='$v' is not a range like 30000-30099 (1024-65535, at most 1000 ports); no public port is opened" >&2
+}
+
 apply() {
   need_root
   command -v iptables >/dev/null || die "iptables not found (apt-get install iptables)"
   command -v iptables-restore >/dev/null || die "iptables-restore not found"
   iptables -nL DOCKER-USER >/dev/null 2>&1 || die "chain DOCKER-USER does not exist: is Docker running?"
-  local prefix i r
+  local prefix i r ports p
   prefix="$(pool_prefix)"
+  ports="$(public_ports)"
 
   {
     echo "*filter"
@@ -86,6 +131,16 @@ apply() {
     echo "-F $FWD_CHAIN"
     echo "-F $IN_CHAIN"
     echo "-A $FWD_CHAIN -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+    # Published ports into the app subnets, from outside them: only the public
+    # port range (and 80/443 for Traefik). From inside the pool the rules
+    # below apply, so one app cannot use another app's public port.
+    if [ -n "$ports" ]; then
+      echo "-A $FWD_CHAIN ! -s $APP_POOL -d $APP_POOL -p tcp -m conntrack --ctstate DNAT --ctproto tcp --ctorigdstport $ports -j RETURN"
+    fi
+    for p in 80 443; do
+      echo "-A $FWD_CHAIN ! -s $APP_POOL -d $APP_POOL -p tcp -m conntrack --ctstate DNAT --ctproto tcp --ctorigdstport $p -j RETURN"
+    done
+    echo "-A $FWD_CHAIN ! -s $APP_POOL -d $APP_POOL -m conntrack --ctstate DNAT -j DROP"
     # Traefik's internal entrypoint (health checks of candidates, route probes) must
     # only be reachable from the "bitploy" network. Traefik has an address on every
     # app network, so this has to come before the same-/24 rules below.
@@ -108,7 +163,11 @@ apply() {
 
   jump_present DOCKER-USER "$FWD_CHAIN" || iptables -I DOCKER-USER 1 -j "$FWD_CHAIN"
   jump_present INPUT "$IN_CHAIN" || iptables -I INPUT 1 -j "$IN_CHAIN"
-  echo "bitploy firewall rules applied for $APP_POOL"
+  if [ -n "$ports" ]; then
+    echo "bitploy firewall rules applied for $APP_POOL, public ports ${ports/:/-}"
+  else
+    echo "bitploy firewall rules applied for $APP_POOL, no public ports"
+  fi
 }
 
 remove() {
@@ -128,6 +187,9 @@ remove() {
 
 status() {
   need_root
+  local ports
+  ports="$(public_ports)"
+  echo "public port range in the settings: ${ports:-none}${ports:+ (run apply after changing it)}"
   for chain in "$FWD_CHAIN" "$IN_CHAIN"; do
     if iptables -nL "$chain" >/dev/null 2>&1; then
       # Hide the 256 identical "own /24" rules; they only clutter the output.
@@ -142,5 +204,6 @@ case "${1:-apply}" in
   apply) apply ;;
   remove) remove ;;
   status) status ;;
-  *) die "usage: $0 [apply|remove|status]" ;;
+  ports) public_ports ;;   # the public port range as LO:HI, or nothing (probe-test.sh)
+  *) die "usage: $0 [apply|remove|status|ports]" ;;
 esac

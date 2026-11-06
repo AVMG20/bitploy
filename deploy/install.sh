@@ -203,6 +203,14 @@ env_default BITPLOY_SIGNUP invite
 env_default BITPLOY_MAX_PARALLEL_BUILDS 2
 env_default BITPLOY_MAX_APPS 100
 env_default BITPLOY_DATA_DIR "$DATA_DIR"
+# Public ports (off): users can open a port of this range to connect to a
+# database with psql or TablePlus. To turn it on, set a range like
+# 30000-30099, allow it in the Hetzner Cloud Firewall (TCP), then run
+# systemctl restart bitploy-firewall and restart bitploy.
+if ! grep -q '^BITPLOY_PUBLIC_PORTS=' "$ENV_FILE"; then
+  printf '%s\n' "# Public ports for debugging databases, like 30000-30099 (off when empty). See SPEC.md, Public ports." >>"$ENV_FILE"
+  env_default BITPLOY_PUBLIC_PORTS ""
+fi
 
 # Cloudflare Origin CA certificate: the default certificate in Traefik.
 if [ ! -s "$ORIGIN_DIR/origin.pem" ] || [ ! -s "$ORIGIN_DIR/origin.key" ]; then
@@ -366,6 +374,9 @@ $admin_note
        $(env_get BITPLOY_EDGE_HOST)      A     $(env_get BITPLOY_SERVER_IPV4)   DNS only
      (add AAAA records for IPv6 the same way)
   3. In the Hetzner Cloud Firewall allow 22 from your IP only, and 80 and 443 from anywhere.
+     Public ports are off. To let users open database ports for debugging, set
+     BITPLOY_PUBLIC_PORTS (like 30000-30099) in $ENV_FILE, allow that TCP range there too,
+     then run: systemctl restart bitploy-firewall && docker compose --env-file $ENV_FILE -f $INSTALL_DIR/docker-compose.yml up -d
 $probe_note
   5. BACK UP BITPLOY_SECRET_KEY NOW, somewhere that is not this server:
        grep BITPLOY_SECRET_KEY $ENV_FILE
