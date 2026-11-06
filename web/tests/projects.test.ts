@@ -4,6 +4,7 @@ import {
   aliasOf,
   appRole,
   appSourceText,
+  connectable,
   defaultConnect,
   dependentsFromError,
   dependentsOf,
@@ -295,6 +296,9 @@ test('defaultConnect ticks the main public app only', () => {
   const pg = db('postgres', 'postgres', 'postgres:16', 5432)
   assert.deepEqual(defaultConnect({ apps: [app('web9'), pg, app('jobs9', { type: 'worker' })] }), ['web9'])
   assert.deepEqual(defaultConnect({ apps: [pg] }), [])
+  // A static site runs no code on the server: it cannot use a database.
+  assert.deepEqual(defaultConnect({ apps: [app('site9', { static: true }), pg] }), [])
+  assert.deepEqual(connectable([app('site10', { build_mode: 'static_build' }), app('api10'), pg]).map((a) => a.slug), ['api10'])
 })
 
 test('pastedKind tells a compose file, an image and a Dockerfile apart', () => {
