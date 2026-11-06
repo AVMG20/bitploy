@@ -73,7 +73,7 @@ const canRestart = computed(() => !!props.app.current_deployment && !actions.res
             <ServiceIcon :role="role.key" />
             <div class="min-w-0 flex-1">
               <SheetTitle class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-base">
-                {{ role.label }} <span class="font-mono text-sm font-normal text-muted-foreground">{{ service.name }}</span>
+                <span class="font-mono">{{ service.name }}</span> <span class="text-sm font-normal text-muted-foreground">{{ role.label }}</span>
                 <AppStatusBadge :status="actions.restartService.isPending.value ? 'restarting' : status" />
               </SheetTitle>
               <SheetDescription class="mt-1">{{ role.blurb }}</SheetDescription>

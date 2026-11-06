@@ -509,8 +509,8 @@ const deleteText = computed(() => {
           <ul class="divide-y">
             <li v-for="s in services" :key="s.name" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
               <ServiceIcon :role="serviceRole(s).key" size="sm" />
-              <span class="font-medium">{{ serviceRole(s).label }}</span>
-              <span class="font-mono text-xs text-muted-foreground">{{ s.name }}</span>
+              <span class="font-mono font-medium">{{ s.name }}</span>
+              <span class="text-xs text-muted-foreground">{{ serviceRole(s).label }}</span>
               <span class="ml-auto tabular-nums">{{ formatMB(s.memory_mb) }} <span class="text-muted-foreground">memory,</span> {{ formatCPUMillis(s.cpu_millis) }}</span>
             </li>
             <li class="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-2.5 text-sm">

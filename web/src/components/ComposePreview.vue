@@ -148,8 +148,8 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
             <ServiceIcon :role="serviceRole(s).key" size="sm" />
             <div class="min-w-0 flex-1">
               <p class="flex min-w-0 items-baseline gap-2 text-sm">
-                <span class="font-medium">{{ serviceRole(s).label }}</span>
-                <span class="truncate font-mono text-xs text-muted-foreground">{{ s.name }}</span>
+                <span class="truncate font-mono font-medium">{{ s.name }}</span>
+                <span class="text-xs text-muted-foreground">{{ serviceRole(s).label }}</span>
               </p>
               <p v-if="cannotBuild(s)" class="text-xs text-destructive">
                 Needs an <span class="font-mono">image:</span> line. <span class="font-mono">build:</span> does not work in a pasted file, because your code is not sent with it.
