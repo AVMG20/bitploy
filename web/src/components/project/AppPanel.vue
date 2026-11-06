@@ -224,7 +224,7 @@ watch(
         <section v-if="dep && !building" class="grid gap-2" aria-labelledby="panel-log">
           <div class="flex items-center justify-between gap-2">
             <h3 id="panel-log" class="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <span v-if="data.status === 'running'" class="size-1.5 animate-pulse rounded-full bg-success" aria-hidden="true" /> Log
+              <span v-if="data.status === 'running'" class="size-1.5 animate-pulse rounded-full bg-success" aria-hidden="true" /> {{ data.status === 'running' ? 'Log' : 'Last log lines' }}
             </h3>
             <RouterLink :to="appRoute(data, 'app-logs')" class="text-xs font-medium hover:underline">Open logs</RouterLink>
           </div>

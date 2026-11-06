@@ -52,8 +52,12 @@ const sidebarHint = computed(
 // ---------------------------------------------------------------- the open panel
 const selected = computed(() => (typeof route.query.app === 'string' ? route.query.app : ''))
 const selectedApp = computed(() => apps.value.find((a) => a.slug === selected.value) ?? null)
-function closePanel() {
-  void router.push({ query: { ...route.query, app: undefined } })
+/** Closing the panel puts focus back on the eye that opened it, so Tab goes on from there. */
+async function closePanel() {
+  const id = selectedApp.value?.id
+  await router.push({ query: { ...route.query, app: undefined } })
+  await nextTick()
+  if (id) document.querySelector<HTMLElement>(`[data-app="${CSS.escape(id)}"] a[aria-label^="Quick look"]`)?.focus()
 }
 // ?app= naming an app of another project opens it there; one that is gone is
 // dropped from the address. A list still loading may not have a new app yet.
