@@ -77,7 +77,7 @@ func TestEnvHidden(t *testing.T) {
 		t.Errorf("unset and hidden: %v", err)
 	}
 
-	// A guess hides a new name, never makes a hidden one readable, and an
+	// A guess hides a new name, never changes an existing one, and an
 	// explicit flag wins over it.
 	guess := func(n string) bool { return strings.Contains(n, "SECRET") }
 	vars, err = change(EnvChange{
@@ -99,6 +99,11 @@ func TestEnvHidden(t *testing.T) {
 	vars, _ = change(EnvChange{Set: map[string]string{"NODE_ENV": "y"}, GuessHidden: guess})
 	if !envByName(vars)["NODE_ENV"].Hidden {
 		t.Fatal("a guess made a hidden variable readable")
+	}
+	// OTHER_SECRET was made readable on purpose: a new value keeps it readable.
+	vars, _ = change(EnvChange{Set: map[string]string{"OTHER_SECRET": "z"}, GuessHidden: guess})
+	if envByName(vars)["OTHER_SECRET"].Hidden {
+		t.Fatal("a guess hid a variable that was made readable")
 	}
 
 	// A read token reads readable values, never hidden ones.

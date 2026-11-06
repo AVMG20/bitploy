@@ -164,7 +164,7 @@ type setEnvIn struct {
 	Set     map[string]string `json:"set,omitempty" jsonschema:"Variables to add or change, as an object of name to value, like {\"DISCORD_TOKEN\":\"abc\",\"NODE_ENV\":\"production\"}. Names: letters, digits and _, not starting with a digit. Not PORT or BITPLOY_*."`
 	Unset   []string          `json:"unset,omitempty" jsonschema:"Names of variables to remove, like [\"OLD_KEY\"]. A name must not also be in set."`
 	Service string            `json:"service,omitempty" jsonschema:"Only for an app with several services (a compose app): the service whose own variables to change, like \"web\". Leave it out for variables every service gets (the default). get_app lists the services."`
-	Hidden  map[string]bool   `json:"hidden,omitempty" jsonschema:"Per name: true keeps the value write-only (list_env never shows it), false makes it readable. Leave a name out and it is hidden when it contains SECRET, TOKEN, KEY or PASSWORD, else readable; a hidden variable stays hidden. Making a hidden one readable needs its value in set."`
+	Hidden  map[string]bool   `json:"hidden,omitempty" jsonschema:"Per name: true keeps the value write-only (list_env never shows it), false makes it readable. Leave a name out and an existing variable keeps its flag; a new one is hidden when its name contains SECRET, TOKEN, KEY or PASSWORD, else readable. Making a hidden one readable needs its value in set."`
 }
 
 type setPasswordIn struct {

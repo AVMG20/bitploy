@@ -106,9 +106,8 @@ type EnvChange struct {
 	// variable the app has; making a hidden one readable needs its value in
 	// Set, since nobody can read the old one.
 	Hidden map[string]bool
-	// GuessHidden decides for a name in Set without an entry in Hidden; nil
-	// keeps what the variable has (a new one is readable). A hidden variable
-	// never turns readable by a guess.
+	// GuessHidden decides for a new name in Set without an entry in Hidden.
+	// An existing variable keeps its flag; with nil a new one is readable.
 	GuessHidden func(name string) bool
 }
 
@@ -253,8 +252,9 @@ func hiddenChanges(c EnvChange, wasHidden map[string]bool) (map[string]bool, *ap
 		if _, given := c.Hidden[n]; given || c.GuessHidden == nil {
 			continue
 		}
-		if h := wasHidden[n] || c.GuessHidden(n); h != wasHidden[n] {
-			out[n] = h
+		// An existing variable keeps its flag; only a new one is guessed.
+		if _, exists := wasHidden[n]; !exists && c.GuessHidden(n) {
+			out[n] = true
 		}
 	}
 	return out, nil
