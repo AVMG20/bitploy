@@ -13,7 +13,7 @@ import (
 )
 
 type adminUserPatch struct {
-	Status *string    `json:"status,omitempty" enum:"active,suspended" doc:"suspended stops all of the user's apps"`
+	Status *string         `json:"status,omitempty" enum:"active,suspended" doc:"suspended stops all of the user's apps"`
 	Quota  *app.QuotaInput `json:"quota,omitempty" doc:"Replaces all quota values; overallocate left out stays as it is"`
 }
 
