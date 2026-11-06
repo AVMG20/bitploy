@@ -43,14 +43,11 @@ const openPort = computed(() => publicPortText(props.app, nowMs.value))
 const metrics = useAppMetrics(() => props.app.slug, '1h', running, '', true)
 const points = computed(() => metrics.data.value?.points ?? [])
 const latest = computed(() => (running.value ? (metrics.data.value?.latest ?? props.app.live ?? points.value.at(-1) ?? null) : null))
-// Data keepers show memory (what they hold); the rest show CPU (how busy).
-const showMemory = computed(() => props.role.lane === 'data')
-const spark = computed(() => (showMemory.value ? points.value.map((p) => p.memory_mb) : points.value.map((p) => cpuFromPercent(p.cpu))))
-const reading = computed(() => {
-  if (!running.value) return 'Not running'
-  if (!latest.value) return '...'
-  return showMemory.value ? `${formatMB(latest.value.memory_mb)} of ${formatMB(props.app.memory_mb)}` : formatCPU(cpuFromPercent(latest.value.cpu))
-})
+const cpu = computed(() => points.value.map((p) => cpuFromPercent(p.cpu)))
+const memory = computed(() => points.value.map((p) => p.memory_mb))
+const idle = computed(() => (!running.value ? 'Not running' : !latest.value ? '...' : ''))
+const cpuReading = computed(() => idle.value || formatCPU(cpuFromPercent(latest.value!.cpu)))
+const memoryReading = computed(() => idle.value || `${formatMB(latest.value!.memory_mb)} of ${formatMB(props.app.memory_mb)}`)
 const services = computed(() => (isMulti(props.app) ? sortServices(props.app.services) : []))
 const storedMB = computed(() => props.app.volumes.reduce((n, v) => n + (v.used_mb ?? 0), 0))
 const source = computed(() => appSourceText(props.app, props.templates))
@@ -130,20 +127,26 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       </li>
     </ul>
 
-    <div class="flex items-end justify-between gap-3">
-      <div class="min-w-0 flex-1">
-        <p class="flex items-baseline justify-between gap-2 text-[11px]">
-          <span class="text-muted-foreground">{{ showMemory ? 'Memory' : 'CPU' }}, last hour</span>
-          <span :class="running ? 'font-mono tabular-nums' : 'text-muted-foreground'">{{ reading }}</span>
-        </p>
-        <Sparkline
-          class="mt-1"
-          :values="spark"
-          :max="showMemory ? app.memory_mb : app.cpu_millis / 1000"
-          :color="showMemory ? 'var(--chart-2)' : 'var(--chart-1)'"
-          :format="(v) => (showMemory ? formatMB(v) : formatCPU(v))"
-          :label="`${showMemory ? 'Memory' : 'CPU'} of ${app.name} in the last hour`"
-        />
+    <!-- CPU and memory side by side; a narrow card shows only the numbers. -->
+    <div class="@container">
+      <div class="grid grid-cols-2 gap-4 text-[11px]">
+        <div v-for="m in [
+          { name: 'CPU', reading: cpuReading, values: cpu, max: app.cpu_millis / 1000, color: 'var(--chart-1)', format: formatCPU },
+          { name: 'Memory', reading: memoryReading, values: memory, max: app.memory_mb, color: 'var(--chart-2)', format: formatMB },
+        ]" :key="m.name" class="min-w-0">
+          <p class="flex min-w-0 flex-col gap-x-2 @xs:flex-row @xs:items-baseline @xs:justify-between">
+            <span class="text-muted-foreground">{{ m.name }}</span>
+            <span :class="cn('truncate', running ? 'font-mono tabular-nums' : 'text-muted-foreground')">{{ m.reading }}</span>
+          </p>
+          <Sparkline
+            class="mt-1 hidden @xs:block"
+            :values="m.values"
+            :max="m.max"
+            :color="m.color"
+            :format="m.format"
+            :label="`${m.name} of ${app.name} in the last hour`"
+          />
+        </div>
       </div>
     </div>
 
