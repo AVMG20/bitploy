@@ -100,7 +100,8 @@ const more = computed(() => Math.max(0, (projects.data.value?.projects.length ??
                 <RouterLink :to="projectRoute(p.id)" @click="setOpenMobile(false)">
                   <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
-                  <span v-if="p.apps.length > 1" class="ml-auto text-xs text-muted-foreground tabular-nums">{{ p.apps.length }}</span>
+                  <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->
+                  <small v-if="p.apps.length > 1" class="ml-auto shrink-0 pl-1 text-xs text-muted-foreground tabular-nums">{{ p.apps.length }}</small>
                 </RouterLink>
               </SidebarMenuButton>
               <SidebarMenuSub v-if="p.id === currentProject && p.apps.length > 1">
