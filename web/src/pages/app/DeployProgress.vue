@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Check, LoaderCircle, RefreshCw } from 'lucide-vue-next'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
+import LogLines from '@/components/LogLines.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -105,7 +106,7 @@ watch(
 
       <div v-if="log.length" class="grid gap-1.5">
         <p class="text-xs font-medium text-muted-foreground">{{ failed ? 'The last lines of the log' : 'Log' }}</p>
-        <pre ref="logEl" class="max-h-56 overflow-auto rounded-lg border bg-background/60 p-3 font-mono text-xs whitespace-pre-wrap">{{ log.join('\n') }}</pre>
+        <div ref="logEl" class="max-h-56 overflow-auto rounded-lg border bg-background/60 p-3 font-mono text-xs leading-relaxed"><LogLines :lines="log" /></div>
       </div>
 
       <div v-if="failed || cancelled" class="flex flex-wrap items-center gap-2">

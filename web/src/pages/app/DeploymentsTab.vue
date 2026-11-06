@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ChevronRight, History, ScrollText, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import LogLines from '@/components/LogLines.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import { plainHint } from '@/lib/errors'
 import EmptyState from '@/components/EmptyState.vue'
@@ -145,7 +146,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
           <p v-if="plainHint(d.error.code, d.error.hint)" class="mt-1">{{ plainHint(d.error.code, d.error.hint) }}</p>
           <details v-if="d.log_tail?.length" class="mt-2">
             <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
-            <pre class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs whitespace-pre-wrap">{{ d.log_tail.join('\n') }}</pre>
+            <div class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs leading-relaxed text-foreground"><LogLines :lines="d.log_tail" /></div>
           </details>
           <CopyForAiButton v-if="d.state === 'failed' && app.data.value" class="mt-3" :app="app.data.value" :deployment="d" />
         </div>

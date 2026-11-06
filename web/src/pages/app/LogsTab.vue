@@ -12,6 +12,7 @@ import { useQueryParam } from '@/composables/useQueryParam'
 import { api, fetchLogEntries, logStreamUrl, parseLogEntry } from '@/lib/api'
 import type { LogEntry, LogKind, LogTarget } from '@/lib/api'
 import { versionLabel } from '@/lib/format'
+import { highlightEntry, LOG_TOKEN_CLASS, logRowClass } from '@/lib/logHighlight'
 import { toastError } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import { isMulti, publicService, serviceRole, sortServices } from '@/lib/services'
@@ -95,6 +96,15 @@ const target = computed<LogTarget>(() => ({ slug: props.slug, kind: kind.value, 
 const noBuildYet = computed(() => kind.value === 'build' && !deploymentId.value && !deployments.isPending.value)
 // Finished build logs are static, so there is nothing to follow.
 const canFollow = computed(() => kind.value === 'runtime' || inProgress.value)
+
+// Each line gets a key of its own, so the list stays keyed when old lines drop off the top.
+const ids = new WeakMap<LogEntry, number>()
+let nextId = 0
+function lineKey(l: LogEntry): number {
+  let id = ids.get(l)
+  if (id === undefined) ids.set(l, (id = nextId++))
+  return id
+}
 
 const visible = computed(() => {
   const f = filter.value.trim().toLowerCase()
@@ -314,19 +324,25 @@ function download() {
     <div
       ref="scroller"
       :class="cn('min-h-64 overflow-auto', embedded ? 'h-[calc(100vh-22rem)]' : 'h-[60vh]')"
-      class="rounded-xl border bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-100"
+      class="rounded-xl border bg-card p-3 font-mono text-xs leading-relaxed text-card-foreground"
       role="log"
       tabindex="0"
       :aria-label="kind === 'build' ? 'Build log' : logService ? `Log of ${logService}` : 'App log'"
       @scroll.passive="onScroll"
     >
-      <p v-if="noBuildYet" class="text-neutral-400">There is no build log yet. It appears after the first deploy.</p>
-      <p v-else-if="!visible.length" class="text-neutral-400">
+      <p v-if="noBuildYet" class="text-muted-foreground">There is no build log yet. It appears after the first deploy.</p>
+      <p v-else-if="!visible.length" class="text-muted-foreground">
         {{ filter ? 'No lines match your filter.' : status === 'connecting' ? 'Connecting...' : kind === 'build' ? 'Nothing logged yet.' : logService ? `Nothing logged yet. Anything ${logService} prints shows up here.` : 'Nothing logged yet. Anything your app prints shows up here.' }}
       </p>
-      <div v-for="(l, i) in visible" :key="i" :class="cn('break-words whitespace-pre-wrap', showTime && l.time && 'flex gap-3')">
-        <span v-if="showTime && l.time" class="shrink-0 text-neutral-500 select-none" :title="l.time">{{ stamp(l.time) }}</span>
-        <span class="min-w-0">{{ l.text }}</span>
+      <!-- Keyed by the line itself and memoised: a new batch of lines renders only the new ones. -->
+      <div
+        v-for="l in visible"
+        :key="lineKey(l)"
+        v-memo="[l, showTime]"
+        :class="cn('-mx-1.5 rounded-sm px-1.5 break-words whitespace-pre-wrap', logRowClass(highlightEntry(l)), showTime && l.time && 'flex gap-3')"
+      >
+        <span v-if="showTime && l.time" class="shrink-0 font-normal text-muted-foreground select-none" :title="l.time">{{ stamp(l.time) }}</span>
+        <span class="min-w-0"><template v-for="(t, j) in highlightEntry(l).tokens" :key="j"><span v-if="LOG_TOKEN_CLASS[t.type]" :class="LOG_TOKEN_CLASS[t.type]">{{ t.text }}</span><template v-else>{{ t.text }}</template></template><template v-if="!l.text">&#8203;</template></span>
       </div>
     </div>
     <Button

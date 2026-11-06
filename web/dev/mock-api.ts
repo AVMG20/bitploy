@@ -166,6 +166,121 @@ const templates: ServiceTemplate[] = [
   },
 ]
 
+// ---------------------------------------------------------------- sample logs and files
+
+const SAMPLE_DOCKERFILE = `# syntax=docker/dockerfile:1
+ARG NODE_VERSION=22
+
+FROM node:\${NODE_VERSION}-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \\
+    npm ci --no-audit && \\
+    npm cache verify
+COPY . .
+RUN npm run build
+
+FROM node:\${NODE_VERSION}-alpine
+ENV NODE_ENV=production PORT=3000
+WORKDIR /app
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- "http://localhost:$PORT/healthz" || exit 1
+CMD ["node", "dist/server.js"]
+`
+
+const BUILD_LOG = [
+  '[1/3] Fetching the source',
+  '[2/3] Building the image',
+  '#0 building with "default" instance using docker driver',
+  '#1 [internal] load build definition from Dockerfile',
+  '#1 transferring dockerfile: 712B done',
+  '#1 DONE 0.0s',
+  '#2 [internal] load metadata for docker.io/library/node:22-alpine',
+  '#2 DONE 1.2s',
+  '#3 [internal] load .dockerignore',
+  '#3 DONE 0.0s',
+  '#4 [build 1/6] FROM docker.io/library/node:22-alpine@sha256:9fcc1a6da2b9eee38638df75c5f826e06e9c79f6a0f97f16ed98fe0ebb0725a3',
+  '#4 resolve docker.io/library/node:22-alpine@sha256:9fcc1a6da2b9 0.0s done',
+  '#4 CACHED',
+  '#5 [build 2/6] WORKDIR /app',
+  '#5 DONE 0.1s',
+  '#6 [build 3/6] COPY package.json package-lock.json ./',
+  '#6 DONE 0.0s',
+  '#7 [build 4/6] RUN --mount=type=cache,target=/root/.npm npm ci --no-audit',
+  '#7 3.912 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory.',
+  '#7 4.205 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported',
+  '#7 9.871 added 412 packages in 9s',
+  '#7 DONE 10.3s',
+  '#8 [build 5/6] COPY . .',
+  '#8 DONE 0.2s',
+  '#9 [build 6/6] RUN npm run build',
+  '#9 0.512 > shop@1.4.0 build',
+  '#9 0.513 > vite build',
+  '#9 1.334 vite v6.0.3 building for production...',
+  '#9 4.981 ✓ 1243 modules transformed.',
+  '#9 5.402 (!) Some chunks are larger than 500 kB after minification.',
+  '#9 5.610 ✓ built in 4.28s',
+  '#9 DONE 5.9s',
+  '#10 [stage-1 3/4] COPY --from=build --chown=node:node /app/dist ./dist',
+  '#10 DONE 0.1s',
+  '#11 exporting to image',
+  '#11 exporting layers 0.4s done',
+  '#11 writing image sha256:4f1d0c2be3a5c1e9b8a7d6e5f4c3b2a1 done',
+  '#11 naming to docker.io/bitploy/shop-web:4 done',
+  '#11 DONE 0.5s',
+  '[3/3] Starting the new version',
+  'Health check passed: GET /healthz 200 in 38ms',
+  'Live at https://shop-web.bitploy.nl',
+]
+
+const FAILED_BUILD_LOG = [
+  ...BUILD_LOG.slice(0, 26),
+  '#9 [build 6/6] RUN npm run build',
+  '#9 0.498 > shop@1.4.0 build',
+  '#9 0.499 > vite build',
+  '#9 1.287 vite v6.0.3 building for production...',
+  '#9 3.950 error during build:',
+  '#9 3.950 src/pages/Checkout.tsx (14:9): "formatPrice" is not exported by "src/lib/money.ts", imported by "src/pages/Checkout.tsx".',
+  '#9 3.951     at getRollupError (file:///app/node_modules/rollup/dist/es/shared/parseAst.js:395:41)',
+  '#9 3.951     at error (file:///app/node_modules/rollup/dist/es/shared/parseAst.js:391:42)',
+  '#9 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1',
+  '------',
+  ' > [build 6/6] RUN npm run build:',
+  '------',
+  'Dockerfile:11',
+  'ERROR: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1',
+]
+
+function runtimeLog(port: number): string[] {
+  return [
+    '> shop@1.4.0 start',
+    '> node dist/server.js',
+    `2026-11-06T09:59:58.114Z INFO  Server listening on http://0.0.0.0:${port}`,
+    '2026-11-06T09:59:58.120Z DEBUG pool created size=10 idle_timeout=30s',
+    'time=2026-11-06T10:00:01Z level=info msg="connected to database" host=postgres:5432 duration=12ms',
+    '10.0.1.7 - - [06/Nov/2026:10:00:02 +0000] "GET / HTTP/1.1" 200 5123 "-" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"',
+    '10.0.1.7 - - [06/Nov/2026:10:00:02 +0000] "GET /assets/index-B2x9.js HTTP/1.1" 304 0 "https://shop-web.bitploy.nl/" "Mozilla/5.0"',
+    'GET /products 200 11ms',
+    'POST /cart 201 23ms',
+    'GET /products/does-not-exist 404 3ms',
+    'GET /healthz 200 1ms',
+    '{"level":"warn","time":"2026-11-06T10:00:04Z","msg":"slow query","query":"SELECT * FROM orders","duration_ms":812}',
+    '2026-11-06T10:00:05.201Z WARN  Deprecated option `legacyCookies` is set; it goes away in 2.0',
+    'POST /checkout 500 87ms',
+    "2026-11-06T10:00:05.288Z ERROR Unhandled error in POST /checkout",
+    "TypeError: Cannot read properties of undefined (reading 'total')",
+    '    at checkout (/app/dist/routes/checkout.js:42:31)',
+    '    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)',
+    '    at next (/app/node_modules/express/lib/router/route.js:149:13)',
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)',
+    '[notice] cache warmed: 128 products',
+    'GET /products?page=2 200 9ms',
+  ]
+}
+
 // ---------------------------------------------------------------- catalog
 
 const catalog: CatalogApp[] = [
@@ -218,7 +333,16 @@ const catalog: CatalogApp[] = [
     health_path: '/api/health',
     env: [],
     first_steps: ['Open {url}/_/ and create the admin account.'],
-    dockerfile: 'FROM alpine:3.20\n# downloads pocketbase\nUSER 1000\n',
+    dockerfile: `FROM alpine:3.20
+ARG PB_VERSION=0.22.21
+# Download the release for this version and unpack it in /pb.
+RUN apk add --no-cache unzip ca-certificates && \\
+    wget -q "https://github.com/pocketbase/pocketbase/releases/download/v\${PB_VERSION}/pocketbase_\${PB_VERSION}_linux_amd64.zip" -O /tmp/pb.zip && \\
+    unzip /tmp/pb.zip -d /pb && rm /tmp/pb.zip
+USER 1000
+EXPOSE 8090
+CMD ["/pb/pocketbase", "serve", "--http=0.0.0.0:8090", "--dir=/data/pb_data"]
+`,
   },
   {
     id: 'it-tools',
@@ -464,6 +588,16 @@ function makeApp(s: AppSeed): App {
   for (let i = 1; i <= n; i++) {
     const last = i === n
     const state: DeploymentState = last ? (status === 'deploying' ? 'building' : 'running') : 'superseded'
+    // shop-web has a failed build before its current version, to show an error with its log tail.
+    if (a.slug === 'shop-web' && i === n - 1) {
+      list.unshift(
+        deployment(a, i, 'failed', 60 * 24 * (n - i) + 90, {
+          error: { code: 'build_failed', message: 'The build failed.', hint: 'The last log lines say which step went wrong.' },
+          log_tail: FAILED_BUILD_LOG.slice(-14),
+        }),
+      )
+      continue
+    }
     list.unshift(deployment(a, i, state, 60 * 24 * (n - i) + 90))
   }
   deployments[a.slug] = list
@@ -1513,21 +1647,33 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'GET /apps/:id/logs': {
       const a = needApp(id)
       if (q.get('follow')) throw new HttpError(404, 'not_found', 'The mock has no live log stream.')
+      const failed = deployments[a.slug]?.find((d) => d.id === q.get('deployment') && d.state === 'failed')
       const lines =
         q.get('kind') === 'build'
-          ? ['#1 [internal] load build definition from Dockerfile', '#2 [1/4] FROM node:22-alpine', '#3 [2/4] RUN npm ci', '#4 [3/4] RUN npm run build', '#5 exporting to image']
+          ? failed
+            ? FAILED_BUILD_LOG
+            : BUILD_LOG
           : a.template
-            ? ['database system is ready to accept connections', 'checkpoint starting: time', 'checkpoint complete: wrote 12 buffers']
-            : ['Listening on :' + (a.port ?? 3000), 'GET / 200 4ms', 'GET /products 200 11ms', 'POST /cart 201 23ms', 'GET /healthz 200 1ms']
+            ? [
+                '2026-11-06 09:59:58.101 UTC [1] LOG:  starting PostgreSQL 16.4 on x86_64-pc-linux-musl',
+                '2026-11-06 09:59:58.120 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432',
+                '2026-11-06 09:59:58.204 UTC [1] LOG:  database system is ready to accept connections',
+                '2026-11-06 10:04:58.311 UTC [27] LOG:  checkpoint starting: time',
+                '2026-11-06 10:05:01.012 UTC [44] ERROR:  relation "order_items" does not exist at character 15',
+                '2026-11-06 10:05:01.012 UTC [44] STATEMENT:  SELECT * FROM order_items WHERE order_id = $1',
+                '2026-11-06 10:05:03.870 UTC [27] LOG:  checkpoint complete: wrote 12 buffers (0.1%); write=1.204 s',
+              ]
+            : runtimeLog(a.port ?? 3000)
       return send(res, 200, { lines: lines.map((text, i) => ({ text, time: ago(lines.length - i) })) })
     }
     case 'GET /apps/:id/dockerfile': {
       const a = needApp(id)
       const c = catalog.find((x) => x.id === a.catalog_id)
-      return send(res, 200, { path: 'Dockerfile', content: c?.dockerfile ?? 'FROM node:22-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci && npm run build\nCMD ["npm", "start"]\n', editable: !a.git_source, reason: a.git_source ? 'The Dockerfile comes from the linked repository.' : '' })
+      return send(res, 200, { path: 'Dockerfile', content: c?.dockerfile ?? SAMPLE_DOCKERFILE, editable: !a.git_source, reason: a.git_source ? 'The Dockerfile comes from the linked repository.' : '' })
     }
     case 'GET /deployments/:id/log': {
-      return send(res, 200, { lines: ['[1/1] Fetching the source', 'Building the image', '#3 [2/4] RUN npm ci', 'added 412 packages in 9s'].map((text) => ({ text })) })
+      const failed = Object.values(deployments).some((list) => list.some((d) => d.id === id && d.state === 'failed'))
+      return send(res, 200, { lines: (failed ? FAILED_BUILD_LOG : BUILD_LOG).map((text) => ({ text })) })
     }
 
     // ---------------------------------------------------------------- catalog and checks

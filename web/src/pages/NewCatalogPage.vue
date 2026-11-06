@@ -262,7 +262,7 @@ const submit = form.handleSubmit((v) => {
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent class="mt-2">
-                <CodeBlock :code="entry.data.value.dockerfile" what="Dockerfile" />
+                <CodeBlock :code="entry.data.value.dockerfile" what="Dockerfile" lang="dockerfile" />
               </CollapsibleContent>
             </Collapsible>
           </CardContent>

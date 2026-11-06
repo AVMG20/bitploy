@@ -7,6 +7,7 @@ import { Archive, ArrowUpCircle, ArrowUpRight, Cable, ExternalLink, Lock, Maximi
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
+import LogLines from '@/components/LogLines.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -216,7 +217,7 @@ watch(
               <p class="font-medium">{{ latest.error.message }}</p>
               <p v-if="plainHint(latest.error.code, latest.error.hint)" class="mt-0.5">{{ plainHint(latest.error.code, latest.error.hint) }}</p>
             </div>
-            <pre v-if="(building || latest.state === 'failed') && buildLog.length" class="max-h-40 overflow-auto rounded-md border bg-background/60 p-2 font-mono text-[11px] whitespace-pre-wrap">{{ buildLog.join('\n') }}</pre>
+            <div v-if="(building || latest.state === 'failed') && buildLog.length" class="max-h-40 overflow-auto rounded-md border bg-background/60 p-2 font-mono text-[11px] leading-relaxed"><LogLines :lines="buildLog" /></div>
           </div>
         </section>
 
@@ -228,11 +229,14 @@ watch(
             </h3>
             <RouterLink :to="appRoute(data, 'app-logs')" class="text-xs font-medium hover:underline">Open logs</RouterLink>
           </div>
-          <pre
+          <div
             ref="logEl"
-            class="h-44 overflow-auto rounded-lg border bg-card p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground/85"
+            class="h-44 overflow-auto rounded-lg border bg-card p-2.5 font-mono text-[11px] leading-relaxed text-foreground/85"
             data-testid="panel-log"
-          >{{ tail.length ? tail.join('\n') : runtime.isPending.value ? 'Loading...' : 'No lines yet.' }}</pre>
+          >
+            <LogLines v-if="tail.length" :lines="tail" />
+            <p v-else class="text-muted-foreground">{{ runtime.isPending.value ? 'Loading...' : 'No lines yet.' }}</p>
+          </div>
         </section>
 
         <!-- Who it talks to. -->
