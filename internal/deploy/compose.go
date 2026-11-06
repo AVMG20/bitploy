@@ -49,6 +49,7 @@ const (
 	CodeComposeFileMissing        = "compose_file_missing"
 	CodeComposeSourceMissing      = "compose_source_missing"
 	CodeComposeReference          = "compose_reference_unsupported"
+	CodeComposeImageVariable      = "compose_image_variable"
 	// Warnings.
 	CodeComposeKeyIgnored     = "compose_key_ignored"
 	CodeComposeVariableUnset  = "compose_variable_unset"
@@ -70,6 +71,13 @@ const (
 	composeMinVolumeMB         = 100
 	composeMaxVolumeMB         = 1 << 20
 	composeProjectName         = "bitploy"
+)
+
+// MaxMemoryMB and MaxCPUMillis bound one app, or one service of a compose
+// app: sanity limits that also hold for users who overallocate.
+const (
+	MaxMemoryMB  = 64 << 10
+	MaxCPUMillis = 64 * 1000
 )
 
 // ComposeFileNames are the names bitploy looks for, in this order.
@@ -364,6 +372,7 @@ func (p *composeParser) parse() {
 	p.order = serviceOrder(&doc)
 	p.scanTop(raw)
 	p.scanReferences(raw)
+	p.scanImageVariables(raw)
 	if len(p.out.Errors) > 0 {
 		return
 	}
@@ -444,6 +453,38 @@ func (p *composeParser) scanReferences(raw map[string]any) {
 				"%s%s refers to another app with %s; references are not read from compose files.", svcPrefix(name), key, ref)
 			break
 		}
+	}
+}
+
+// scanImageVariables refuses a shared variable that has a value in the
+// image: of a service that pulls it. The image is shown in the deploy log,
+// in errors and in the app's services, which read-only tokens and admins
+// can read, while variable values are never shown. ${TAG:-latest} with TAG
+// not set (or empty) is fine: the image then holds only the file's text.
+func (p *composeParser) scanImageVariables(raw map[string]any) {
+	svcs, _ := raw["services"].(map[string]any)
+	for _, name := range p.order {
+		m, ok := svcs[name].(map[string]any)
+		if !ok || m["build"] != nil {
+			continue // a build service ignores image:
+		}
+		img, ok := m["image"].(string)
+		if !ok {
+			continue
+		}
+		var set []string
+		for v := range template.ExtractVariables(map[string]any{"image": img}, template.DefaultPattern) {
+			if p.in.Env[v] != "" {
+				set = append(set, v)
+			}
+		}
+		if len(set) == 0 {
+			continue
+		}
+		sort.Strings(set)
+		p.errf(CodeComposeImageVariable, name, "image",
+			"Write the image and its tag in the compose file itself, like postgres:16-alpine. A ${VAR:-default} there works only while VAR is not set.",
+			"%simage: takes the value of %s; variables are kept secret, but the image name is shown in the deploy log.", svcPrefix(name), strings.Join(set, ", "))
 	}
 }
 
@@ -1149,29 +1190,41 @@ func (p *composeParser) service(name string, sc, ref types.ServiceConfig, proj *
 		}
 	}
 
-	// resources
-	mem, cpu := int64(0), int64(0)
+	// resources, within the bounds of a single app. The CPU count is checked
+	// as a float, so a huge cpus: cannot overflow int64.
+	mem, cpus := int64(0), float64(0)
+	memKey, cpuKey := "deploy.resources.limits.memory", "deploy.resources.limits.cpus"
 	if sc.Deploy != nil && sc.Deploy.Resources.Limits != nil {
 		mem = int64(sc.Deploy.Resources.Limits.MemoryBytes)
-		cpu = int64(math.Round(float64(sc.Deploy.Resources.Limits.NanoCPUs) * 1000))
+		cpus = float64(sc.Deploy.Resources.Limits.NanoCPUs)
 	}
-	if mem == 0 {
-		mem = int64(sc.MemLimit)
+	if mem == 0 && sc.MemLimit != 0 {
+		mem, memKey = int64(sc.MemLimit), "mem_limit"
 	}
-	if cpu == 0 && sc.CPUS > 0 {
-		cpu = int64(math.Round(float64(sc.CPUS) * 1000))
+	if cpus == 0 && sc.CPUS > 0 {
+		cpus, cpuKey = float64(sc.CPUS), "cpus"
 	}
-	if mem > 0 {
+	if mem > MaxMemoryMB<<20 {
+		p.errf(CodeComposeInvalid, name, memKey, fmt.Sprintf("Use at most %d GB, like 512m or 2g.", MaxMemoryMB>>10),
+			"%sthe memory limit is more than %d GB, the most one app can have.", svcPrefix(name), MaxMemoryMB>>10)
+	} else if mem > 0 {
 		svc.MemoryMB = (mem + (1<<20 - 1)) >> 20
 		if svc.MemoryMB < composeMinMemoryMB {
-			p.warnf(CodeComposeKeyIgnored, name, "deploy.resources.limits.memory", "", "%sthe memory limit is raised to the minimum of %d MB.", svcPrefix(name), composeMinMemoryMB)
+			p.warnf(CodeComposeKeyIgnored, name, memKey, "", "%sthe memory limit is raised to the minimum of %d MB.", svcPrefix(name), composeMinMemoryMB)
 			svc.MemoryMB = composeMinMemoryMB
 		}
+	}
+	cpu := int64(0)
+	if math.IsNaN(cpus) || cpus > MaxCPUMillis/1000 {
+		p.errf(CodeComposeInvalid, name, cpuKey, fmt.Sprintf("Use at most %d CPUs, like \"0.5\" or \"2\".", MaxCPUMillis/1000),
+			"%sthe CPU limit is more than %d CPUs, the most one app can have.", svcPrefix(name), MaxCPUMillis/1000)
+	} else if cpus > 0 {
+		cpu = int64(math.Round(cpus * 1000))
 	}
 	if cpu > 0 {
 		svc.CPUMillis = cpu
 		if cpu < composeMinCPUMillis {
-			p.warnf(CodeComposeKeyIgnored, name, "deploy.resources.limits.cpus", "", "%sthe CPU limit is raised to the minimum of 0.05.", svcPrefix(name))
+			p.warnf(CodeComposeKeyIgnored, name, cpuKey, "", "%sthe CPU limit is raised to the minimum of 0.05.", svcPrefix(name))
 			svc.CPUMillis = composeMinCPUMillis
 		}
 	} else {

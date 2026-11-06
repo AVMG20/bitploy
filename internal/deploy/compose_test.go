@@ -715,3 +715,72 @@ func TestParseComposeReferences(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) { runComposeCase(t, c) })
 	}
 }
+
+// A service gets at most what one app may have (64 GB, 64 CPUs), also for a
+// user who may overallocate; a huge cpus: must not overflow int64.
+func TestParseComposeResourceBounds(t *testing.T) {
+	limits := func(mem, cpus string) string {
+		return "services:\n  web:\n    image: nginx\n    deploy:\n      resources:\n        limits:\n          memory: " + mem + "\n          cpus: \"" + cpus + "\"\n"
+	}
+	cases := []composeCase{
+		{name: "the most", file: limits("64g", "64"), check: func(t *testing.T, p ComposeProject) {
+			if s := p.Services[0]; s.MemoryMB != MaxMemoryMB || s.CPUMillis != MaxCPUMillis {
+				t.Errorf("%d MB %d", s.MemoryMB, s.CPUMillis)
+			}
+		}},
+		{name: "too much memory", file: limits("65g", "1"),
+			errCode: CodeComposeInvalid, errService: "web", errKey: "deploy.resources.limits.memory", errText: "64 GB"},
+		{name: "too many cpus", file: limits("1g", "64.5"),
+			errCode: CodeComposeInvalid, errService: "web", errKey: "deploy.resources.limits.cpus", errText: "64 CPUs"},
+		{name: "cpus beyond int64", file: limits("1g", "1e30"),
+			errCode: CodeComposeInvalid, errService: "web", errKey: "deploy.resources.limits.cpus"},
+		{name: "short form", file: "services:\n  web:\n    image: nginx\n    mem_limit: 128g\n    cpus: 100\n",
+			errCode: CodeComposeInvalid, errService: "web", errKey: "mem_limit", check: func(t *testing.T, p ComposeProject) {
+				if len(p.Errors) != 2 || p.Errors[1].Key != "cpus" {
+					t.Errorf("errors: %+v", p.Errors)
+				}
+			}},
+		{name: "the least is raised", file: limits("1m", "0.01"), warn: []string{CodeComposeKeyIgnored}, check: func(t *testing.T, p ComposeProject) {
+			if s := p.Services[0]; s.MemoryMB != composeMinMemoryMB || s.CPUMillis != composeMinCPUMillis {
+				t.Errorf("%d MB %d", s.MemoryMB, s.CPUMillis)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { runComposeCase(t, c) })
+	}
+}
+
+// image: is shown in the deploy log and errors, which read-only tokens and
+// admins can read, so a shared variable with a value cannot be filled in
+// there. A default from the file is fine.
+func TestParseComposeImageVariables(t *testing.T) {
+	env := map[string]string{"TOKEN": "top-secret-value", "EMPTY": ""}
+	cases := []composeCase{
+		{name: "a set variable", file: "services:\n  web:\n    image: \"ghcr.io/acme/${TOKEN}:1\"\n", env: env,
+			errCode: CodeComposeImageVariable, errService: "web", errKey: "image", errText: "TOKEN", check: func(t *testing.T, p ComposeProject) {
+				for _, e := range p.Errors {
+					if strings.Contains(e.Message+e.Hint, "top-secret-value") {
+						t.Errorf("the error holds the value: %+v", e)
+					}
+				}
+			}},
+		{name: "a set variable with a default", file: "services:\n  web:\n    image: postgres:${TOKEN:-16}\n", env: env,
+			errCode: CodeComposeImageVariable, errService: "web"},
+		{name: "bare $VAR", file: "services:\n  web:\n    image: nginx:$TOKEN\n", env: env,
+			errCode: CodeComposeImageVariable, errService: "web"},
+		{name: "unset, default used", file: "services:\n  web:\n    image: postgres:${PG_VERSION:-16}\n", env: env,
+			check: func(t *testing.T, p ComposeProject) {
+				if p.Services[0].Image != "postgres:16" {
+					t.Errorf("image %q", p.Services[0].Image)
+				}
+			}},
+		{name: "empty, default used", file: "services:\n  web:\n    image: postgres:${EMPTY:-16}\n", env: env},
+		{name: "a build service ignores image", file: "services:\n  web:\n    build: .\n    image: \"acme/${TOKEN}\"\n", env: env,
+			files: map[string]string{"Dockerfile": "FROM node:22\nEXPOSE 3000\n"}, warn: []string{CodeComposeKeyIgnored}},
+		{name: "elsewhere is fine", file: "services:\n  web:\n    image: nginx\n    environment:\n      T: ${TOKEN}\n", env: env},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { runComposeCase(t, c) })
+	}
+}

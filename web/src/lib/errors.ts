@@ -87,6 +87,7 @@ const COMPOSE_TITLES: Record<string, string> = {
   compose_source_missing: 'A folder the compose file builds from is missing.',
   compose_key_ignored: 'bitploy ignores a setting in the compose file.',
   compose_variable_unset: 'A variable the compose file uses has no value.',
+  compose_image_variable: 'An image name uses a variable. Write the image and its tag in the file.',
   compose_service_skipped: 'A service is left out.',
   compose_ports_not_published: 'Ports are not opened to the internet.',
 }
