@@ -779,6 +779,25 @@ export interface ServerStats {
   apps_max: number
 }
 
+/** One point of the server's CPU and memory history (GET /admin/server/metrics). */
+export interface ServerMetricPoint {
+  ts: string
+  /** % of the whole server, 0-100. */
+  cpu: number
+  /** Used memory, without reclaimable cache. */
+  memory_mb: number
+  memory_total_mb: number
+  cpu_max?: number
+  memory_max_mb?: number
+}
+
+export interface ServerMetrics {
+  window: MetricWindow
+  /** The server's RAM; 0 when it cannot be read. */
+  mem_total_mb: number
+  points: ServerMetricPoint[] | null
+}
+
 export interface Page<T> {
   items: T[] | null
   next_cursor?: string

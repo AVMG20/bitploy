@@ -160,6 +160,15 @@ export function useAppMetrics(
   })
 }
 
+/** The CPU and memory history of the whole server (admin). A new sample is stored every 15 seconds. */
+export function useServerMetrics(window: MaybeRefOrGetter<MetricWindow>) {
+  return useQuery({
+    queryKey: computed(() => keys.adminServerMetrics(toValue(window))),
+    queryFn: () => api.adminServerMetrics(toValue(window)),
+    refetchInterval: 15_000,
+  })
+}
+
 /** The backups of an app; refreshes every 2 seconds while one is being made or restored (and live events are not arriving). */
 export function useBackups(slug: MaybeRefOrGetter<string>) {
   return useQuery({

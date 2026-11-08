@@ -12,14 +12,15 @@ import type { ChartConfig } from '@/components/ui/chart'
 import type { MetricPoint, MetricWindow } from '@/lib/types'
 
 const props = defineProps<{
-  points: MetricPoint[]
+  /** App metrics, or the server's history (the same fields). */
+  points: Pick<MetricPoint, 'ts' | 'cpu' | 'memory_mb'>[]
   field: 'cpu' | 'memory_mb'
   label: string
   unit: string
   window: MetricWindow
-  /** Upper bound for the y axis (the app's limit). */
+  /** Upper bound for the y axis (the app's limit, or the server's RAM), in the scaled unit. */
   limit?: number
-  /** Multiplies the value, e.g. 0.01 to show CPU (sent as % of one core) in CPUs. */
+  /** Multiplies the value, e.g. 0.01 to show CPU (sent as % of one core) in CPUs, or 1/1024 to show memory in GB. */
   scale?: number
   color: string
 }>()
@@ -36,7 +37,7 @@ const config = computed<ChartConfig>(() => ({
 const data = computed<Datum[]>(() =>
   props.points.map((p) => ({
     date: new Date(p.ts),
-    [props.field]: props.field === 'cpu' ? Math.round(p.cpu * (props.scale ?? 1) * 1000) / 1000 : Math.round(p.memory_mb * 10) / 10,
+    [props.field]: props.field === 'cpu' ? Math.round(p.cpu * (props.scale ?? 1) * 1000) / 1000 : Math.round(p.memory_mb * (props.scale ?? 1) * 100) / 100,
   })),
 )
 

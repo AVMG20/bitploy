@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import MetricChart from '@/components/MetricChart.vue'
 import QueryError from '@/components/QueryError.vue'
 import StatCard from '@/components/StatCard.vue'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import AdminPublicPorts from './AdminPublicPorts.vue'
-import { keys, REFRESH_MS } from '@/composables/queries'
+import { keys, REFRESH_MS, useServerMetrics } from '@/composables/queries'
+import { useQueryParam } from '@/composables/useQueryParam'
 import { api } from '@/lib/api'
 import { formatGB, formatMB, formatPercent, pct } from '@/lib/format'
+import type { MetricWindow } from '@/lib/types'
 
 const server = useQuery({ queryKey: keys.adminServer, queryFn: api.adminServer, refetchInterval: REFRESH_MS })
 const s = computed(() => server.data.value)
+
+const windowSel = useQueryParam<MetricWindow>('window', '1h', ['1h', '24h', '7d'])
+const windows: { value: MetricWindow; label: string }[] = [
+  { value: '1h', label: '1 hour' },
+  { value: '24h', label: '24 hours' },
+  { value: '7d', label: '7 days' },
+]
+const history = useServerMetrics(windowSel)
+const points = computed(() => history.data.value?.points ?? [])
+const memTotalMB = computed(() => history.data.value?.mem_total_mb || s.value?.mem_total_mb || 0)
 </script>
 
 <template>
@@ -46,6 +62,41 @@ const s = computed(() => server.data.value)
         :progress="s ? pct(s.apps_total, s.apps_max) : undefined"
       />
     </div>
+
+    <Card class="mt-6">
+      <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
+        <CardTitle>Usage over time</CardTitle>
+        <Tabs v-model="windowSel">
+          <TabsList>
+            <TabsTrigger v-for="w in windows" :key="w.value" :value="w.value">{{ w.label }}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </CardHeader>
+      <CardContent>
+        <QueryError v-if="history.isError.value && !history.data.value" :error="history.error.value" @retry="history.refetch()" />
+        <Skeleton v-else-if="history.isPending.value" class="h-48 w-full" />
+        <p v-else-if="points.length < 2" class="py-12 text-center text-sm text-muted-foreground">
+          No data yet. The charts fill in about a minute after bitploy starts.
+        </p>
+        <div v-else class="grid gap-6 md:grid-cols-2">
+          <div class="min-w-0">
+            <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
+              <span class="font-medium">CPU</span>
+              <span class="text-xs text-muted-foreground">% of the whole server</span>
+            </p>
+            <MetricChart :points="points" field="cpu" label="CPU" unit="%" :window="windowSel" :limit="100" color="var(--chart-1)" />
+          </div>
+          <div class="min-w-0">
+            <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
+              <span class="font-medium">Memory</span>
+              <span class="text-xs text-muted-foreground">GB in use, of {{ formatMB(memTotalMB) }}</span>
+            </p>
+            <MetricChart :points="points" field="memory_mb" label="Memory" unit="GB" :scale="1 / 1024" :window="windowSel" :limit="memTotalMB / 1024" color="var(--chart-2)" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
     <AdminPublicPorts class="mt-6" />
   </div>
 </template>

@@ -48,6 +48,7 @@ import type {
   PublicConnection,
   PublicPortInput,
   PublicPortsOverview,
+  ServerMetrics,
   ServerStats,
   ServiceTemplate,
   Session,
@@ -146,6 +147,7 @@ export const paths = {
   adminInvites: `${V1}/admin/invites`,
   adminInvite: (id: string) => `${V1}/admin/invites/${enc(id)}`,
   adminServer: `${V1}/admin/server`,
+  adminServerMetrics: `${V1}/admin/server/metrics`,
   adminApps: `${V1}/admin/apps`,
   adminPublicPorts: `${V1}/admin/public-ports`,
   adminPublicPort: (slug: string) => `${V1}/admin/public-ports/${enc(slug)}`,
@@ -602,6 +604,7 @@ export const api = {
   createInvite: (input: { email?: string; role?: string }) => request<Invite>('POST', paths.adminInvites, { body: input }),
   revokeInvite: (id: string) => request<void>('DELETE', paths.adminInvite(id)),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
+  adminServerMetrics: (window: MetricWindow) => request<ServerMetrics>('GET', paths.adminServerMetrics, { query: { window } }),
   async adminApps(): Promise<App[]> {
     return listAll<App>(paths.adminApps)
   },
