@@ -123,6 +123,8 @@ type appBrief struct {
 	Project           string           `json:"project,omitempty"`
 	Alias             string           `json:"alias,omitempty"`
 	Template          string           `json:"template,omitempty"`
+	// Shared: the app is in a project another user shared with this one.
+	Shared bool `json:"shared,omitempty"`
 }
 
 func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
@@ -133,7 +135,7 @@ func newAppBrief(ap app.App, latest *deploymentBrief) appBrief {
 	if ap.Volume {
 		b.VolumeMB = ap.VolumeMB
 	}
-	b.Project, b.Alias = ap.Project.Name, ap.Alias
+	b.Project, b.Alias, b.Shared = ap.Project.Name, ap.Alias, ap.Shared
 	if ap.Template != nil {
 		b.Template = *ap.Template
 	}

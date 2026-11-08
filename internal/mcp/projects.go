@@ -41,13 +41,19 @@ type deleteProjectIn struct {
 
 // projectBrief is a project as list_projects shows it.
 type projectBrief struct {
-	ID   string           `json:"id"`
-	Name string           `json:"name"`
-	Apps []map[string]any `json:"apps"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Role is owner or member; Owner names the owner of a shared project.
+	Role  string           `json:"role"`
+	Owner string           `json:"owner,omitempty"`
+	Apps  []map[string]any `json:"apps"`
 }
 
 func briefProject(p app.Project) projectBrief {
-	b := projectBrief{ID: p.ID, Name: p.Name, Apps: []map[string]any{}}
+	b := projectBrief{ID: p.ID, Name: p.Name, Role: p.Role, Apps: []map[string]any{}}
+	if p.Shared {
+		b.Owner = ownerName(p)
+	}
 	for _, ap := range p.Apps {
 		m := map[string]any{"slug": ap.Slug, "name": ap.Name, "alias": ap.Alias, "status": ap.Status, "internal_host": ap.InternalHost, "references": ap.References}
 		if ap.URL != "" {
@@ -62,7 +68,18 @@ func briefProject(p app.Project) projectBrief {
 	return b
 }
 
+func ownerName(p app.Project) string {
+	if p.Owner.Name != "" {
+		return p.Owner.Name + " (" + p.Owner.Email + ")"
+	}
+	return p.Owner.Email
+}
+
 func projectLine(p app.Project) string {
+	label := fmt.Sprintf("%s (%s)", p.Name, p.ID)
+	if p.Shared {
+		label = fmt.Sprintf("%s (%s, shared by %s)", p.Name, p.ID, ownerName(p))
+	}
 	names := make([]string, len(p.Apps))
 	for i, ap := range p.Apps {
 		var about []string
@@ -78,16 +95,16 @@ func projectLine(p app.Project) string {
 		}
 	}
 	if len(names) == 0 {
-		return fmt.Sprintf("%s (%s): no apps", p.Name, p.ID)
+		return label + ": no apps"
 	}
-	return fmt.Sprintf("%s (%s): %s", p.Name, p.ID, strings.Join(names, ", "))
+	return label + ": " + strings.Join(names, ", ")
 }
 
 func (s *srv) registerProjectTools() {
 	svc := s.svc
 
 	addTool(s, "list_projects", "List projects",
-		"Lists the user's projects with their apps. Every app is in one project. The apps of a project reach each other at their short name (alias, like postgres:5432) on a private network, and can use each other's variables as ${{<alias>.VAR}} in set_env, like DATABASE_URL=${{postgres.DATABASE_URL}}.",
+		"Lists the user's projects with their apps, and the projects other users shared with them (role member, owner says whose: their apps can be deployed and changed like the user's own, but only the owner renames or deletes the project). Every app is in one project. The apps of a project reach each other at their short name (alias, like postgres:5432) on a private network, and can use each other's variables as ${{<alias>.VAR}} in set_env, like DATABASE_URL=${{postgres.DATABASE_URL}}.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			ps, err := svc.ListProjects(ctx, a)
