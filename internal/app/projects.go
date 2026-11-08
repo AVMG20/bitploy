@@ -212,9 +212,25 @@ func (c nameClash) err(alias string) *apperr.Error {
 		WithDetail("name", c.name).WithDetail("app", c.holder.app.Slug)
 }
 
+// projectNeed is what a caller wants to do with a project (loadProject).
+type projectNeed int
+
+const (
+	// projectRead: look at it. Its owner, its members, and an admin with a
+	// dashboard session.
+	projectRead projectNeed = iota
+	// projectUse: add apps and services to it. Its owner and its members,
+	// with the deploy scope.
+	projectUse
+	// projectManage: rename or delete it, manage its members. Its owner only,
+	// with the deploy scope (member management also needs a session).
+	projectManage
+)
+
 // loadProject finds a project by id, or by its name among the caller's
-// projects (case-insensitive). Ownership works like LoadApp.
-func (s *Service) loadProject(ctx context.Context, a Actor, ref string, write bool) (db.Project, error) {
+// projects and the projects shared with them (case-insensitive). Access
+// works like LoadApp, plus projectManage for the owner alone.
+func (s *Service) loadProject(ctx context.Context, a Actor, ref string, need projectNeed) (db.Project, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return db.Project{}, apperr.BadRequest("project_required", "No project was given.",
@@ -226,7 +242,7 @@ func (s *Service) loadProject(ctx context.Context, a Actor, ref string, write bo
 		p, err = s.Q.GetProject(ctx, ref)
 	} else {
 		var rows []db.Project
-		rows, err = s.Q.ListProjectsByUser(ctx, a.UserID)
+		rows, err = s.Q.ListProjectsForUser(ctx, a.UserID)
 		if err != nil {
 			return db.Project{}, apperr.Internal(err)
 		}
@@ -255,13 +271,19 @@ func (s *Service) loadProject(ctx context.Context, a Actor, ref string, write bo
 	if a.Channel == ChannelSystem {
 		return p, nil
 	}
-	if p.UserID != a.UserID {
-		if a.IsAdmin() && !write && a.Scope == ScopeSession {
+	switch s.projectRole(ctx, a, p) {
+	case roleOwner:
+	case roleMember:
+		if need == projectManage {
+			return db.Project{}, projectOwnerOnly()
+		}
+	default:
+		if a.IsAdmin() && need == projectRead && a.Scope == ScopeSession {
 			return p, nil
 		}
 		return db.Project{}, projectNotFound(ref)
 	}
-	if write {
+	if need != projectRead {
 		if err := RequireDeploy(a); err != nil {
 			return db.Project{}, err
 		}
@@ -274,15 +296,28 @@ func (s *Service) projectView(ctx context.Context, a Actor, p db.Project) (Proje
 	if err != nil {
 		return Project{}, apperr.Internal(err)
 	}
-	return Project{
+	v := Project{
 		ID: p.ID, Name: p.Name, CreatedAt: ts(p.CreatedAt), UpdatedAt: ts(p.UpdatedAt),
 		Network: dockerx.ProjectNetworkName(p.ID), Apps: s.appViews(ctx, a, rows),
-	}, nil
+		Role: s.projectRole(ctx, a, p), Owner: UserBrief{ID: p.UserID},
+	}
+	if v.Role == "" {
+		v.Role = "admin" // loadProject let only an admin's session through
+	}
+	v.Shared = v.Role == roleMember
+	if u, err := s.Q.GetUser(ctx, p.UserID); err == nil {
+		v.Owner.Name, v.Owner.Email = u.Name, u.Email
+	}
+	if n, err := s.Q.CountProjectMembers(ctx, p.ID); err == nil {
+		v.MemberCount = n
+	}
+	return v, nil
 }
 
-// ListProjects returns the caller's projects, newest first, with their apps.
+// ListProjects returns the caller's projects and the projects shared with
+// them, newest first, with their apps.
 func (s *Service) ListProjects(ctx context.Context, a Actor) ([]Project, error) {
-	rows, err := s.Q.ListProjectsByUser(ctx, a.UserID)
+	rows, err := s.Q.ListProjectsForUser(ctx, a.UserID)
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
@@ -299,7 +334,7 @@ func (s *Service) ListProjects(ctx context.Context, a Actor) ([]Project, error) 
 
 // GetProject returns one project (by id or name) with its apps.
 func (s *Service) GetProject(ctx context.Context, a Actor, ref string) (Project, error) {
-	p, err := s.loadProject(ctx, a, ref, false)
+	p, err := s.loadProject(ctx, a, ref, projectRead)
 	if err != nil {
 		return Project{}, err
 	}
@@ -336,9 +371,10 @@ func (s *Service) CreateProject(ctx context.Context, a Actor, in CreateProjectIn
 	return s.projectView(ctx, a, p)
 }
 
-// UpdateProject renames a project. A renamed project stays when it is empty.
+// UpdateProject renames a project (its owner only). A renamed project stays
+// when it is empty.
 func (s *Service) UpdateProject(ctx context.Context, a Actor, ref string, in UpdateProjectInput) (Project, error) {
-	p, err := s.loadProject(ctx, a, ref, true)
+	p, err := s.loadProject(ctx, a, ref, projectManage)
 	if err != nil {
 		return Project{}, err
 	}
@@ -362,11 +398,11 @@ func (s *Service) UpdateProject(ctx context.Context, a Actor, ref string, in Upd
 	return s.projectView(ctx, a, p)
 }
 
-// DeleteProject deletes a project. confirm must be its name. A project that
-// still has apps is refused unless withApps, which deletes them (and their
-// data) first.
+// DeleteProject deletes a project (its owner only; its members lose it with
+// it). confirm must be its name. A project that still has apps is refused
+// unless withApps, which deletes them (and their data) first.
 func (s *Service) DeleteProject(ctx context.Context, a Actor, ref, confirm string, withApps bool) error {
-	p, err := s.loadProject(ctx, a, ref, true)
+	p, err := s.loadProject(ctx, a, ref, projectManage)
 	if err != nil {
 		return err
 	}

@@ -27,8 +27,9 @@ func (s *Service) ListEnv(ctx context.Context, a Actor, ref string) ([]EnvVar, e
 		return nil, err
 	}
 	// An admin looking at another user's app sees no value: readable means
-	// readable to the app's owner (and the owner's tokens).
-	return s.listEnv(ctx, row.ID, row.UserID == a.UserID || a.Channel == ChannelSystem)
+	// readable to the app's owner and the members of its project (and their
+	// tokens).
+	return s.listEnv(ctx, row.ID, s.mayUseApp(ctx, a, row))
 }
 
 // listEnv lists the app's variables; reveal false leaves every value out.

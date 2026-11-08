@@ -334,7 +334,7 @@ func (s *Service) dbCall(ctx context.Context, a Actor, ref, volume, path string,
 		rel  string
 		exec func(body []byte) ([]byte, error)
 	)
-	if eng := dumpEngineOf(app); eng != nil && app.UserID == a.UserID {
+	if eng := dumpEngineOf(app); eng != nil && s.mayUseApp(ctx, a, app) {
 		row = app
 		if exec, rel, err = s.dbServerTarget(ctx, app, eng.id, path, &req); err != nil {
 			return err

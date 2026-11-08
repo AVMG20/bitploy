@@ -178,11 +178,13 @@ func RequireAdmin(a Actor) error {
 	return nil
 }
 
-// LoadApp finds an app by slug or app ID that the actor may see.
+// LoadApp finds an app by slug or app ID that the actor may see: their own,
+// or one in a project shared with them (a member may do on it what its owner
+// may, within the scope of the credential; see mayUseApp).
 // Admins may read every app, but only with a dashboard session (not with an
-// API token of any scope). write=true additionally requires ownership
-// (admins may still stop any app — callers that allow that pass write=false
-// and check themselves).
+// API token of any scope). write=true additionally requires ownership or
+// membership (admins may still stop any app — callers that allow that pass
+// write=false and check themselves).
 func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) (db.App, error) {
 	ref = strings.TrimSpace(ref)
 	var row db.App
@@ -203,7 +205,7 @@ func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) 
 	if a.Channel == ChannelSystem {
 		return row, nil
 	}
-	if row.UserID != a.UserID {
+	if !s.mayUseApp(ctx, a, row) {
 		// Only a logged-in dashboard session may look at other users' apps:
 		// a leaked admin API token (even read-only) must not expose every user.
 		if a.IsAdmin() && !write && a.Scope == ScopeSession {
@@ -217,6 +219,22 @@ func (s *Service) LoadApp(ctx context.Context, a Actor, ref string, write bool) 
 		}
 	}
 	return row, nil
+}
+
+// mayUseApp reports whether the actor may use the app as its own: they own
+// it, or they are a member of its project (project_members.go). An admin
+// looking at another user's app is neither. This is the one check behind
+// LoadApp and the places that hand out an app's data or secret values
+// (variables, /data files, backups, databases); membership is read from the
+// database every time, so a removed member loses access at once.
+func (s *Service) mayUseApp(ctx context.Context, a Actor, row db.App) bool {
+	if a.Channel == ChannelSystem {
+		return true
+	}
+	if a.UserID == "" {
+		return false
+	}
+	return row.UserID == a.UserID || s.isProjectMember(ctx, row.ProjectID, a.UserID)
 }
 
 func appNotFound(ref string) *apperr.Error {

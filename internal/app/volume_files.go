@@ -166,15 +166,15 @@ func filesBusyErr() *apperr.Error {
 }
 
 // filesTarget loads the app and the store for its volume. The files are the
-// owner's data: only the owner (or the system) gets to them, never an admin
-// who looks at another user's app.
+// owner's data: only the owner, a member of the app's project (or the
+// system) get to them, never an admin who looks at another user's app.
 // volume names one volume of an app with several; "" is the first.
 func (s *Service) filesTarget(ctx context.Context, a Actor, ref string, write bool, volume string) (db.App, db.User, fileStore, volumeSpec, error) {
 	row, owner, err := s.backupApp(ctx, a, ref, write)
 	if err != nil {
 		return db.App{}, db.User{}, nil, volumeSpec{}, err
 	}
-	if row.UserID != a.UserID && a.Channel != ChannelSystem {
+	if !s.mayUseApp(ctx, a, row) {
 		return db.App{}, db.User{}, nil, volumeSpec{}, appNotFound(ref)
 	}
 	vol, ok, err := s.pickVolume(ctx, row, volume)

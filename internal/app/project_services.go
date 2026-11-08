@@ -62,7 +62,7 @@ func templateUnknown(id string) *apperr.Error {
 // queued, the new app is deleted again and the connected apps keep their
 // variables as they were.
 func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in AddServiceInput) (res App, err error) {
-	p, err := s.loadProject(ctx, a, projectRef, true)
+	p, err := s.loadProject(ctx, a, projectRef, projectUse)
 	if err != nil {
 		return res, err
 	}

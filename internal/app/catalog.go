@@ -203,7 +203,7 @@ func (s *Service) SetGitSource(ctx context.Context, a Actor, ref string, src Git
 	}
 	isGitHub := deploy.IsGitHubURL(repo)
 	if isGitHub {
-		gs.Token = s.gitCloneToken(ctx, row.UserID, repo)
+		gs.Token = s.gitCloneToken(ctx, gitCheckUser(a, row, repo), repo)
 	}
 	sha, branch, err := s.lsRemote(ctx, gs)
 	if err != nil {
@@ -228,6 +228,25 @@ func (s *Service) SetGitSource(ctx context.Context, a Actor, ref string, src Git
 		"repo_url": repo, "branch": branch, "subdir": subdir, "commit": sha, "auto_deploy": auto, "app_access": gs.Token != "",
 	})
 	return s.GetApp(ctx, a, row.Slug)
+}
+
+// gitCheckUser is whose GitHub access proves that repo may be linked to the
+// app. Deploys clone with the app owner's installation (gitCloneToken), so
+// a member of the owner's project who links another repository must be able
+// to read it themselves: else the owner's GitHub access would hand the
+// member every private repository it covers. Keeping the repository that is
+// linked (another branch or folder) is the owner's choice and uses the
+// owner's access.
+func gitCheckUser(a Actor, row db.App, repo string) string {
+	if a.Channel == ChannelSystem || a.UserID == row.UserID || a.UserID == "" {
+		return row.UserID
+	}
+	newKey, ok := github.RepoKey(repo)
+	oldKey, had := github.RepoKey(row.GitRepoUrl.String)
+	if ok && had && row.GitRepoUrl.Valid && newKey == oldKey {
+		return row.UserID
+	}
+	return a.UserID
 }
 
 // ClearGitSource unlinks the repository, so the app takes uploads again. The

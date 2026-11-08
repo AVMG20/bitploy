@@ -29,7 +29,7 @@ func TestBrokerNeverCrossesUsers(t *testing.T) {
 	b := newBroker()
 	a, other := b.Subscribe("alice"), b.Subscribe("bob")
 	b.Publish("alice", Event{Type: EventDeployment, App: "a-app", ID: "dep_1", State: "building"})
-	b.buildLine("alice", "a-app", "dep_1", "secret line")
+	b.buildLine([]string{"alice"}, "a-app", "dep_1", "secret line")
 	b.flushBuild("dep_1")
 	if got := other.Drain(); len(got) != 0 {
 		t.Fatalf("bob received alice's events: %+v", got)
@@ -125,7 +125,7 @@ func TestBrokerUnsubscribe(t *testing.T) {
 func TestBuildLinesAreBatched(t *testing.T) {
 	b := newBroker()
 	// Nobody listens: nothing is kept.
-	b.buildLine("u", "x", "dep_1", "ignored")
+	b.buildLine([]string{"u"}, "x", "dep_1", "ignored")
 	b.bmu.Lock()
 	n := len(b.batches)
 	b.bmu.Unlock()
@@ -134,7 +134,7 @@ func TestBuildLinesAreBatched(t *testing.T) {
 	}
 	s := b.Subscribe("u")
 	for i := 0; i < 3; i++ {
-		b.buildLine("u", "x", "dep_1", fmt.Sprintf("line %d", i))
+		b.buildLine([]string{"u"}, "x", "dep_1", fmt.Sprintf("line %d", i))
 	}
 	if got := s.Drain(); len(got) != 0 {
 		t.Fatalf("lines sent before the batch interval: %+v", got)
@@ -150,7 +150,7 @@ func TestBuildLinesAreBatched(t *testing.T) {
 		t.Fatalf("batch: %+v", got)
 	}
 	// flushBuild sends at once.
-	b.buildLine("u", "x", "dep_2", "last")
+	b.buildLine([]string{"u"}, "x", "dep_2", "last")
 	b.flushBuild("dep_2")
 	if got := s.Drain(); len(got) != 1 || got[0].Lines[0] != "last" {
 		t.Fatalf("flush: %+v", got)

@@ -136,6 +136,28 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	if err != nil {
 		return App{}, err
 	}
+	// The project: the one given (the caller's own, or one shared with them),
+	// else a new one below. An app is always its project owner's: in a shared
+	// project it counts against the owner's quotas and uses the owner's
+	// domains, and created_by remembers the member who made it.
+	projectID, createdBy := "", ""
+	if strings.TrimSpace(in.Project) != "" {
+		p, err := s.loadProject(ctx, a, in.Project, projectUse)
+		if err != nil {
+			return App{}, err
+		}
+		if p.UserID != user.ID {
+			owner, err := s.Q.GetUser(ctx, p.UserID)
+			if err != nil {
+				return App{}, apperr.Internal(err)
+			}
+			if owner.Status != "active" {
+				return App{}, projectOwnerSuspended()
+			}
+			user, createdBy = owner, a.UserID
+		}
+		projectID = p.ID
+	}
 
 	typ := strings.ToLower(strings.TrimSpace(in.Type))
 	if typ == "" {
@@ -202,6 +224,12 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 			return apperr.Internal(err)
 		}
 		if n >= user.QuotaApps {
+			if createdBy != "" {
+				// A member: the owner's other apps are none of their business.
+				return apperr.Forbidden("apps_quota_exceeded",
+					fmt.Sprintf("The owner of this project already has %d apps, which is the maximum for their account.", n),
+					"Apps in a shared project count against its owner's quota. Ask the owner to make room or to ask a bitploy admin for a higher quota.")
+			}
 			return appsQuotaErr(ctx, q, user.ID, n)
 		}
 		if s.Cfg.MaxApps > 0 {
@@ -259,17 +287,6 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	}
 	if len([]rune(name)) > 80 {
 		return App{}, apperr.BadRequest("app_name_invalid", "The app name is longer than 80 characters.", "Use a shorter name.")
-	}
-	projectID := ""
-	if strings.TrimSpace(in.Project) != "" {
-		p, err := s.loadProject(ctx, a, in.Project, true)
-		if err != nil {
-			return App{}, err
-		}
-		if p.UserID != user.ID {
-			return App{}, projectNotFound(in.Project)
-		}
-		projectID = p.ID
 	}
 	alias := ""
 	if strings.TrimSpace(in.Alias) != "" {
@@ -330,6 +347,11 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		if err := syncSingleLayout(ctx, q, id); err != nil {
 			return err
 		}
+		if createdBy != "" {
+			if err := q.SetAppCreatedBy(ctx, db.SetAppCreatedByParams{CreatedBy: createdBy, ID: id}); err != nil {
+				return err
+			}
+		}
 		if composePath != "" {
 			if err := q.SetAppComposePath(ctx, db.SetAppComposePathParams{ComposePath: composePath, UpdatedAt: now, ID: id}); err != nil {
 				return err
@@ -367,6 +389,9 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 		s.wireProject(context.WithoutCancel(ctx), projectID)
 	}
 	created := map[string]any{"slug": slug, "type": typ, "build_mode": buildMode, "project": row.ProjectID, "alias": row.Alias}
+	if createdBy != "" {
+		created["owner"] = user.ID // made by a member in the owner's project
+	}
 	if baseDomain != "" {
 		created["domain"] = baseDomain
 	}
@@ -374,8 +399,10 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 	return s.appView(ctx, a, row), nil
 }
 
+// ListApps returns the caller's apps and the apps of the projects shared
+// with them (shared: true), newest first.
 func (s *Service) ListApps(ctx context.Context, a Actor) ([]App, error) {
-	rows, err := s.Q.ListAppsByUser(ctx, a.UserID)
+	rows, err := s.Q.ListAppsForUser(ctx, a.UserID)
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
@@ -1224,6 +1251,7 @@ func (s *Service) appViews(ctx context.Context, a Actor, rows []db.App) []App {
 func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	v := App{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Type: r.Type, Domain: s.appDomainOf(r), OwnerID: r.UserID,
+		Shared: r.UserID != a.UserID && a.UserID != "" && s.isProjectMember(ctx, r.ProjectID, a.UserID),
 		Status: r.Status, StatusMessage: r.StatusMessage, DesiredState: r.DesiredState,
 		HealthPath: r.HealthPath, DockerfilePath: r.DockerfilePath, ContextDir: r.ContextDir, BuildMode: r.BuildMode, ComposePath: r.ComposePath, ServiceLayout: r.ServiceLayout, HomePage: r.HomePage, OutputDir: r.OutputDir,
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,

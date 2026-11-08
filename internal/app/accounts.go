@@ -521,6 +521,7 @@ func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 		now := s.now()
 		_ = s.Q.DeleteExpiredSessions(ctx, db.DeleteExpiredSessionsParams{ExpiresAt: now, AbsoluteExpiresAt: now})
 		_ = s.Q.DeleteOldInvites(ctx, db.DeleteOldInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)})
+		_ = s.Q.DeleteOldProjectInvites(ctx, db.DeleteOldProjectInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)})
 		_ = s.Q.DeleteOldIdempotencyKeys(ctx, now-86400)
 		_ = s.Q.DeleteOldAudit(ctx, now-90*86400)
 		_ = s.Q.PruneGitHubDeliveries(ctx, now-7*86400)

@@ -45,12 +45,13 @@ var (
 var errCancelled = &apperr.Error{Code: "cancelled", Message: "The deployment was cancelled."}
 
 type pipeline struct {
-	s       *Service
-	app     db.App
-	dep     db.Deployment
-	logFile *os.File
-	logMu   sync.Mutex
-	ring    *deploy.LineRing
+	s        *Service
+	app      db.App
+	audience []string // users who get the live build log: the owner and the project's members
+	dep      db.Deployment
+	logFile  *os.File
+	logMu    sync.Mutex
+	ring     *deploy.LineRing
 
 	buildDir string
 	srcRoot  string
@@ -146,6 +147,7 @@ func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) 
 		return
 	}
 	p.dep, p.app = dep, app
+	p.audience = s.appAudience(ctx, app) // who sees the live build log
 	s.NotifyDeployment(depID)
 
 	_ = os.MkdirAll(s.Cfg.LogsDir(), 0o750)
@@ -180,7 +182,10 @@ func (p *pipeline) writeLog(line string) {
 	if p.logFile != nil {
 		_, _ = p.logFile.WriteString(line + "\n")
 	}
-	p.s.events.buildLine(p.app.UserID, p.app.Slug, p.dep.ID, line) // live build log, batched
+	if p.audience == nil {
+		p.audience = []string{p.app.UserID}
+	}
+	p.s.events.buildLine(p.audience, p.app.Slug, p.dep.ID, line) // live build log, batched
 }
 
 func (p *pipeline) setState(ctx context.Context, state string) *apperr.Error {

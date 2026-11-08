@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // Live events: small "something changed" hints for the dashboard, pushed over
@@ -136,7 +138,7 @@ type Broker struct {
 }
 
 type logBatch struct {
-	user  string
+	users []string
 	app   string
 	lines []string
 	timer *time.Timer
@@ -195,10 +197,11 @@ func (b *Broker) Publish(user string, e Event) {
 	b.mu.RUnlock()
 }
 
-// buildLine queues one build log line; lines of the same deployment go out
-// together every 250 ms. The cost for a build is one mutex and one append.
-func (b *Broker) buildLine(user, app, depID, line string) {
-	if !b.Active() || !b.listening(user) {
+// buildLine queues one build log line for users (the app's owner and the
+// members of its project); lines of the same deployment go out together
+// every 250 ms. The cost for a build is one mutex and one append.
+func (b *Broker) buildLine(users []string, app, depID, line string) {
+	if !b.Active() || !b.anyListening(users) {
 		return
 	}
 	if len(line) > maxEventLineLen {
@@ -207,7 +210,7 @@ func (b *Broker) buildLine(user, app, depID, line string) {
 	b.bmu.Lock()
 	bt := b.batches[depID]
 	if bt == nil {
-		bt = &logBatch{user: user, app: app}
+		bt = &logBatch{users: users, app: app}
 		b.batches[depID] = bt
 		bt.timer = time.AfterFunc(buildLogBatch, func() { b.flushBuild(depID) })
 	}
@@ -227,7 +230,18 @@ func (b *Broker) flushBuild(depID string) {
 		return
 	}
 	bt.timer.Stop()
-	b.Publish(bt.user, Event{Type: EventBuildLog, App: bt.app, ID: depID, Lines: bt.lines})
+	for _, u := range bt.users {
+		b.Publish(u, Event{Type: EventBuildLog, App: bt.app, ID: depID, Lines: bt.lines})
+	}
+}
+
+func (b *Broker) anyListening(users []string) bool {
+	for _, u := range users {
+		if b.listening(u) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- Service helpers ----
@@ -235,7 +249,8 @@ func (b *Broker) flushBuild(depID string) {
 // Events is the broker of live events; the API opens streams on it.
 func (s *Service) Events() *Broker { return s.events }
 
-// publishApp tells the owner of an app (by id) that something about it changed.
+// publishApp tells the owner of an app (by id), and the members of its
+// project, that something about it changed.
 func (s *Service) publishApp(ctx context.Context, appID string) {
 	s.publishAppState(ctx, EventApp, appID)
 }
@@ -252,14 +267,18 @@ func (s *Service) publishAppState(ctx context.Context, typ, appID string) {
 	if !s.events.Active() {
 		return
 	}
-	row, err := s.Q.GetApp(context.WithoutCancel(ctx), appID)
+	ctx = context.WithoutCancel(ctx)
+	row, err := s.Q.GetApp(ctx, appID)
 	if err != nil {
 		return
 	}
-	s.events.Publish(row.UserID, Event{Type: typ, App: row.Slug})
+	for _, u := range s.appAudience(ctx, row) {
+		s.events.Publish(u, Event{Type: typ, App: row.Slug})
+	}
 }
 
-// publishDeployment tells the owner that a deployment changed. It reads the
+// publishDeployment tells the owner (and the members of the app's project)
+// that a deployment changed. It reads the
 // deployment as it is stored now, so call it after the write.
 func (s *Service) publishDeployment(depID string) {
 	if !s.events.Active() {
@@ -274,12 +293,15 @@ func (s *Service) publishDeployment(depID string) {
 	if err != nil {
 		return
 	}
-	s.events.Publish(row.UserID, Event{Type: EventDeployment, App: row.Slug, ID: d.ID, State: d.State})
+	for _, u := range s.appAudience(ctx, row) {
+		s.events.Publish(u, Event{Type: EventDeployment, App: row.Slug, ID: d.ID, State: d.State})
+	}
 }
 
 // PublishAppChange is for the doors (REST, MCP): the actor changed the app
-// ref (slug or id; empty for a new app). The owner and the actor both hear
-// about it, which differs for an admin acting on someone else's app. When the
+// ref (slug or id; empty for a new app). The owner, the members of its
+// project and the actor all hear about it (the actor differs for an admin
+// acting on someone else's app). When the
 // app is gone (delete) the hint says state "deleted". old is the slug before a
 // rename.
 func (s *Service) PublishAppChange(ctx context.Context, a Actor, ref, old, state string) {
@@ -288,24 +310,24 @@ func (s *Service) PublishAppChange(ctx context.Context, a Actor, ref, old, state
 	}
 	ref = strings.TrimSpace(ref)
 	e := Event{Type: EventApp, App: strings.ToLower(ref), OldApp: old, State: state}
-	owner := ""
+	var audience []string
 	if ref != "" {
-		var row appRef
+		bg := context.WithoutCancel(ctx)
+		var row db.App
+		var err error
 		if strings.HasPrefix(ref, "app_") {
-			if r, err := s.Q.GetApp(context.WithoutCancel(ctx), ref); err == nil {
-				row = appRef{r.UserID, r.Slug}
-			}
-		} else if r, err := s.Q.GetAppBySlug(context.WithoutCancel(ctx), e.App); err == nil {
-			row = appRef{r.UserID, r.Slug}
+			row, err = s.Q.GetApp(bg, ref)
+		} else {
+			row, err = s.Q.GetAppBySlug(bg, e.App)
 		}
-		if row.slug != "" {
-			e.App, owner = row.slug, row.user
+		if err == nil {
+			e.App, audience = row.Slug, s.appAudience(bg, row)
 		}
 	}
 	s.events.Publish(a.UserID, e)
-	if owner != "" && owner != a.UserID {
-		s.events.Publish(owner, e)
+	for _, u := range audience {
+		if u != a.UserID {
+			s.events.Publish(u, e)
+		}
 	}
 }
-
-type appRef struct{ user, slug string }

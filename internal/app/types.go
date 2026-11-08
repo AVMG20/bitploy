@@ -229,7 +229,10 @@ type App struct {
 	// for each service of an app with several) and refer to its variables as
 	// ${{<alias>.VAR}}.
 	Project ProjectRef `json:"project" doc:"The project the app is in"`
-	Alias   string     `json:"alias" doc:"The app's short name in its project: its host name on the project network, and the name in ${{<alias>.VAR}} references"`
+	// Shared is true when the app is in a project someone else shared with
+	// the caller (owner_id is that user).
+	Shared bool   `json:"shared" doc:"True when the app is in a project another user shared with you; owner_id is theirs"`
+	Alias  string `json:"alias" doc:"The app's short name in its project: its host name on the project network, and the name in ${{<alias>.VAR}} references"`
 	// Template is the service template the app was made from (postgres,
 	// valkey, ...; see list_service_templates), or nil.
 	Template        *string `json:"template" doc:"The service template the app was made from, or null"`
@@ -274,7 +277,71 @@ type Project struct {
 	// Network is the Docker network the apps share, created when the project
 	// has two apps or more.
 	Network string `json:"network" doc:"The private Docker network the project's apps share (bp-p-<id>)"`
-	Apps    []App  `json:"apps"`
+	// Role is the caller's part in the project: owner, member (the owner
+	// shared it with them) or admin (an admin looking at another user's
+	// project). Shared is true for a member: the project is someone else's.
+	Role   string    `json:"role" enum:"owner,member,admin" doc:"Your part in the project: owner, member (shared with you) or admin (an admin looking at another user's project)"`
+	Shared bool      `json:"shared" doc:"True when the project belongs to someone else and was shared with you"`
+	Owner  UserBrief `json:"owner" doc:"The user who owns the project, and every app in it"`
+	// MemberCount is how many users the owner shared the project with.
+	MemberCount int64 `json:"member_count" doc:"How many users the project is shared with, besides its owner"`
+	Apps        []App `json:"apps"`
+}
+
+// UserBrief names a user: the owner of a project, a member.
+type UserBrief struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// ProjectMember is one user with access to a project: its owner, or a
+// member it was shared with.
+type ProjectMember struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	Role   string `json:"role" enum:"owner,member" doc:"owner: made the project, manages its members and can delete it. member: sees the project and its apps and can deploy and change them"`
+	// InvitedBy is the user who invited the member (null for the owner, or
+	// when that user is gone).
+	InvitedBy *string `json:"invited_by"`
+	// CreatedAt is when the member joined (for the owner: when the project was made).
+	CreatedAt time.Time `json:"created_at"`
+	You       bool      `json:"you" doc:"True for the caller"`
+}
+
+// ProjectInvite is a pending invite link to a project.
+type ProjectInvite struct {
+	ID        string    `json:"id"`
+	Email     *string   `json:"email" doc:"Only the account with this address can accept (or sign up with it); null: anyone with the link"`
+	Role      string    `json:"role" enum:"member"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	// URL is only set right after creation (the code is stored hashed).
+	URL string `json:"url,omitempty"`
+}
+
+// CreateProjectInviteInput is POST /projects/{id}/invites.
+type CreateProjectInviteInput struct {
+	Email string `json:"email,omitempty" doc:"Lock the invite to this address: only the account with it (or a signup with it) can accept. Leave out for anyone with the link"`
+	Role  string `json:"role,omitempty" enum:"member" doc:"Only member (the default)"`
+}
+
+// ProjectInviteInfo is what the invite page shows before it is accepted.
+type ProjectInviteInfo struct {
+	ProjectName string    `json:"project_name"`
+	InvitedBy   string    `json:"invited_by" doc:"The name of the user who made the invite"`
+	Email       *string   `json:"email" doc:"The address the invite is locked to, or null"`
+	Role        string    `json:"role" enum:"member"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+// ProjectSignup is the answer of a signup through a project invite: the new
+// session and the project the new account joined.
+type ProjectSignup struct {
+	User      User       `json:"user"`
+	CSRFToken string     `json:"csrf_token"`
+	Project   ProjectRef `json:"project"`
 }
 
 // CreateProjectInput is POST /projects.

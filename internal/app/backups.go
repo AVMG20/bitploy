@@ -541,14 +541,14 @@ func (s *Service) insertBackup(ctx context.Context, appID, kind, volume, format 
 // ---- download ----
 
 // OpenBackup opens a finished backup for download and gives the file name to
-// offer. The files are the user's data: only the owner may download, and a
-// read-only token may not.
+// offer. The files are the user's data: only the owner (or a member of the
+// app's project) may download, and a read-only token may not.
 func (s *Service) OpenBackup(ctx context.Context, a Actor, ref, id string) (*os.File, string, error) {
 	row, _, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
 		return nil, "", err
 	}
-	if row.UserID != a.UserID && a.Channel != ChannelSystem {
+	if !s.mayUseApp(ctx, a, row) {
 		return nil, "", appNotFound(ref)
 	}
 	b, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: id, AppID: row.ID})

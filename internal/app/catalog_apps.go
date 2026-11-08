@@ -168,12 +168,11 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	var made *Project // a project this call created, removed on failure
 	projectID := ""
 	if ref := strings.TrimSpace(in.Project); ref != "" {
-		p, perr := s.loadProject(ctx, a, ref, true)
+		// A project shared with the caller works too: the app is its owner's
+		// (createApp).
+		p, perr := s.loadProject(ctx, a, ref, projectUse)
 		if perr != nil {
 			return res, perr
-		}
-		if p.UserID != a.UserID {
-			return res, projectNotFound(ref)
 		}
 		projectID = p.ID
 	} else if len(e.Services) > 0 {
