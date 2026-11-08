@@ -87,6 +87,73 @@ func (s *Service) RevokeInvite(ctx context.Context, a Actor, id string) error {
 	return nil
 }
 
+// signupReq is one new account from an invite link: the form, the address
+// the invite is locked to ("" for none), the role, the rate limit key of the
+// caller's IP, and what else the same transaction does (mark the invite used).
+type signupReq struct {
+	in          AcceptInviteInput
+	lockedEmail string
+	role        string
+	sigKey      string
+	inTx        func(q *db.Queries, u db.User) error
+}
+
+// signup checks the form, spends one of the 5 signups per hour of the IP and
+// creates the user together with inTx. The caller has checked the invite (and
+// counted a wrong code against sigKey) and logs the user in afterwards. A
+// user invite (AcceptInvite) and a project invite (SignupProjectInvite) both
+// sign up here.
+func (s *Service) signup(ctx context.Context, r signupReq) (db.User, error) {
+	in := r.in
+	emailIn := in.Email
+	if r.lockedEmail != "" {
+		if strings.TrimSpace(emailIn) == "" {
+			emailIn = r.lockedEmail
+		} else if !strings.EqualFold(strings.TrimSpace(emailIn), r.lockedEmail) {
+			return db.User{}, apperr.Forbidden("invite_email_mismatch",
+				"This invite is for a different email address.", "Use the address the invite was sent to.")
+		}
+	}
+	email, err := acctValidEmail(emailIn)
+	if err != nil {
+		return db.User{}, err
+	}
+	name, err := acctValidName(in.Name)
+	if err != nil {
+		return db.User{}, err
+	}
+	if err := acctValidPassword(in.Password); err != nil {
+		return db.User{}, err
+	}
+	lim := s.limiter()
+	if wait, ok := lim.reserve(r.sigKey, s.now(), signupMax, signupWindow); !ok {
+		return db.User{}, tooManySignups(wait)
+	}
+	hash, herr := passwd.Hash(in.Password)
+	if herr != nil {
+		lim.refund(r.sigKey)
+		return db.User{}, acctHashErr(herr)
+	}
+	var user db.User
+	terr := s.Store.Tx(ctx, func(q *db.Queries) error {
+		u, e := s.insertUserHashed(ctx, q, acctNewUser{Email: email, Name: name, Role: r.role}, hash)
+		if e != nil {
+			return e
+		}
+		if r.inTx != nil {
+			if e := r.inTx(q, u); e != nil {
+				return e
+			}
+		}
+		user = u
+		return nil
+	})
+	if terr != nil {
+		return db.User{}, terr
+	}
+	return user, nil
+}
+
 func tooManySignups(wait int64) *apperr.Error {
 	mins := (wait + 59) / 60
 	if mins < 1 {
@@ -130,45 +197,15 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 			return "", SessionInfo{}, acctInviteInvalid(410, "This invite link has expired.")
 		}
 	}
-	emailIn := in.Email
-	if inv.Email.Valid {
-		if strings.TrimSpace(emailIn) == "" {
-			emailIn = inv.Email.String
-		} else if !strings.EqualFold(strings.TrimSpace(emailIn), inv.Email.String) {
-			return "", SessionInfo{}, apperr.Forbidden("invite_email_mismatch",
-				"This invite is for a different email address.", "Use the address the invite was sent to.")
-		}
-	}
-	email, err := acctValidEmail(emailIn)
-	if err != nil {
-		return "", SessionInfo{}, err
-	}
-	name, err := acctValidName(in.Name)
-	if err != nil {
-		return "", SessionInfo{}, err
-	}
-	if err := acctValidPassword(in.Password); err != nil {
-		return "", SessionInfo{}, err
-	}
 	role := "user"
 	if !open {
 		role = inv.Role
 	}
-	if wait, ok := lim.reserve(sigKey, s.now(), signupMax, signupWindow); !ok {
-		return "", SessionInfo{}, tooManySignups(wait)
-	}
-	hash, herr := passwd.Hash(in.Password)
-	if herr != nil {
-		lim.refund(sigKey)
-		return "", SessionInfo{}, acctHashErr(herr)
-	}
-	var user db.User
-	terr := s.Store.Tx(ctx, func(q *db.Queries) error {
-		u, e := s.insertUserHashed(ctx, q, acctNewUser{Email: email, Name: name, Role: role}, hash)
-		if e != nil {
-			return e
-		}
-		if !open {
+	user, err := s.signup(ctx, signupReq{in: in, lockedEmail: inv.Email.String, role: role, sigKey: sigKey,
+		inTx: func(q *db.Queries, u db.User) error {
+			if open {
+				return nil
+			}
 			n, e := q.MarkInviteUsed(ctx, db.MarkInviteUsedParams{UsedAt: nullInt(s.now(), true), UsedBy: nullStr(u.ID), ID: inv.ID})
 			if e != nil {
 				return apperr.Internal(e)
@@ -176,12 +213,10 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 			if n == 0 {
 				return acctInviteInvalid(410, "This invite link has already been used.")
 			}
-		}
-		user = u
-		return nil
-	})
-	if terr != nil {
-		e := apperr.As(terr)
+			return nil
+		}})
+	if err != nil {
+		e := apperr.As(err)
 		if open && e.Code == "email_taken" {
 			// Without email verification an open signup cannot hide that an
 			// address is registered, but it should not confirm it either.
@@ -196,7 +231,7 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 	if serr != nil {
 		return "", SessionInfo{}, serr
 	}
-	details := map[string]any{"email": email, "role": role, "open": open}
+	details := map[string]any{"email": user.Email, "role": role, "open": open}
 	if !open {
 		details["invite"] = inv.ID
 	}
