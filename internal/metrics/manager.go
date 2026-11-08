@@ -56,6 +56,7 @@ type Manager struct {
 	tracked   map[string]*tracked
 	appUser   map[string]string
 	dfCache   dfCache
+	host      hostState
 
 	crashes *crashTracker
 	oomAt   map[string]time.Time
@@ -105,6 +106,7 @@ func (m *Manager) Run(ctx context.Context) {
 		}()
 	}
 	start("collector", m.runCollector)
+	start("host collector", m.runHostCollector)
 	start("events", m.runEvents)
 	start("schedule", m.runSchedule)
 	start("volume quota", m.runVolumeQuota)

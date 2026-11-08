@@ -22,3 +22,7 @@ func ReadHost(ctx context.Context) (Host, error) {
 }
 
 func HostMemTotal() (uint64, bool) { return 0, false }
+
+func readHostCounters() (CPUTimes, MemInfo, error) {
+	return CPUTimes{}, MemInfo{}, errors.New("host stats need Linux /proc")
+}

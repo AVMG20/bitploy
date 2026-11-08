@@ -87,7 +87,8 @@ func (m *Manager) Nightly(ctx context.Context) {
 	m.Log.Info("nightly job finished")
 }
 
-// Rollup condenses raw samples into 5-minute buckets for every app service. Only
+// Rollup condenses raw samples into 5-minute buckets for every app service
+// and for the server itself (host_samples). Only
 // complete buckets are written, and a bucket is never touched again, so the
 // job is safe to run as often as you like.
 func (m *Manager) Rollup(ctx context.Context) error {
@@ -137,17 +138,23 @@ func (m *Manager) Rollup(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return m.rollupHost(ctx)
 }
 
-// PruneMetrics deletes raw samples older than 24 h and rollups older than 30 days.
+// PruneMetrics deletes raw samples older than 24 h and rollups older than 30
+// days, of the apps and of the server itself.
 func (m *Manager) PruneMetrics(ctx context.Context) error {
 	now := m.now()
-	if _, err := m.Store.Q.OpsDeleteSamplesBefore(ctx, now.Add(-rawRetention).Unix()); err != nil {
-		return err
+	q := m.Store.Q
+	for _, del := range []func(context.Context, int64) (int64, error){q.OpsDeleteSamplesBefore, q.OpsDeleteHostSamplesBefore} {
+		if _, err := del(ctx, now.Add(-rawRetention).Unix()); err != nil {
+			return err
+		}
 	}
-	if _, err := m.Store.Q.OpsDeleteRollupsBefore(ctx, now.Add(-rollupRetention).Unix()); err != nil {
-		return err
+	for _, del := range []func(context.Context, int64) (int64, error){q.OpsDeleteRollupsBefore, q.OpsDeleteHostRollupsBefore} {
+		if _, err := del(ctx, now.Add(-rollupRetention).Unix()); err != nil {
+			return err
+		}
 	}
 	// Rows of deleted apps (these tables have no foreign key).
 	for _, del := range []func(context.Context) error{

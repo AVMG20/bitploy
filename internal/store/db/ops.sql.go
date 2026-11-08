@@ -134,6 +134,30 @@ func (q *Queries) OpsDeleteDomain(ctx context.Context, id string) (int64, error)
 	return result.RowsAffected()
 }
 
+const opsDeleteHostRollupsBefore = `-- name: OpsDeleteHostRollupsBefore :execrows
+DELETE FROM host_rollups WHERE ts < ?
+`
+
+func (q *Queries) OpsDeleteHostRollupsBefore(ctx context.Context, ts int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, opsDeleteHostRollupsBefore, ts)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const opsDeleteHostSamplesBefore = `-- name: OpsDeleteHostSamplesBefore :execrows
+DELETE FROM host_samples WHERE ts < ?
+`
+
+func (q *Queries) OpsDeleteHostSamplesBefore(ctx context.Context, ts int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, opsDeleteHostSamplesBefore, ts)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const opsDeleteOrphanAppDisk = `-- name: OpsDeleteOrphanAppDisk :exec
 DELETE FROM app_disk WHERE app_id NOT IN (SELECT id FROM apps)
 `
@@ -268,6 +292,29 @@ func (q *Queries) OpsInsertDomain(ctx context.Context, arg OpsInsertDomainParams
 	return err
 }
 
+const opsInsertHostSample = `-- name: OpsInsertHostSample :exec
+
+INSERT INTO host_samples (ts, cpu, mem_used_bytes, mem_total_bytes) VALUES (?, ?, ?, ?)
+`
+
+type OpsInsertHostSampleParams struct {
+	Ts            int64
+	Cpu           float64
+	MemUsedBytes  int64
+	MemTotalBytes int64
+}
+
+// ---- host samples and rollups (the whole server) ----
+func (q *Queries) OpsInsertHostSample(ctx context.Context, arg OpsInsertHostSampleParams) error {
+	_, err := q.db.ExecContext(ctx, opsInsertHostSample,
+		arg.Ts,
+		arg.Cpu,
+		arg.MemUsedBytes,
+		arg.MemTotalBytes,
+	)
+	return err
+}
+
 const opsInsertSample = `-- name: OpsInsertSample :exec
 
 INSERT INTO metric_samples (app_id, service, ts, cpu, mem_bytes, rx_bytes, tx_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -295,6 +342,17 @@ func (q *Queries) OpsInsertSample(ctx context.Context, arg OpsInsertSampleParams
 		arg.TxBytes,
 	)
 	return err
+}
+
+const opsLastHostRollupTS = `-- name: OpsLastHostRollupTS :one
+SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM host_rollups
+`
+
+func (q *Queries) OpsLastHostRollupTS(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, opsLastHostRollupTS)
+	var ts int64
+	err := row.Scan(&ts)
+	return ts, err
 }
 
 const opsLastRollupTS = `-- name: OpsLastRollupTS :one
@@ -456,6 +514,109 @@ func (q *Queries) OpsListDomainsByStatuses(ctx context.Context, statuses []strin
 			&i.CheckUntil,
 			&i.ActivatedAt,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const opsListHostRollups = `-- name: OpsListHostRollups :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes, cpu_max, mem_max FROM host_rollups WHERE ts >= ? ORDER BY ts
+`
+
+func (q *Queries) OpsListHostRollups(ctx context.Context, ts int64) ([]HostRollup, error) {
+	rows, err := q.db.QueryContext(ctx, opsListHostRollups, ts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HostRollup{}
+	for rows.Next() {
+		var i HostRollup
+		if err := rows.Scan(
+			&i.Ts,
+			&i.Cpu,
+			&i.MemUsedBytes,
+			&i.MemTotalBytes,
+			&i.CpuMax,
+			&i.MemMax,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const opsListHostSamples = `-- name: OpsListHostSamples :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes FROM host_samples WHERE ts >= ? ORDER BY ts
+`
+
+func (q *Queries) OpsListHostSamples(ctx context.Context, ts int64) ([]HostSample, error) {
+	rows, err := q.db.QueryContext(ctx, opsListHostSamples, ts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HostSample{}
+	for rows.Next() {
+		var i HostSample
+		if err := rows.Scan(
+			&i.Ts,
+			&i.Cpu,
+			&i.MemUsedBytes,
+			&i.MemTotalBytes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const opsListHostSamplesBefore = `-- name: OpsListHostSamplesBefore :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes FROM host_samples WHERE ts >= ? AND ts < ? ORDER BY ts
+`
+
+type OpsListHostSamplesBeforeParams struct {
+	Ts   int64
+	Ts_2 int64
+}
+
+func (q *Queries) OpsListHostSamplesBefore(ctx context.Context, arg OpsListHostSamplesBeforeParams) ([]HostSample, error) {
+	rows, err := q.db.QueryContext(ctx, opsListHostSamplesBefore, arg.Ts, arg.Ts_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []HostSample{}
+	for rows.Next() {
+		var i HostSample
+		if err := rows.Scan(
+			&i.Ts,
+			&i.Cpu,
+			&i.MemUsedBytes,
+			&i.MemTotalBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -955,6 +1116,35 @@ func (q *Queries) OpsUpsertAppDisk(ctx context.Context, arg OpsUpsertAppDiskPara
 		arg.SourceBytes,
 		arg.VolumeBytes,
 		arg.MeasuredAt,
+	)
+	return err
+}
+
+const opsUpsertHostRollup = `-- name: OpsUpsertHostRollup :exec
+INSERT INTO host_rollups (ts, cpu, mem_used_bytes, mem_total_bytes, cpu_max, mem_max)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (ts) DO UPDATE SET
+    cpu = excluded.cpu, mem_used_bytes = excluded.mem_used_bytes, mem_total_bytes = excluded.mem_total_bytes,
+    cpu_max = excluded.cpu_max, mem_max = excluded.mem_max
+`
+
+type OpsUpsertHostRollupParams struct {
+	Ts            int64
+	Cpu           float64
+	MemUsedBytes  int64
+	MemTotalBytes int64
+	CpuMax        float64
+	MemMax        int64
+}
+
+func (q *Queries) OpsUpsertHostRollup(ctx context.Context, arg OpsUpsertHostRollupParams) error {
+	_, err := q.db.ExecContext(ctx, opsUpsertHostRollup,
+		arg.Ts,
+		arg.Cpu,
+		arg.MemUsedBytes,
+		arg.MemTotalBytes,
+		arg.CpuMax,
+		arg.MemMax,
 	)
 	return err
 }

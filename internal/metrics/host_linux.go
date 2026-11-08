@@ -54,6 +54,21 @@ func HostMemTotal() (uint64, bool) {
 	return mem.Total, true
 }
 
+// readHostCounters reads the same /proc files as ReadHost, without the
+// 250 ms wait: the CPU counters (cumulative) and the memory now. The host
+// collector takes the CPU use between two of these, 15 s apart.
+func readHostCounters() (CPUTimes, MemInfo, error) {
+	mem, err := readMemInfo()
+	if err != nil {
+		return CPUTimes{}, MemInfo{}, err
+	}
+	cpu, err := readCPU()
+	if err != nil {
+		return CPUTimes{}, MemInfo{}, err
+	}
+	return cpu, mem, nil
+}
+
 func readMemInfo() (MemInfo, error) {
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {

@@ -100,6 +100,36 @@ DELETE FROM metric_samples WHERE app_id NOT IN (SELECT id FROM apps);
 -- name: OpsDeleteOrphanRollups :exec
 DELETE FROM metric_rollups WHERE app_id NOT IN (SELECT id FROM apps);
 
+-- ---- host samples and rollups (the whole server) ----
+
+-- name: OpsInsertHostSample :exec
+INSERT INTO host_samples (ts, cpu, mem_used_bytes, mem_total_bytes) VALUES (?, ?, ?, ?);
+
+-- name: OpsListHostSamples :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes FROM host_samples WHERE ts >= ? ORDER BY ts;
+
+-- name: OpsListHostSamplesBefore :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes FROM host_samples WHERE ts >= ? AND ts < ? ORDER BY ts;
+
+-- name: OpsUpsertHostRollup :exec
+INSERT INTO host_rollups (ts, cpu, mem_used_bytes, mem_total_bytes, cpu_max, mem_max)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (ts) DO UPDATE SET
+    cpu = excluded.cpu, mem_used_bytes = excluded.mem_used_bytes, mem_total_bytes = excluded.mem_total_bytes,
+    cpu_max = excluded.cpu_max, mem_max = excluded.mem_max;
+
+-- name: OpsListHostRollups :many
+SELECT ts, cpu, mem_used_bytes, mem_total_bytes, cpu_max, mem_max FROM host_rollups WHERE ts >= ? ORDER BY ts;
+
+-- name: OpsLastHostRollupTS :one
+SELECT CAST(COALESCE(MAX(ts), 0) AS INTEGER) AS ts FROM host_rollups;
+
+-- name: OpsDeleteHostSamplesBefore :execrows
+DELETE FROM host_samples WHERE ts < ?;
+
+-- name: OpsDeleteHostRollupsBefore :execrows
+DELETE FROM host_rollups WHERE ts < ?;
+
 -- ---- usage ----
 
 -- name: OpsAddRunningSeconds :exec

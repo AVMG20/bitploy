@@ -282,6 +282,22 @@ type GithubUserRepo struct {
 	Repo           string
 }
 
+type HostRollup struct {
+	Ts            int64
+	Cpu           float64
+	MemUsedBytes  int64
+	MemTotalBytes int64
+	CpuMax        float64
+	MemMax        int64
+}
+
+type HostSample struct {
+	Ts            int64
+	Cpu           float64
+	MemUsedBytes  int64
+	MemTotalBytes int64
+}
+
 type IdempotencyKey struct {
 	UserID    string
 	Key       string
