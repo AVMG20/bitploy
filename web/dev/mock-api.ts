@@ -5,7 +5,8 @@
 //   npx vite --config vite.mock.config.ts --port 5174
 // MOCK_NO_PROJECTS=1 (or the request header x-mock-no-projects: 1) makes
 // /projects and /service-templates answer 404, to try the one-project-per-app
-// fallback.
+// fallback. MOCK_OVERALLOCATE=1 lets the user allocate memory and CPU without a
+// limit (the admin switch), to see the Projects usage cards for such a user.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
@@ -1097,7 +1098,7 @@ function me(): Me {
   const running = apps.filter((a) => a.status === 'running')
   return {
     user,
-    quota: QUOTA,
+    quota: process.env.MOCK_OVERALLOCATE === '1' ? { ...QUOTA, overallocate: true } : QUOTA,
     usage: {
       apps: apps.length,
       apps_running: running.length,

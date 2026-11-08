@@ -6,13 +6,13 @@ import EmptyState from '@/components/EmptyState.vue'
 import ListSearch from '@/components/ListSearch.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
-import StatCard from '@/components/StatCard.vue'
 import ProjectCard from '@/components/project/ProjectCard.vue'
+import UsageCard from '@/components/UsageCard.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
-import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB, pct } from '@/lib/format'
+import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
 import { aliasOf, projectHealth } from '@/lib/projects'
 import { projectRoute } from '@/lib/appLinks'
 
@@ -25,8 +25,10 @@ const templates = useServiceTemplates()
 
 const usage = computed(() => me.data.value?.usage)
 const quota = computed(() => me.data.value?.quota)
+// Storage allocated counts each saved-files volume at its full size (as the server checks it); in use counts what is in it.
 const storageTaken = computed(() => (usage.value ? usage.value.files_mb + usage.value.backups_mb + usage.value.volume_reserved_mb : 0))
-// An admin can let someone use more memory and CPU than the limits: nothing is checked, so there is no "of" and no bar.
+const storageUsed = computed(() => (usage.value ? usage.value.files_mb + usage.value.backups_mb + usage.value.volume_used_mb : 0))
+// An admin can let someone use more memory and CPU than the limits: nothing is checked, so those cards say "No limit".
 const unlimited = computed(() => !!quota.value?.overallocate)
 const isAdmin = computed(() => me.data.value?.user.role === 'admin')
 /** What to do when over a limit: an admin raises their own, everyone else asks. */
@@ -44,7 +46,7 @@ const cpuAlert = computed(() =>
     : '',
 )
 const storageAlert = computed(() =>
-  usage.value && quota.value && storageTaken.value > quota.value.volume_mb ? overText('storage', 'Delete old backups or saved files') : '',
+  usage.value && quota.value && quota.value.volume_mb > 0 && storageTaken.value > quota.value.volume_mb ? overText('storage', 'Delete old backups or saved files') : '',
 )
 const appsAlert = computed(() =>
   usage.value && quota.value && usage.value.apps > quota.value.apps ? overText('apps', 'Delete the apps you no longer need before adding one') : '',
@@ -97,44 +99,56 @@ function sourceTo(key: string) {
       <Button v-if="all.length" as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New project</RouterLink></Button>
     </PageHeader>
 
-    <!-- Memory and CPU count the limits of all your apps (what each may use at most), not what they use right now. -->
+    <!-- Each card: in use right now (solid), allocated by the apps (light), and the most that may be allocated (the whole bar). -->
     <div v-if="showStats" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-      <StatCard
+      <UsageCard
         title="Memory"
         :loading="me.isPending.value"
-        :value="usage ? formatMB(usage.memory_reserved_mb) : ''"
-        :suffix="quota && !unlimited ? `of ${formatMB(quota.memory_mb)} allowed` : ''"
-        :progress="usage && quota && !unlimited ? pct(usage.memory_reserved_mb, quota.memory_mb) : undefined"
-        :sub="usage ? `${unlimited ? 'No limit on memory and CPU for you. ' : ''}Your apps use ${formatMB(usage.memory_used_mb)} right now.` : ''"
+        :value="usage ? formatMB(usage.memory_used_mb) : ''"
+        :used="usage?.memory_used_mb ?? 0"
+        :allocated="usage?.memory_reserved_mb ?? 0"
+        :max="unlimited ? null : (quota?.memory_mb ?? null)"
+        :allocated-text="usage ? formatMB(usage.memory_reserved_mb) : ''"
+        :max-text="quota ? formatMB(quota.memory_mb) : ''"
         :alert="memAlert"
-        hint="The memory limits of all your apps added up, databases included."
+        hint="In use: what your apps use right now. Allocated: the memory limits of all your apps added up, databases included."
       />
-      <StatCard
+      <UsageCard
         title="CPU"
         :loading="me.isPending.value"
-        :value="usage ? formatCPUMillis(usage.cpu_reserved_millis).replace(' CPU', '') : ''"
-        :suffix="quota && !unlimited ? `of ${formatCPUMillis(quota.cpu_millis)} allowed` : 'CPU'"
-        :progress="usage && quota && !unlimited ? pct(usage.cpu_reserved_millis, quota.cpu_millis) : undefined"
-        :sub="usage ? `${unlimited ? 'No limit on memory and CPU for you. ' : ''}Your apps use ${formatCPU(cpuFromPercent(usage.cpu_now_percent))} right now.` : ''"
+        :value="usage ? formatCPU(cpuFromPercent(usage.cpu_now_percent)).replace(' CPU', '') : ''"
+        value-label="CPU in use"
+        :used="usage ? cpuFromPercent(usage.cpu_now_percent) * 1000 : 0"
+        :allocated="usage?.cpu_reserved_millis ?? 0"
+        :max="unlimited ? null : (quota?.cpu_millis ?? null)"
+        :allocated-text="usage ? formatCPUMillis(usage.cpu_reserved_millis) : ''"
+        :max-text="quota ? formatCPUMillis(quota.cpu_millis) : ''"
         :alert="cpuAlert"
-        :hint="`The CPU limits of all your apps added up. ${CPU_HINT}`"
+        :hint="`In use: what your apps use right now. Allocated: the CPU limits of all your apps added up. ${CPU_HINT}`"
       />
-      <StatCard
+      <UsageCard
         title="Storage"
         :loading="me.isPending.value"
-        :value="usage ? formatMB(storageTaken) : ''"
-        :suffix="quota ? `of ${formatMB(quota.volume_mb)} allowed` : ''"
-        :progress="usage && quota ? pct(storageTaken, quota.volume_mb) : undefined"
-        :sub="usage ? (usage.volume_reserved_mb ? `Includes ${formatMB(usage.volume_reserved_mb)} kept free for saved files.` : 'App files and backups.') : ''"
+        :value="usage ? formatMB(storageUsed) : ''"
+        :used="storageUsed"
+        :allocated="storageTaken"
+        :max="quota?.volume_mb ?? null"
+        :allocated-text="usage ? formatMB(storageTaken) : ''"
+        :max-text="quota ? formatMB(quota.volume_mb) : ''"
         :alert="storageAlert"
+        hint="App files, backups and saved files (/data). Allocated counts each saved-files volume at its full size."
       />
-      <StatCard
+      <UsageCard
         title="Apps"
         :loading="me.isPending.value"
-        :value="usage ? String(usage.apps) : ''"
-        :suffix="quota ? `of ${quota.apps} allowed` : ''"
-        :progress="usage && quota ? pct(usage.apps, quota.apps) : undefined"
-        :sub="usage ? `${usage.apps_running} running, ${usage.deploys_week} deploys this week` : ''"
+        :value="usage ? String(usage.apps_running) : ''"
+        value-label="running"
+        :used="usage?.apps_running ?? 0"
+        :allocated="usage?.apps ?? 0"
+        :max="quota?.apps ?? null"
+        :allocated-text="usage ? String(usage.apps) : ''"
+        :allocated-label="usage?.apps === 1 ? 'app' : 'apps'"
+        :max-text="quota ? String(quota.apps) : ''"
         :alert="appsAlert"
         hint="Databases and caches count as apps."
       />
