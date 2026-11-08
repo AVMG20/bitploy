@@ -29,9 +29,9 @@ func IsReservedSlug(slug string) bool {
 // 30-day reservation of old slugs are checked by the service against the DB.
 // The slug is expected to be lower case already.
 func ValidateSlug(slug string) *apperr.Error {
-	if len(slug) < 3 || len(slug) > 40 {
+	if len(slug) < 1 || len(slug) > 40 {
 		return apperr.BadRequest("slug_invalid",
-			"The subdomain "+q(slug)+" must be 3 to 40 characters long.",
+			"The subdomain "+q(slug)+" must be 1 to 40 characters long.",
 			"Use only a-z, 0-9 and -, for example my-cool-app.")
 	}
 	for _, r := range slug {

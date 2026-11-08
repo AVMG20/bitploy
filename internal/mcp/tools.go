@@ -53,7 +53,7 @@ type validateIn struct {
 type createAppIn struct {
 	Name        string `json:"name" jsonschema:"Short readable name, like My Portfolio. Later sessions recognise the app by this name."`
 	Type        string `json:"type,omitempty" jsonschema:"web (default): site or API with an HTTP port. worker: a bot or queue consumer with no web port (Discord bot, cron-like loop)."`
-	Slug        string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
+	Slug        string `json:"slug,omitempty" jsonschema:"Subdomain: 1-40 characters of a-z, 0-9 and -, no dots, not starting or ending with -, like my-portfolio. Leave out to get a random one like quiet-otter-3f9a."`
 	Domain      string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami, like example.com, so the app lives at <slug>.example.com. Leave out for the default domain."`
 	Port        *int64 `json:"port,omitempty" jsonschema:"Only when the Dockerfile has no EXPOSE or several: the port the app listens on, like 3000. Leave out otherwise."`
 	Volume      bool   `json:"volume,omitempty" jsonschema:"true keeps the files in /data across deploys: the SQLite database (like /data/app.db) and uploads. Needed by every app that stores data; the app must write those files to /data."`
@@ -75,7 +75,7 @@ type validateComposeIn struct {
 type updateAppIn struct {
 	App            string  `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Name           *string `json:"name,omitempty" jsonschema:"New display name, 1-80 characters."`
-	Slug           *string `json:"slug,omitempty" jsonschema:"Rename the subdomain (the URL changes, old URL stops working, a few seconds of downtime). 3-40 characters of a-z, 0-9 and -. Files in /data are kept."`
+	Slug           *string `json:"slug,omitempty" jsonschema:"Rename the subdomain (the URL changes, old URL stops working, a few seconds of downtime). 1-40 characters of a-z, 0-9 and -. Files in /data are kept."`
 	Domain         *string `json:"domain,omitempty" jsonschema:"Move the app to another domain, one of app_domains in whoami (the URL changes at once and the old one stops working). Only when the user asks."`
 	Type           *string `json:"type,omitempty" jsonschema:"web or worker."`
 	Port           *int64  `json:"port,omitempty" jsonschema:"The port the app listens on, like 3000. 0 clears it so the Dockerfile EXPOSE is used. Applies on the next deploy."`
@@ -109,7 +109,7 @@ type deployFilesIn struct {
 type catalogDeployIn struct {
 	ID      string `json:"id" jsonschema:"The catalog id from list_catalog, like memos or uptime-kuma."`
 	Name    string `json:"name,omitempty" jsonschema:"Display name for the app. Leave out to use the catalog name."`
-	Slug    string `json:"slug,omitempty" jsonschema:"Subdomain: 3-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
+	Slug    string `json:"slug,omitempty" jsonschema:"Subdomain: 1-40 characters of a-z, 0-9 and -. Leave out to use the catalog id (or the id with 4 random letters when it is taken)."`
 	Domain  string `json:"domain,omitempty" jsonschema:"Only when the user asks for another domain: one of app_domains in whoami. Leave out for the default domain."`
 	Project string `json:"project,omitempty" jsonschema:"The project (id or name from list_projects) to add the app and its databases to. Leave out to make a new project named after the app. Fails with project_not_found for a project that is not the user's."`
 	Alias   string `json:"alias,omitempty" jsonschema:"The app's short name in the project, like stats. Leave out to use the subdomain (with -2 when that is taken). A given alias that is taken fails with alias_taken."`

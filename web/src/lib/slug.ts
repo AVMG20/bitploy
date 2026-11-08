@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-// The subdomain rules of the server (internal/deploy/slug.go ValidateSlug): 3 to
+// The subdomain rules of the server (internal/deploy/slug.go ValidateSlug): 1 to
 // 40 characters of a-z, 0-9 and -, none at the start or end, and a few reserved
 // words. Whether a name is already taken only the server knows.
 const RESERVED = new Set('www app api mcp admin dashboard docs status mail edge custom cdn static assets auth login bitploy traefik'.split(' '))
@@ -9,7 +9,7 @@ export const slugSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .min(3, 'Use at least 3 characters.')
+  .min(1, 'Fill in a subdomain.')
   .max(40, 'Use at most 40 characters.')
   .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Use letters, numbers and -, not at the start or end.')
   .refine((s) => !RESERVED.has(s) && !s.startsWith('bp-'), 'bitploy keeps this name for itself. Pick another one.')

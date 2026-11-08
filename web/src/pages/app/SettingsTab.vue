@@ -95,7 +95,7 @@ const generalForm = useForm({
         .string()
         .trim()
         .toLowerCase()
-        .min(3, 'Use at least 3 characters.')
+        .min(1, 'Fill in a subdomain.')
         .max(40, 'Use at most 40 characters.')
         .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Use letters, numbers and -, not at the start or end.'),
     }),

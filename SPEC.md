@@ -502,7 +502,7 @@ Every app gets `https://<slug>.bitploy.nl` the moment it is created, through Clo
 
 **Subdomains**
 
-- Default slug: `adjective-noun-xxxx` with 4 hex characters, e.g. `quiet-otter-3f9a`. Users may rename it: `a-z`, `0-9` and `-`, 3 to 40 characters, unique, not reserved. An old slug stays reserved for its owner for 30 days.
+- Default slug: `adjective-noun-xxxx` with 4 hex characters, e.g. `quiet-otter-3f9a`. Users may rename it: `a-z`, `0-9` and `-`, 1 to 40 characters, unique, not reserved. An old slug stays reserved for its owner for 30 days.
 - One level only. `api.myapp.bitploy.nl` is not allowed: Universal SSL covers the apex and first-level subdomains only.
 - Reserved: `www app api mcp admin dashboard docs status mail edge custom cdn static assets auth login bitploy traefik builder`, and anything starting with `bp-` (`builder` because its network would be `bp-builder`, the build network).
 - Unknown subdomains and stopped apps hit a low-priority catch-all router that shows a friendly bitploy page ("No app here" or "This app is stopped") instead of a Traefik 404.

@@ -143,7 +143,7 @@ func TestCreateAppSlugRules(t *testing.T) {
 		t.Fatalf("slug %q should be trimmed and lower-cased", app.Slug)
 	}
 	for slug, want := range map[string]string{
-		"my-app": "slug_taken", "ab": "slug_invalid", "has_underscore": "slug_invalid", "a.b.c": "slug_invalid",
+		"my-app": "slug_taken", "-ab": "slug_invalid", "has_underscore": "slug_invalid", "a.b.c": "slug_invalid",
 		"www": "slug_reserved", "bp-hello": "slug_reserved", "mcp": "slug_reserved",
 	} {
 		if _, err := e.s.CreateApp(ctx, bob, CreateAppInput{Slug: slug}); depCode(err) != want {
@@ -435,7 +435,7 @@ func TestRenameApp(t *testing.T) {
 		t.Errorf("old slug still resolves: %v", err)
 	}
 	// Bad targets.
-	for slug, want := range map[string]string{"www": "slug_reserved", "x": "slug_invalid"} {
+	for slug, want := range map[string]string{"www": "slug_reserved", "x-": "slug_invalid"} {
 		if _, err := e.s.UpdateApp(ctx, e.user, "new-name", UpdateAppInput{Slug: ptr(slug)}); depCode(err) != want {
 			t.Errorf("rename to %q: %v", slug, err)
 		}
