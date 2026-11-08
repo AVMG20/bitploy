@@ -37,6 +37,8 @@ import type {
   Project,
   PublicPort,
   PublicPortsOverview,
+  ServerMetricPoint,
+  ServerMetrics,
   ServerStats,
   ServiceTemplate,
   Session,
@@ -637,8 +639,8 @@ function maskOf(value: string | undefined): string {
   return value.split(/(\$\{\{[^}]+\}\})/).map((p) => (p.startsWith('${{') ? p : p ? '••••' : '')).join('')
 }
 
-function seedEnv(slug: string, vars: { name: string; value?: string; service?: string; build?: EnvVar['build'] }[]) {
-  env[slug] = vars.map((v) => ({ name: v.name, masked: maskOf(v.value), references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3), ...(v.build ? { build: v.build } : {}) }))
+function seedEnv(slug: string, vars: { name: string; value?: string; service?: string; hidden?: boolean }[]) {
+  env[slug] = vars.map((v) => ({ name: v.name, masked: maskOf(v.value), hidden: v.hidden ?? false, ...(v.hidden ? {} : { value: v.value ?? '' }), references: refsOf(v.value), service: v.service ?? '', updated_at: ago(60 * 24 * 3) }))
 }
 
 apps.push(
@@ -733,8 +735,8 @@ seedEnv('shop-web', [
   { name: 'DATABASE_URL', value: '${{postgres.DATABASE_URL}}' },
   { name: 'API_URL', value: 'http://${{api.HOST}}:8080' },
   { name: 'SESSION_SECRET' },
-  { name: 'NEXT_PUBLIC_SHOP_NAME', build: 'public' },
-  { name: 'SENTRY_AUTH_TOKEN', build: 'secret' },
+  { name: 'NEXT_PUBLIC_SHOP_NAME', value: 'Ada Shop' },
+  { name: 'SENTRY_AUTH_TOKEN', hidden: true },
 ])
 // shop-web migrates its database before each deploy and warms a cache after it; its current version's cache step failed.
 {
@@ -1267,6 +1269,21 @@ function serverStats(): ServerStats {
   }
 }
 
+function serverMetricsOf(window: string): ServerMetrics {
+  const total = serverStats().mem_total_mb
+  const stepMin = window === '7d' ? 168 : window === '24h' ? 24 : 1
+  const r = seeded(`server-${window}`)
+  const points: ServerMetricPoint[] = []
+  let m = total * 0.42
+  let c = 18
+  for (let i = 59; i >= 0; i--) {
+    m = Math.max(total * 0.25, Math.min(total * 0.8, m + (r() - 0.48) * total * 0.02))
+    c = Math.max(2, Math.min(85, c + (r() - 0.5) * 8))
+    points.push({ ts: ago(i * stepMin), cpu: Math.round(c * 10) / 10, memory_mb: Math.round(m), memory_total_mb: total })
+  }
+  return { window: window as ServerMetrics['window'], mem_total_mb: total, points }
+}
+
 // ---------------------------------------------------------------- a SQLite file in /data, and bitploy's own database
 
 const col = (name: string, type: string, pk = 0, notnull = false, redacted = false) => ({ name, type, notnull, default: null, pk, hidden: false, generated: false, redacted })
@@ -1400,6 +1417,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     }
     case 'GET /admin/server':
       return send(res, 200, serverStats())
+    case 'GET /admin/server/metrics':
+      return send(res, 200, serverMetricsOf(q.get('window') ?? '24h'))
     case 'GET /admin/public-ports':
       return send(res, 200, {
         enabled: true,
@@ -1495,15 +1514,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         services: [service({ name: 'app', kind: 'image', image: tpl.image, port: tpl.port, health_path: '', memory_mb: tpl.memory_mb, volumes: ['data'] })],
         volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: tpl.volume_mb, used_mb: null }],
       })
-      env[a.slug] = tpl.connection_vars.map((name) => ({ name, masked: MASK, service: '', updated_at: new Date().toISOString() }))
+      env[a.slug] = tpl.connection_vars.map((name) => ({ name, masked: MASK, hidden: true, service: '', updated_at: new Date().toISOString() }))
       for (const target of (body.connect_to as string[] | undefined) ?? []) {
         const t = findApp(target)
         if (!t) continue
         const list = (env[t.slug] ??= [])
         const ref = `\${{${alias}.${tpl.main_var}}}`
         const existing = list.find((v) => v.name === tpl.main_var && !v.service)
-        if (existing) Object.assign(existing, { masked: ref, references: [ref], updated_at: new Date().toISOString() })
-        else list.push({ name: tpl.main_var, masked: ref, references: [ref], service: '', updated_at: new Date().toISOString() })
+        if (existing) Object.assign(existing, { masked: ref, hidden: false, value: ref, references: [ref], updated_at: new Date().toISOString() })
+        else list.push({ name: tpl.main_var, masked: ref, hidden: false, value: ref, references: [ref], service: '', updated_at: new Date().toISOString() })
         syncRefs(t)
         if (t.status === 'running') startDeploy(t, 'rollback')
       }
@@ -1658,19 +1677,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       needApp(id)
       const list = (env[id] ??= [])
       const svc = typeof body.service === 'string' ? body.service : ''
+      const hiddenFlags = (body.hidden as Record<string, boolean> | undefined) ?? {}
       for (const [name, value] of Object.entries((body.set as Record<string, string>) ?? {})) {
         const isRef = /\$\{\{/.test(value)
         const v = list.find((x) => x.name === name && x.service === svc)
-        const next = { masked: maskOf(value), references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
+        // A name left out of hidden keeps its flag; a new variable is readable.
+        const hidden = hiddenFlags[name] ?? v?.hidden ?? false
+        const next = { masked: maskOf(value), hidden, value: hidden ? undefined : value, references: isRef ? refsOf(value) : undefined, updated_at: new Date().toISOString() }
         if (v) Object.assign(v, next)
         else list.push({ name, service: svc, ...next })
-      }
-      for (const [name, b] of Object.entries((body.build as Record<string, string>) ?? {})) {
-        const v = list.find((x) => x.name === name && x.service === svc)
-        if (!v) throw new HttpError(404, 'env_not_found', `There is no variable ${name}.`)
-        if (b === 'public' || b === 'secret') v.build = b
-        else delete v.build
-        v.updated_at = new Date().toISOString()
       }
       for (const name of (body.unset as string[]) ?? []) {
         const i = list.findIndex((x) => x.name === name && x.service === svc)
