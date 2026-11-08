@@ -25,7 +25,7 @@ func (q *Queries) ClearAppGitSource(ctx context.Context, arg ClearAppGitSourcePa
 }
 
 const listAppsWithGitHubSource = `-- name: ListAppsWithGitHubSource :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE git_repo_url IS NOT NULL AND lower(git_repo_url) LIKE 'https://%github.com/%'
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by FROM apps WHERE git_repo_url IS NOT NULL AND lower(git_repo_url) LIKE 'https://%github.com/%'
 `
 
 func (q *Queries) ListAppsWithGitHubSource(ctx context.Context) ([]App, error) {
@@ -87,6 +87,7 @@ func (q *Queries) ListAppsWithGitHubSource(ctx context.Context) ([]App, error) {
 			&i.TemplateVersion,
 			&i.BackupScheduleSet,
 			&i.BackupDefaultAt,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}

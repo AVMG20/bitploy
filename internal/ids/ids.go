@@ -17,10 +17,12 @@ const (
 	Deployment = "dep"
 	Token      = "tok"
 	Invite     = "inv"
-	Upload     = "upl"
-	Domain     = "dom"
-	Backup     = "bak"
-	AppDomain  = "apd"
+	// ProjectInvite is an invite to someone else's project (project_invites).
+	ProjectInvite = "pin"
+	Upload        = "upl"
+	Domain        = "dom"
+	Backup        = "bak"
+	AppDomain     = "apd"
 )
 
 // New returns prefix + "_" + 20 random base62 characters (~119 bits).

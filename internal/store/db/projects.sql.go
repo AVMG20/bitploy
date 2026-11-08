@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const countAppsByProject = `-- name: CountAppsByProject :one
@@ -15,6 +16,49 @@ SELECT COUNT(*) FROM apps WHERE project_id = ?
 
 func (q *Queries) CountAppsByProject(ctx context.Context, projectID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countAppsByProject, projectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPendingProjectInvites = `-- name: CountPendingProjectInvites :one
+SELECT COUNT(*) FROM project_invites WHERE project_id = ? AND used_at IS NULL AND expires_at > ?
+`
+
+type CountPendingProjectInvitesParams struct {
+	ProjectID string
+	ExpiresAt int64
+}
+
+func (q *Queries) CountPendingProjectInvites(ctx context.Context, arg CountPendingProjectInvitesParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPendingProjectInvites, arg.ProjectID, arg.ExpiresAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countProjectInvitesByCreatorSince = `-- name: CountProjectInvitesByCreatorSince :one
+SELECT COUNT(*) FROM project_invites WHERE created_by = ? AND created_at > ?
+`
+
+type CountProjectInvitesByCreatorSinceParams struct {
+	CreatedBy sql.NullString
+	CreatedAt int64
+}
+
+func (q *Queries) CountProjectInvitesByCreatorSince(ctx context.Context, arg CountProjectInvitesByCreatorSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProjectInvitesByCreatorSince, arg.CreatedBy, arg.CreatedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countProjectMembers = `-- name: CountProjectMembers :one
+SELECT COUNT(*) FROM project_members WHERE project_id = ?
+`
+
+func (q *Queries) CountProjectMembers(ctx context.Context, projectID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProjectMembers, projectID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -31,6 +75,37 @@ func (q *Queries) DeleteAutoProjectIfEmpty(ctx context.Context, id string) error
 	return err
 }
 
+const deleteOldProjectInvites = `-- name: DeleteOldProjectInvites :exec
+DELETE FROM project_invites WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)
+`
+
+type DeleteOldProjectInvitesParams struct {
+	ExpiresAt int64
+	UsedAt    sql.NullInt64
+}
+
+func (q *Queries) DeleteOldProjectInvites(ctx context.Context, arg DeleteOldProjectInvitesParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOldProjectInvites, arg.ExpiresAt, arg.UsedAt)
+	return err
+}
+
+const deleteProjectMember = `-- name: DeleteProjectMember :execrows
+DELETE FROM project_members WHERE project_id = ? AND user_id = ?
+`
+
+type DeleteProjectMemberParams struct {
+	ProjectID string
+	UserID    string
+}
+
+func (q *Queries) DeleteProjectMember(ctx context.Context, arg DeleteProjectMemberParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteProjectMember, arg.ProjectID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteProjectRow = `-- name: DeleteProjectRow :exec
 DELETE FROM projects WHERE id = ?
 `
@@ -40,8 +115,25 @@ func (q *Queries) DeleteProjectRow(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUnusedProjectInvite = `-- name: DeleteUnusedProjectInvite :execrows
+DELETE FROM project_invites WHERE id = ? AND project_id = ? AND used_at IS NULL
+`
+
+type DeleteUnusedProjectInviteParams struct {
+	ID        string
+	ProjectID string
+}
+
+func (q *Queries) DeleteUnusedProjectInvite(ctx context.Context, arg DeleteUnusedProjectInviteParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnusedProjectInvite, arg.ID, arg.ProjectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAppByProjectAlias = `-- name: GetAppByProjectAlias :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE project_id = ? AND alias = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by FROM apps WHERE project_id = ? AND alias = ?
 `
 
 type GetAppByProjectAliasParams struct {
@@ -102,6 +194,7 @@ func (q *Queries) GetAppByProjectAlias(ctx context.Context, arg GetAppByProjectA
 		&i.TemplateVersion,
 		&i.BackupScheduleSet,
 		&i.BackupDefaultAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -120,6 +213,28 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 		&i.Auto,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProjectInviteByHash = `-- name: GetProjectInviteByHash :one
+SELECT id, code_hash, project_id, email, role, created_by, expires_at, used_at, used_by, created_at FROM project_invites WHERE code_hash = ?
+`
+
+func (q *Queries) GetProjectInviteByHash(ctx context.Context, codeHash string) (ProjectInvite, error) {
+	row := q.db.QueryRowContext(ctx, getProjectInviteByHash, codeHash)
+	var i ProjectInvite
+	err := row.Scan(
+		&i.ID,
+		&i.CodeHash,
+		&i.ProjectID,
+		&i.Email,
+		&i.Role,
+		&i.CreatedBy,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.UsedBy,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -166,8 +281,79 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 	return err
 }
 
+const insertProjectInvite = `-- name: InsertProjectInvite :exec
+
+INSERT INTO project_invites (id, code_hash, project_id, email, role, created_by, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertProjectInviteParams struct {
+	ID        string
+	CodeHash  string
+	ProjectID string
+	Email     sql.NullString
+	Role      string
+	CreatedBy sql.NullString
+	ExpiresAt int64
+	CreatedAt int64
+}
+
+// ---- invites to a project ----
+func (q *Queries) InsertProjectInvite(ctx context.Context, arg InsertProjectInviteParams) error {
+	_, err := q.db.ExecContext(ctx, insertProjectInvite,
+		arg.ID,
+		arg.CodeHash,
+		arg.ProjectID,
+		arg.Email,
+		arg.Role,
+		arg.CreatedBy,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const insertProjectMember = `-- name: InsertProjectMember :exec
+INSERT INTO project_members (project_id, user_id, role, invited_by, created_at) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertProjectMemberParams struct {
+	ProjectID string
+	UserID    string
+	Role      string
+	InvitedBy sql.NullString
+	CreatedAt int64
+}
+
+func (q *Queries) InsertProjectMember(ctx context.Context, arg InsertProjectMemberParams) error {
+	_, err := q.db.ExecContext(ctx, insertProjectMember,
+		arg.ProjectID,
+		arg.UserID,
+		arg.Role,
+		arg.InvitedBy,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const isProjectMember = `-- name: IsProjectMember :one
+SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?
+`
+
+type IsProjectMemberParams struct {
+	ProjectID string
+	UserID    string
+}
+
+func (q *Queries) IsProjectMember(ctx context.Context, arg IsProjectMemberParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, isProjectMember, arg.ProjectID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const listAppsByProject = `-- name: ListAppsByProject :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at FROM apps WHERE project_id = ? ORDER BY created_at, id
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by FROM apps WHERE project_id = ? ORDER BY created_at, id
 `
 
 func (q *Queries) ListAppsByProject(ctx context.Context, projectID string) ([]App, error) {
@@ -229,6 +415,205 @@ func (q *Queries) ListAppsByProject(ctx context.Context, projectID string) ([]Ap
 			&i.TemplateVersion,
 			&i.BackupScheduleSet,
 			&i.BackupDefaultAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAppsForUser = `-- name: ListAppsForUser :many
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by FROM apps
+WHERE apps.user_id = ?1
+   OR (apps.project_id != '' AND apps.project_id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = ?1))
+ORDER BY created_at DESC
+`
+
+// The user's own apps and the apps of the projects shared with them.
+func (q *Queries) ListAppsForUser(ctx context.Context, userID string) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listAppsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []App{}
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Slug,
+			&i.Name,
+			&i.Type,
+			&i.Port,
+			&i.HealthPath,
+			&i.DockerfilePath,
+			&i.ContextDir,
+			&i.VolumeEnabled,
+			&i.MemoryMb,
+			&i.CpuMillis,
+			&i.GitRepoUrl,
+			&i.GitBranch,
+			&i.GitSubdir,
+			&i.DesiredState,
+			&i.Status,
+			&i.StatusMessage,
+			&i.CurrentDeploymentID,
+			&i.DeploySeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VolumeMb,
+			&i.VolumeName,
+			&i.BackupSchedule,
+			&i.BackupKeepMode,
+			&i.BackupKeep,
+			&i.RestoreBackupID,
+			&i.RestoreSafeID,
+			&i.RestoreResume,
+			&i.GitAutoDeploy,
+			&i.GitLastPushAt,
+			&i.ProtectEnabled,
+			&i.ProtectUsername,
+			&i.ProtectHash,
+			&i.BuildMode,
+			&i.HomePage,
+			&i.OutputDir,
+			&i.CatalogID,
+			&i.CatalogVersion,
+			&i.BaseDomain,
+			&i.ServiceLayout,
+			&i.ComposePath,
+			&i.ProjectID,
+			&i.Alias,
+			&i.Template,
+			&i.TemplateVersion,
+			&i.BackupScheduleSet,
+			&i.BackupDefaultAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingProjectInvites = `-- name: ListPendingProjectInvites :many
+SELECT id, code_hash, project_id, email, role, created_by, expires_at, used_at, used_by, created_at FROM project_invites WHERE project_id = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id
+`
+
+type ListPendingProjectInvitesParams struct {
+	ProjectID string
+	ExpiresAt int64
+}
+
+func (q *Queries) ListPendingProjectInvites(ctx context.Context, arg ListPendingProjectInvitesParams) ([]ProjectInvite, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingProjectInvites, arg.ProjectID, arg.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectInvite{}
+	for rows.Next() {
+		var i ProjectInvite
+		if err := rows.Scan(
+			&i.ID,
+			&i.CodeHash,
+			&i.ProjectID,
+			&i.Email,
+			&i.Role,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.UsedAt,
+			&i.UsedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectMemberIDs = `-- name: ListProjectMemberIDs :many
+SELECT user_id FROM project_members WHERE project_id = ? ORDER BY user_id
+`
+
+func (q *Queries) ListProjectMemberIDs(ctx context.Context, projectID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectMemberIDs, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var user_id string
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectMembers = `-- name: ListProjectMembers :many
+SELECT m.user_id, m.role, m.invited_by, m.created_at, u.email, u.name
+FROM project_members m JOIN users u ON u.id = m.user_id
+WHERE m.project_id = ?
+ORDER BY m.created_at, m.user_id
+`
+
+type ListProjectMembersRow struct {
+	UserID    string
+	Role      string
+	InvitedBy sql.NullString
+	CreatedAt int64
+	Email     string
+	Name      string
+}
+
+func (q *Queries) ListProjectMembers(ctx context.Context, projectID string) ([]ListProjectMembersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectMembers, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectMembersRow{}
+	for rows.Next() {
+		var i ListProjectMembersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Role,
+			&i.InvitedBy,
+			&i.CreatedAt,
+			&i.Email,
+			&i.Name,
 		); err != nil {
 			return nil, err
 		}
@@ -249,6 +634,46 @@ SELECT id, user_id, name, auto, created_at, updated_at FROM projects WHERE user_
 
 func (q *Queries) ListProjectsByUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := q.db.QueryContext(ctx, listProjectsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Project{}
+	for rows.Next() {
+		var i Project
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Auto,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectsForUser = `-- name: ListProjectsForUser :many
+
+SELECT id, user_id, name, auto, created_at, updated_at FROM projects
+WHERE projects.user_id = ?1
+   OR projects.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = ?1)
+ORDER BY created_at DESC, id
+`
+
+// ---- members (project_members.go) ----
+// The user's own projects and the projects shared with them.
+func (q *Queries) ListProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectsForUser, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +738,30 @@ func (q *Queries) ListSettledDeploymentRestarts(ctx context.Context) ([]ListSett
 	return items, nil
 }
 
+const markProjectInviteUsed = `-- name: MarkProjectInviteUsed :execrows
+UPDATE project_invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?
+`
+
+type MarkProjectInviteUsedParams struct {
+	UsedAt    sql.NullInt64
+	UsedBy    sql.NullString
+	ID        string
+	ExpiresAt int64
+}
+
+func (q *Queries) MarkProjectInviteUsed(ctx context.Context, arg MarkProjectInviteUsedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markProjectInviteUsed,
+		arg.UsedAt,
+		arg.UsedBy,
+		arg.ID,
+		arg.ExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const renameProject = `-- name: RenameProject :exec
 UPDATE projects SET name = ?, updated_at = ? WHERE id = ?
 `
@@ -325,6 +774,20 @@ type RenameProjectParams struct {
 
 func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) error {
 	_, err := q.db.ExecContext(ctx, renameProject, arg.Name, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAppCreatedBy = `-- name: SetAppCreatedBy :exec
+UPDATE apps SET created_by = ? WHERE id = ?
+`
+
+type SetAppCreatedByParams struct {
+	CreatedBy string
+	ID        string
+}
+
+func (q *Queries) SetAppCreatedBy(ctx context.Context, arg SetAppCreatedByParams) error {
+	_, err := q.db.ExecContext(ctx, setAppCreatedBy, arg.CreatedBy, arg.ID)
 	return err
 }
 

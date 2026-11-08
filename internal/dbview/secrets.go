@@ -32,6 +32,7 @@ var controlSecrets = map[string][]string{
 	"sessions":            {"id_hash", "csrf_token"},                                      // the session cookie (hashed) and its CSRF secret
 	"api_tokens":          {"hash"},                                                       // hash of an API token
 	"invites":             {"code_hash"},                                                  // hash of the invite link code
+	"project_invites":     {"code_hash"},                                                  // hash of the project invite link code
 	"env_vars":            {"value_enc"},                                                  // the app's secrets, encrypted
 	"uploads":             {"id"},                                                         // the id IS the credential of /u/{id}
 	"github_app":          {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted

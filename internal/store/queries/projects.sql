@@ -52,3 +52,70 @@ SELECT DISTINCT r.deployment_id, d.state FROM deployment_restarts r
 JOIN deployments d ON d.id = r.deployment_id
 WHERE d.state IN ('running', 'superseded', 'failed', 'cancelled')
 ORDER BY r.deployment_id;
+
+-- ---- members (project_members.go) ----
+
+-- name: ListProjectsForUser :many
+-- The user's own projects and the projects shared with them.
+SELECT * FROM projects
+WHERE projects.user_id = sqlc.arg(user_id)
+   OR projects.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = sqlc.arg(user_id))
+ORDER BY created_at DESC, id;
+
+-- name: ListAppsForUser :many
+-- The user's own apps and the apps of the projects shared with them.
+SELECT * FROM apps
+WHERE apps.user_id = sqlc.arg(user_id)
+   OR (apps.project_id != '' AND apps.project_id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = sqlc.arg(user_id)))
+ORDER BY created_at DESC;
+
+-- name: IsProjectMember :one
+SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?;
+
+-- name: InsertProjectMember :exec
+INSERT INTO project_members (project_id, user_id, role, invited_by, created_at) VALUES (?, ?, ?, ?, ?);
+
+-- name: DeleteProjectMember :execrows
+DELETE FROM project_members WHERE project_id = ? AND user_id = ?;
+
+-- name: CountProjectMembers :one
+SELECT COUNT(*) FROM project_members WHERE project_id = ?;
+
+-- name: ListProjectMemberIDs :many
+SELECT user_id FROM project_members WHERE project_id = ? ORDER BY user_id;
+
+-- name: ListProjectMembers :many
+SELECT m.user_id, m.role, m.invited_by, m.created_at, u.email, u.name
+FROM project_members m JOIN users u ON u.id = m.user_id
+WHERE m.project_id = ?
+ORDER BY m.created_at, m.user_id;
+
+-- name: SetAppCreatedBy :exec
+UPDATE apps SET created_by = ? WHERE id = ?;
+
+-- ---- invites to a project ----
+
+-- name: InsertProjectInvite :exec
+INSERT INTO project_invites (id, code_hash, project_id, email, role, created_by, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetProjectInviteByHash :one
+SELECT * FROM project_invites WHERE code_hash = ?;
+
+-- name: ListPendingProjectInvites :many
+SELECT * FROM project_invites WHERE project_id = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id;
+
+-- name: CountPendingProjectInvites :one
+SELECT COUNT(*) FROM project_invites WHERE project_id = ? AND used_at IS NULL AND expires_at > ?;
+
+-- name: MarkProjectInviteUsed :execrows
+UPDATE project_invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?;
+
+-- name: DeleteUnusedProjectInvite :execrows
+DELETE FROM project_invites WHERE id = ? AND project_id = ? AND used_at IS NULL;
+
+-- name: DeleteOldProjectInvites :exec
+DELETE FROM project_invites WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?);
+
+-- name: CountProjectInvitesByCreatorSince :one
+SELECT COUNT(*) FROM project_invites WHERE created_by = ? AND created_at > ?;

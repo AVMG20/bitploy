@@ -72,6 +72,7 @@ type App struct {
 	TemplateVersion     string
 	BackupScheduleSet   int64
 	BackupDefaultAt     int64
+	CreatedBy           string
 }
 
 type AppBackup struct {
@@ -354,6 +355,27 @@ type Project struct {
 	Auto      int64
 	CreatedAt int64
 	UpdatedAt int64
+}
+
+type ProjectInvite struct {
+	ID        string
+	CodeHash  string
+	ProjectID string
+	Email     sql.NullString
+	Role      string
+	CreatedBy sql.NullString
+	ExpiresAt int64
+	UsedAt    sql.NullInt64
+	UsedBy    sql.NullString
+	CreatedAt int64
+}
+
+type ProjectMember struct {
+	ProjectID string
+	UserID    string
+	Role      string
+	InvitedBy sql.NullString
+	CreatedAt int64
 }
 
 type PublicPort struct {
