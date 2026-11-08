@@ -1086,7 +1086,8 @@ function trafficOf(app: App, window: string, list = ''): Traffic {
   const r = seeded(`${app.slug}-traffic-${window}`)
   const hourly = window === '24h'
   const n = window === '30d' ? 30 : window === '7d' ? 7 : 24
-  const scale = app.template || app.type === 'worker' ? 0 : app.static ? 0.4 : 1
+  // The market's storefront is busy: its counts run into the tens of thousands and millions.
+  const scale = app.template || app.type === 'worker' ? 0 : app.static ? 0.4 : app.slug === 'mk-store' ? 25 : 1
   const HOUR = 3_600_000
   const DAY = 24 * HOUR
   const lastStart = hourly ? Math.floor(NOW / HOUR) * HOUR : Math.floor(NOW / DAY) * DAY
@@ -1158,10 +1159,12 @@ function trafficOf(app: App, window: string, list = ''): Traffic {
     ['(direct)', 260], ['google.com', 140], ['duckduckgo.com', 22], ['instagram.com', 18], ['bing.com', 9], ['news.ycombinator.com', 7],
     ['facebook.com', 6], ['pinterest.com', 5], ['reddit.com', 3], ['linkedin.com', 2], ['t.co', 1],
   ])
+  // Visitors and requests per visitor: the US and unknown places send many bots.
   const countries = ([
-    ['NL', 120], ['BE', 34], ['DE', 30], ['US', 22], ['GB', 14], ['FR', 9], ['unknown', 6], ['ES', 5], ['SE', 4], ['PL', 3], ['IT', 2], ['CA', 1],
-  ] as [string, number][])
-    .map(([code, v]) => ({ code, visitors: Math.round(v * k), requests: Math.round(v * k * 14) }))
+    ['NL', 120, 14], ['BE', 34, 13], ['DE', 30, 16], ['US', 22, 60], ['GB', 14, 15], ['FR', 9, 12], ['unknown', 6, 90], ['ES', 5, 14], ['SE', 4, 11],
+    ['PL', 3, 13], ['IT', 2, 15], ['CA', 1, 18],
+  ] as [string, number, number][])
+    .map(([code, v, per]) => ({ code, visitors: Math.round(v * k), requests: Math.round(v * k * per) }))
     .filter((c) => c.visitors > 0)
   const not_found = items([['/wp-login.php', 9], ['/images/old-logo.png', 4], ['/products/maple-desk', 2], ['/.env', 1]])
   const pick = <T,>(name: string, rows: T[]): T[] => (!list ? rows.slice(0, 10) : list === name ? rows : [])
