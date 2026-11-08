@@ -3,6 +3,7 @@ module github.com/AVMG20/bitploy
 go 1.26.8
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/compose-spec/compose-go/v2 v2.16.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/danielgtaylor/huma/v2 v2.40.0

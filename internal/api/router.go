@@ -67,6 +67,8 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	}
 	a.backupFileRoutes(mux, fileWrap)
 	a.fileStreamRoutes(mux, fileWrap)
+	// A shell in the app's container, over a WebSocket (session only).
+	a.terminalRoutes(mux, fileWrap)
 	// Upload a zip and deploy it in one request (the dashboard's upload).
 	mux.Handle("POST "+prefix+"/apps/{app}/upload", fileWrap(readDeadline(uploadReadTimeout, http.HandlerFunc(a.appUpload))))
 

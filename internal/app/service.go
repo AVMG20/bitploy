@@ -81,6 +81,8 @@ type Service struct {
 
 	pub publicPortState // forwarders of public ports (public_ports.go)
 
+	term terminalState // open terminals per user (terminal.go)
+
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no
 	// network is needed.
 	lsRemote func(ctx context.Context, src deploy.GitSource) (sha, branch string, err error)
