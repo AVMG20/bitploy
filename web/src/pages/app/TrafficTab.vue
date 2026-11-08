@@ -53,7 +53,14 @@ const referrerRow = (i: TrafficItem): TrafficRow =>
 const countryRows = (cs: TrafficCountry[]): TrafficRow[] =>
   cs
     .filter((c) => c.visitors > 0)
-    .map((c) => ({ key: c.code, label: countryName(c.code), prefix: /^[A-Za-z]{2}$/.test(c.code) ? c.code.toUpperCase() : '', count: c.visitors, muted: !/^[A-Za-z]{2}$/.test(c.code) }))
+    .map((c) => ({
+      key: c.code,
+      label: countryName(c.code),
+      prefix: /^[A-Za-z]{2}$/.test(c.code) ? c.code.toUpperCase() : '',
+      count: c.visitors,
+      extra: c.requests,
+      muted: !/^[A-Za-z]{2}$/.test(c.code),
+    }))
 
 const pages = computed(() => (data.value?.pages ?? []).map(pageRow))
 const referrers = computed(() => (data.value?.referrers ?? []).map(referrerRow))
@@ -309,6 +316,8 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           title="Countries"
           hint="Where visitors were, from their internet address. The address itself is not kept."
           unit="Visitors"
+          extra-unit="Requests"
+          extra-hint="Everything asked for from there: pages, files, and requests from bots."
           :rows="countries"
           empty="No countries yet."
           :more="data.countries.length >= TOP_N"

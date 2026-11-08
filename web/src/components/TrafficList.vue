@@ -11,6 +11,8 @@ export interface TrafficRow {
   key: string
   label: string
   count: number
+  /** The second, muted number, when the list has an extraUnit. */
+  extra?: number
   /** Shown before the label in small capitals, for example a country code. */
   prefix?: string
   /** A name that is not a real value, like "Direct / none": shown muted. */
@@ -24,6 +26,10 @@ const props = defineProps<{
   /** One plain sentence under the title: what the list is. */
   hint?: string
   unit: string
+  /** A second number per row, muted, in its own column: "Requests". */
+  extraUnit?: string
+  /** What the second number counts, on hover over its heading. */
+  extraHint?: string
   rows: TrafficRow[]
   empty: string
   /** There may be more rows than shown (the server sent a full top 10). */
@@ -33,6 +39,9 @@ const props = defineProps<{
   /** Under the title in the full list, for example the window. */
   description?: string
 }>()
+
+// Wide enough for "Requests" and for any short count ("12.3k", "999k").
+const EXTRA_COL = 'w-15 text-right'
 
 const top = computed(() => props.rows.reduce((m, r) => Math.max(m, r.count), 0))
 const width = (count: number, max: number) => (max > 0 ? Math.max(2, (count / max) * 100) : 0)
@@ -84,7 +93,10 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
     <CardHeader>
       <div class="flex items-baseline justify-between gap-2">
         <CardTitle>{{ title }}</CardTitle>
-        <span class="text-xs text-muted-foreground">{{ unit }}</span>
+        <span v-if="extraUnit" class="flex gap-3 pr-2 text-xs text-muted-foreground">
+          <span>{{ unit }}</span><span :class="EXTRA_COL" :title="extraHint">{{ extraUnit }}</span>
+        </span>
+        <span v-else class="text-xs text-muted-foreground">{{ unit }}</span>
       </div>
       <CardDescription v-if="hint" class="text-xs">{{ hint }}</CardDescription>
     </CardHeader>
@@ -104,7 +116,10 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
             >{{ r.label }}</a>
             <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
-          <span class="relative shrink-0 font-medium tabular-nums"><CompactCount :n="r.count" /></span>
+          <span class="relative flex shrink-0 gap-3 tabular-nums">
+            <span class="font-medium"><CompactCount :n="r.count" /><span v-if="extraUnit" class="sr-only"> {{ unit.toLowerCase() }},</span></span>
+            <span v-if="extraUnit" :class="[EXTRA_COL, 'text-muted-foreground']"><CompactCount :n="r.extra ?? 0" /><span class="sr-only"> {{ extraUnit.toLowerCase() }}</span></span>
+          </span>
         </li>
       </ul>
       <Button v-if="canShowAll" variant="ghost" size="sm" class="mt-2 w-full text-muted-foreground" @click="open = true">Show all</Button>
@@ -116,7 +131,7 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
     <DialogContent class="flex max-h-[85vh] flex-col sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription>{{ [description, unit, capped && 'Top 500'].filter(Boolean).join(' · ') }}</DialogDescription>
+        <DialogDescription>{{ [description, unit, extraUnit, capped && 'Top 500'].filter(Boolean).join(' · ') }}</DialogDescription>
       </DialogHeader>
       <QueryError v-if="error" :error="error" @retry="load" />
       <div v-else-if="loading && !all" class="grid gap-2">
@@ -137,7 +152,10 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
             >{{ r.label }}</a>
             <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
-          <span class="relative shrink-0 font-medium tabular-nums"><CompactCount :n="r.count" /></span>
+          <span class="relative flex shrink-0 gap-3 tabular-nums">
+            <span class="font-medium"><CompactCount :n="r.count" /><span v-if="extraUnit" class="sr-only"> {{ unit.toLowerCase() }},</span></span>
+            <span v-if="extraUnit" :class="[EXTRA_COL, 'text-muted-foreground']"><CompactCount :n="r.extra ?? 0" /><span class="sr-only"> {{ extraUnit.toLowerCase() }}</span></span>
+          </span>
         </li>
       </ul>
     </DialogContent>
