@@ -338,6 +338,8 @@ export interface App {
   /** The domain of the address: <slug>.<domain>. */
   domain: string
   owner_id: string
+  /** True when the app is in a project another user shared with you (owner_id is theirs). */
+  shared?: boolean
   status: AppStatus
   status_message?: string
   desired_state: string
@@ -518,7 +520,65 @@ export interface Project {
   updated_at?: string
   /** The private Docker network the apps share (bp-p-<id>); made once the project has two apps. */
   network?: string
+  /** Your part in it: owner, member (someone shared it with you) or admin (an admin looking at another user's project). */
+  role?: ProjectRole
+  /** True when the project is someone else's and was shared with you. */
+  shared?: boolean
+  /** Who owns the project, and every app in it. */
+  owner?: UserBrief
+  /** How many users the project is shared with, besides its owner. */
+  member_count?: number
   apps: App[]
+}
+
+export type ProjectRole = 'owner' | 'member' | 'admin'
+
+/** A user as a project names them: its owner, a member. */
+export interface UserBrief {
+  id: string
+  name: string
+  email: string
+}
+
+/** One user with access to a project (GET /projects/{id}/members): the owner first, then the members. */
+export interface ProjectMember {
+  user_id: string
+  name: string
+  email: string
+  role: 'owner' | 'member'
+  invited_by: string | null
+  /** When they joined; for the owner, when the project was made. */
+  created_at: string
+  /** True for you. */
+  you: boolean
+}
+
+/** An open invite link to a project (GET /projects/{id}/invites). url only right after it is made. */
+export interface ProjectInvite {
+  id: string
+  /** Only the account with this address can accept; null: anyone with the link. */
+  email: string | null
+  role: 'member'
+  created_at: string
+  expires_at: string
+  url?: string
+}
+
+/** What an invite link is for (GET /project-invites/{code}), shown before it is accepted. */
+export interface ProjectInviteInfo {
+  project_name: string
+  /** The name of who made the invite. */
+  invited_by: string
+  email: string | null
+  role: 'member'
+  expires_at: string
+}
+
+/** A signup through a project invite: the new session and the project it joined. */
+export interface ProjectSignup {
+  user: User
+  csrf_token: string
+  project: ProjectRef
 }
 
 /** A database or other ready service bitploy can add to a project (GET /service-templates). */

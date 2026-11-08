@@ -55,6 +55,13 @@ export const router = createRouter({
       meta: { public: true, title: 'Join bitploy' },
     },
     {
+      // An invite to someone's project: join it when logged in, else log in or sign up first.
+      path: '/join/:code',
+      name: 'join',
+      component: () => import('./pages/JoinProjectPage.vue'),
+      meta: { public: true, title: 'Join a project' },
+    },
+    {
       path: '/',
       component: () => import('./components/AppLayout.vue'),
       children: [
@@ -72,6 +79,7 @@ export const router = createRouter({
             // ?app=<slug> opens that app's panel over the canvas.
             { path: '', name: 'project', component: () => import('./pages/project/ProjectCanvas.vue'), props: true },
             { path: 'variables', name: 'project-variables', component: () => import('./pages/project/ProjectVariablesTab.vue'), props: true, meta: { title: 'Variables' } },
+            { path: 'members', name: 'project-members', component: () => import('./pages/project/ProjectMembersTab.vue'), props: true, meta: { title: 'Members' } },
             { path: 'settings', name: 'project-settings', component: () => import('./pages/project/ProjectSettingsTab.vue'), props: true, meta: { title: 'Settings' } },
           ],
         },

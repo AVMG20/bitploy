@@ -491,3 +491,8 @@ export function templateUpdate(app: Pick<App, 'template_version' | 'template_lat
     title: `Runs ${app.template_version || 'an older version'}; ${app.template_latest} is available. bitploy does not update a database by itself, because a new major version can need a dump and restore.`,
   }
 }
+
+/** Who to name as the owner of a shared project: their name, else their address. */
+export function ownerName(p: Pick<Project, 'owner'>): string {
+  return p.owner?.name || p.owner?.email || 'someone'
+}

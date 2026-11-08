@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ArrowUpRight, Plus, Settings2 } from 'lucide-vue-next'
+import { ArrowUpRight, Plus, Settings2, Users } from 'lucide-vue-next'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -14,7 +14,7 @@ import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
 import { appRoute } from '@/lib/appLinks'
 import { appStatusInfo, formatMB, hostOf } from '@/lib/format'
-import { aliasOf, isPublicApp, mainApp, projectHealth, projectHealthText, projectUsage } from '@/lib/projects'
+import { aliasOf, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, projectUsage } from '@/lib/projects'
 
 // A project: its name and health on top, then the canvas of its apps, the
 // variables and connections of all of them, and its settings.
@@ -37,6 +37,7 @@ watch(
 const TABS = [
   { name: 'project', label: 'Canvas' },
   { name: 'project-variables', label: 'Variables' },
+  { name: 'project-members', label: 'Members' },
   { name: 'project-settings', label: 'Settings' },
 ]
 
@@ -72,10 +73,14 @@ const projectForAi = computed(() => {
 
     <template v-else>
       <PageHeader :title="project.name">
-        <template v-if="health.total" #badges>
-          <span class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
+        <template v-if="health.total || project.shared" #badges>
+          <span v-if="health.total" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
             <StatusDot :status="health.status === 'empty' ? 'new' : health.status" aria-hidden="true" />
             {{ projectHealthText(apps) }}
+          </span>
+          <span v-if="project.shared" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground" :title="`${ownerName(project)} shared this project with you`">
+            <Users class="size-3" aria-hidden="true" />
+            Shared by {{ ownerName(project) }}
           </span>
         </template>
         <template v-if="apps.length" #meta>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUpRight } from 'lucide-vue-next'
+import { ArrowUpRight, Users } from 'lucide-vue-next'
 import RelativeTime from '@/components/RelativeTime.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { projectRoute } from '@/lib/appLinks'
 import { formatMB, hostOf } from '@/lib/format'
-import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, projectHealthText, projectUsage, sortProjectApps } from '@/lib/projects'
+import { aliasOf, appRole, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, projectUsage, sortProjectApps } from '@/lib/projects'
 import type { Project, ServiceTemplate } from '@/lib/types'
 
 // A project on the home page: its name, whether everything runs, its address,
@@ -73,6 +73,12 @@ const healthText = computed(() => projectHealthText(props.project.apps))
     <div class="mt-auto flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 pb-3.5 text-xs text-muted-foreground">
       <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}</span>
       <span v-if="usage.memoryMB" class="tabular-nums">{{ formatMB(usage.memoryMB) }} memory</span>
+      <span v-if="project.shared" class="inline-flex min-w-0 items-center gap-1" :title="`${ownerName(project)} shared this project with you`">
+        <Users class="size-3 shrink-0" aria-hidden="true" /><span class="truncate">Shared by {{ ownerName(project) }}</span>
+      </span>
+      <span v-else-if="project.member_count" class="inline-flex items-center gap-1">
+        <Users class="size-3 shrink-0" aria-hidden="true" />Shared with {{ project.member_count === 1 ? '1 person' : `${project.member_count} people` }}
+      </span>
       <span v-if="lastAt" class="ml-auto">Deployed <RelativeTime :date="lastAt" /></span>
     </div>
   </article>

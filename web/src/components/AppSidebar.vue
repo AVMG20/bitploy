@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Box, Boxes, Plus, Settings, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { Box, Boxes, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import StatusDot from './StatusDot.vue'
 import UserMenu from './UserMenu.vue'
@@ -26,7 +26,7 @@ import {
 import { useProjects, useServiceTemplates } from '@/composables/queries'
 import { useSession } from '@/composables/useSession'
 import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, projectHealth, sortProjectApps } from '@/lib/projects'
+import { aliasOf, ownerName, projectHealth, sortProjectApps } from '@/lib/projects'
 
 const route = useRoute()
 const { isAdmin } = useSession()
@@ -47,7 +47,7 @@ const items = computed(() => {
   return list
 })
 
-// Your projects, newest first; the one you are in shows its apps.
+// Your projects and the ones shared with you, newest first; the one you are in shows its apps.
 const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 const MAX = 12
@@ -101,7 +101,10 @@ const more = computed(() => Math.max(0, (projects.data.value?.projects.length ??
                   <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
                   <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->
-                  <small v-if="p.apps.length > 1" class="ml-auto shrink-0 pl-1 text-xs text-muted-foreground tabular-nums">{{ p.apps.length }}</small>
+                  <small v-if="p.shared || p.apps.length > 1" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
+                    <span v-if="p.shared" class="inline-flex" :title="`Shared by ${ownerName(p)}`"><Users class="size-3.5!" aria-hidden="true" /><span class="sr-only">Shared by {{ ownerName(p) }}</span></span>
+                    <template v-if="p.apps.length > 1">{{ p.apps.length }}</template>
+                  </small>
                 </RouterLink>
               </SidebarMenuButton>
               <SidebarMenuSub v-if="p.id === currentProject && p.apps.length > 1">

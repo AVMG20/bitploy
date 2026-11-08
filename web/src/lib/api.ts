@@ -45,6 +45,10 @@ import type {
   TrafficWindow,
   Page,
   Project,
+  ProjectInvite,
+  ProjectInviteInfo,
+  ProjectMember,
+  ProjectSignup,
   PublicConnection,
   PublicPortInput,
   PublicPortsOverview,
@@ -95,6 +99,13 @@ export const paths = {
   projects: `${V1}/projects`,
   project: (id: string) => `${V1}/projects/${enc(id)}`,
   projectServices: (id: string) => `${V1}/projects/${enc(id)}/services`,
+  projectMembers: (id: string) => `${V1}/projects/${enc(id)}/members`,
+  projectMember: (id: string, user: string) => `${V1}/projects/${enc(id)}/members/${enc(user)}`,
+  projectInvites: (id: string) => `${V1}/projects/${enc(id)}/invites`,
+  projectInvite: (id: string, invite: string) => `${V1}/projects/${enc(id)}/invites/${enc(invite)}`,
+  projectInviteInfo: (code: string) => `${V1}/project-invites/${enc(code)}`,
+  acceptProjectInvite: (code: string) => `${V1}/project-invites/${enc(code)}/accept`,
+  signupProjectInvite: (code: string) => `${V1}/project-invites/${enc(code)}/signup`,
   serviceTemplates: `${V1}/service-templates`,
   app: (slug: string) => `${V1}/apps/${enc(slug)}`,
   appUpload: (slug: string) => `${V1}/apps/${enc(slug)}/upload`,
@@ -442,6 +453,22 @@ export const api = {
       if (missingEndpoint(e)) return null
       throw e
     }
+  },
+  // members of a project: the owner shares it with invite links
+  projectMembers: (id: string) => listAll<ProjectMember>(paths.projectMembers(id)),
+  /** The owner removes a member; user "me" leaves the project. */
+  removeProjectMember: (id: string, user: string) => request<void>('DELETE', paths.projectMember(id, user)),
+  projectInvites: (id: string) => listAll<ProjectInvite>(paths.projectInvites(id)),
+  createProjectInvite: (id: string, input: { email?: string }) => request<ProjectInvite>('POST', paths.projectInvites(id), { body: input }),
+  revokeProjectInvite: (id: string, invite: string) => request<void>('DELETE', paths.projectInvite(id, invite)),
+  /** What an invite link is for; works without a login. */
+  projectInviteInfo: (code: string) => request<ProjectInviteInfo>('GET', paths.projectInviteInfo(code), { noRedirect: true }),
+  acceptProjectInvite: (code: string) => request<Project>('POST', paths.acceptProjectInvite(code)),
+  /** Makes the account, joins the project and logs in. */
+  async signupProjectInvite(code: string, input: { name: string; email: string; password: string }): Promise<ProjectSignup> {
+    const out = await request<ProjectSignup>('POST', paths.signupProjectInvite(code), { body: input, noRedirect: true })
+    setCsrfToken(out.csrf_token)
+    return out
   },
   /** Makes an app from a template in the project, wires "Connect to" and deploys it. */
   addService: (projectId: string, input: AddServiceInput) => request<App>('POST', paths.projectServices(projectId), { body: input }),

@@ -10,6 +10,9 @@ export const keys = {
   /** Below apps on purpose: whatever refreshes the apps refreshes the projects that hold them. */
   projects: ['apps', 'projects'] as const,
   serviceTemplates: ['service-templates'] as const,
+  /** Below projects: whatever refreshes the projects refreshes who is in them. */
+  projectMembers: (id: string) => ['apps', 'projects', id, 'members'] as const,
+  projectInvites: (id: string) => ['apps', 'projects', id, 'invites'] as const,
   catalog: ['catalog'] as const,
   catalogApp: (id: string) => ['catalog', id] as const,
   dockerfile: (slug: string) => ['dockerfile', slug] as const,
