@@ -92,6 +92,7 @@ export const router = createRouter({
             { path: 'traffic', name: 'app-traffic', component: () => import('./pages/app/TrafficTab.vue'), props: slugProp },
             { path: 'deployments', name: 'app-deployments', component: () => import('./pages/app/DeploymentsTab.vue'), props: slugProp },
             { path: 'logs', name: 'app-logs', component: () => import('./pages/app/LogsTab.vue'), props: slugProp },
+            { path: 'terminal', name: 'app-terminal', component: () => import('./pages/app/TerminalTab.vue'), props: slugProp },
             { path: 'variables', name: 'app-variables', component: () => import('./pages/app/VariablesTab.vue'), props: slugProp },
             { path: 'domains', name: 'app-domains', component: () => import('./pages/app/DomainsTab.vue'), props: slugProp },
             { path: 'storage', name: 'app-storage', component: () => import('./pages/app/StorageTab.vue'), props: slugProp },

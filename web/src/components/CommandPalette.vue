@@ -19,6 +19,7 @@ import { useSession } from '@/composables/useSession'
 import { paletteOpen } from '@/composables/useShortcuts'
 import { APP_TABS } from '@/lib/appTabs'
 import { isMulti } from '@/lib/services'
+import { terminalOffered } from '@/lib/terminal'
 import { appStatusInfo, hostOf } from '@/lib/format'
 import { setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
@@ -52,7 +53,7 @@ interface Item {
 const route = useRoute()
 const router = useRouter()
 const projects = useProjects()
-const { isAdmin } = useSession()
+const { isAdmin, user } = useSession()
 
 const query = ref('')
 const active = ref(0)
@@ -113,7 +114,7 @@ const items = computed<Item[]>(() => {
     if (route.params.slug && !fallback) out.push({ id: 'act-canvas', group: g, groupKey: gk, label: 'Show on the canvas', icon: PanelRight, keywords: 'project panel', to: projectRoute(projectIdOf(current), { app: current.slug }) })
     else if (!route.params.slug) out.push({ id: 'act-page', group: g, groupKey: gk, label: 'Open full page', icon: Maximize2, keywords: 'app page details', to: appRoute(current) })
     for (const t of APP_TABS) {
-      if (t.database || (t.webOnly && !isPublicApp(current))) continue
+      if (t.database || (t.webOnly && !isPublicApp(current)) || (t.terminal && !terminalOffered(current, user.value?.id ?? ''))) continue
       out.push({ id: `cur-${t.name}`, group: g, groupKey: gk, label: multi && t.name === 'app' ? 'Services' : t.label, keywords: current.slug, to: appRoute(current, t.name) })
     }
   }
@@ -178,7 +179,7 @@ const items = computed<Item[]>(() => {
   // Every tab of every app, for "shop logs". Only while searching, or the list would be endless.
   for (const a of list) {
     for (const t of APP_TABS) {
-      if (t.name === 'app' || t.database || (t.webOnly && !isPublicApp(a))) continue
+      if (t.name === 'app' || t.database || (t.webOnly && !isPublicApp(a)) || (t.terminal && !terminalOffered(a, user.value?.id ?? ''))) continue
       out.push({ id: `tab-${a.id}-${t.name}`, group: 'Apps', groupKey: 'apps', near: !!nearId && projectIdOf(a) === nearId, label: `${a.name} › ${t.label}`, keywords: `${a.slug} ${projectName.get(a.id) ?? ''}`, to: appRoute(a, t.name), searchOnly: true })
     }
   }

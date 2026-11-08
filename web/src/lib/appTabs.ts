@@ -6,12 +6,15 @@ export interface AppTab {
   webOnly?: boolean
   /** Only when the app's saved files hold a SQLite database. */
   database?: boolean
+  /** Only when the viewer may open a shell in the app's container (terminalOffered). */
+  terminal?: boolean
 }
 
 export const APP_TABS: AppTab[] = [
   { name: 'app', label: 'Overview' },
   { name: 'app-deployments', label: 'Deployments' },
   { name: 'app-logs', label: 'Logs' },
+  { name: 'app-terminal', label: 'Terminal', terminal: true },
   { name: 'app-traffic', label: 'Traffic', webOnly: true },
   { name: 'app-variables', label: 'Variables' },
   { name: 'app-domains', label: 'Domains', webOnly: true },

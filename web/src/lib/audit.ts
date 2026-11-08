@@ -19,6 +19,8 @@ const LABELS: Record<string, string> = {
   'app.start': 'Started an app',
   'app.stop': 'Stopped an app',
   'app.restart': 'Restarted an app',
+  'app.terminal_open': 'Opened a terminal',
+  'app.terminal_close': 'Closed a terminal',
   'app.restore': 'Restored an app',
   'app.crashed': 'App crashed',
   'app.container_died': 'App stopped by itself',

@@ -8,7 +8,9 @@
 // fallback. MOCK_OVERALLOCATE=1 lets the user allocate memory and CPU without a
 // limit (the admin switch), to see the Projects usage cards for such a user.
 
+import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
 import type {
   App,
@@ -1987,6 +1989,163 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
   throw new HttpError(404, 'not_found', `The mock does not know ${method} ${path}.`)
 }
 
+// ---------------------------------------------------------------- the terminal
+// GET /api/v1/apps/:slug/terminal is a WebSocket (see internal/api/terminal.go).
+// The mock speaks enough of RFC 6455 to run a pretend shell: it echoes what
+// you type and knows a few commands. Unmasked frames out, masked frames in, no
+// fragments (browsers do not fragment frames this small).
+
+const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+
+function wsFrame(opcode: number, payload: Buffer): Buffer {
+  const n = payload.length
+  let head: Buffer
+  if (n < 126) head = Buffer.from([0x80 | opcode, n])
+  else if (n < 65536) head = Buffer.from([0x80 | opcode, 126, n >> 8, n & 0xff])
+  else {
+    head = Buffer.alloc(10)
+    head[0] = 0x80 | opcode
+    head[1] = 127
+    head.writeBigUInt64BE(BigInt(n), 2)
+  }
+  return Buffer.concat([head, payload])
+}
+
+/** The complete frames at the start of buf, and what is left over. */
+function wsFrames(buf: Buffer): { frames: { opcode: number; payload: Buffer }[]; rest: Buffer } {
+  const frames: { opcode: number; payload: Buffer }[] = []
+  let at = 0
+  while (buf.length - at >= 2) {
+    const opcode = buf[at]! & 0x0f
+    const masked = (buf[at + 1]! & 0x80) !== 0
+    let len = buf[at + 1]! & 0x7f
+    let off = at + 2
+    if (len === 126) {
+      if (buf.length < off + 2) break
+      len = buf.readUInt16BE(off)
+      off += 2
+    } else if (len === 127) {
+      if (buf.length < off + 8) break
+      len = Number(buf.readBigUInt64BE(off))
+      off += 8
+    }
+    const maskAt = off
+    if (masked) off += 4
+    if (buf.length < off + len) break
+    const payload = Buffer.from(buf.subarray(off, off + len))
+    if (masked) for (let i = 0; i < len; i++) payload[i] = payload[i]! ^ buf[maskAt + (i % 4)]!
+    frames.push({ opcode, payload })
+    at = off + len
+  }
+  return { frames, rest: Buffer.from(buf.subarray(at)) }
+}
+
+function fakeTerminal(req: IncomingMessage, socket: Duplex, slug: string, service: string, size: { cols: number; rows: number }) {
+  const key = String(req.headers['sec-websocket-key'] ?? '')
+  const accept = createHash('sha1').update(key + WS_GUID).digest('base64')
+  socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+  const text = (v: unknown) => socket.write(wsFrame(0x1, Buffer.from(JSON.stringify(v))))
+  const out = (s: string) => socket.write(wsFrame(0x2, Buffer.from(s)))
+  const close = () => {
+    socket.write(wsFrame(0x8, Buffer.from([0x03, 0xe8])))
+    socket.end()
+  }
+  const fail = (code: string, message: string, hint?: string) => {
+    text({ type: 'error', error: { code, message, hint } })
+    close()
+  }
+  socket.on('error', () => socket.destroy())
+
+  const a = findApp(slug)
+  if (!a) return fail('app_not_found', `There is no app called ${slug}.`)
+  if (a.static) return fail('terminal_static', 'A static site has no container to open a terminal in.')
+  if (!a.current_deployment || a.status === 'stopped' || a.status === 'new')
+    return fail('app_not_running', 'The app is not running, so there is no container to open a terminal in.', 'Start the app, or deploy it, then open the terminal again.')
+  if (service && !a.services.some((s) => s.name === service)) return fail('service_not_found', `The app has no service called ${service}.`)
+  const multi = a.service_layout === 'multi' || a.services.length > 1
+  const svc = service || (multi ? ((a.services.find((s) => s.public) ?? a.services[0])?.name ?? '') : '')
+  text({ type: 'ready', app: a.slug, service: svc })
+
+  const host = svc ? `${a.slug}-${svc}` : a.slug
+  const prompt = () => out(`\x1b[33mapp@${host}\x1b[0m:\x1b[90m/app\x1b[0m$ `)
+  out(`\x1b[90mThe mock API's pretend shell. It knows ls, pwd, whoami, echo, date, stty size, env, clear and exit.\x1b[0m\r\n`)
+  prompt()
+  const run = (cmd: string) => {
+    const [name = '', ...args] = cmd.trim().split(/\s+/)
+    switch (name) {
+      case '':
+        return
+      case 'ls':
+        return out('\x1b[34mdata\x1b[0m  \x1b[34mnode_modules\x1b[0m  package.json  server.js\r\n')
+      case 'pwd':
+        return out('/app\r\n')
+      case 'whoami':
+        return out('app\r\n')
+      case 'echo':
+        return out(`${args.join(' ')}\r\n`)
+      case 'date':
+        return out(`${new Date().toUTCString()}\r\n`)
+      case 'stty':
+        return out(`${size.rows} ${size.cols}\r\n`)
+      case 'env':
+        return out(`HOSTNAME=${host}\r\nPORT=${a.port ?? 8080}\r\nTERM=xterm-256color\r\nHOME=/app\r\n`)
+      case 'clear':
+        return out('\x1b[2J\x1b[H')
+      default:
+        return out(`sh: ${name}: not found\r\n`)
+    }
+  }
+
+  let line = ''
+  let buf: Buffer = Buffer.alloc(0)
+  socket.on('data', (chunk: Buffer) => {
+    const { frames, rest } = wsFrames(Buffer.concat([buf, chunk]))
+    buf = rest
+    for (const f of frames) {
+      if (f.opcode === 0x8) return close()
+      if (f.opcode === 0x9) socket.write(wsFrame(0xa, f.payload))
+      if (f.opcode === 0x1) {
+        try {
+          const m = JSON.parse(f.payload.toString()) as { type?: string; cols?: number; rows?: number }
+          if (m.type === 'resize' && m.cols && m.rows) Object.assign(size, { cols: m.cols, rows: m.rows })
+        } catch {
+          // not a control message
+        }
+      }
+      if (f.opcode !== 0x2) continue
+      for (const ch of f.payload.toString()) {
+        if (ch === '\r') {
+          out('\r\n')
+          const words = line.trim().split(/\s+/)
+          const cmd = line
+          line = ''
+          if (words[0] === 'exit') {
+            text({ type: 'exit', code: Number(words[1] ?? 0) || 0 })
+            return close()
+          }
+          run(cmd)
+          prompt()
+        } else if (ch === '\x7f') {
+          if (line) {
+            line = line.slice(0, -1)
+            out('\b \b')
+          }
+        } else if (ch === '\x03') {
+          line = ''
+          out('^C\r\n')
+          prompt()
+        } else if (ch === '\x04' && !line) {
+          text({ type: 'exit', code: 0 })
+          return close()
+        } else if (ch >= ' ') {
+          line += ch
+          out(ch)
+        }
+      }
+    }
+  })
+}
+
 export function mockApi(): Plugin {
   const noProjectsEnv = process.env.MOCK_NO_PROJECTS === '1'
   return {
@@ -2003,6 +2162,14 @@ export function mockApi(): Plugin {
             send(res, 500, { error: { code: 'mock_failed', message: String(e) } })
           }
         })
+      })
+      // Vite's own WebSocket (hot reload) is on another path and keeps its upgrades.
+      server.httpServer?.on('upgrade', (req: IncomingMessage, socket: Duplex) => {
+        const u = new URL(req.url ?? '/', 'http://mock')
+        const m = /^\/api\/v1\/apps\/([^/]+)\/terminal$/.exec(u.pathname)
+        if (!m) return
+        const q = u.searchParams
+        fakeTerminal(req, socket, decodeURIComponent(m[1]!), q.get('service') ?? '', { cols: Number(q.get('cols')) || 80, rows: Number(q.get('rows')) || 24 })
       })
     },
   }

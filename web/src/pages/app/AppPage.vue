@@ -23,12 +23,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useDataRoot } from '@/composables/queries'
 import { useAppControls } from '@/composables/useAppControls'
+import { useSession } from '@/composables/useSession'
 import { nowMs } from '@/composables/useNow'
 import { ApiError } from '@/lib/api'
 import { APP_TABS } from '@/lib/appTabs'
 import { isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { copyText } from '@/lib/notify'
+import { terminalOffered } from '@/lib/terminal'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 import ServiceSheet from './ServiceSheet.vue'
@@ -69,9 +71,13 @@ const root = useDataRoot(() => props.slug, () => !!data.value?.volume && !isServ
 const onDatabase = computed(() => String(route.name ?? '').startsWith('app-database') && route.meta.tab !== 'app-storage')
 const hasDatabase = computed(() => onDatabase.value || isServerDb(data.value) || !!pickDatabase(root.data.value?.items ?? [], props.slug))
 const openPort = computed(() => (data.value ? publicPortText(data.value, nowMs.value) : null))
-// Background workers have no visitors and no web address.
+// Background workers have no visitors and no web address. A static site has
+// no container to open a terminal in, and an admin may not open one in
+// another user's app.
+const { user } = useSession()
+const hasTerminal = computed(() => terminalOffered(data.value, user.value?.id ?? ''))
 const shownTabs = computed(() =>
-  APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value)).map((t) =>
+  APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value) && (!t.terminal || hasTerminal.value)).map((t) =>
     multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t,
   ),
 )
