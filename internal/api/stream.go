@@ -171,7 +171,9 @@ func (a *API) sse(w http.ResponseWriter, r *http.Request, precheck func(context.
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if write(": ping\n\n") != nil {
+				// Access is checked again with every heartbeat: a member removed
+				// from the app's project stops getting lines within 15 s.
+				if precheck(ctx) != nil || write(": ping\n\n") != nil {
 					cancel()
 					return
 				}
