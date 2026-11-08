@@ -23,6 +23,10 @@ var terminalShell = []string{"/bin/sh", "-c",
 
 const pidMarker = "\x1b]bitploy-pid;"
 
+// ErrNoShell is OpenTerminal's error for a container without /bin/sh
+// (an image built FROM scratch or distroless).
+var ErrNoShell = errors.New("the container has no /bin/sh")
+
 // TermSize is the size of a terminal in characters.
 type TermSize struct {
 	Cols, Rows uint
@@ -59,12 +63,33 @@ func (c *Client) OpenTerminal(ctx context.Context, name string, size TermSize, e
 		return nil, err
 	}
 	t := &Terminal{c: c, id: created.ID, ctr: name, att: att.HijackedResponse, out: att.Reader}
-	// The marker comes first and in one piece; a container without /bin/sh
-	// writes an error instead, which stays in the output.
+	// The marker comes first and in one piece. Without it the shell did not
+	// start: Docker writes why into the stream and gives the exec exit code
+	// 126 or 127 when /bin/sh is missing or cannot run.
 	_ = att.Conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	t.pid = readPIDMarker(t.out)
 	_ = att.Conn.SetReadDeadline(time.Time{})
+	if t.pid == 0 && t.startFailed(ctx) {
+		t.att.Close()
+		return nil, ErrNoShell
+	}
 	return t, nil
+}
+
+// startFailed reports whether the exec ended at once with Docker's code for
+// a command it could not run (126 or 127). It waits up to a second.
+func (t *Terminal) startFailed(ctx context.Context) bool {
+	for i := 0; i < 10; i++ {
+		if code, exited := t.Exit(ctx); exited {
+			return code == 126 || code == 127
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return false
 }
 
 // readPIDMarker takes the shell's process id marker off the start of r. It
@@ -127,15 +152,19 @@ func (t *Terminal) Close() error {
 		t.att.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, exited := t.Exit(ctx); exited || t.pid <= 0 {
+		if t.pid <= 0 {
 			return
+		}
+		res, ierr := t.c.API.ExecInspect(ctx, t.id, client.ExecInspectOptions{})
+		if IsNotFound(ierr) || (ierr == nil && !res.Running) {
+			return // exited, or went with its container (a redeploy removed it)
 		}
 		p := strconv.Itoa(t.pid)
 		script := "kill -HUP " + p + " 2>/dev/null || exit 0; sleep 2; kill -0 " + p + " 2>/dev/null && kill -KILL " + p + " 2>/dev/null; exit 0"
 		_, err = t.c.Exec(ctx, t.ctr, []string{"/bin/sh", "-c", script}, ExecOptions{})
 		var ee *ExecError
-		if errors.As(err, &ee) {
-			err = nil // the shell is gone either way
+		if errors.As(err, &ee) || IsNotFound(err) || IsConflict(err) {
+			err = nil // the shell is gone either way (a stopped container answers conflict)
 		}
 	})
 	return err

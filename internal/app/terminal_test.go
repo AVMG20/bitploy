@@ -11,13 +11,19 @@ import (
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
-type stubTerminals struct{ running map[string]bool }
+type stubTerminals struct {
+	running map[string]bool
+	openErr error
+}
 
 func (s stubTerminals) Running(_ context.Context, name string) (bool, error) {
 	return s.running[name], nil
 }
 
 func (s stubTerminals) Open(context.Context, string, int, int) (TerminalConn, error) {
+	if s.openErr != nil {
+		return nil, s.openErr
+	}
 	return &stubTermConn{}, nil
 }
 
@@ -137,6 +143,25 @@ func TestTerminalNeedsARunningContainer(t *testing.T) {
 	liveOn(t, m.s, site.ID, "site", deploy.BuildKindStatic)
 	if _, err := m.s.OpenTerminal(ctx, m.alice, "site", TerminalOptions{}); depCode(err) != "terminal_static" {
 		t.Errorf("static site: %v", err)
+	}
+}
+
+func TestTerminalWithoutAShell(t *testing.T) {
+	m := newMembersEnv(t)
+	ctx := context.Background()
+	liveOn(t, m.s, m.app.ID, "shop", "dockerfile")
+	m.s.UseTerminalBackend(stubTerminals{running: map[string]bool{"bp-shop-1": true}, openErr: errNoShell()})
+	if _, err := m.s.OpenTerminal(ctx, m.alice, "shop", TerminalOptions{}); depCode(err) != "terminal_no_shell" {
+		t.Fatalf("no shell: %v", err)
+	}
+	// The slot is free again.
+	m.s.UseTerminalBackend(stubTerminals{running: map[string]bool{"bp-shop-1": true}})
+	for i := 0; i < MaxTerminalsPerUser; i++ {
+		tm, err := m.s.OpenTerminal(ctx, m.alice, "shop", TerminalOptions{})
+		if err != nil {
+			t.Fatalf("terminal %d: %v", i, err)
+		}
+		defer tm.Close(TerminalClosed)
 	}
 }
 

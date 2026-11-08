@@ -178,7 +178,18 @@ func serve(log *slog.Logger) error {
 	stop() // also when the server failed: the background jobs end and save what they hold
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// Shutdown does not wait for WebSockets: end the terminals and stop their shells.
+	termsDone := make(chan struct{})
+	go func() {
+		svc.CloseTerminals()
+		close(termsDone)
+	}()
 	shutdownErr := srv.Shutdown(shutdownCtx)
+	select {
+	case <-termsDone:
+	case <-time.After(5 * time.Second):
+		log.Warn("terminals did not close in time")
+	}
 	// Let the background jobs finish: traffic counts are saved and running backups thaw their app.
 	select {
 	case <-bgDone:

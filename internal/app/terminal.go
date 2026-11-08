@@ -56,11 +56,49 @@ func (s *Service) UseTerminalBackend(b TerminalBackend) {
 	s.term.mu.Unlock()
 }
 
-// terminalState counts the open terminals per user.
+// terminalState counts the open terminals per user and keeps every open
+// one, so they can be closed when bitploy stops (CloseTerminals).
 type terminalState struct {
 	mu      sync.Mutex
 	open    map[string]int
+	all     map[*Terminal]struct{}
 	backend TerminalBackend
+}
+
+func (t *terminalState) add(term *Terminal) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.all == nil {
+		t.all = map[*Terminal]struct{}{}
+	}
+	t.all[term] = struct{}{}
+}
+
+func (t *terminalState) remove(term *Terminal) {
+	t.mu.Lock()
+	delete(t.all, term)
+	t.mu.Unlock()
+}
+
+// CloseTerminals ends every open terminal (reason TerminalShutdown) and
+// stops their shells, so none is left behind in a container when bitploy
+// stops. It returns once all are closed.
+func (s *Service) CloseTerminals() {
+	s.term.mu.Lock()
+	list := make([]*Terminal, 0, len(s.term.all))
+	for t := range s.term.all {
+		list = append(list, t)
+	}
+	s.term.mu.Unlock()
+	var wg sync.WaitGroup
+	for _, t := range list {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t.Close(TerminalShutdown)
+		}()
+	}
+	wg.Wait()
 }
 
 func (t *terminalState) acquire(user string) (release func(), ok bool) {
@@ -106,6 +144,9 @@ func (d dockerTerminals) Running(ctx context.Context, name string) (bool, error)
 
 func (d dockerTerminals) Open(ctx context.Context, name string, cols, rows int) (TerminalConn, error) {
 	t, err := d.c.OpenTerminal(ctx, name, dockerx.TermSize{Cols: uint(cols), Rows: uint(rows)}, nil)
+	if errors.Is(err, dockerx.ErrNoShell) {
+		return nil, errNoShell()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +165,10 @@ type TerminalOptions struct {
 	// public (or first) one.
 	Service    string
 	Cols, Rows int
+	// Session is the dashboard session's cookie and IP the client's
+	// address. Check reads the session again, so a logout, an expired
+	// session or a suspended account ends the terminal.
+	Session, IP string
 }
 
 // Terminal is an open terminal session. Read, Write and Resize go to the
@@ -135,13 +180,19 @@ type Terminal struct {
 	Service string
 
 	conn      TerminalConn
+	backend   TerminalBackend
 	s         *Service
 	actor     Actor
+	session   string
+	ip        string
 	appID     string
 	container string
 	started   time.Time
 	release   func()
 	closeOnce sync.Once
+
+	mu     sync.Mutex
+	closed string // why Close was called; "" while open
 }
 
 // Why a terminal session ended, in its audit row.
@@ -152,6 +203,10 @@ const (
 	TerminalTooLong  = "max_length"  // open for the longest time allowed
 	TerminalNoAccess = "access"      // the user lost access to the app
 	TerminalAppGone  = "not_running" // the app was stopped
+	// The container stopped under the shell: a deploy, a restart or a crash.
+	TerminalContainerGone = "container_gone"
+	TerminalLoggedOut     = "session"  // logged out, session expired or account suspended
+	TerminalShutdown      = "shutdown" // bitploy stopped (CloseTerminals)
 )
 
 // clampTerm keeps a terminal size within what bitploy accepts; 0 gives
@@ -206,12 +261,16 @@ func (s *Service) OpenTerminal(ctx context.Context, a Actor, ref string, o Termi
 	conn, err := b.Open(ctx, name, cols, rows)
 	if err != nil {
 		release()
+		if e := (*apperr.Error)(nil); errors.As(err, &e) {
+			return nil, e
+		}
 		return nil, apperr.Internal(err)
 	}
 	t := &Terminal{
-		App: row.Slug, Service: svc, conn: conn, s: s, actor: a, appID: row.ID,
-		container: name, started: s.Now(), release: release,
+		App: row.Slug, Service: svc, conn: conn, backend: b, s: s, actor: a, session: o.Session, ip: o.IP,
+		appID: row.ID, container: name, started: s.Now(), release: release,
 	}
+	s.term.add(t)
 	s.Audit(ctx, a, "app.terminal_open", "app", row.ID, t.auditDetails(nil))
 	return t, nil
 }
@@ -235,6 +294,13 @@ func (s *Service) terminalContainer(ctx context.Context, row db.App, service str
 		return "", "", appNotRunningErr(svc)
 	}
 	return name, svc, err
+}
+
+// errNoShell is the error for an image without /bin/sh.
+func errNoShell() *apperr.Error {
+	return apperr.Unprocessable("terminal_no_shell",
+		"This app's container has no shell (/bin/sh), so a terminal cannot open in it.",
+		"Images built FROM scratch or distroless leave the shell out. Build from an image that has one, such as alpine or debian, to use the terminal.")
 }
 
 func appNotRunningErr(service string) *apperr.Error {
@@ -272,17 +338,29 @@ func (t *Terminal) Resize(ctx context.Context, cols, rows int) error {
 // Exit reports the shell's exit code once it has exited.
 func (t *Terminal) Exit(ctx context.Context) (int, bool) { return t.conn.Exit(ctx) }
 
-// Check reports whether the user still may use the terminal: the app is
-// still theirs or shared with them (a removed member loses it). It returns
-// the reason to end the session, or "".
+// Check reports whether the user still may use the terminal: their
+// session is still valid (TerminalLoggedOut after a logout, when it expired
+// or the account was suspended) and the app is still theirs or shared with
+// them (a removed member loses it). It returns the reason to end the
+// session, or "".
 func (t *Terminal) Check(ctx context.Context) string {
-	row, err := t.s.LoadApp(ctx, t.actor, t.appID, true)
+	a := t.actor
+	if t.session != "" {
+		fresh, _, err := t.s.AuthenticateSession(ctx, t.session, t.ip)
+		if err != nil {
+			if clientErr(err) {
+				return TerminalLoggedOut
+			}
+			return "" // a failed lookup is no reason to end a session
+		}
+		a = fresh
+	}
+	row, err := t.s.LoadApp(ctx, a, t.appID, true)
 	if err != nil {
-		var ae *apperr.Error
-		if errors.As(err, &ae) && ae.HTTPStatus < 500 {
+		if clientErr(err) {
 			return TerminalNoAccess
 		}
-		return "" // a failed lookup is no reason to end a session
+		return ""
 	}
 	if row.DesiredState == "stopped" {
 		return TerminalAppGone
@@ -290,10 +368,33 @@ func (t *Terminal) Check(ctx context.Context) string {
 	return ""
 }
 
+func clientErr(err error) bool {
+	var ae *apperr.Error
+	return errors.As(err, &ae) && ae.HTTPStatus < 500
+}
+
+// ContainerRunning reports whether the terminal's container still runs
+// (true when Docker cannot say).
+func (t *Terminal) ContainerRunning(ctx context.Context) bool {
+	ok, err := t.backend.Running(ctx, t.container)
+	return ok || err != nil
+}
+
+// Ended gives the reason Close was called with, or "" while it is open.
+func (t *Terminal) Ended() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
 // Close ends the session: the shell is stopped if it still runs, the slot
 // freed and the end audited with why it ended. Only the first call counts.
 func (t *Terminal) Close(reason string) {
 	t.closeOnce.Do(func() {
+		t.mu.Lock()
+		t.closed = reason
+		t.mu.Unlock()
+		defer t.s.term.remove(t)
 		if err := t.conn.Close(); err != nil {
 			t.s.Log.Warn("terminal: could not stop the shell", "app", t.App, "container", t.container, "err", err)
 		}

@@ -459,6 +459,77 @@ func TestTerminalEndsWhenTheAppStops(t *testing.T) {
 	<-sh.closed
 }
 
+func TestTerminalEndsOnLogout(t *testing.T) {
+	oldCheck := terminalCheckEvery
+	terminalCheckEvery = 20 * time.Millisecond
+	defer func() { terminalCheckEvery = oldCheck }()
+
+	e := newEnv(t)
+	e.login("owner@example.nl", false)
+	e.runningApp("shop")
+	fake := newFakeTerminals("bp-shop-1")
+	e.svc.UseTerminalBackend(fake)
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+
+	c := dialTerminal(t, srv, e.cookie, "/api/v1/apps/shop/terminal")
+	readMsg(t, c)
+	sh := <-fake.opened
+	if w := e.asSession("POST", "/api/v1/auth/logout", nil); w.Code != 204 {
+		t.Fatalf("logout: %d %s", w.Code, w.Body)
+	}
+	if m := readMsg(t, c); m.Type != "end" || m.Reason != "session" || m.Message == "" {
+		t.Fatalf("logged out: %+v", m)
+	}
+	<-sh.closed
+}
+
+func TestTerminalEndsWhenTheContainerGoes(t *testing.T) {
+	e := newEnv(t)
+	e.login("owner@example.nl", false)
+	e.runningApp("shop")
+	fake := newFakeTerminals("bp-shop-1")
+	e.svc.UseTerminalBackend(fake)
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+
+	c := dialTerminal(t, srv, e.cookie, "/api/v1/apps/shop/terminal")
+	readMsg(t, c)
+	sh := <-fake.opened
+	// A redeploy removes the container; the shell's stream ends with it.
+	fake.mu.Lock()
+	delete(fake.running, "bp-shop-1")
+	fake.mu.Unlock()
+	_ = sh.outW.Close()
+	if m := readMsg(t, c); m.Type != "end" || m.Reason != "container_gone" || m.Message == "" {
+		t.Fatalf("container gone: %+v", m)
+	}
+}
+
+func TestCloseTerminalsEndsEverySession(t *testing.T) {
+	e := newEnv(t)
+	e.login("owner@example.nl", false)
+	e.runningApp("shop")
+	fake := newFakeTerminals("bp-shop-1")
+	e.svc.UseTerminalBackend(fake)
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+
+	c := dialTerminal(t, srv, e.cookie, "/api/v1/apps/shop/terminal")
+	readMsg(t, c)
+	sh := <-fake.opened
+	e.svc.CloseTerminals()
+	select {
+	case <-sh.closed:
+	default:
+		t.Fatal("the shell still runs")
+	}
+	if m := readMsg(t, c); m.Type != "end" || m.Reason != "shutdown" {
+		t.Fatalf("shutdown: %+v", m)
+	}
+	waitFor(t, func() bool { return auditCount(t, e, "app.terminal_close") == 1 })
+}
+
 func TestParseResize(t *testing.T) {
 	for _, tc := range []struct {
 		in         string

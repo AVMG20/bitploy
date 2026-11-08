@@ -9,7 +9,8 @@ package api
 //     {"type":"ready","app","service"} once the shell runs,
 //     {"type":"exit","code"} when the shell exited,
 //     {"type":"end","reason","message"} when bitploy ended the session
-//     (reason idle, max_length, access or not_running), and
+//     (reason idle, max_length, access, session, not_running, container_gone
+//     or shutdown), and
 //     {"type":"error","error":{code,message,hint}} when it could not open.
 //
 // The query gives the first size (cols, rows) and, for an app with several
@@ -76,10 +77,14 @@ func parseResize(b []byte) (cols, rows int, ok bool) {
 }
 
 var terminalEndMessages = map[string]string{
-	app.TerminalIdle:     "The terminal closed after 30 minutes without input.",
-	app.TerminalTooLong:  "The terminal closed after 8 hours, the longest a session stays open.",
-	app.TerminalNoAccess: "The terminal closed because you no longer have access to this app.",
-	app.TerminalAppGone:  "The terminal closed because the app stopped.",
+	app.TerminalIdle:      "The terminal closed after 30 minutes without input.",
+	app.TerminalTooLong:   "The terminal closed after 8 hours, the longest a session stays open.",
+	app.TerminalNoAccess:  "The terminal closed because you no longer have access to this app.",
+	app.TerminalAppGone:   "The terminal closed because the app stopped.",
+	app.TerminalLoggedOut: "The terminal closed because you were logged out.",
+	app.TerminalContainerGone: "The terminal closed because the app was restarted or deployed again. " +
+		"Reconnect to open a shell in the new container.",
+	app.TerminalShutdown: "The terminal closed because bitploy restarted.",
 }
 
 func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +102,12 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := app.RequireSession(act); err != nil {
 		auth.WriteError(w, err)
+		return
+	}
+	// The session is read again while the terminal is open (Terminal.Check).
+	session := auth.SessionCookieFrom(r.Context())
+	if session == "" {
+		auth.WriteError(w, app.RequireSession(app.Actor{}))
 		return
 	}
 	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
@@ -131,6 +142,7 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	t, err := a.svc.OpenTerminal(ctx, act, r.PathValue("app"), app.TerminalOptions{
 		Service: q.Get("service"), Cols: atoiDefault(q.Get("cols"), 0), Rows: atoiDefault(q.Get("rows"), 0),
+		Session: session, IP: auth.ClientIP(r, a.cfg),
 	})
 	if err != nil {
 		e := apperr.As(err)
@@ -199,16 +211,28 @@ func (a *API) terminal(w http.ResponseWriter, r *http.Request) {
 			}
 			if rerr != nil {
 				select {
-				case <-done: // closed by bitploy
+				case <-done: // closed by the loop below
+					return
 				default:
-					code, ok := waitExit(ctx, t)
-					mu.Lock()
-					if reason == "" {
-						reason, exitCode, exited = app.TerminalExited, code, ok
-					}
-					mu.Unlock()
-					stop()
 				}
+				if why := t.Ended(); why != "" { // closed by bitploy (CloseTerminals)
+					end(why)
+					return
+				}
+				// The shell exited, or its container stopped under it.
+				code, ok := waitExit(ctx, t)
+				why := app.TerminalExited
+				if !t.ContainerRunning(ctx) {
+					if why = t.Check(ctx); why == "" {
+						why = app.TerminalContainerGone
+					}
+				}
+				mu.Lock()
+				if reason == "" {
+					reason, exitCode, exited = why, code, ok
+				}
+				mu.Unlock()
+				stop()
 				return
 			}
 		}
