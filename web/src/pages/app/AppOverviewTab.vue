@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { RouterLink } from 'vue-router'
 import { ArrowRight, Rocket } from 'lucide-vue-next'
+import CompactCount from '@/components/CompactCount.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MetricChart from '@/components/MetricChart.vue'
@@ -17,7 +18,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { CPU_HINT, appStatusInfo, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCount, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
+import { CPU_HINT, appStatusInfo, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
 import FirstSteps from './FirstSteps.vue'
@@ -120,7 +121,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
           class="border-l p-4 transition-colors hover:bg-muted/40"
         >
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Visitors today</p>
-          <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ traffic.data.value ? formatCount(traffic.data.value.visitors_today) : '-' }}</p>
+          <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums"><CompactCount v-if="traffic.data.value" :n="traffic.data.value.visitors_today" /><template v-else>-</template></p>
         </RouterLink>
         <div v-else class="border-l p-4">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Automatic restarts</p>

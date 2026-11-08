@@ -10,7 +10,7 @@ import {
   componentToString,
 } from '@/components/ui/chart'
 import type { ChartConfig } from '@/components/ui/chart'
-import { formatCount } from '@/lib/format'
+import { compactCount } from '@/lib/format'
 import { formatSeconds } from '@/lib/traffic'
 import type { TrafficPoint } from '@/lib/types'
 
@@ -24,7 +24,7 @@ const props = defineProps<{
 
 // What the bars and lines are drawn from (numbers) is kept apart from what the
 // tooltip shows (the keys in the config, as text), so the tooltip can say
-// "0.12 s" and "1,204" while the axes get plain numbers.
+// "0.12 s" and "12.3k" while the axes get plain numbers.
 interface Datum {
   date: Date
   top: number
@@ -78,10 +78,10 @@ const data = computed<Datum[]>(() =>
     const date = new Date(p.ts)
     switch (props.field) {
       case 'visitors':
-        return { date, top: p.visitors, ys: [p.visitors], visitors: formatCount(p.visitors), views: formatCount(p.page_views) }
+        return { date, top: p.visitors, ys: [p.visitors], visitors: compactCount(p.visitors), views: compactCount(p.page_views) }
       case 'requests': {
         const people = Math.max(0, p.requests - p.bots)
-        return { date, top: p.requests, ys: [people, p.bots], people: formatCount(people), bots: formatCount(p.bots) }
+        return { date, top: p.requests, ys: [people, p.bots], people: compactCount(people), bots: compactCount(p.bots) }
       }
       case 'speed':
         return {
@@ -92,7 +92,7 @@ const data = computed<Datum[]>(() =>
           slowest: p.p95_ms === null ? undefined : formatSeconds(p.p95_ms),
         }
       default:
-        return { date, top: p.errors, ys: [p.errors], failed: formatCount(p.errors) }
+        return { date, top: p.errors, ys: [p.errors], failed: compactCount(p.errors) }
     }
   }),
 )
@@ -130,7 +130,7 @@ function fmtTick(ms: number): string {
 
 function fmtY(t: number): string {
   if (isLine.value) return t === 0 ? '0' : `${Math.round(t * 100) / 100} s`
-  return Number.isInteger(t) ? formatCount(t) : ''
+  return Number.isInteger(t) ? compactCount(t) : ''
 }
 
 const template = computed(() =>

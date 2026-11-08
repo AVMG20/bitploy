@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { RouterLink } from 'vue-router'
 import { ChartNoAxesColumn, ExternalLink, ScrollText } from 'lucide-vue-next'
+import CompactCount from '@/components/CompactCount.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import QueryError from '@/components/QueryError.vue'
 import TrafficChart from '@/components/TrafficChart.vue'
@@ -17,7 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useApp, useAppTraffic } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { countryName, formatCount } from '@/lib/format'
+import { countryName } from '@/lib/format'
 import { change, formatSeconds, pointChange, share, timeChange } from '@/lib/traffic'
 import type { Change } from '@/lib/traffic'
 import { cn } from '@/lib/utils'
@@ -73,7 +74,11 @@ const rate = (errors: number, requests: number) => (requests > 0 ? errors / requ
 interface Tile {
   field: TrafficField
   label: string
-  value: string
+  /** A count, shown short with the exact number on hover; or value, as text. */
+  count?: number
+  value?: string
+  /** The sub line, after subCount when there is one. */
+  subCount?: number
   sub: string
   /** The longer explanation, on hover. */
   hint: string
@@ -89,15 +94,16 @@ const tiles = computed<Tile[]>(() => {
     {
       field: 'visitors',
       label: 'Visitors',
-      value: formatCount(t.visitors),
-      sub: `${formatCount(t.page_views)} page ${t.page_views === 1 ? 'view' : 'views'}`,
+      count: t.visitors,
+      subCount: t.page_views,
+      sub: `page ${t.page_views === 1 ? 'view' : 'views'}`,
       hint: 'Different people: one browser on one device, counted once per day. Page views are the pages they opened.',
       change: change(t.visitors, p?.visitors),
     },
     {
       field: 'requests',
       label: 'Requests',
-      value: formatCount(t.requests),
+      count: t.requests,
       sub: t.bots === 0 ? 'None from bots' : `${share(t.bots, t.requests)} from bots`,
       hint: 'Everything your app was asked for: every page, image, script and file, by people and by bots.',
       change: change(t.requests, p?.requests),
@@ -115,7 +121,8 @@ const tiles = computed<Tile[]>(() => {
       field: 'errors',
       label: 'Errors',
       value: `${t.error_rate}%`,
-      sub: t.errors === 0 ? 'No failed requests' : `${formatCount(t.errors)} failed ${t.errors === 1 ? 'request' : 'requests'}`,
+      subCount: t.errors === 0 ? undefined : t.errors,
+      sub: t.errors === 0 ? 'No failed requests' : `failed ${t.errors === 1 ? 'request' : 'requests'}`,
       hint: 'The share of requests your app failed to answer (status 500 and up).',
       // The rate, not the count: more errors from more traffic is no change.
       // In percentage points, so 1% to 2% reads "↑ 1 pt" and not "↑ 100%".
@@ -240,12 +247,12 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
             <span v-if="field === t.field" class="absolute inset-x-0 top-0 h-0.5 bg-primary" aria-hidden="true" />
             <span :class="cn(label, field === t.field && 'text-foreground')">{{ t.label }}</span>
             <span :class="value">
-              {{ t.value }}
+              <CompactCount v-if="t.count !== undefined" :n="t.count" /><template v-else>{{ t.value }}</template>
               <span v-if="t.change" :class="cn('text-xs font-medium tracking-normal', toneClass[t.change.tone])" :title="`Compared with ${windowInfo.previous}`">
                 <span aria-hidden="true">{{ t.change.text }}</span><span class="sr-only">{{ t.change.words }} compared with {{ windowInfo.previous }}</span>
               </span>
             </span>
-            <span class="mt-0.5 block text-xs text-muted-foreground">{{ t.sub }}</span>
+            <span class="mt-0.5 block text-xs text-muted-foreground"><template v-if="t.subCount !== undefined"><CompactCount :n="t.subCount" />{{ ' ' }}</template>{{ t.sub }}</span>
           </button>
         </div>
         <p class="mt-2 text-xs text-muted-foreground">
@@ -328,7 +335,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
       <Card>
         <CardHeader>
           <div class="flex items-baseline justify-between gap-2">
-            <CardTitle>All {{ formatCount(data.totals.requests) }} requests</CardTitle>
+            <CardTitle>All <CompactCount :n="data.totals.requests" /> requests</CardTitle>
             <span class="text-xs text-muted-foreground">Last {{ windowInfo.label }}</span>
           </div>
         </CardHeader>

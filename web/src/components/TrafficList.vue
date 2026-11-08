@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import CompactCount from '@/components/CompactCount.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatCount } from '@/lib/format'
 
 export interface TrafficRow {
   key: string
@@ -104,7 +104,7 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
             >{{ r.label }}</a>
             <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
-          <span class="relative shrink-0 font-medium tabular-nums">{{ formatCount(r.count) }}</span>
+          <span class="relative shrink-0 font-medium tabular-nums"><CompactCount :n="r.count" /></span>
         </li>
       </ul>
       <Button v-if="canShowAll" variant="ghost" size="sm" class="mt-2 w-full text-muted-foreground" @click="open = true">Show all</Button>
@@ -137,7 +137,7 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
             >{{ r.label }}</a>
             <span v-else :class="['truncate', r.muted && 'text-muted-foreground']">{{ r.label }}</span>
           </span>
-          <span class="relative shrink-0 font-medium tabular-nums">{{ formatCount(r.count) }}</span>
+          <span class="relative shrink-0 font-medium tabular-nums"><CompactCount :n="r.count" /></span>
         </li>
       </ul>
     </DialogContent>

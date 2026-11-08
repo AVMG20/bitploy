@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Eye, Search, Table2 } from 'lucide-vue-next'
 import { Input } from '@/components/ui/input'
-import { formatCount } from '@/lib/format'
+import { compactCount, formatCount } from '@/lib/format'
 import type { DbTable } from '@/lib/types'
 
 const props = defineProps<{ tables: DbTable[]; selected: string | undefined }>()
@@ -44,7 +44,7 @@ const hasViews = computed(() => props.tables.some((t) => t.type === 'view'))
             >
               <component :is="t.type === 'view' ? Eye : Table2" class="size-4 shrink-0 text-muted-foreground" />
               <span class="min-w-0 flex-1 truncate font-mono text-[13px]" :title="t.name">{{ t.name }}</span>
-              <span class="shrink-0 text-xs text-muted-foreground tabular-nums" :title="t.rows === null ? 'Counting took too long' : `${t.rows} rows`">{{ t.rows === null ? '?' : formatCount(t.rows) }}</span>
+              <span class="shrink-0 text-xs text-muted-foreground tabular-nums" :title="t.rows === null ? 'Counting took too long' : `${formatCount(t.rows)} rows`">{{ t.rows === null ? '?' : compactCount(t.rows) }}</span>
             </button>
           </li>
         </ul>

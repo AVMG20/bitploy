@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Info } from 'lucide-vue-next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatCount } from '@/lib/format'
+import { compactCount, formatCount } from '@/lib/format'
 import { share, shortShare } from '@/lib/traffic'
 
 export interface SplitPart {
@@ -61,7 +61,7 @@ const width = (p: SplitPart, whole: number) => (whole > 0 && p.count > 0 ? Math.
         >
           <span v-if="p.count > 0" class="size-2 shrink-0 rounded-full" :style="{ background: p.color }" aria-hidden="true" />
           <span aria-hidden="true">
-            <span :class="['tabular-nums', p.count > 0 && 'font-medium text-foreground']">{{ i === 0 ? shortShare(p.count, total(s)) : formatCount(p.count) }}</span>
+            <span :class="['tabular-nums', p.count > 0 && 'font-medium text-foreground']">{{ i === 0 ? shortShare(p.count, total(s)) : compactCount(p.count) }}</span>
             {{ p.short }}
           </span>
           <span class="sr-only">{{ p.label }}: {{ formatCount(p.count) }} ({{ share(p.count, total(s)) }}){{ i < s.parts.length - 1 ? ',' : '' }}</span>
