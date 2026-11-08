@@ -10,7 +10,7 @@ import type { TrafficField } from '@/components/TrafficChart.vue'
 import TrafficList from '@/components/TrafficList.vue'
 import type { TrafficRow } from '@/components/TrafficList.vue'
 import TrafficSplit from '@/components/TrafficSplit.vue'
-import type { SplitPart } from '@/components/TrafficSplit.vue'
+import type { Split } from '@/components/TrafficSplit.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -152,35 +152,35 @@ const chart = computed(() => {
   }
 })
 
-const splits = computed(() => {
+const splits = computed<Split[]>(() => {
   const t = data.value?.totals
   if (!t) return []
-  const out: { title: string; hint: string; parts: SplitPart[] }[] = [
+  const out: Split[] = [
     {
-      title: 'Who sent them',
+      label: 'Sent by',
       hint: 'Bots are search engines, link previews, uptime checks and scripts. They never count as visitors.',
       parts: [
-        { label: 'People', count: Math.max(0, t.requests - t.bots), color: 'var(--chart-1)' },
-        { label: 'Bots and scripts', count: t.bots, color: 'color-mix(in oklch, var(--muted-foreground) 45%, transparent)' },
+        { label: 'People', short: 'people', count: Math.max(0, t.requests - t.bots), color: 'var(--chart-1)' },
+        { label: 'Bots and scripts', short: 'bots', count: t.bots, color: 'color-mix(in oklch, var(--muted-foreground) 45%, transparent)' },
       ],
     },
     {
-      title: 'How your app answered',
-      hint: 'Not found or refused: a missing page, a wrong password or a bad request. Failed: an error in your app.',
+      label: 'Answers',
+      hint: 'Not found also counts refused requests: a missing page, a wrong password or a bad request. Failed: an error in your app.',
       parts: [
-        { label: 'Worked', count: Math.max(0, t.requests - t.errors - t.client_errors), color: 'var(--success)' },
-        { label: 'Not found or refused', count: t.client_errors, color: 'var(--warning)' },
-        { label: 'Failed', count: t.errors, color: 'var(--destructive)' },
+        { label: 'Worked', short: 'worked', count: Math.max(0, t.requests - t.errors - t.client_errors), color: 'var(--success)' },
+        { label: 'Not found or refused', short: 'not found', count: t.client_errors, color: 'var(--warning)' },
+        { label: 'Failed', short: 'failed', count: t.errors, color: 'var(--destructive)' },
       ],
     },
   ]
   if (t.timed > 0) {
     out.push({
-      title: 'How fast people got an answer',
-      hint: 'Pages and data, not images or other files. A wait of a second or more is something people notice.',
+      label: 'Speed',
+      hint: 'How fast people got an answer, for pages and data (not images or other files). Slow: a second or more, a wait people notice.',
       parts: [
-        { label: 'Under 1 second', count: Math.max(0, t.timed - t.slow), color: 'var(--success)' },
-        { label: '1 second or more', count: t.slow, color: 'var(--warning)' },
+        { label: 'Under 1 second', short: 'under 1 s', count: Math.max(0, t.timed - t.slow), color: 'var(--success)' },
+        { label: '1 second or more', short: 'slow', count: t.slow, color: 'var(--warning)' },
       ],
     })
   }
@@ -249,7 +249,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           </button>
         </div>
         <p class="mt-2 text-xs text-muted-foreground">
-          {{ data.previous ? `Arrows compare with ${windowInfo.previous}.` : `No arrows yet: there are no complete numbers for ${windowInfo.previous}.` }}
+          {{ data.previous ? `Arrows compare with ${windowInfo.previous}.` : `No arrows yet: there are no complete numbers for ${windowInfo.previous}.` }} Days are UTC days.
         </p>
       </div>
 
@@ -307,7 +307,12 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           :more="data.countries.length >= TOP_N"
           :fetch-all="allCountries"
           :description="windowInfo.lists"
-        />
+        >
+          <template #footer>
+            Country data by
+            <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 hover:text-foreground">DB-IP.com</a>
+          </template>
+        </TrafficList>
         <TrafficList
           title="Missing pages"
           hint="Addresses people asked for that do not exist. Fix the link or add a redirect. Odd ones like /wp-login.php are bots trying their luck."
@@ -322,18 +327,15 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
 
       <Card>
         <CardHeader>
-          <CardTitle>All {{ formatCount(data.totals.requests) }} requests</CardTitle>
-          <CardDescription class="text-xs">Everything your app was asked for in {{ windowInfo.period }}, pages and files.</CardDescription>
+          <div class="flex items-baseline justify-between gap-2">
+            <CardTitle>All {{ formatCount(data.totals.requests) }} requests</CardTitle>
+            <span class="text-xs text-muted-foreground">Last {{ windowInfo.label }}</span>
+          </div>
         </CardHeader>
-        <CardContent class="grid gap-5">
-          <TrafficSplit v-for="s in splits" :key="s.title" :title="s.title" :hint="s.hint" :parts="s.parts" />
+        <CardContent>
+          <TrafficSplit :rows="splits" />
         </CardContent>
       </Card>
     </template>
-
-    <p class="text-xs text-muted-foreground">
-      Days are UTC days. Country data by
-      <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" class="underline">DB-IP.com</a>.
-    </p>
   </div>
 </template>

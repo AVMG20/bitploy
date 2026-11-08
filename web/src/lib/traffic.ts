@@ -23,6 +23,11 @@ export function share(part: number, whole: number): string {
   return `${Math.round(p)}%`
 }
 
+/** Like share, but short enough for a one-line summary: "12%", "<1%", ">99%". */
+export function shortShare(part: number, whole: number): string {
+  return share(part, whole).replace('under ', '<').replace('over ', '>')
+}
+
 export interface Change {
   /** "↑ 12%", "↓ 3%" or "0%". */
   text: string

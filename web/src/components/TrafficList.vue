@@ -108,6 +108,7 @@ const capped = computed(() => (all.value?.length ?? 0) >= LIST_MAX)
         </li>
       </ul>
       <Button v-if="canShowAll" variant="ghost" size="sm" class="mt-2 w-full text-muted-foreground" @click="open = true">Show all</Button>
+      <p v-if="$slots.footer" class="mt-3 text-xs text-muted-foreground"><slot name="footer" /></p>
     </CardContent>
   </Card>
 
