@@ -445,7 +445,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/apps/{app}/upload` | Raw zip body, upload and deploy in one call (session with CSRF, or a deploy token); the dashboard's "Upload new version" |
 | `GET` `POST /api/v1/apps/{app}/backups`, `PUT …/backup-settings` | `list_backups`, `create_backup`, `set_backup_schedule` (restore, download and upload are dashboard and REST only) |
 | `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` with `write: false`, `write_db` with `write: true` |
-| `/api/v1/admin/users`, `/invites`, `/quotas`, `/server` | Admin only |
+| `/api/v1/admin/users`, `/invites`, `/quotas`, `/server`, `/server/metrics` | Admin only |
 | `GET /api/v1/admin/db`, `POST /api/v1/admin/db/rows`, `POST /api/v1/admin/db/sql` | Admin only, dashboard session only: a read-only view of bitploy's own database with every secret hidden (see Admin database viewer). No MCP tool |
 
 Serve the generated spec at `/api/v1/openapi.json` and a read-only reference page at `/docs/api`.
@@ -627,13 +627,14 @@ Bitploy samples every running container every 15 s, keeps raw samples for 24 hou
 | Build time | Deployment timestamps | Seconds per deployment, minutes per month |
 | Running hours | Sum of running time per app per day | Hours per month |
 | Disk | Image size; volume size measured nightly | MB |
-| Host | `/proc` CPU, RAM, disk, load | Admin page only |
+| Host | `/proc` CPU, RAM, disk, load | Admin page only: the numbers now, plus CPU % and memory used of total over time |
 
 How to collect it:
 
 - Open one streaming stats connection per running container (a goroutine each) and keep the latest sample in memory; a 15 s ticker writes them in one transaction. One-shot stats calls are slow because Docker samples twice per call.
 - Subscribe to the Docker events stream for `die`, `oom` and `health_status`. Update the app state at once and write an audit row. An OOM kill shows in the dashboard and in `get_app` as "Out of memory: raise the memory limit or use less".
 - Tables: `metric_samples(app_id, ts, cpu, mem, rx, tx)` and `metric_rollups` with the same columns plus max values. A nightly job prunes and rolls up.
+- The server itself is sampled on the same 15 s tick from `/proc/stat` and `/proc/meminfo` (the source of the admin Server numbers): `host_samples(ts, cpu, mem_used, mem_total)` and `host_rollups` with max values, rolled up and pruned by the same rules. CPU is % of the whole server between two ticks; memory is used without reclaimable cache. `GET /api/v1/admin/server/metrics?window=1h|24h|7d` returns the series for the charts on the admin Server tab.
 
 Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, and disk used.
 
