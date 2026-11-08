@@ -285,8 +285,38 @@ export function compareText(a: string, b: string): number {
   return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
 }
 
-export function formatCount(n: number): string {
-  return n.toLocaleString()
+export function formatCount(n: number, locale?: string): string {
+  return n.toLocaleString(locale)
+}
+
+const COMPACT_UNITS: [number, string][] = [
+  [1e3, 'k'],
+  [1e6, 'm'],
+  [1e9, 'b'],
+]
+
+/**
+ * A count short enough for a tile or a narrow column: in full up to 9,999,
+ * then three digits at most, "10k", "12.3k", "999k", "1m", "1.2m", "1b".
+ * Rounded half up, so 10,050 is "10.1k" and 999,999 is "1m". Pair it with
+ * formatCount for the exact number (on hover, for screen readers).
+ */
+export function compactCount(n: number, locale?: string): string {
+  if (!Number.isFinite(n)) return '-'
+  const abs = Math.abs(n)
+  if (abs < 10_000) return formatCount(n, locale)
+  let i = 0
+  while (i < COMPACT_UNITS.length - 1 && abs >= COMPACT_UNITS[i + 1]![0]) i++
+  let v = 0
+  for (; i < COMPACT_UNITS.length; i++) {
+    const unit = COMPACT_UNITS[i]![0]
+    // One decimal under 100 of the unit (12.3k), none from 100 (123k).
+    v = abs / unit < 100 ? Math.round(abs / (unit / 10)) / 10 : Math.round(abs / unit)
+    // 999,999 rounds to 1000k: that is 1m. The largest unit keeps going (2,000b).
+    if (v < 1000 || i === COMPACT_UNITS.length - 1) break
+  }
+  const num = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(v)
+  return `${n < 0 ? '-' : ''}${num}${COMPACT_UNITS[i]![1]}`
 }
 
 let regionNames: Intl.DisplayNames | null | undefined
