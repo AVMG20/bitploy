@@ -508,6 +508,38 @@ func TestAdminServerStats(t *testing.T) {
 	}
 }
 
+func TestAdminServerMetrics(t *testing.T) {
+	e := newOpsEnv(t)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		e.exec(t, `INSERT INTO host_samples (ts, cpu, mem_used_bytes, mem_total_bytes) VALUES (?, 12.34, ?, ?)`,
+			e.now.Unix()-int64(i)*15, 3<<30, 16<<30)
+	}
+	_, err := e.svc.AdminServerMetrics(ctx, e.owner, "1h")
+	wantCode(t, err, "admin_only")
+
+	m, err := e.svc.AdminServerMetrics(ctx, e.admin, "1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Window != "1h" || len(m.Points) != 4 || m.MemTotalMB <= 0 {
+		t.Errorf("metrics = %+v", m)
+	}
+	if p := m.Points[0]; p.CPU != 12.3 || p.MemoryMB != 3072 || p.MemoryTotalMB != 16384 || p.CPUMax != 0 {
+		t.Errorf("point = %+v", p)
+	}
+	if !metrics.HostSupported && m.MemTotalMB != 16384 {
+		t.Errorf("without host stats the total is the newest point's: %d", m.MemTotalMB)
+	}
+	// The longer windows are 5-minute buckets with maxima.
+	m, err = e.svc.AdminServerMetrics(ctx, e.admin, "")
+	if err != nil || m.Window != "24h" || len(m.Points) == 0 || m.Points[0].CPUMax != 12.3 {
+		t.Errorf("default window: %+v, %v", m, err)
+	}
+	_, err = e.svc.AdminServerMetrics(ctx, e.admin, "90d")
+	wantCode(t, err, "invalid_window")
+}
+
 func TestCapacityGuardsDoNotFailLocally(t *testing.T) {
 	e := newOpsEnv(t)
 	ctx := context.Background()

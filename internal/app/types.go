@@ -605,6 +605,23 @@ type ServerStats struct {
 	AppsMax         int64   `json:"apps_max"` // BITPLOY_MAX_APPS
 }
 
+// ServerMetricPoint is one point of the server's CPU and memory history.
+type ServerMetricPoint struct {
+	TS            time.Time `json:"ts"`
+	CPU           float64   `json:"cpu"`       // % of the whole server, 0-100
+	MemoryMB      float64   `json:"memory_mb"` // used, excluding reclaimable cache
+	MemoryTotalMB float64   `json:"memory_total_mb"`
+	CPUMax        float64   `json:"cpu_max,omitempty"`
+	MemMaxMB      float64   `json:"memory_max_mb,omitempty"`
+}
+
+// ServerMetrics is the CPU and memory history of the whole server (GET /admin/server/metrics).
+type ServerMetrics struct {
+	Window     string              `json:"window"`       // 1h | 24h | 7d
+	MemTotalMB int64               `json:"mem_total_mb"` // the server's RAM now (else the newest point's); 0 when unknown
+	Points     []ServerMetricPoint `json:"points"`
+}
+
 type Template struct {
 	Stack        string `json:"stack"`
 	Dockerfile   string `json:"dockerfile"`

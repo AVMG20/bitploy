@@ -200,6 +200,40 @@ func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, e
 
 func round2(v float64) float64 { return float64(int64(v*100+0.5)) / 100 }
 
+// AdminServerMetrics is the CPU and memory history of the whole server for
+// window 1h | 24h | 7d, at the resolution of GetMetrics: raw 15-second
+// samples for 1h, 5-minute buckets for 24h and 7d.
+func (s *Service) AdminServerMetrics(ctx context.Context, a Actor, window string) (ServerMetrics, error) {
+	if err := RequireAdmin(a); err != nil {
+		return ServerMetrics{}, err
+	}
+	window = strings.ToLower(strings.TrimSpace(window))
+	if window == "" {
+		window = "24h"
+	}
+	if _, ok := metrics.Windows[window]; !ok {
+		return ServerMetrics{}, apperr.BadRequest("invalid_window",
+			"The window "+quote(window)+" is not supported.", "Use 1h, 24h or 7d.")
+	}
+	series, err := s.metricsMgr().HostSeries(ctx, window)
+	if err != nil {
+		return ServerMetrics{}, apperr.Internal(err)
+	}
+	out := ServerMetrics{Window: window, Points: make([]ServerMetricPoint, len(series))}
+	for i, p := range series {
+		out.Points[i] = ServerMetricPoint{
+			TS: p.TS, CPU: round1(p.CPU), MemoryMB: round1(float64(p.MemUsed) / mib), MemoryTotalMB: round1(float64(p.MemTotal) / mib),
+			CPUMax: round1(p.CPUMax), MemMaxMB: round1(float64(p.MemMax) / mib),
+		}
+	}
+	if total, ok := metrics.HostMemTotal(); ok {
+		out.MemTotalMB = int64(total / mib)
+	} else if n := len(series); n > 0 {
+		out.MemTotalMB = series[n-1].MemTotal / mib
+	}
+	return out, nil
+}
+
 // ServerHasRoom reports whether extraMB more of app memory limits fits under
 // host RAM minus 1.5 GB. create_app/update_app fail with server_full otherwise.
 // Where host RAM cannot be read (macOS dev) there is always room.

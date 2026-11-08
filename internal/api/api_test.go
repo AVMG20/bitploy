@@ -616,7 +616,7 @@ func TestOpenAPISpecAndDocsPage(t *testing.T) {
 		"/apps/{app}/metrics": {"get"}, "/apps/{app}/traffic": {"get"},
 		"/sessions": {"get"}, "/sessions/{id}": {"delete"}, "/sessions/revoke-others": {"post"},
 		"/admin/users": {"get"}, "/admin/invites": {"get", "post"}, "/admin/invites/{id}": {"delete"},
-		"/admin/quotas/{user_id}": {"put"}, "/admin/server": {"get"}, "/admin/apps": {"get"},
+		"/admin/quotas/{user_id}": {"put"}, "/admin/server": {"get"}, "/admin/server/metrics": {"get"}, "/admin/apps": {"get"},
 		"/admin/apps/{app}/stop": {"post"}, "/admin/audit": {"get"},
 		"/github": {"get"}, "/github/connect": {"post"}, "/github/link": {"post"}, "/github/installations/{id}": {"delete"},
 		"/github/repositories": {"get"}, "/github/branches": {"get"},

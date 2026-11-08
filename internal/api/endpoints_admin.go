@@ -96,6 +96,16 @@ func (a *API) adminRoutes() {
 	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.ServerStats], error) {
 		return okOrNil(a.svc.AdminServerStats(ctx, act))
 	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminServerMetrics", Method: http.MethodGet, Path: "/admin/server/metrics", Tags: []string{"Admin"},
+		Summary: "Server CPU and memory over time",
+		Description: "Admin only. cpu is % of the whole server (0-100); memory_mb is used memory without reclaimable cache. " +
+			"1h is 15-second samples, 24h and 7d are 5-minute averages with cpu_max and memory_max_mb.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		Window string `query:"window" default:"24h" enum:"1h,24h,7d"`
+	}) (*Out[app.ServerMetrics], error) {
+		return okOrNil(a.svc.AdminServerMetrics(ctx, act, in.Window))
+	})
 
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminListApps", Method: http.MethodGet, Path: "/admin/apps", Tags: []string{"Admin"},
