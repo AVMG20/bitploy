@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { change, formatSeconds, pointChange, share, shortShare, timeChange } from '../src/lib/traffic.ts'
+import { change, exactShare, formatSeconds, pointChange, share, shortShare, timeChange } from '../src/lib/traffic.ts'
 
 test('an answer time gets slower or faster, not up or down', () => {
   assert.deepEqual(timeChange(107, 100), { text: '7% slower', words: '7% slower', tone: 'bad' })
@@ -39,6 +39,17 @@ test('short shares fit a one-line summary', () => {
   assert.equal(shortShare(999, 1000), '>99%')
   assert.equal(shortShare(10, 10), '100%')
   assert.equal(shortShare(1, 4), '25%')
+})
+
+test('exact shares have one decimal and never round a real part away', () => {
+  assert.equal(exactShare(626, 632), '99.1%')
+  assert.equal(exactShare(6, 632), '0.9%')
+  assert.equal(exactShare(1, 4), '25.0%')
+  assert.equal(exactShare(1, 100_000), '<0.1%')
+  assert.equal(exactShare(99_999, 100_000), '>99.9%')
+  assert.equal(exactShare(10, 10), '100%')
+  assert.equal(exactShare(0, 10), '0%')
+  assert.equal(exactShare(5, 0), '0%')
 })
 
 test('a change needs something to compare with', () => {

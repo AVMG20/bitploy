@@ -23,6 +23,19 @@ export function share(part: number, whole: number): string {
   return `${Math.round(p)}%`
 }
 
+/**
+ * Part of whole to one decimal, for a closer look: "99.0%", "1.0%". Never
+ * "100.0%" or "0.0%" for a part that is not the whole or not nothing.
+ */
+export function exactShare(part: number, whole: number): string {
+  if (!(whole > 0) || part <= 0) return '0%'
+  if (part >= whole) return '100%'
+  const p = (part / whole) * 100
+  if (p < 0.05) return '<0.1%'
+  if (p >= 99.95) return '>99.9%'
+  return `${p.toFixed(1)}%`
+}
+
 /** Like share, but short enough for a one-line summary: "12%", "<1%", ">99%". */
 export function shortShare(part: number, whole: number): string {
   return share(part, whole).replace('under ', '<').replace('over ', '>')

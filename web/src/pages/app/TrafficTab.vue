@@ -172,6 +172,7 @@ const splits = computed<Split[]>(() => {
   const out: Split[] = [
     {
       label: 'Sent by',
+      of: 'requests',
       hint: 'Bots are search engines, link previews, uptime checks and scripts. They never count as visitors.',
       parts: [
         { label: 'People', short: 'people', count: Math.max(0, t.requests - t.bots), color: 'var(--chart-1)' },
@@ -180,6 +181,7 @@ const splits = computed<Split[]>(() => {
     },
     {
       label: 'Answers',
+      of: 'requests',
       hint: 'Not found also counts refused requests: a missing page, a wrong password or a bad request. Failed: an error in your app.',
       parts: [
         { label: 'Worked', short: 'worked', count: Math.max(0, t.requests - t.errors - t.client_errors), color: 'var(--success)' },
@@ -191,6 +193,7 @@ const splits = computed<Split[]>(() => {
   if (t.timed > 0) {
     out.push({
       label: 'Speed',
+      of: 'timed requests: pages and data, not files',
       hint: 'How fast people got an answer, for pages and data (not images or other files). Slow: a second or more, a wait people notice.',
       parts: [
         { label: 'Under 1 second', short: 'under 1 s', count: Math.max(0, t.timed - t.slow), color: 'var(--success)' },
