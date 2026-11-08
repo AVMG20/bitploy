@@ -151,6 +151,15 @@ func logPath(p string) string {
 // (and a form submit that is redirected is checked again at the target).
 func policy(cfg *config.Config) string {
 	formAction := "'self'"
+	// The Terminal tab's WebSocket. CSP Level 3 lets 'self' cover ws: and
+	// wss: on the page's own host, but older Safari versions do not, so the
+	// public URL's ws(s) origin is named as well.
+	connect := "'self'"
+	if cfg != nil {
+		if u, err := url.Parse(cfg.PublicURL); err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") {
+			connect += " " + strings.Replace(u.Scheme, "http", "ws", 1) + "://" + u.Host
+		}
+	}
 	if cfg != nil {
 		web := cfg.GitHubWebURL
 		if web == "" {
@@ -161,7 +170,7 @@ func policy(cfg *config.Config) string {
 		}
 	}
 	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
+		"img-src 'self' data:; font-src 'self' data:; connect-src " + connect + "; " +
 		"frame-ancestors 'none'; base-uri 'none'; form-action " + formAction + "; object-src 'none'"
 }
 

@@ -653,7 +653,8 @@ func TestSecurityHeaders(t *testing.T) {
 		w := e.req("GET", path, nil, nil)
 		h := w.Header()
 		csp := h.Get("Content-Security-Policy")
-		if !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "unsafe-eval") {
+		if !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "unsafe-eval") ||
+			!strings.Contains(csp, "connect-src 'self' wss://bitploy.test;") {
 			t.Errorf("%s: csp %q", path, csp)
 		}
 		if h.Get("X-Frame-Options") != "DENY" || h.Get("X-Content-Type-Options") != "nosniff" ||
@@ -666,6 +667,9 @@ func TestSecurityHeaders(t *testing.T) {
 	e.h = New(e.svc, nil, fstest.MapFS{"index.html": {Data: []byte("x")}})
 	if got := e.req("GET", "/", nil, nil).Header().Get("Strict-Transport-Security"); got != "" {
 		t.Errorf("HSTS in dev: %q", got)
+	}
+	if csp := e.req("GET", "/", nil, nil).Header().Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self' ws://localhost:5173;") {
+		t.Errorf("dev csp %q", csp)
 	}
 }
 

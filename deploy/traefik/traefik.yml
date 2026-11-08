@@ -55,6 +55,15 @@ entryPoints:
 
   websecure:
     address: ":443"
+    # No read deadline. Traefik v3 defaults readTimeout to 60 s and sets it as a
+    # deadline on the TCP connection, which stays after a WebSocket upgrade: every
+    # WebSocket (the dashboard's Terminal tab, apps' own) would be cut 60 s after it
+    # opened, whatever goes over it. Without it a slow client can keep a connection
+    # open; idleTimeout (180 s) still closes idle keep-alive connections, and bitploy
+    # itself gives request headers 10 s and API bodies 30 s.
+    transport:
+      respondingTimeouts:
+        readTimeout: 0s
     # No PROXY protocol: Cloudflare and direct visitors both speak plain HTTPS.
     # Trust X-Forwarded-* (and so the real client IP) only from Cloudflare's published
     # ranges (https://www.cloudflare.com/ips); direct visitors cannot fake their IP.

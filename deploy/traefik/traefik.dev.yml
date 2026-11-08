@@ -36,6 +36,9 @@ accessLog:
 entryPoints:
   web:
     address: ":80"          # published as localhost:8000
+    transport:
+      respondingTimeouts:
+        readTimeout: 0s     # as in traefik.yml: the 60 s default cuts WebSockets
   internal:
     address: ":8081"        # published as localhost:8081, for candidate health checks
 
