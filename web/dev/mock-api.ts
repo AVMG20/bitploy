@@ -36,6 +36,10 @@ import type {
   MetricPoint,
   Metrics,
   Project,
+  ProjectInvite,
+  ProjectInviteInfo,
+  ProjectMember,
+  ProjectSignup,
   PublicPort,
   PublicPortsOverview,
   ServerMetricPoint,
@@ -48,6 +52,7 @@ import type {
   Traffic,
   TrafficPoint,
   User,
+  UserBrief,
 } from '../src/lib/types'
 
 // ---------------------------------------------------------------- helpers
@@ -373,7 +378,16 @@ interface ProjectRow {
   name: string
   created_at: string
   updated_at?: string
+  /** Someone else's project; left out: Ada's own. */
+  owner?: UserBrief
 }
+
+// The other people of the demo (see adminUsers).
+const people = {
+  linus: { id: 'usr_linus', name: 'Linus', email: 'linus@example.com' },
+  grace: { id: 'usr_grace', name: 'Grace', email: 'grace@example.com' },
+  ken: { id: 'usr_ken', name: 'Ken', email: 'ken@example.com' },
+} satisfies Record<string, UserBrief>
 
 const projects: ProjectRow[] = [
   { id: 'prj_portfolio', name: 'Portfolio', created_at: ago(60 * 24 * 60) },
@@ -381,7 +395,52 @@ const projects: ProjectRow[] = [
   { id: 'prj_notes', name: 'Notes stack', created_at: ago(60 * 24 * 12) },
   { id: 'prj_status', name: 'Status page', created_at: ago(60 * 24 * 2) },
   { id: 'prj_market', name: 'Marketplace', created_at: ago(60 * 24 * 20) },
+  // Grace shared her wiki with Ada.
+  { id: 'prj_wiki', name: 'Team wiki', created_at: ago(60 * 24 * 8), owner: people.grace },
+  // Linus invites Ada to this one with the link /join/mock-join; until then Ada does not see it.
+  { id: 'prj_design', name: 'Design system', created_at: ago(60 * 24 * 5), owner: people.linus },
 ]
+
+// ---------------------------------------------------------------- project members
+
+interface MemberRow {
+  user: UserBrief
+  created_at: string
+  invited_by: string | null
+}
+
+/** The members of each project besides its owner. */
+const members: Record<string, MemberRow[]> = {
+  prj_shop: [{ user: people.linus, created_at: ago(60 * 24 * 10), invited_by: 'usr_ada' }],
+  prj_wiki: [
+    { user: { id: 'usr_ada', name: 'Ada', email: 'ada@example.com' }, created_at: ago(60 * 24 * 6), invited_by: 'usr_grace' },
+    { user: people.ken, created_at: ago(60 * 24 * 4), invited_by: 'usr_grace' },
+  ],
+}
+
+/** Open invites of Ada's projects. */
+const projectInvites: Record<string, ProjectInvite[]> = {
+  prj_shop: [{ id: 'pin_ken', email: 'ken@example.com', role: 'member', created_at: ago(60 * 5), expires_at: ago(-60 * 24 * 7 + 60 * 5) }],
+}
+
+/** The invite links the demo knows: /join/mock-join for anyone, /join/mock-join-other for another address. */
+const joinCodes: Record<string, { project: string; email: string | null; used?: boolean }> = {
+  'mock-join': { project: 'prj_design', email: null },
+  'mock-join-other': { project: 'prj_design', email: 'someone@example.com' },
+  'mock-join-used': { project: 'prj_design', email: null, used: true },
+}
+
+function visible(row: ProjectRow): boolean {
+  return !row.owner || (members[row.id] ?? []).some((m) => m.user.id === 'usr_ada')
+}
+
+function needProject(id: string, owner = false): ProjectRow {
+  const row = projects.find((p) => p.id === id || p.name.toLowerCase() === id.toLowerCase())
+  if (!row || !visible(row)) throw new HttpError(404, 'project_not_found', `There is no project called "${id}" in your account.`, 'Call list_projects to see your projects.')
+  if (owner && row.owner)
+    throw new HttpError(403, 'project_owner_only', 'Only the owner of this project can do this.', 'The project was shared with you: you can deploy and change its apps, but renaming or deleting the project and managing its members is up to its owner.')
+  return row
+}
 
 const apps: App[] = []
 const env: Record<string, EnvVar[]> = {}
@@ -672,6 +731,16 @@ apps.push(
   makeApp({ slug: 'uptime', name: 'Uptime Kuma', project: 'prj_status', alias: 'uptime', port: 3001, catalog: 'uptime-kuma', status: 'deploying', memory: 256, cpu: 250, createdDaysAgo: 0.01, deploys: 1,
     volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: 1024, used_mb: null }] }),
 )
+// Grace's wiki, shared with Ada; Linus's design system, not yet.
+apps.push(
+  makeApp({ slug: 'wiki', name: 'Wiki', project: 'prj_wiki', alias: 'wiki', port: 3000, repo: 'grace/wiki', memory: 512, cpu: 500, createdDaysAgo: 8, deploys: 2 }),
+  makeApp({ slug: 'wiki-postgres', name: 'postgres', project: 'prj_wiki', alias: 'postgres', template: 'postgres', type: 'worker', port: 5432, memory: 256, createdDaysAgo: 8, deploys: 1 }),
+  makeApp({ slug: 'design-docs', name: 'Design docs', project: 'prj_design', alias: 'docs', port: 80, static: true, memory: 32, cpu: 100, createdDaysAgo: 5, deploys: 1 }),
+)
+for (const a of apps) {
+  const owner = projects.find((p) => p.id === a.project?.id)?.owner
+  if (owner) Object.assign(a, { owner_id: owner.id, shared: true })
+}
 // A bigger project for the canvas: ten apps in three lanes, many lines.
 apps.push(
   makeApp({ slug: 'mk-store', name: 'storefront', project: 'prj_market', alias: 'store', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 20 }),
@@ -776,7 +845,98 @@ for (const a of apps) syncRefs(a)
 function projectOf(row: ProjectRow): Project {
   const own = apps.filter((a) => a.project?.id === row.id)
   for (const a of own) syncRefs(a)
-  return { ...row, updated_at: row.updated_at ?? row.created_at, network: `bp-p-${row.id.replace(/^prj_/, '')}`, apps: own }
+  const { owner, ...rest } = row
+  return {
+    ...rest,
+    updated_at: row.updated_at ?? row.created_at,
+    network: `bp-p-${row.id.replace(/^prj_/, '')}`,
+    role: owner ? 'member' : 'owner',
+    shared: !!owner,
+    owner: owner ?? { id: user.id, name: user.name, email: user.email },
+    member_count: (members[row.id] ?? []).length,
+    apps: own,
+  }
+}
+
+function membersOf(row: ProjectRow): ProjectMember[] {
+  const owner = row.owner ?? { id: user.id, name: user.name, email: user.email }
+  return [
+    { user_id: owner.id, name: owner.name, email: owner.email, role: 'owner', invited_by: null, created_at: row.created_at, you: owner.id === user.id },
+    ...(members[row.id] ?? []).map((m): ProjectMember => ({ user_id: m.user.id, name: m.user.name, email: m.user.email, role: 'member', invited_by: m.invited_by, created_at: m.created_at, you: m.user.id === user.id })),
+  ]
+}
+
+function joinCode(code: string) {
+  const j = joinCodes[code]
+  if (!j) throw new HttpError(404, 'invite_invalid', 'This invite link is not valid.', 'Ask the person who invited you for a new invite link.')
+  if (j.used) throw new HttpError(410, 'invite_invalid', 'This invite link has already been used.', 'Ask the person who invited you for a new invite link.')
+  return { ...j, row: projects.find((p) => p.id === j.project)! }
+}
+
+/** /projects/{id}/members[/{user}], /projects/{id}/invites[/{id}] and /project-invites/{code}[/accept|/signup]. */
+function memberRoutes(method: string, parts: string[], body: Record<string, unknown>, res: ServerResponse): boolean {
+  if (parts[0] === 'project-invites' && parts[1]) {
+    const j = joinCode(parts[1])
+    if (method === 'GET' && !parts[2]) {
+      const owner = j.row.owner ?? user
+      send(res, 200, { project_name: j.row.name, invited_by: owner.name, email: j.email, role: 'member', expires_at: ago(-60 * 24 * 6) } satisfies ProjectInviteInfo)
+      return true
+    }
+    if (method === 'POST' && (parts[2] === 'accept' || parts[2] === 'signup')) {
+      if (j.email && parts[2] === 'accept' && j.email !== user.email)
+        throw new HttpError(403, 'invite_email_mismatch', 'This invite is for a different email address.', `Log in with the account of ${j.email}, or ask for an invite for ${user.email}.`)
+      const list = (members[j.row.id] ??= [])
+      if (!list.some((m) => m.user.id === user.id)) list.push({ user: { id: user.id, name: user.name, email: user.email }, created_at: new Date().toISOString(), invited_by: j.row.owner?.id ?? null })
+      j.used = true
+      joinCodes[parts[1]] = { project: j.project, email: j.email, used: true }
+      if (parts[2] === 'accept') send(res, 200, projectOf(j.row))
+      else send(res, 201, { user, csrf_token: 'mock-csrf', project: { id: j.row.id, name: j.row.name } } satisfies ProjectSignup)
+      return true
+    }
+    return false
+  }
+  if (parts[0] !== 'projects' || !parts[1] || (parts[2] !== 'members' && parts[2] !== 'invites')) return false
+  if (parts[2] === 'members') {
+    if (method === 'GET' && !parts[3]) {
+      send(res, 200, items(membersOf(needProject(parts[1]))))
+      return true
+    }
+    if (method === 'DELETE' && parts[3]) {
+      const leaving = parts[3] === 'me' || parts[3] === user.id
+      const row = needProject(parts[1], !leaving)
+      if (leaving && !row.owner) throw new HttpError(409, 'owner_cannot_leave', 'The owner cannot leave their own project.', 'Delete the project instead, or keep it.')
+      const list = members[row.id] ?? []
+      const i = list.findIndex((m) => m.user.id === (leaving ? user.id : parts[3]))
+      if (i < 0) throw new HttpError(404, 'member_not_found', 'That user is not a member of this project.')
+      list.splice(i, 1)
+      send(res, 204)
+      return true
+    }
+    return false
+  }
+  const row = needProject(parts[1], true)
+  const list = (projectInvites[row.id] ??= [])
+  if (method === 'GET' && !parts[3]) {
+    send(res, 200, items(list))
+    return true
+  }
+  if (method === 'POST' && !parts[3]) {
+    const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim() : null
+    if (email && membersOf(row).some((m) => m.email.toLowerCase() === email.toLowerCase()))
+      throw new HttpError(409, 'already_member', 'The user with that address is already a member of this project.', 'There is nothing to do.')
+    const inv: ProjectInvite = { id: newId('pin'), email, role: 'member', created_at: new Date().toISOString(), expires_at: ago(-60 * 24 * 7) }
+    list.unshift(inv)
+    send(res, 201, { ...inv, url: 'http://localhost:5174/join/mock-join' })
+    return true
+  }
+  if (method === 'DELETE' && parts[3]) {
+    const i = list.findIndex((x) => x.id === parts[3])
+    if (i < 0) throw new HttpError(404, 'invite_not_found', 'This project has no unused invite with that id.')
+    list.splice(i, 1)
+    send(res, 204)
+    return true
+  }
+  return false
 }
 
 function findApp(slug: string): App | undefined {
@@ -1383,6 +1543,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     return send(res, 200, adminUsers().find((u) => u.id === parts[2]))
   }
 
+  if (memberRoutes(method, parts, body, res)) return
+
   // DELETE /admin/public-ports/{app}: the router only knows ids after apps, projects, catalog and deployments.
   if (method === 'DELETE' && parts[0] === 'admin' && parts[1] === 'public-ports' && parts[2]) {
     const a = needApp(parts[2])
@@ -1453,7 +1615,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
 
     // ---------------------------------------------------------------- projects
     case 'GET /projects':
-      return send(res, 200, items(projects.map(projectOf)))
+      return send(res, 200, items(projects.filter(visible).map(projectOf)))
     case 'POST /projects': {
       const name = String(body.name ?? '').trim()
       if (!name) throw new HttpError(422, 'name_required', 'Give the project a name.')
@@ -1464,8 +1626,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'GET /projects/:id':
     case 'PATCH /projects/:id':
     case 'DELETE /projects/:id': {
-      const row = projects.find((p) => p.id === id)
-      if (!row) throw new HttpError(404, 'project_not_found', `There is no project ${id}.`)
+      const row = needProject(id, method !== 'GET')
       if (method === 'PATCH') {
         if (typeof body.name === 'string' && body.name.trim()) row.name = body.name.trim()
         for (const a of apps) if (a.project?.id === row.id) a.project = { id: row.id, name: row.name }
@@ -1533,6 +1694,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
 
     // ---------------------------------------------------------------- apps
     case 'GET /apps':
+      return send(res, 200, items(apps.filter((a) => projects.some((p) => p.id === a.project?.id && visible(p)))))
     case 'GET /admin/apps':
       return send(res, 200, items(apps))
     case 'POST /apps': {
