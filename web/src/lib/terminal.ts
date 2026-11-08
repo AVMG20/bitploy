@@ -62,6 +62,18 @@ export function resizeMessage(cols: number, rows: number): string {
   return JSON.stringify(m)
 }
 
+/**
+ * Input split into frames bitploy accepts: it closes the connection on a
+ * frame over 64 KB, which a large paste would be. The shell reads bytes, so
+ * a cut inside a character does no harm.
+ */
+export function inputFrames(b: Uint8Array<ArrayBuffer>, max = 16 << 10): Uint8Array<ArrayBuffer>[] {
+  if (b.length <= max) return [b]
+  const out: Uint8Array<ArrayBuffer>[] = []
+  for (let i = 0; i < b.length; i += max) out.push(b.subarray(i, i + max))
+  return out
+}
+
 /** One control message from bitploy; null for anything this dashboard does not know. */
 export function parseServerMessage(text: string): ServerMessage | null {
   let v: unknown
@@ -123,7 +135,7 @@ export function terminalStatusText(s: TerminalState): string {
     case 'closed':
       return s.message || 'Disconnected'
     case 'exited':
-      return s.code === null ? 'The shell exited.' : `The shell exited with code ${s.code}.`
+      return s.code === null || s.code === 0 ? 'The shell exited.' : `The shell exited with code ${s.code}.`
     case 'failed':
       return s.message
   }
@@ -171,7 +183,7 @@ export const TERMINAL_THEME = {
   magenta: '#e96fa3', // --chart-5
   cyan: '#55bfb3', // --chart-2
   white: '#d1d1d1',
-  brightBlack: '#636363',
+  brightBlack: '#8c8c8c', // --muted-foreground (dark): grey text stays readable
   brightRed: '#ff7e76',
   brightGreen: '#78d694',
   brightYellow: '#f8ce73',

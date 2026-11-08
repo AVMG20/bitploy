@@ -16,6 +16,7 @@ import { useSession } from '@/composables/useSession'
 import { isMulti, publicService, serviceRole, sortServices } from '@/lib/services'
 import {
   CONNECTING,
+  inputFrames,
   nextTerminalState,
   parseServerMessage,
   resizeMessage,
@@ -102,7 +103,8 @@ async function setup() {
 }
 
 function sendInput(b: Uint8Array<ArrayBuffer>) {
-  if (ws?.readyState === WebSocket.OPEN && state.value.phase === 'open') ws.send(b)
+  if (ws?.readyState !== WebSocket.OPEN || state.value.phase !== 'open') return
+  for (const f of inputFrames(b)) ws.send(f)
 }
 
 /** A grey line in the terminal after the shell's own output; the cursor goes (reset() brings it back). */

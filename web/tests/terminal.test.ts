@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CONNECTING,
+  inputFrames,
   nextTerminalState,
   parseServerMessage,
   resizeMessage,
@@ -54,6 +55,7 @@ test('the session states follow the messages, and the first ending wins', () => 
   assert.deepEqual(exited, { phase: 'exited', message: '', hint: '', code: 3 })
   assert.equal(terminalStatusText(exited), 'The shell exited with code 3.')
   assert.equal(terminalStatusText(run({ type: 'ready', app: 'shop', service: '' }, { type: 'exit' })), 'The shell exited.')
+  assert.equal(terminalStatusText(run({ type: 'ready', app: 'shop', service: '' }, { type: 'exit', code: 0 })), 'The shell exited.')
 
   const idle = run({ type: 'ready', app: 'shop', service: '' }, { type: 'end', reason: 'idle', message: 'Closed after 30 minutes.' }, 'close')
   assert.equal(idle.phase, 'closed')
@@ -108,4 +110,13 @@ test('the terminal colours are hex and hold no blue', () => {
     // Blue as the strongest channel by far reads as blue; violet keeps red close.
     assert.ok(!(b > r + 40 && b > g + 40), `${name} ${c} is blue`)
   }
+})
+
+test('inputFrames keeps a large paste under the 64 KB frame limit', () => {
+  const small = new Uint8Array(10)
+  assert.deepEqual(inputFrames(small), [small])
+  const big = new Uint8Array(100_000).map((_, i) => i & 0xff)
+  const frames = inputFrames(big)
+  assert.ok(frames.every((f) => f.length <= 16 << 10))
+  assert.deepEqual(Buffer.concat(frames), Buffer.from(big))
 })
