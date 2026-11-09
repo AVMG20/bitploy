@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 )
@@ -42,7 +43,7 @@ var discordColors = map[Tone]int{
 
 // Discord sends to a Discord webhook. The zero value is ready for use.
 type Discord struct {
-	// Client sends the requests; nil means SafeClient.
+	// Client sends the requests; nil means a shared SafeClient.
 	Client *http.Client
 	// BaseURL replaces https://discord.com when sending (tests point it at
 	// an httptest server). The URL a user enters is always checked against
@@ -125,6 +126,8 @@ const (
 	discordFieldNameMax   = 256
 	discordFieldValueMax  = 1024
 	discordFieldsMax      = 25
+	discordEmbedMax       = 6000 // title, description, fields and footer together
+	discordFooter         = "bitploy"
 )
 
 type discordEmbedField struct {
@@ -168,17 +171,9 @@ func DiscordMessage(m Message) DiscordPayload {
 	// "everyone" lets both @everyone and @here ping; nothing else in the
 	// text (a commit message with <@id>) can.
 	p.AllowedMentions.Parse = []string{"everyone"}
-	desc := m.Body
-	if m.Hint != "" {
-		if desc != "" {
-			desc += "\n\n"
-		}
-		desc += "**What to do:** " + m.Hint
-	}
 	e := discordEmbed{
-		Title:       truncate(m.Title, discordTitleMax),
-		Description: truncate(desc, discordDescriptionMax),
-		Color:       discordColors[m.Tone],
+		Title: truncate(m.Title, discordTitleMax),
+		Color: discordColors[m.Tone],
 	}
 	if e.Color == 0 {
 		e.Color = discordColors[ToneNeutral]
@@ -186,6 +181,9 @@ func DiscordMessage(m Message) DiscordPayload {
 	if strings.HasPrefix(m.URL, "https://") || strings.HasPrefix(m.URL, "http://") {
 		e.URL = m.URL
 	}
+	// Text from users (names, commit messages, errors) cannot make a masked
+	// link ([text](url)) in the embed. Mentions in an embed never ping.
+	room := discordEmbedMax - utf8.RuneCountInString(e.Title) - len(discordFooter)
 	for _, f := range m.Fields {
 		if len(e.Fields) == discordFieldsMax {
 			break
@@ -193,14 +191,28 @@ func DiscordMessage(m Message) DiscordPayload {
 		if strings.TrimSpace(f.Value) == "" {
 			continue
 		}
-		e.Fields = append(e.Fields, discordEmbedField{Name: truncate(f.Name, discordFieldNameMax), Value: truncate(f.Value, discordFieldValueMax), Inline: f.Inline})
+		ef := discordEmbedField{Name: truncate(f.Name, discordFieldNameMax), Value: truncate(noLinks(f.Value), discordFieldValueMax), Inline: f.Inline}
+		n := utf8.RuneCountInString(ef.Name) + utf8.RuneCountInString(ef.Value)
+		if n > room {
+			break
+		}
+		room -= n
+		e.Fields = append(e.Fields, ef)
 	}
+	desc := noLinks(m.Body)
+	if m.Hint != "" {
+		if desc != "" {
+			desc += "\n\n"
+		}
+		desc += "**What to do:** " + noLinks(m.Hint)
+	}
+	e.Description = truncate(desc, max(0, min(discordDescriptionMax, room)))
 	if !m.Time.IsZero() {
 		e.Timestamp = m.Time.UTC().Format(time.RFC3339)
 	}
 	e.Footer = &struct {
 		Text string `json:"text"`
-	}{Text: "bitploy"}
+	}{Text: discordFooter}
 	p.Embeds = []discordEmbed{e}
 	return p
 }
@@ -210,6 +222,12 @@ func DiscordMessage(m Message) DiscordPayload {
 var markdown = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `_`, `\_`, `~`, `\~`, "`", "\\`", `|`, `\|`, `[`, `\[`, `]`, `\]`, "@", "@\u200b")
 
 func escapeMarkdown(s string) string { return markdown.Replace(s) }
+
+// brackets keeps text in an embed from making a masked link; the rest of
+// it (URLs, formatting) stays as it is.
+var brackets = strings.NewReplacer(`[`, `\[`, `]`, `\]`)
+
+func noLinks(s string) string { return brackets.Replace(s) }
 
 const (
 	discordTries   = 3
@@ -236,7 +254,7 @@ func (d *Discord) Send(ctx context.Context, cfg json.RawMessage, m Message) erro
 	}
 	client := d.Client
 	if client == nil {
-		client = SafeClient(15 * time.Second)
+		client = defaultClient()
 	}
 	var last error
 	for try := 1; try <= discordTries; try++ {
@@ -306,7 +324,7 @@ func (d *Discord) post(ctx context.Context, client *http.Client, target string, 
 		return wait, se
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized:
 		se.Gone = true
-		se.Msg = "Discord says this webhook does not exist (" + reason + "). It was deleted or its URL changed: make a new webhook and paste its URL."
+		se.Msg = "Discord says this webhook no longer exists. Make a new webhook in Discord and paste its URL under Edit."
 		return -1, se
 	case resp.StatusCode >= 500:
 		return 2 * time.Second, se

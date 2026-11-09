@@ -358,3 +358,24 @@ func TestBrowserMessageFitsAPush(t *testing.T) {
 		t.Errorf("payload = %+v", p)
 	}
 }
+
+func TestVAPIDAudienceIsTheOrigin(t *testing.T) {
+	key, _ := NewVAPID()
+	v := &VAPID{Key: key, Subject: "https://bitploy.test"}
+	u, err := parsePushEndpoint("https://fcm.googleapis.com:443/fcm/send/abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := v.header(u, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := strings.TrimPrefix(strings.Split(h, ",")[0], "vapid t=")
+	var claims struct {
+		Aud string `json:"aud"`
+	}
+	_ = json.Unmarshal(mustB64(t, strings.Split(tok, ".")[1]), &claims)
+	if claims.Aud != "https://fcm.googleapis.com" {
+		t.Errorf("aud = %q", claims.Aud)
+	}
+}

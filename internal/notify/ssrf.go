@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -22,7 +23,8 @@ var blockedPrefixes = func() []netip.Prefix {
 	for _, s := range []string{
 		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
 		"172.16.0.0/12", "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4",
-		"::/128", "::1/128", "64:ff9b::/96", "64:ff9b:1::/48", "fc00::/7", "fe80::/10", "ff00::/8",
+		"::/96", "::1/128", "::ffff:0:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64",
+		"2001::/32", "2001:db8::/32", "2002::/16", "fc00::/7", "fe80::/10", "ff00::/8",
 	} {
 		out = append(out, netip.MustParsePrefix(s))
 	}
@@ -42,6 +44,10 @@ func PublicAddr(ip netip.Addr) bool {
 	}
 	return true
 }
+
+// defaultClient is the SafeClient senders share when they are given none,
+// so connections to Discord and the push services are reused.
+var defaultClient = sync.OnceValue(func() *http.Client { return SafeClient(15 * time.Second) })
 
 // SafeClient is an HTTP client for addresses that come from users: it
 // connects only to public addresses (checked on every dial, so DNS

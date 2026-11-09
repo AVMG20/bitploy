@@ -99,8 +99,8 @@ func (v *VAPID) header(endpoint *url.URL, now time.Time) (string, error) {
 	enc := base64.RawURLEncoding
 	head := enc.EncodeToString([]byte(`{"typ":"JWT","alg":"ES256"}`))
 	claims, err := json.Marshal(map[string]any{
-		"aud": endpoint.Scheme + "://" + endpoint.Host,
-		"exp": now.Add(12 * time.Hour).Unix(), // RFC 8292: at most 24 hours
+		"aud": "https://" + endpoint.Hostname(), // the origin: parsePushEndpoint allows only https on 443
+		"exp": now.Add(12 * time.Hour).Unix(),   // RFC 8292: at most 24 hours
 		"sub": v.Subject,
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func (v *VAPID) header(endpoint *url.URL, now time.Time) (string, error) {
 type WebPush struct {
 	// Keys returns the server's VAPID key pair.
 	Keys func(ctx context.Context) (*VAPID, error)
-	// Client sends the requests; nil means SafeClient.
+	// Client sends the requests; nil means a shared SafeClient.
 	Client *http.Client
 	// BaseURL replaces the scheme and host of the endpoint when sending
 	// (tests point it at an httptest server). The endpoint a browser hands
@@ -395,7 +395,7 @@ func (w *WebPush) Send(ctx context.Context, cfg json.RawMessage, m Message) erro
 	}
 	client := w.Client
 	if client == nil {
-		client = SafeClient(15 * time.Second)
+		client = defaultClient()
 	}
 	urgency := "normal"
 	if m.Severity == Emergency {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -257,7 +258,7 @@ func TestDiscordSendUnknownWebhook(t *testing.T) {
 	}}}
 	d, _, cfg := testSender(t, f)
 	err := d.Send(context.Background(), cfg, Message{Title: "hi"})
-	if !IsGone(err) || len(f.paths) != 1 || !strings.Contains(ErrorText(err), "Unknown Webhook") {
+	if !IsGone(err) || len(f.paths) != 1 || !strings.Contains(ErrorText(err), "no longer exists") {
 		t.Fatalf("err %v, %d tries", err, len(f.paths))
 	}
 	if strings.Contains(ErrorText(err), testToken) {
@@ -270,7 +271,7 @@ func TestPublicAddr(t *testing.T) {
 		"1.1.1.1": true, "162.159.135.232": true, "2606:4700::1111": true,
 		"127.0.0.1": false, "10.1.2.3": false, "172.17.0.1": false, "192.168.1.1": false, "169.254.169.254": false,
 		"100.64.0.1": false, "0.0.0.0": false, "::1": false, "fe80::1": false, "fd00::1": false, "::ffff:127.0.0.1": false,
-		"::ffff:10.0.0.1": false, "224.0.0.1": false,
+		"::ffff:10.0.0.1": false, "224.0.0.1": false, "::7f00:1": false, "2002:7f00:1::1": false, "64:ff9b::a00:1": false,
 	} {
 		if got := PublicAddr(netip.MustParseAddr(addr)); got != want {
 			t.Errorf("%s: %v, want %v", addr, got, want)
@@ -292,5 +293,30 @@ func TestDiscordContentIsPlainText(t *testing.T) {
 	if !strings.HasPrefix(p.Content, "@here ") || strings.Contains(p.Content, "[click]") ||
 		strings.Contains(p.Content, " @everyone") || strings.Contains(p.Content, " *x*") {
 		t.Fatalf("content = %q", p.Content)
+	}
+}
+
+func TestDiscordEmbedHasNoMaskedLinksAndFits(t *testing.T) {
+	m := Message{
+		Title: "Deployment 3 of shop failed", Body: "see [the fix](https://evil.test)", Hint: "[here](https://evil.test)",
+		Fields: []Field{{Name: "Source", Value: "Git, commit abc: [login](https://evil.test)"}},
+	}
+	e := DiscordMessage(m).Embeds[0]
+	if strings.Contains(e.Description, "[the fix]") || strings.Contains(e.Description, "[here]") || strings.Contains(e.Fields[0].Value, "[login]") {
+		t.Errorf("embed = %+v", e)
+	}
+	// Everything together stays under Discord's 6000 characters.
+	m.Body = strings.Repeat("y", 5000)
+	m.Fields = nil
+	for i := range 8 {
+		m.Fields = append(m.Fields, Field{Name: fmt.Sprintf("f%d", i), Value: strings.Repeat("v", 2000)})
+	}
+	e = DiscordMessage(m).Embeds[0]
+	n := len([]rune(e.Title)) + len([]rune(e.Description)) + len(e.Footer.Text)
+	for _, f := range e.Fields {
+		n += len([]rune(f.Name)) + len([]rune(f.Value))
+	}
+	if n > discordEmbedMax {
+		t.Errorf("embed has %d characters", n)
 	}
 }
