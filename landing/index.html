@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bitploy: ask your AI to deploy it</title>
-<meta name="description" content="bitploy is an open-source deploy platform for your own server. Your AI assistant sends the code over MCP and you get a live https address back.">
+<meta name="description" content="bitploy is the open-source, agent-first deploy platform you host yourself. Your AI assistant deploys any app over MCP, and a dashboard shows everything that runs.">
 <link rel="canonical" href="https://info.bitploy.nl/">
 <meta name="theme-color" content="#0a0a0a">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://info.bitploy.nl/">
 <meta property="og:title" content="bitploy: ask your AI to deploy it">
-<meta property="og:description" content="An open-source deploy platform for your own server. Your AI assistant sends the code over MCP and you get a live https address back.">
+<meta property="og:description" content="The open-source, agent-first deploy platform you host yourself. Your AI assistant deploys any app over MCP, and a dashboard shows everything that runs.">
 <meta property="og:image" content="https://info.bitploy.nl/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -165,6 +165,121 @@ h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08;
 .faq p { padding: 0 44px 22px 4px; color: var(--muted); text-wrap: pretty; }
 .faq p code { font-size: 0.88em; color: var(--fg); }
 
+/* who it is for */
+.duo { margin-top: 56px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.aud { position: relative; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 30px 30px 26px; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.aud::before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, oklch(0.7 0.19 40 / 0.55), transparent); }
+.tag { align-self: flex-start; font-family: var(--mono); font-size: 12px; letter-spacing: 0.02em; color: var(--orange-hi); border: 1px solid oklch(0.7 0.19 40 / 0.35); background: oklch(0.7 0.19 40 / 0.08); padding: 4px 10px; border-radius: 99px; }
+.aud h3 { margin-top: 18px; font-size: clamp(1.25rem, 2.2vw, 1.5rem); line-height: 1.2; letter-spacing: -0.025em; font-weight: 600; text-wrap: balance; }
+.aud > p { margin-top: 12px; color: var(--muted); font-size: 0.97rem; text-wrap: pretty; }
+.aud ul { list-style: none; margin: 20px 0 24px; padding: 0; display: grid; gap: 11px; }
+.aud li { display: flex; gap: 11px; font-size: 0.94rem; color: oklch(0.86 0 0); }
+.aud li svg { flex: none; width: 15px; height: 15px; margin-top: 4px; color: var(--orange-hi); }
+.who-foot { margin-top: auto; font-family: var(--mono); font-variant-ligatures: none; font-size: 12.5px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who-foot em { font-style: normal; color: var(--orange-pale); }
+
+/* stacks */
+.stacks { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.stacks .lbl { font-size: 13px; color: var(--dim); margin-right: 6px; }
+.stacks .chip { background: var(--card); }
+.stacks-note { margin-top: 12px; font-size: 13.5px; color: var(--dim); }
+
+/* dashboard preview */
+.dash-wrap { position: relative; margin-top: 56px; }
+.dash-wrap::before { content: ""; position: absolute; left: 10%; right: 10%; top: 20%; bottom: -4%; z-index: -1; background: radial-gradient(50% 50% at 50% 50%, oklch(0.57 0.19 40 / 0.28), transparent 72%); filter: blur(50px); }
+.dash { display: grid; grid-template-columns: 208px minmax(0, 1fr); border: 1px solid var(--line-2); border-radius: 16px; background: oklch(0.135 0 0); overflow: hidden; box-shadow: 0 1px 0 oklch(1 0 0 / 0.08) inset, 0 50px 100px -30px oklch(0 0 0 / 0.8); text-align: left; font-size: 13.5px; }
+.dash-side { padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 2px; color: oklch(0.72 0 0); min-width: 0; }
+.dash-brand { display: flex; gap: 9px; align-items: center; font-weight: 600; color: var(--fg); padding: 4px 8px 14px; letter-spacing: -0.02em; font-size: 15px; }
+.dash-brand svg { width: 20px; height: 20px; }
+.dash-nav { display: grid; gap: 2px; }
+.dash-nav span, .dash-proj, .dash-app { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 7px; white-space: nowrap; }
+.dash-nav .on { background: oklch(0.22 0 0); color: var(--fg); }
+.dash-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); padding: 16px 8px 6px; }
+.dash-proj i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.dash-app { margin-left: 10px; padding-left: 14px; font-family: var(--mono); font-size: 12.5px; color: var(--dim); }
+.dash-app.on { color: var(--fg); background: oklch(0.2 0 0); }
+.dash-user { margin-top: auto; display: flex; gap: 9px; align-items: center; padding: 10px 8px 4px; border-top: 1px solid var(--line); font-size: 12.5px; overflow: hidden; }
+.avatar { flex: none; width: 22px; height: 22px; border-radius: 50%; background: oklch(0.3 0 0); display: grid; place-items: center; font-size: 11px; color: var(--fg); font-weight: 600; }
+.dash-main { margin: 8px 8px 8px 0; border: 1px solid var(--line); border-radius: 12px; background: oklch(0.165 0 0); min-width: 0; }
+.dash-top { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; white-space: nowrap; }
+.dash-top b { color: var(--fg); font-weight: 500; }
+.dash-top .sl { color: oklch(0.4 0 0); }
+.goto { margin-left: auto; display: inline-flex; gap: 14px; align-items: center; height: 28px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--dim); font-size: 12.5px; }
+.goto kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.dash-body { padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.dash-head { display: flex; align-items: center; gap: 12px; }
+.dash-head .name { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: center; line-height: 1.3; }
+.dash-head .url { font: 12.5px var(--mono); color: var(--muted); font-variant-ligatures: none; }
+.dash-head > div:nth-child(2) { min-width: 0; }
+.dash-head .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-actions { margin-left: auto; display: flex; gap: 8px; }
+.dbtn { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 500; background: oklch(1 0 0 / 0.03); color: var(--fg); white-space: nowrap; letter-spacing: 0; }
+.dbtn.pri { background: var(--orange); border-color: transparent; color: oklch(0.99 0 0); }
+.st { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 9px; border-radius: 99px; border: 1px solid var(--line-2); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted); white-space: nowrap; }
+.st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.st.ok { color: var(--green); border-color: oklch(0.72 0.15 152 / 0.35); background: oklch(0.72 0.15 152 / 0.08); }
+.st.ok::before { background: var(--green); }
+.st.bad { color: oklch(0.72 0.17 25); border-color: oklch(0.66 0.19 25 / 0.4); background: oklch(0.66 0.19 25 / 0.08); }
+.st.bad::before { background: oklch(0.66 0.19 25); }
+.st.live::before { animation: pulse 1.1s ease-in-out infinite; }
+.dash-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.dash-tabs::-webkit-scrollbar { display: none; }
+.dash-tabs button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--muted); font: 500 13.5px var(--sans); padding: 9px 12px; cursor: pointer; white-space: nowrap; transition: color .15s; }
+.dash-tabs button:hover { color: var(--fg); }
+.dash-tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--orange-hi); }
+.dash-pane { display: none; flex-direction: column; gap: 14px; min-height: 380px; }
+.dash-pane.on { display: flex; animation: fadein .35s ease; }
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.tile { padding: 14px 16px; min-width: 0; }
+.tile + .tile { border-left: 1px solid var(--line); }
+.tile small { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+.tile b { display: block; margin-top: 4px; font-size: 19px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile b span { font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.tile .bar { margin-top: 9px; height: 5px; }
+.dgrid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; flex: 1; }
+.dgrid.even { grid-template-columns: 1fr 1fr; flex: none; }
+.dcard { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; min-width: 0; display: flex; flex-direction: column; }
+.dcard h4 { margin: 0 0 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.dcard h4 span { font-weight: 400; color: var(--dim); font-size: 12.5px; }
+.dcard .lg { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.dcard .lg span { display: inline-flex; align-items: center; gap: 7px; }
+.dcard .lg i { width: 8px; height: 2px; border-radius: 2px; }
+.usage { width: 100%; flex: 1; min-height: 120px; }
+.dl { display: grid; grid-template-columns: auto 1fr; gap: 11px 16px; font-size: 13px; margin: 0; }
+.dl dt { color: var(--muted); }
+.dl dd { margin: 0; text-align: right; }
+.dl code { color: var(--orange-pale); font-size: 12.5px; }
+.dlist { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.dlist.flat { border-radius: 9px; background: var(--bg); }
+.drow { display: flex; align-items: center; gap: 12px; padding: 0 16px; min-height: 46px; font-size: 13px; min-width: 0; }
+.dlist.flat .drow { min-height: 42px; padding: 0 12px; }
+.drow + .drow { border-top: 1px solid var(--line); }
+.drow.head { min-height: 36px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+.drow .seq { font: 12.5px var(--mono); color: var(--dim); width: 28px; flex: none; }
+.drow .st { flex: none; }
+.drow .msg { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drow .msg.mono { font-size: 12.5px; color: oklch(0.86 0 0); }
+.drow .msg code { color: var(--orange-pale); font-size: 12.5px; margin-right: 10px; }
+.drow .meta { color: var(--dim); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.drow .dbtn { height: 26px; font-size: 12px; padding: 0 9px; }
+.dnote { font-size: 13px; color: var(--muted); border: 1px solid oklch(0.66 0.19 25 / 0.3); background: oklch(0.66 0.19 25 / 0.06); border-radius: 10px; padding: 11px 14px; }
+.dnote b { color: oklch(0.8 0.14 25); font-weight: 500; }
+.logbar { display: flex; gap: 10px; align-items: center; }
+.logbar .search { flex: 1; height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: flex; align-items: center; color: var(--dim); font-size: 13px; background: var(--bg); }
+.logview { flex: none; height: 328px; font: 12px/1.9 var(--mono); font-variant-ligatures: none; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+.logview div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); flex: none; }
+.logview time { color: oklch(0.45 0 0); margin-right: 12px; }
+.logview .ok { color: var(--green); }
+.logview .w { color: oklch(0.8 0.14 78); }
+.bars { flex: 1; min-height: 120px; display: flex; align-items: flex-end; gap: 5px; }
+.bars i { flex: 1; border-radius: 3px 3px 0 0; background: oklch(0.7 0.19 40 / 0.4); }
+.bars i:last-child { background: var(--orange-hi); }
+.frow { display: flex; align-items: baseline; gap: 8px; }
+.frow b { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
+.frow span { color: var(--muted); font-size: 13px; }
+.dash-note { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--dim); }
+
 /* steps */
 .steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--raised); overflow: hidden; }
 .step { padding: 30px 28px 32px; position: relative; min-width: 0; }
@@ -289,6 +404,10 @@ footer nav a:hover { color: var(--fg); }
   .cell.w4 { grid-column: span 2; }
   .extras { grid-template-columns: repeat(2, 1fr); }
   .install, .install.flip { grid-template-columns: 1fr; }
+  .duo { grid-template-columns: 1fr; }
+  .dash { grid-template-columns: minmax(0, 1fr); }
+  .dash-side { display: none; }
+  .dash-main { margin: 8px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   section { padding-top: 96px; }
 }
@@ -296,6 +415,23 @@ footer nav a:hover { color: var(--fg); }
   .wrap { padding: 0 18px; }
   .hero { padding-top: 40px; }
   .faq p { padding-right: 4px; }
+  .aud { padding: 24px 22px 22px; }
+  .dash-body { padding: 16px 14px; }
+  .dash-actions .dbtn:not(.pri), .goto, .drow .meta { display: none; }
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .tile { padding: 12px 12px; }
+  .tile b { font-size: 17px; }
+  .tile b span { font-size: 12px; }
+  .tile:nth-child(3) { border-left: 0; }
+  .tile:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .dgrid, .dgrid.even { grid-template-columns: 1fr; }
+  .drow.head .meta, .dlist.flat .drow .meta { display: inline; }
+  .drow .seq, .drow .msg code, .dlist:not(.flat) .drow .dbtn { display: none; }
+  .dlist.flat .drow .msg { flex: 1 0 auto; }
+  .dlist.flat .drow .meta { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .dlist.flat .drow .dbtn { flex: none; }
+  .dash-pane { min-height: 0; }
+  .logview { height: 250px; }
   .stats { margin-top: 56px; }
   .bento { grid-template-columns: 1fr; }
   .cell, .cell.w3, .cell.w4 { grid-column: span 1; }
@@ -311,7 +447,7 @@ footer nav a:hover { color: var(--fg); }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .track, .tool .ic, .badge::before, .rowi .r.wait i { animation: none !important; }
+  .track, .tool .ic, .badge::before, .rowi .r.wait i, .st.live::before, .dash-pane.on { animation: none !important; }
   .js .reveal, .demo [data-s] { transition: none; }
 }
 </style>
@@ -339,6 +475,7 @@ footer nav a:hover { color: var(--fg); }
     <a class="brand" href="#top" aria-label="bitploy home"><svg aria-hidden="true"><use href="#logo"/></svg>bitploy</a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#how">How it works</a>
+      <a href="#dashboard">Dashboard</a>
       <a href="#features">Features</a>
       <a href="#catalog">Catalog</a>
       <a href="#install">Install</a>
@@ -356,12 +493,12 @@ footer nav a:hover { color: var(--fg); }
     <div class="wrap">
       <a class="pill reveal" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><span class="dot"></span><b>Open source</b><span class="sep"></span>MIT license</a>
       <h1 class="reveal" style="--d:.05s">Ask your AI to deploy it.<span class="accent">Get a live URL back.</span></h1>
-      <p class="lede reveal" style="--d:.1s">bitploy is a deploy platform you run on your own server. Your AI assistant sends the code over MCP, bitploy builds it and puts it online at <code>https://your-app.yourdomain.com</code>.</p>
+      <p class="lede reveal" style="--d:.1s">bitploy is the agent-first deploy platform you host yourself. Your AI assistant builds and ships any app over MCP, and a dashboard shows you everything that runs.</p>
       <div class="cta reveal" style="--d:.15s">
         <a class="btn primary" href="#install">Install on your server <svg class="arrow" aria-hidden="true"><use href="#arrow"/></svg></a>
         <a class="btn ghost" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#gh"/></svg>View on GitHub</a>
       </div>
-      <div class="stack-line reveal" style="--d:.2s"><span>One Go binary</span><span>One SQLite file</span><span>Docker and Traefik underneath</span></div>
+      <div class="stack-line reveal" style="--d:.2s"><span>Works with Claude Code, Cursor and VS Code</span><span>Deploys any app with a Dockerfile</span><span>Runs on your own server</span></div>
 
       <div class="demo-wrap reveal" style="--d:.25s">
         <div class="demo" id="demo" data-state="idle" role="img" aria-label="Example: an AI assistant deploys an app to bitploy">
@@ -408,6 +545,42 @@ footer nav a:hover { color: var(--fg); }
     </div>
   </div>
 
+  <section id="for">
+    <div class="wrap">
+      <div class="head center reveal">
+        <div class="eyebrow">Who it is for</div>
+        <h2>Your first deploy, or your five hundredth</h2>
+        <p class="sub">The assistant does the deploying. You decide how much of it you want to see.</p>
+      </div>
+      <div class="duo">
+        <div class="aud reveal">
+          <span class="tag">New to deploying</span>
+          <h3>You built something. Now it needs to be online.</h3>
+          <p>You do not have to learn Docker, DNS or servers. Tell your assistant what you want. It writes the Dockerfile, sends the code, reads the errors and fixes them.</p>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>One sentence starts a deploy, and you get a link back.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>The dashboard says what is happening in plain words.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>31 apps start without any code: a password manager, a blog, notes.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>Someone installs bitploy once. After that a login is all you need.</li>
+          </ul>
+          <div class="who-foot"><em>&gt;</em> Put this folder online and send me the link.</div>
+        </div>
+        <div class="aud reveal" style="--d:.08s">
+          <span class="tag">Coming from Coolify, Vercel or Fly.io</span>
+          <h3>What you expect from a deploy platform, built for agents.</h3>
+          <p>Push to deploy, rollbacks, domains with automatic certificates, encrypted variables, databases and health checks. Each one is also an MCP tool and a REST endpoint.</p>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>Any stack with a Dockerfile, any published image, compose files.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>Every app isolated on its own network, with CPU and memory limits.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>Variables that point at other services, filled in at start.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>One server bill. No seats, no build minutes.</li>
+          </ul>
+          <div class="who-foot">DATABASE_URL=<em>${{db.DATABASE_URL}}</em></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="how">
     <div class="wrap">
       <div class="head center reveal">
@@ -438,12 +611,148 @@ footer nav a:hover { color: var(--fg); }
     </div>
   </section>
 
+  <section id="dashboard">
+    <div class="wrap">
+      <div class="head center reveal">
+        <div class="eyebrow">Dashboard</div>
+        <h2>See everything your assistant did</h2>
+        <p class="sub">Logs, usage, traffic, deployments and files for every app. Step in when you want to: change a setting, roll back, open a terminal.</p>
+      </div>
+      <div class="dash-wrap reveal">
+      <div class="dash" id="dash">
+        <aside class="dash-side" aria-hidden="true">
+          <div class="dash-brand"><svg><use href="#logo"/></svg>bitploy</div>
+          <div class="dash-nav"><span class="on">Projects</span><span>Ready-made</span><span>Connect AI</span><span>Settings</span></div>
+          <div class="dash-label">Projects</div>
+          <div class="dash-proj"><i></i>Shop</div>
+          <div class="dash-app on">shop</div>
+          <div class="dash-app">db</div>
+          <div class="dash-proj"><i></i>Blog</div>
+          <div class="dash-proj"><i></i>Uptime Kuma</div>
+          <div class="dash-user"><span class="avatar">M</span>mara@example.com</div>
+        </aside>
+        <div class="dash-main">
+          <div class="dash-top"><span>Projects</span><span class="sl">/</span><span>Shop</span><span class="sl">/</span><b>shop</b><span class="goto">Go to...<kbd>Ctrl K</kbd></span></div>
+          <div class="dash-body">
+            <div class="dash-head">
+              <div class="mono-tile">S</div>
+              <div>
+                <div class="name">shop <span class="st ok">Running</span></div>
+                <div class="url">https://shop.example.com</div>
+              </div>
+              <div class="dash-actions"><span class="dbtn">Open website</span><span class="dbtn pri">Deploy</span></div>
+            </div>
+            <div class="dash-tabs" role="tablist" aria-label="Dashboard preview">
+              <button type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
+              <button type="button" role="tab" aria-selected="false" data-tab="deployments">Deployments</button>
+              <button type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
+              <button type="button" role="tab" aria-selected="false" data-tab="traffic">Traffic</button>
+              <button type="button" role="tab" aria-selected="false" data-tab="storage">Storage</button>
+            </div>
+
+            <div class="dash-pane on" data-pane="overview" role="tabpanel">
+              <div class="tiles">
+                <div class="tile"><small>Running for</small><b>12d 4h</b></div>
+                <div class="tile"><small>Memory now</small><b>158 MB <span>of 512 MB</span></b><div class="bar mem"><i style="width:31%"></i></div></div>
+                <div class="tile"><small>CPU now</small><b>0.04 <span>of 0.25</span></b><div class="bar cpu"><i style="width:16%"></i></div></div>
+                <div class="tile"><small>Visitors today</small><b>1,284</b></div>
+              </div>
+              <div class="dgrid">
+                <div class="dcard">
+                  <h4>Usage <span>last 24 hours</span></h4>
+                  <svg class="usage" viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+                    <g stroke="oklch(1 0 0 / 0.06)" stroke-width="1"><path d="M0 30H400M0 60H400M0 90H400"/></g>
+                    <path d="M0 92 L20 88 L40 94 L60 80 L80 84 L100 62 L120 74 L140 82 L160 56 L180 70 L200 78 L220 66 L240 84 L260 72 L280 50 L300 68 L320 58 L340 74 L360 46 L380 60 L400 54 V120 H0Z" fill="url(#go2)"/>
+                    <path d="M0 92 L20 88 L40 94 L60 80 L80 84 L100 62 L120 74 L140 82 L160 56 L180 70 L200 78 L220 66 L240 84 L260 72 L280 50 L300 68 L320 58 L340 74 L360 46 L380 60 L400 54" fill="none" stroke="oklch(0.7 0.19 40)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                    <path d="M0 70 L50 69 L100 66 L150 67 L200 63 L250 64 L300 60 L350 61 L400 58" fill="none" stroke="oklch(0.72 0.15 152)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                    <defs><linearGradient id="go2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.7 0.19 40)" stop-opacity=".26"/><stop offset="1" stop-color="oklch(0.7 0.19 40)" stop-opacity="0"/></linearGradient></defs>
+                  </svg>
+                  <div class="lg"><span><i style="background:var(--orange-hi)"></i>CPU</span><span><i style="background:var(--green)"></i>Memory</span></div>
+                </div>
+                <div class="dcard">
+                  <h4>Running version</h4>
+                  <dl class="dl">
+                    <dt>Source</dt><dd>GitHub, main</dd>
+                    <dt>Commit</dt><dd><code>a1f3c9e</code></dd>
+                    <dt>Deployed</dt><dd>2 hours ago</dd>
+                    <dt>Build took</dt><dd>48 s</dd>
+                    <dt>Backups</dt><dd>Every night</dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+
+            <div class="dash-pane" data-pane="deployments" role="tabpanel">
+              <div class="dlist">
+                <div class="drow"><span class="seq">#14</span><span class="st ok">Running</span><span class="msg"><code>a1f3c9e</code>Fix checkout total</span><span class="meta">2 hours ago · 48 s</span></div>
+                <div class="drow"><span class="seq">#13</span><span class="st">Replaced</span><span class="msg"><code>7be02d4</code>Add order emails</span><span class="meta">yesterday · 51 s</span><span class="dbtn">Roll back</span></div>
+                <div class="drow"><span class="seq">#12</span><span class="st bad">Failed</span><span class="msg"><code>c09d77a</code>Upgrade to Node 24</span><span class="meta">2 days ago · 37 s</span></div>
+                <div class="drow"><span class="seq">#11</span><span class="st">Replaced</span><span class="msg"><code>41ab0e2</code>New product page</span><span class="meta">3 days ago · 49 s</span><span class="dbtn">Roll back</span></div>
+                <div class="drow"><span class="seq">#10</span><span class="st">Replaced</span><span class="msg"><code>e77d310</code>Add discount codes</span><span class="meta">5 days ago · 46 s</span><span class="dbtn">Roll back</span></div>
+              </div>
+              <div class="dnote"><b>#12 failed:</b> The app did not answer. It listens on localhost; make it listen on 0.0.0.0:$PORT. Visitors stayed on #11.</div>
+            </div>
+
+            <div class="dash-pane" data-pane="logs" role="tabpanel">
+              <div class="logbar"><span class="search">Search the logs</span><span class="st ok live">Live</span></div>
+              <div class="logview" id="logview" aria-hidden="true"></div>
+            </div>
+
+            <div class="dash-pane" data-pane="traffic" role="tabpanel">
+              <div class="dgrid even">
+                <div class="dcard"><h4>Visitors <span>per day</span></h4><div class="bars"><i style="height:38%"></i><i style="height:44%"></i><i style="height:41%"></i><i style="height:52%"></i><i style="height:49%"></i><i style="height:61%"></i><i style="height:58%"></i><i style="height:47%"></i><i style="height:66%"></i><i style="height:72%"></i><i style="height:64%"></i><i style="height:70%"></i><i style="height:81%"></i><i style="height:92%"></i></div></div>
+                <div class="dcard"><h4>Answer time <span>per day</span></h4>
+                  <svg class="usage" viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+                    <g stroke="oklch(1 0 0 / 0.06)" stroke-width="1"><path d="M0 30H400M0 60H400M0 90H400"/></g>
+                    <path d="M0 78 L31 74 L62 80 L92 70 L123 76 L154 66 L185 72 L215 68 L246 74 L277 62 L308 70 L338 64 L369 68 L400 60" fill="none" stroke="oklch(0.84 0.11 60)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="dlist">
+                <div class="drow head"><span class="msg">Page</span><span class="meta">Requests</span></div>
+                <div class="drow"><span class="msg mono">/</span><span class="meta">7,912</span></div>
+                <div class="drow"><span class="msg mono">/products</span><span class="meta">5,340</span></div>
+                <div class="drow"><span class="msg mono">/cart</span><span class="meta">3,106</span></div>
+              </div>
+            </div>
+
+            <div class="dash-pane" data-pane="storage" role="tabpanel">
+              <div class="dgrid even">
+                <div class="dcard">
+                  <h4>Saved files <span class="mono">/data</span></h4>
+                  <div class="frow"><b>412 MB</b><span>of 5 GB</span></div>
+                  <div class="bar mem" style="margin:8px 0 14px"><i style="width:8%"></i></div>
+                  <div class="dlist flat">
+                    <div class="drow"><span class="msg mono">app.db</span><span class="meta">38 MB</span><span class="dbtn">Open</span></div>
+                    <div class="drow"><span class="msg mono">uploads/</span><span class="meta">374 MB</span></div>
+                  </div>
+                </div>
+                <div class="dcard">
+                  <h4>Backups <span class="dbtn" style="margin-left:auto">Back up now</span></h4>
+                  <div class="dlist flat">
+                    <div class="drow"><span class="msg">Automatic</span><span class="meta">today · 38 MB</span><span class="dbtn">Restore</span></div>
+                    <div class="drow"><span class="msg">Automatic</span><span class="meta">8 Nov · 38 MB</span><span class="dbtn">Restore</span></div>
+                    <div class="drow"><span class="msg">Manual</span><span class="meta">3 Nov · 36 MB</span><span class="dbtn">Restore</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      <p class="dash-note reveal">A preview with example data. Click the tabs. The real dashboard also has a terminal, variables, domains and settings for every app.</p>
+    </div>
+  </section>
+
   <section id="features">
     <div class="wrap">
       <div class="head reveal">
         <div class="eyebrow">Features</div>
-        <h2>Everything a small app needs.<br>Nothing you have to babysit.</h2>
-        <p class="sub">One Dockerfile and a SQLite file cover most apps. When yours needs more, bitploy has it.</p>
+        <h2>Everything an app needs to stay online</h2>
+        <p class="sub">Your assistant uses all of it through MCP. You find the same things in the dashboard.</p>
+        <div class="stacks" id="stacks"><span class="lbl">Dockerfiles ready for</span></div>
+        <p class="stacks-note">Anything else that has a Dockerfile, a published image or a compose file runs too.</p>
       </div>
 
       <div class="bento">
@@ -625,6 +934,10 @@ footer nav a:hover { color: var(--fg); }
           <p>Nothing. bitploy is open source under the MIT license. You pay for the server you run it on.</p>
         </details>
         <details>
+          <summary>How is it different from Coolify, Vercel or Fly.io?</summary>
+          <p>bitploy starts from the AI assistant instead of the dashboard: 51 MCP tools, deploy rules the assistant reads before it begins, and errors that say how to fix them. The dashboard is for watching and stepping in. Like Coolify, it runs on a server you own.</p>
+        </details>
+        <details>
           <summary>Which AI assistants work with it?</summary>
           <p>Claude Code, Claude Desktop, Cursor, VS Code and other tools that can connect to an MCP server over HTTP. The dashboard shows the setup for each one.</p>
         </details>
@@ -754,6 +1067,64 @@ footer nav a:hover { color: var(--fg); }
     chip.appendChild(document.createTextNode(d[0]));
     dbBox.appendChild(chip);
   });
+
+  var stacks = [['Node.js', 'nodedotjs'], ['Next.js', 'nextdotjs'], ['Vite', 'vite'], ['Python', 'python'], ['Django', 'django'], ['PHP', 'php'], ['Laravel', 'laravel'], ['Go', 'go'], ['Static HTML', 'html5']];
+  var stackBox = document.getElementById('stacks');
+  stacks.forEach(function (d) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    var img = icon(d[1], 14);
+    img.onerror = function () { img.remove(); };
+    chip.appendChild(img);
+    chip.appendChild(document.createTextNode(d[0]));
+    stackBox.appendChild(chip);
+  });
+
+  // Dashboard preview: tabs, and log lines that keep coming.
+  var dash = document.getElementById('dash');
+  var tabs = Array.prototype.slice.call(dash.querySelectorAll('[role="tab"]'));
+  var panes = dash.querySelectorAll('.dash-pane');
+  var dashSeen = false, touched = false, current = 0;
+  function show(i) {
+    current = i;
+    tabs.forEach(function (t, n) { t.setAttribute('aria-selected', n === i ? 'true' : 'false'); });
+    panes.forEach(function (p) { p.classList.toggle('on', p.dataset.pane === tabs[i].dataset.tab); });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { touched = true; show(i); });
+  });
+  var logview = document.getElementById('logview');
+  var logPool = [
+    ['GET / 200 12ms'], ['GET /products 200 31ms'], ['GET /products/42 200 18ms'], ['POST /cart 201 24ms'],
+    ['GET /cart 200 9ms'], ['POST /checkout 200 142ms'], ['order 1087 paid, email queued', 'ok'], ['GET /static/app.css 304 2ms'],
+    ['GET /products?page=2 200 28ms'], ['slow query: orders by customer (212ms)', 'w'], ['GET /healthz 200 1ms'], ['GET /account 302 6ms']
+  ];
+  var logN = 0, logClock = new Date(2026, 10, 9, 14, 2, 11);
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function addLog() {
+    var entry = logPool[logN++ % logPool.length];
+    logClock = new Date(logClock.getTime() + 700 + (logN * 37 % 5) * 400);
+    var row = document.createElement('div');
+    var time = document.createElement('time');
+    time.textContent = pad(logClock.getHours()) + ':' + pad(logClock.getMinutes()) + ':' + pad(logClock.getSeconds());
+    row.appendChild(time);
+    var text = document.createElement('span');
+    if (entry[1]) text.className = entry[1];
+    text.textContent = entry[0];
+    row.appendChild(text);
+    logview.appendChild(row);
+    while (logview.children.length > 16) logview.removeChild(logview.firstChild);
+  }
+  for (var k = 0; k < 14; k++) addLog();
+  if (!reduced) {
+    setInterval(function () { if (dashSeen && tabs[current].dataset.tab === 'logs') addLog(); }, 1300);
+    setInterval(function () { if (dashSeen && !touched && window.innerWidth > 960) show((current + 1) % tabs.length); }, 5200);
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) { dashSeen = entries[0].isIntersecting; }, { threshold: 0.35 }).observe(dash);
+    } else {
+      dashSeen = true;
+    }
+  }
 
   // Reveal on scroll.
   var reveals = document.querySelectorAll('.reveal');
