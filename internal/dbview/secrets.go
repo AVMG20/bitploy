@@ -28,27 +28,30 @@ import (
 // A secret whose name does not look like one (uploads.id) is listed in
 // controlSecrets all the same; the test cannot find those, review must.
 var controlSecrets = map[string][]string{
-	"users":               {"password_hash"},                                              // argon2 hash of the password
-	"sessions":            {"id_hash", "csrf_token"},                                      // the session cookie (hashed) and its CSRF secret
-	"api_tokens":          {"hash"},                                                       // hash of an API token
-	"invites":             {"code_hash"},                                                  // hash of the invite link code
-	"project_invites":     {"code_hash"},                                                  // hash of the project invite link code
-	"env_vars":            {"value_enc"},                                                  // the app's secrets, encrypted
-	"uploads":             {"id"},                                                         // the id IS the credential of /u/{id}
-	"github_app":          {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted
-	"apps":                {"protect_hash"},                                               // hash of the password of a protected app
-	"domains":             {"txt_token"},                                                  // DNS ownership token, derived from the server secret
-	"app_domains":         {"key_enc"},                                                    // private key of an app domain's certificate, encrypted
-	"idempotency_keys":    {"key", "body"},                                                // a client's key, and the stored answer (may hold a token)
-	"sqlite_stat4":        {"sample"},                                                     // ANALYZE keeps samples of indexed values (hashes) here
-	"deployment_services": {"config_hash"},                                                // sha256 over a container's settings, its env vars (secrets) included
+	"users":                 {"password_hash"},                                              // argon2 hash of the password
+	"sessions":              {"id_hash", "csrf_token"},                                      // the session cookie (hashed) and its CSRF secret
+	"api_tokens":            {"hash"},                                                       // hash of an API token
+	"invites":               {"code_hash"},                                                  // hash of the invite link code
+	"project_invites":       {"code_hash"},                                                  // hash of the project invite link code
+	"env_vars":              {"value_enc"},                                                  // the app's secrets, encrypted
+	"uploads":               {"id"},                                                         // the id IS the credential of /u/{id}
+	"github_app":            {"client_secret_enc", "webhook_secret_enc", "private_key_enc"}, // the GitHub App's secrets, encrypted
+	"apps":                  {"protect_hash"},                                               // hash of the password of a protected app
+	"domains":               {"txt_token"},                                                  // DNS ownership token, derived from the server secret
+	"app_domains":           {"key_enc"},                                                    // private key of an app domain's certificate, encrypted
+	"idempotency_keys":      {"key", "body"},                                                // a client's key, and the stored answer (may hold a token)
+	"sqlite_stat4":          {"sample"},                                                     // ANALYZE keeps samples of indexed values (hashes) here
+	"deployment_services":   {"config_hash"},                                                // sha256 over a container's settings, its env vars (secrets) included
+	"notification_channels": {"config_enc", "dest_key"},                                     // a channel's settings (a webhook token, a push subscription), encrypted, and a MAC of its destination
+	"vapid_keys":            {"private_key_enc"},                                            // the private key that signs Web Push messages, encrypted
 }
 
 // controlSafe: names that look secret and are not.
 var controlSafe = map[string][]string{
-	"audit_log":      {"token_id"},  // the id of the API token used, not its value
-	"deployments":    {"token_id"},  // the same
-	"traffic_cursor": {"head_hash"}, // hash of the first bytes of the access log, to notice rotation
+	"audit_log":      {"token_id"},   // the id of the API token used, not its value
+	"deployments":    {"token_id"},   // the same
+	"traffic_cursor": {"head_hash"},  // hash of the first bytes of the access log, to notice rotation
+	"vapid_keys":     {"public_key"}, // the VAPID public key; every browser that subscribes gets it
 }
 
 // deniedTables can not be read at all: sqlite_dbpage shows the raw pages of the

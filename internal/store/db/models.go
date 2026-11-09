@@ -348,6 +348,22 @@ type MetricSample struct {
 	Service  string
 }
 
+type NotificationChannel struct {
+	ID            string
+	UserID        string
+	Type          string
+	Name          string
+	Enabled       int64
+	Events        string
+	ConfigEnc     []byte
+	DestKey       string
+	LastSuccessAt sql.NullInt64
+	LastError     string
+	LastErrorAt   sql.NullInt64
+	CreatedAt     int64
+	UpdatedAt     int64
+}
+
 type Project struct {
 	ID        string
 	UserID    string
@@ -522,4 +538,11 @@ type UserAppDomain struct {
 	UserID    string
 	DomainID  string
 	CreatedAt int64
+}
+
+type VapidKey struct {
+	ID            int64
+	PublicKey     string
+	PrivateKeyEnc []byte
+	CreatedAt     int64
 }

@@ -23,6 +23,8 @@ const (
 	Domain        = "dom"
 	Backup        = "bak"
 	AppDomain     = "apd"
+	// NotificationChannel is a place a user gets notifications (Discord, ...).
+	NotificationChannel = "nch"
 )
 
 // New returns prefix + "_" + 20 random base62 characters (~119 bits).
