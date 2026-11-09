@@ -6,7 +6,8 @@ export function toastError(e: unknown, fallback = 'Something went wrong.') {
   if (e instanceof ApiError) {
     toast.error(e.message, { description: e.hint || undefined })
   } else if (e instanceof Error) {
-    toast.error(e.message || fallback)
+    const hint = 'hint' in e && typeof e.hint === 'string' ? e.hint : undefined
+    toast.error(e.message || fallback, { description: hint })
   } else {
     toast.error(fallback)
   }

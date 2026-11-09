@@ -132,3 +132,23 @@ export function pushBlockedText(state: PushState, browser = ''): string {
       return ''
   }
 }
+
+/**
+ * Whether subscribe() failed because the browser could not register with
+ * its own push service (Chrome: "Registration failed - push service error",
+ * an AbortError). bitploy's key is fine then: the browser's push service is
+ * off or cannot be reached.
+ */
+export function isPushServiceError(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false
+  const { name, message } = e as { name?: unknown; message?: unknown }
+  return name === 'AbortError' || (typeof message === 'string' && /push service/i.test(message))
+}
+
+/** What to do when the browser's push service failed, in plain words. */
+export function pushServiceHint(brave: boolean): string {
+  if (brave) {
+    return 'Brave turns its push service off by default. Open Settings, Privacy and security, turn on "Use Google services for push messaging", restart Brave and try again. Or use a Discord channel.'
+  }
+  return 'A VPN, firewall or ad blocker may block it, or the browser has push messages turned off. Try again in a moment, try another browser, or use a Discord channel.'
+}

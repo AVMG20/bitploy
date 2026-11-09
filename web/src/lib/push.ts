@@ -3,7 +3,7 @@
 // notifications.ts.
 
 import { api } from './api'
-import { base64UrlBytes, currentBrowserChannel, hex, type PushState } from './notifications'
+import { base64UrlBytes, currentBrowserChannel, hex, isPushServiceError, pushServiceHint, type PushState } from './notifications'
 
 const SW_URL = '/sw.js'
 
@@ -42,6 +42,13 @@ export async function currentEndpointHash(): Promise<string | null> {
 
 export class PushDenied extends Error {}
 
+/** The browser could not register with its push service; hint says what to do. */
+export class PushServiceFailed extends Error {
+  constructor(readonly hint: string) {
+    super('This browser could not reach its push service.')
+  }
+}
+
 /**
  * Asks for permission, registers the service worker and subscribes with the
  * server's VAPID key. Throws PushDenied when the user says no.
@@ -57,8 +64,29 @@ export async function subscribe(vapidKey: string): Promise<PushSubscriptionJSON>
     await sub.unsubscribe() // made with another server key: it cannot be used
     sub = null
   }
-  sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
+  sub ??= await pushSubscribe(reg, key)
   return sub.toJSON()
+}
+
+// pushSubscribe subscribes, and once more after a moment when the browser's
+// push service fails: a stuck registration in Chrome often works the second
+// time.
+async function pushSubscribe(reg: ServiceWorkerRegistration, key: Uint8Array<ArrayBuffer>): Promise<PushSubscription> {
+  const opts = { userVisibleOnly: true, applicationServerKey: key }
+  try {
+    return await reg.pushManager.subscribe(opts)
+  } catch (e) {
+    if (!isPushServiceError(e)) throw e
+  }
+  await (await reg.pushManager.getSubscription().catch(() => null))?.unsubscribe().catch(() => false)
+  await new Promise((r) => setTimeout(r, 1500))
+  try {
+    return await reg.pushManager.subscribe(opts)
+  } catch (e) {
+    if (!isPushServiceError(e)) throw e
+    const brave = 'brave' in navigator
+    throw new PushServiceFailed(pushServiceHint(brave))
+  }
 }
 
 function sameKey(a: ArrayBuffer | null, b: Uint8Array): boolean {

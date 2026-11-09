@@ -10,6 +10,8 @@ import {
   discordWebhookProblem,
   emergencyMark,
   groupEvents,
+  isPushServiceError,
+  pushServiceHint,
   hex,
   pushBlockedText,
   toggleEvent,
@@ -137,4 +139,18 @@ test('blocked browser notifications get one plain sentence', () => {
   for (const s of ['denied', 'insecure', 'unsupported'] as const) {
     assert.doesNotMatch(pushBlockedText(s), /simply|just|don't worry|as usual/i)
   }
+})
+
+test('isPushServiceError spots a failed push registration', () => {
+  assert.equal(isPushServiceError({ name: 'AbortError', message: 'Registration failed - push service error' }), true)
+  assert.equal(isPushServiceError(new Error('Registration failed - push service error')), true)
+  assert.equal(isPushServiceError({ name: 'InvalidAccessError', message: 'The provided applicationServerKey is not valid.' }), false)
+  assert.equal(isPushServiceError(null), false)
+  assert.equal(isPushServiceError('push service'), false)
+})
+
+test('pushServiceHint names the Brave setting only for Brave', () => {
+  assert.match(pushServiceHint(true), /Use Google services for push messaging/)
+  assert.doesNotMatch(pushServiceHint(false), /Brave/)
+  assert.match(pushServiceHint(false), /Discord/)
 })
