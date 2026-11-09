@@ -48,6 +48,8 @@ const KNOWN: Known[] = [
   { match: /^rabbitmq$/, key: 'queue', product: 'RabbitMQ' },
   { match: /^(nats|kafka|redpanda)$/, key: 'queue', product: '' },
   { match: /^minio$/, key: 'files', product: 'MinIO' },
+  { match: /^garage$/, key: 'files', product: 'Garage' },
+  { match: /^mailpit$/, key: 'service', product: 'Mailpit' },
   { match: /^(meilisearch|typesense|elasticsearch|opensearch)$/, key: 'search', product: '' },
   { match: /^(nginx|caddy|httpd|traefik)$/, key: 'website', product: '' },
 ]

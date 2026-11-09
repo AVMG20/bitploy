@@ -99,8 +99,8 @@ const user: User = { id: 'usr_ada', email: 'ada@example.com', name: 'Ada', role:
 
 // ---------------------------------------------------------------- templates
 
-// A cache or search index has no backups (servicetpl.Template.Backups).
-const noBackups = (template?: string | null) => template === 'valkey' || template === 'redis' || template === 'meilisearch'
+// A cache, search index or test inbox has no backups (servicetpl.Template.Backups).
+const noBackups = (template?: string | null) => ['valkey', 'redis', 'meilisearch', 'typesense', 'mailpit'].includes(template ?? '')
 
 // The shipped templates (internal/servicetpl). redis is hidden: only used when asked for by id.
 const templates: ServiceTemplate[] = [
@@ -187,6 +187,62 @@ const templates: ServiceTemplate[] = [
     volume_mb: 2048,
     connection_vars: ['MEILI_URL', 'MEILI_HOST', 'MEILI_MASTER_KEY'],
     main_var: 'MEILI_URL',
+  },
+  {
+    id: 'typesense',
+    name: 'Typesense',
+    category: 'search',
+    description: 'A search engine with typo tolerance, filters and facets, for search boxes. It holds its index in memory, so give it two to three times the size of the fields you search. Apps in the project connect with TYPESENSE_URL and TYPESENSE_API_KEY.',
+    image: 'typesense/typesense:30.2',
+    version: '30.2',
+    port: 8108,
+    memory_mb: 512,
+    cpu_millis: 500,
+    volume_mb: 1024,
+    connection_vars: ['TYPESENSE_URL', 'TYPESENSE_HOST', 'TYPESENSE_PORT', 'TYPESENSE_PROTOCOL', 'TYPESENSE_API_KEY'],
+    main_var: 'TYPESENSE_URL',
+  },
+  {
+    id: 'clickhouse',
+    name: 'ClickHouse',
+    category: 'database',
+    description: 'A column-oriented SQL database for analytics: events, logs and metrics, queried in bulk. Apps in the project connect with CLICKHOUSE_URL (HTTP) or CLICKHOUSE_NATIVE_URL. It needs more memory than the other databases.',
+    image: 'clickhouse/clickhouse-server:26.8.36.3',
+    version: '26.8.36.3',
+    port: 8123,
+    memory_mb: 1024,
+    cpu_millis: 1000,
+    volume_mb: 5120,
+    connection_vars: ['CLICKHOUSE_URL', 'CLICKHOUSE_NATIVE_URL', 'CLICKHOUSE_HOST', 'CLICKHOUSE_PORT', 'CLICKHOUSE_NATIVE_PORT', 'CLICKHOUSE_USER', 'CLICKHOUSE_PASSWORD', 'CLICKHOUSE_DB'],
+    main_var: 'CLICKHOUSE_URL',
+  },
+  {
+    id: 'garage',
+    name: 'Garage (S3 storage)',
+    category: 'storage',
+    description: 'S3-compatible object storage for uploads, media and backups, with one bucket and one access key made at the first start. Apps in the project use S3_ENDPOINT with S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (or the AWS_ variables) and path-style addressing.',
+    image: 'dxflrs/garage:v2.5.0',
+    version: 'v2.5.0',
+    port: 3900,
+    memory_mb: 256,
+    cpu_millis: 500,
+    volume_mb: 4096,
+    connection_vars: ['S3_ENDPOINT', 'S3_REGION', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_FORCE_PATH_STYLE', 'AWS_ENDPOINT_URL', 'AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+    main_var: 'S3_ENDPOINT',
+  },
+  {
+    id: 'mailpit',
+    name: 'Mailpit (test inbox)',
+    category: 'email',
+    description: 'Catches the email your apps send and shows it in a web inbox, so tests and staging never reach real people. Apps in the project send to SMTP_HOST and SMTP_PORT without a login.',
+    image: 'axllent/mailpit:v1.33.1',
+    version: 'v1.33.1',
+    port: 8025,
+    memory_mb: 128,
+    cpu_millis: 250,
+    volume_mb: 512,
+    connection_vars: ['SMTP_URL', 'SMTP_HOST', 'SMTP_PORT', 'MAIL_HOST', 'MAIL_PORT', 'MAILPIT_API_URL'],
+    main_var: 'SMTP_URL',
   },
 ]
 
@@ -600,6 +656,10 @@ function mockSecrets(a: App): Record<string, string> {
       return { REDIS_PASSWORD: 'c4Hn8Dz1Qw6Ys2Ua' }
     case 'meilisearch':
       return { MEILI_MASTER_KEY: 'm5Rt0Gk3Vb8Xe2Nj9Pq4' }
+    case 'typesense':
+      return { TYPESENSE_API_KEY: 't7Yd2Sx9Lc4Wq1Hn6Bv3' }
+    case 'clickhouse':
+      return { CLICKHOUSE_PASSWORD: 'k2Zp8Rv5Tg1Mx7Cd4Fy9' }
     default:
       return {}
   }
@@ -619,6 +679,11 @@ function mockConnectionURL(a: App, address: string, masked: boolean): string {
       return `redis://default:${pw('REDIS_PASSWORD')}@${address}`
     case 'meilisearch':
       return `http://${address}`
+    case 'typesense':
+    case 'mailpit':
+      return `http://${address}`
+    case 'clickhouse':
+      return `http://app:${pw('CLICKHOUSE_PASSWORD')}@${address}/app`
     default:
       return ''
   }

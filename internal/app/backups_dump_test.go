@@ -391,7 +391,7 @@ func TestInterruptedDumpRestoreIsRecovered(t *testing.T) {
 }
 
 func TestNoBackupsOfACacheOrSearchIndex(t *testing.T) {
-	for _, tpl := range []string{"valkey", "redis", "meilisearch"} {
+	for _, tpl := range []string{"valkey", "redis", "meilisearch", "typesense", "mailpit"} {
 		t.Run(tpl, func(t *testing.T) {
 			e := newBkEnv(t)
 			ctx := context.Background()

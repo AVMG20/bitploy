@@ -1,17 +1,20 @@
 // Package servicetpl is the list of service templates: databases and other
-// ready services (PostgreSQL, MySQL, MariaDB, Valkey, Redis, Meilisearch) that
+// ready services (PostgreSQL, MySQL, MariaDB, Valkey, Redis, Meilisearch,
+// Typesense, ClickHouse, Garage, Mailpit) that
 // are added to a project as an app of their own (docs/compose-plan.md,
 // "Phase 4b"). Each template pins an exact image version.
 //
 // A template app is a private worker app (no public address) built from a
 // one-line Dockerfile on top of the pinned image (Dockerfile below). It keeps
 // its data on the app's /data volume, runs as the image's own non-root user
-// (999:999, or 10001:10001 for Meilisearch) under bitploy's normal container
+// (999:999, 101:101 for ClickHouse, or 10001:10001 for Meilisearch, Garage,
+// Typesense and Mailpit) under bitploy's normal container
 // sandbox, and reports healthy through a HEALTHCHECK the deploy waits for.
 //
 // Variables:
 //   - Env are set on the template app itself when it is created. Values
-//     marked Generate are 32 random letters and digits, stored encrypted.
+//     marked Generate are 32 random letters and digits (or random hex
+//     characters, see EnvSpec), stored encrypted.
 //   - Connection are the variables the template publishes to the other apps
 //     of its project, through references like ${{postgres.DATABASE_URL}}.
 //     They are not variables of the template app (the image would read them);
@@ -26,6 +29,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/AVMG20/bitploy/internal/ids"
 )
 
 // EnvSpec is a variable of the template app.
@@ -33,8 +38,25 @@ type EnvSpec struct {
 	Name  string
 	Value string
 	// Generate "secret": Value is ignored; 32 random base62 characters.
+	// Generate "hex": Value is ignored; Prefix followed by HexLength random
+	// lowercase hex characters, for tools that insist on a format (Garage's
+	// RPC secret and S3 keys).
 	Generate    string
+	HexLength   int
+	Prefix      string
 	Description string
+}
+
+// NewValue is the value of a variable at creation: Value, or a freshly
+// generated one.
+func (e EnvSpec) NewValue() string {
+	switch e.Generate {
+	case "secret":
+		return ids.Base62(32)
+	case "hex":
+		return e.Prefix + ids.Hex(e.HexLength)
+	}
+	return e.Value
 }
 
 // ConnVar is a variable the template publishes to its project. Value may
@@ -49,7 +71,7 @@ type ConnVar struct {
 type Template struct {
 	ID          string // also the default alias in the project
 	Name        string
-	Category    string // database | cache | search
+	Category    string // database | cache | search | storage | email
 	Description string // two plain sentences
 	Image       string // repository, like postgres
 	Version     string // the exact tag, like 18.1
@@ -69,7 +91,10 @@ type Template struct {
 	// app variables (Generate).
 	Env []EnvSpec
 	// DockerEnv are fixed ENV lines of the Dockerfile, like PGDATA.
-	DockerEnv   [][2]string
+	DockerEnv [][2]string
+	// Extra are Dockerfile lines after the ENV lines, like a COPY with a
+	// heredoc that writes a config file (an image may have no shell).
+	Extra       string
 	Cmd         []string // CMD in exec form; nil keeps the image's
 	Workdir     string   // WORKDIR; "" keeps the image's
 	Healthcheck string   // the HEALTHCHECK CMD, in shell form
@@ -124,6 +149,9 @@ func (t Template) Dockerfile() string {
 			fmt.Fprintf(&b, "%s%s=%s", sep, kv[0], kv[1])
 		}
 		b.WriteString("\n")
+	}
+	if t.Extra != "" {
+		b.WriteString(strings.TrimRight(t.Extra, "\n") + "\n")
 	}
 	if t.Workdir != "" {
 		fmt.Fprintf(&b, "WORKDIR %s\n", t.Workdir)
@@ -310,6 +338,153 @@ var templates = []Template{
 		},
 		MainVar:  "MEILI_URL",
 		Keywords: []string{"meilisearch", "meili", "search"},
+	},
+	{
+		ID: "typesense", Name: "Typesense", Category: "search",
+		Description: "A search engine with typo tolerance, filters and facets, for search boxes. It holds its index in memory, so give it two to three times the size of the fields you search. Apps in the project connect with TYPESENSE_URL and TYPESENSE_API_KEY.",
+		Image:       "typesense/typesense", Version: "30.2", Port: 8108, MemoryMB: 512, CPUMillis: 500, VolumeMB: 1024, User: "10001:10001",
+		Env: []EnvSpec{{Name: "TYPESENSE_API_KEY", Generate: "secret", Description: "The admin key that protects the search API."}},
+		DockerEnv: [][2]string{
+			{"TYPESENSE_DATA_DIR", "/data"}, {"TYPESENSE_API_ADDRESS", "0.0.0.0"}, {"TYPESENSE_API_PORT", "8108"},
+		},
+		// The image has no curl or wget, so bash asks /health over TCP.
+		Healthcheck:  `bash -c 'exec 3<>/dev/tcp/127.0.0.1/8108 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && grep -q ok.:true <&3' || exit 1`,
+		HealthStartS: 30,
+		Connection: []ConnVar{
+			{Name: "TYPESENSE_URL", Value: "http://{host}:{port}"},
+			{Name: "TYPESENSE_HOST", Value: "{host}"},
+			{Name: "TYPESENSE_PORT", Value: "{port}"},
+			{Name: "TYPESENSE_PROTOCOL", Value: "http"},
+			{Name: "TYPESENSE_API_KEY", Value: "${TYPESENSE_API_KEY}"},
+		},
+		MainVar:  "TYPESENSE_URL",
+		Keywords: []string{"typesense", "search", "algolia"},
+	},
+	{
+		ID: "clickhouse", Name: "ClickHouse", Category: "database",
+		Description: "A column-oriented SQL database for analytics: events, logs and metrics, queried in bulk. Apps in the project connect with CLICKHOUSE_URL (HTTP) or CLICKHOUSE_NATIVE_URL. It needs more memory than the other databases.",
+		Image:       "clickhouse/clickhouse-server", Version: "26.8.36.3", Port: 8123, MemoryMB: 1024, CPUMillis: 1000, VolumeMB: 5120, User: "101:101",
+		Env: []EnvSpec{
+			{Name: "CLICKHOUSE_USER", Value: "app", Description: "The database user."},
+			{Name: "CLICKHOUSE_DB", Value: "app", Description: "The database created at the first start."},
+			{Name: "CLICKHOUSE_PASSWORD", Generate: "secret", Description: "The user's password."},
+		},
+		// Data and logs move to /data (the image keeps them in /var/lib and
+		// /var/log), and the settings that make ClickHouse small are set:
+		// smaller caches, fewer background threads, and none of the system
+		// log tables that fill memory and disk.
+		Extra: `COPY <<EOF /etc/clickhouse-server/config.d/bitploy.xml
+<clickhouse>
+  <path>/data/clickhouse/</path>
+  <tmp_path>/data/clickhouse/tmp/</tmp_path>
+  <user_files_path>/data/clickhouse/user_files/</user_files_path>
+  <format_schema_path>/data/clickhouse/format_schemas/</format_schema_path>
+  <logger>
+    <level>warning</level>
+    <console>1</console>
+    <log>/data/log/clickhouse-server.log</log>
+    <errorlog>/data/log/clickhouse-server.err.log</errorlog>
+    <size>10M</size>
+    <count>2</count>
+  </logger>
+  <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+  <mark_cache_size>134217728</mark_cache_size>
+  <uncompressed_cache_size>0</uncompressed_cache_size>
+  <max_concurrent_queries>32</max_concurrent_queries>
+  <background_pool_size>4</background_pool_size>
+  <background_schedule_pool_size>8</background_schedule_pool_size>
+  <query_log remove="1"/>
+  <query_thread_log remove="1"/>
+  <query_views_log remove="1"/>
+  <part_log remove="1"/>
+  <trace_log remove="1"/>
+  <metric_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <text_log remove="1"/>
+  <session_log remove="1"/>
+  <processors_profile_log remove="1"/>
+  <error_log remove="1"/>
+  <blob_storage_log remove="1"/>
+</clickhouse>
+EOF`,
+		Healthcheck:  "wget -q --spider http://127.0.0.1:8123/ping || exit 1",
+		HealthStartS: 60,
+		Connection: []ConnVar{
+			{Name: "CLICKHOUSE_URL", Value: "http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@{host}:{port}/${CLICKHOUSE_DB}"},
+			{Name: "CLICKHOUSE_NATIVE_URL", Value: "clickhouse://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@{host}:9000/${CLICKHOUSE_DB}"},
+			{Name: "CLICKHOUSE_HOST", Value: "{host}"},
+			{Name: "CLICKHOUSE_PORT", Value: "{port}"},
+			{Name: "CLICKHOUSE_NATIVE_PORT", Value: "9000"},
+			{Name: "CLICKHOUSE_USER", Value: "${CLICKHOUSE_USER}"},
+			{Name: "CLICKHOUSE_PASSWORD", Value: "${CLICKHOUSE_PASSWORD}"},
+			{Name: "CLICKHOUSE_DB", Value: "${CLICKHOUSE_DB}"},
+		},
+		MainVar:  "CLICKHOUSE_URL",
+		Keywords: []string{"clickhouse", "analytics", "olap", "sql", "events"},
+	},
+	{
+		ID: "garage", Name: "Garage (S3 storage)", Category: "storage",
+		Description: "S3-compatible object storage for uploads, media and backups, with one bucket and one access key made at the first start. Apps in the project use S3_ENDPOINT with S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY (or the AWS_ variables) and path-style addressing.",
+		Image:       "dxflrs/garage", Version: "v2.5.0", Port: 3900, MemoryMB: 256, CPUMillis: 500, VolumeMB: 4096, User: "10001:10001",
+		Env: []EnvSpec{
+			{Name: "GARAGE_RPC_SECRET", Generate: "hex", HexLength: 64, Description: "Secret of the node's internal RPC port."},
+			{Name: "GARAGE_DEFAULT_ACCESS_KEY", Generate: "hex", Prefix: "GK", HexLength: 32, Description: "The access key id of the bucket."},
+			{Name: "GARAGE_DEFAULT_SECRET_KEY", Generate: "hex", HexLength: 64, Description: "The secret access key of the bucket."},
+			{Name: "GARAGE_DEFAULT_BUCKET", Value: "app", Description: "The bucket created at the first start."},
+		},
+		// The image is empty but for the garage binary: no shell, so the
+		// config file comes from a heredoc and the secrets from variables.
+		// --single-node sets up the one-node layout and --default-bucket makes
+		// the bucket and key from the GARAGE_DEFAULT_ variables (Garage 2.3+).
+		Extra: `COPY <<EOF /etc/garage.toml
+metadata_dir = "/data/meta"
+data_dir = "/data/blocks"
+db_engine = "sqlite"
+replication_factor = 1
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "0.0.0.0:3900"
+EOF`,
+		Cmd:          []string{"/garage", "server", "--single-node", "--default-bucket"},
+		Healthcheck:  `["/garage", "status"]`,
+		HealthStartS: 20,
+		Connection: []ConnVar{
+			{Name: "S3_ENDPOINT", Value: "http://{host}:{port}"},
+			{Name: "S3_REGION", Value: "garage"},
+			{Name: "S3_BUCKET", Value: "${GARAGE_DEFAULT_BUCKET}"},
+			{Name: "S3_ACCESS_KEY_ID", Value: "${GARAGE_DEFAULT_ACCESS_KEY}"},
+			{Name: "S3_SECRET_ACCESS_KEY", Value: "${GARAGE_DEFAULT_SECRET_KEY}"},
+			{Name: "S3_FORCE_PATH_STYLE", Value: "true"},
+			{Name: "AWS_ENDPOINT_URL", Value: "http://{host}:{port}"},
+			{Name: "AWS_REGION", Value: "garage"},
+			{Name: "AWS_ACCESS_KEY_ID", Value: "${GARAGE_DEFAULT_ACCESS_KEY}"},
+			{Name: "AWS_SECRET_ACCESS_KEY", Value: "${GARAGE_DEFAULT_SECRET_KEY}"},
+		},
+		MainVar:  "S3_ENDPOINT",
+		Keywords: []string{"garage", "s3", "object storage", "minio", "bucket", "uploads"},
+	},
+	{
+		ID: "mailpit", Name: "Mailpit (test inbox)", Category: "email",
+		Description: "Catches the email your apps send and shows it in a web inbox, so tests and staging never reach real people. Apps in the project send to SMTP_HOST and SMTP_PORT without a login.",
+		Image:       "axllent/mailpit", Version: "v1.33.1", Port: 8025, MemoryMB: 128, CPUMillis: 250, VolumeMB: 512, User: "10001:10001",
+		DockerEnv: [][2]string{
+			{"MP_DATABASE", "/data/mailpit.db"}, {"MP_SMTP_AUTH_ACCEPT_ANY", "1"}, {"MP_SMTP_AUTH_ALLOW_INSECURE", "1"},
+		},
+		Healthcheck:  "/mailpit readyz || exit 1",
+		HealthStartS: 10,
+		Connection: []ConnVar{
+			{Name: "SMTP_URL", Value: "smtp://{host}:1025"},
+			{Name: "SMTP_HOST", Value: "{host}"},
+			{Name: "SMTP_PORT", Value: "1025"},
+			{Name: "MAIL_HOST", Value: "{host}"},
+			{Name: "MAIL_PORT", Value: "1025"},
+			{Name: "MAILPIT_API_URL", Value: "http://{host}:{port}"},
+		},
+		MainVar:  "SMTP_URL",
+		Keywords: []string{"mailpit", "mailhog", "email", "smtp", "mail", "inbox"},
 	},
 }
 

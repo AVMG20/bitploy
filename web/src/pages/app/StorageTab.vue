@@ -261,11 +261,12 @@ const nextAt = computed(() => {
 const nextIsPast = computed(() => !!nextAt.value && new Date(nextAt.value).getTime() <= Date.now())
 
 // ---------------------------------------------------------------- backups
-// A cache or search index (valkey, redis, meilisearch) has no backups.
+// A cache, search index or test inbox (valkey, redis, meilisearch, typesense, mailpit) has no backups.
 const noBackupsText = computed(() => {
   const t = data.value?.template
   if (data.value?.backups_supported !== false) return ''
-  if (t === 'meilisearch') return 'Meilisearch keeps a search index; it can be rebuilt from your data, so bitploy makes no backups of it.'
+  if (t === 'meilisearch' || t === 'typesense') return `${t === 'typesense' ? 'Typesense' : 'Meilisearch'} keeps a search index; it can be rebuilt from your data, so bitploy makes no backups of it.`
+  if (t === 'mailpit') return 'Mailpit keeps test email; it is not worth keeping, so bitploy makes no backups of it.'
   return `${t === 'redis' ? 'Redis' : 'Valkey'} keeps a cache; its data can be rebuilt, so bitploy makes no backups of it.`
 })
 const restoring = computed(() => list.value?.restore?.state === 'running')

@@ -39,7 +39,7 @@ func TestTemplates(t *testing.T) {
 				if !envNameRe.MatchString(e.Name) || strings.HasPrefix(e.Name, "BITPLOY_") || e.Name == "PORT" {
 					t.Errorf("env name %q", e.Name)
 				}
-				if e.Description == "" || (e.Generate == "" && e.Value == "") || (e.Generate != "" && e.Generate != "secret") {
+				if e.Description == "" || (e.Generate == "" && e.Value == "") || (e.Generate != "" && e.Generate != "secret" && (e.Generate != "hex" || e.HexLength < 16)) {
 					t.Errorf("env %+v", e)
 				}
 				own[e.Name] = "v-" + e.Name

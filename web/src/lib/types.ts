@@ -372,7 +372,7 @@ export interface App {
   files_mb: number | null
   /** What the app's backups take; counts towards the storage allowance. */
   backups_mb: number
-  /** False for a cache or search index (valkey, redis, meilisearch): bitploy makes no backups of it. */
+  /** False for a cache, search index or test inbox (valkey, redis, meilisearch, typesense, mailpit): bitploy makes no backups of it. */
   backups_supported: boolean
   disk_measured_at?: string
   memory_mb: number
@@ -595,11 +595,11 @@ export interface ProjectSignup {
 
 /** A database or other ready service bitploy can add to a project (GET /service-templates). */
 export interface ServiceTemplate {
-  /** postgres, mysql, mariadb, redis, valkey, meilisearch */
+  /** postgres, mysql, mariadb, redis, valkey, meilisearch, typesense, clickhouse, garage, mailpit */
   id: string
   /** PostgreSQL */
   name: string
-  /** database, cache or search */
+  /** database, cache, search, storage or email */
   category: string
   description: string
   /** The image with its pinned version, like postgres:18.6 */

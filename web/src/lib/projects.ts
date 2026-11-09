@@ -366,6 +366,8 @@ export const TEMPLATE_GROUPS: { key: string; label: string; categories: string[]
   { key: 'database', label: 'Databases', categories: ['database', 'databases'] },
   { key: 'cache', label: 'Cache & queue', categories: ['cache', 'queue'] },
   { key: 'search', label: 'Search', categories: ['search'] },
+  { key: 'storage', label: 'File storage', categories: ['storage'] },
+  { key: 'email', label: 'Email testing', categories: ['email'] },
 ]
 
 export function groupTemplates(templates: readonly ServiceTemplate[]): { key: string; label: string; items: ServiceTemplate[] }[] {

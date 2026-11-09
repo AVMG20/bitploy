@@ -1019,7 +1019,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "list_backups", "List backups",
-		"The /data backups of an app, newest first: id, kind (manual, scheduled, uploaded, before_restore), format (volume: a .tar.gz of the files; dump: a .sql.gz of every database of a database service, with tool and version), status (running, ready, failed), size, error. dump_tool is set for a database service whose backups are dumps. Valkey, Redis and Meilisearch have no backups. Also the automatic backup settings (schedule off, daily or weekly at time_utc; keep_mode and keep; next_at), whether a backup or restore is running (busy) and how the latest restore went (restore: running, done or failed, with the reason). Use it to follow create_backup, or to tell the user what backups exist. Downloading and restoring are done by the user in the dashboard.",
+		"The /data backups of an app, newest first: id, kind (manual, scheduled, uploaded, before_restore), format (volume: a .tar.gz of the files; dump: a .sql.gz of every database of a database service, with tool and version), status (running, ready, failed), size, error. dump_tool is set for a database service whose backups are dumps. Valkey, Redis, Meilisearch, Typesense and Mailpit have no backups. Also the automatic backup settings (schedule off, daily or weekly at time_utc; keep_mode and keep; next_at), whether a backup or restore is running (busy) and how the latest restore went (restore: running, done or failed, with the reason). Use it to follow create_backup, or to tell the user what backups exist. Downloading and restoring are done by the user in the dashboard.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, in appIn) (*result, error) {
 			l, err := svc.ListBackups(ctx, a, in.App)
