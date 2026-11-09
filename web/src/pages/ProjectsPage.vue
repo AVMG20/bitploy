@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { Boxes, Container, FileCode2, Github, Plus, SearchX, Upload } from 'lucide-vue-next'
+import { Bot, Boxes, Container, FileCode2, Github, Plus, SearchX, Upload } from 'lucide-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ListSearch from '@/components/ListSearch.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -80,8 +80,10 @@ function openOnly() {
   if (shown.value.length === 1) void router.push(projectRoute(shown.value[0]!.id))
 }
 
-// The same choices, names and words as the first step of New project.
+// Connecting an AI assistant first, then the same choices, names and words
+// as the first step of New project.
 const SOURCES = [
+  { key: 'ai', icon: Bot, title: 'Connect your AI assistant', text: 'Claude, Cursor or VS Code puts your code online for you. You say "deploy this folder".' },
   { key: 'github', icon: Github, title: 'GitHub', text: 'Pick a repository. bitploy works out how to build it.' },
   { key: 'upload', icon: Upload, title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.' },
   { key: 'dockerfile', icon: FileCode2, title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.' },
@@ -89,6 +91,7 @@ const SOURCES = [
   { key: 'ready-made', icon: Boxes, title: 'Ready-made', text: 'Well-known apps set up for you, like Uptime Kuma, Vaultwarden or PocketBase.' },
 ] as const
 function sourceTo(key: string) {
+  if (key === 'ai') return { name: 'connect' }
   return key === 'ready-made' ? { name: 'ready-made' } : { name: 'new-app', query: { source: key } }
 }
 </script>
@@ -166,23 +169,20 @@ function sourceTo(key: string) {
         <h2 id="first-project" class="text-xl font-semibold tracking-tight">Deploy your first project</h2>
         <p class="text-sm text-muted-foreground">Where is your code?</p>
       </div>
-      <div class="grid w-full max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div class="grid w-full max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <RouterLink
           v-for="s in SOURCES"
           :key="s.key"
           :to="sourceTo(s.key)"
           class="group grid justify-items-start gap-2 rounded-xl border bg-card p-4 text-left shadow-card transition-colors hover:border-foreground/25"
         >
-          <span :class="['flex size-9 items-center justify-center rounded-lg border', s.key === 'github' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/60 text-muted-foreground group-hover:text-foreground']">
+          <span :class="['flex size-9 items-center justify-center rounded-lg border', s.key === 'ai' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/60 text-muted-foreground group-hover:text-foreground']">
             <component :is="s.icon" class="size-4" />
           </span>
           <span class="text-sm font-medium">{{ s.title }}</span>
           <span class="text-xs text-muted-foreground">{{ s.text }}</span>
         </RouterLink>
       </div>
-      <p class="max-w-lg text-xs text-muted-foreground">
-        Working with an AI assistant? <RouterLink to="/connect" class="text-foreground underline-offset-4 hover:underline">Connect it</RouterLink> and say "deploy this folder to bitploy".
-      </p>
     </section>
 
     <section v-else class="grid gap-3" aria-label="Projects">

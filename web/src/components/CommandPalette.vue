@@ -140,7 +140,7 @@ const items = computed<Item[]>(() => {
           hint: a.git_source.branch,
           icon: RefreshCw,
           keywords: `deploy build redeploy commit ${a.slug} ${aliasOf(a)}`,
-          run: () => void runFor(a.slug, api.redeploy, 'Redeploy started'),
+          run: () => void runFor(a.slug, api.redeploy, 'Deployment started'),
           searchOnly: true,
         })
       }

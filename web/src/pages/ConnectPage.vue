@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { KeyRound } from 'lucide-vue-next'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { CircleCheck, KeyRound, LoaderCircle } from 'lucide-vue-next'
 import CodeBlock from '@/components/CodeBlock.vue'
+import RelativeTime from '@/components/RelativeTime.vue'
 import McpSnippets from '@/components/McpSnippets.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,20 @@ const qc = useQueryClient()
 const me = useMe()
 const mcpUrl = computed(() => `${me.data.value?.public_url ?? window.location.origin}/mcp`)
 const pasted = ref('')
+
+// The token on this page, found by its prefix, and whether an assistant used
+// it yet. The list is polled while it waits, so the page turns green by itself.
+const tokens = useQuery({
+  queryKey: keys.tokens,
+  queryFn: api.tokens,
+  enabled: computed(() => !!connectToken.value),
+  refetchInterval: (q) => {
+    const list = q.state.data
+    const t = list?.find((x) => !x.revoked_at && connectToken.value.startsWith(x.prefix))
+    return t?.last_used_at ? false : 5000
+  },
+})
+const current = computed(() => tokens.data.value?.find((t) => !t.revoked_at && connectToken.value.startsWith(t.prefix)))
 
 const create = useMutation({
   mutationFn: () => api.createToken({ name: 'Connect AI', scope: 'deploy' }),
@@ -89,6 +104,14 @@ function usePasted() {
         <CodeBlock :code="STARTER_PROMPT" what="Prompt copied" wrap />
         <p class="mt-3 text-sm text-muted-foreground">
           Your assistant sends the files, builds the app and gives you a link. You can watch it on the <RouterLink to="/" class="underline">Projects page</RouterLink>.
+        </p>
+        <p v-if="current?.last_used_at" class="mt-3 flex items-center gap-2 text-sm" role="status" data-testid="token-used">
+          <CircleCheck class="size-4 shrink-0 text-success" />
+          <span>It works: your assistant used this token <RelativeTime :date="current.last_used_at" />.</span>
+        </p>
+        <p v-else-if="current" class="mt-3 flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="token-waiting">
+          <LoaderCircle class="size-4 shrink-0 animate-spin" />
+          <span>Waiting for your assistant to use this token. This turns green once it has.</span>
         </p>
       </CardContent>
     </Card>

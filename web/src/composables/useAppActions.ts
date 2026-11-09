@@ -54,7 +54,7 @@ export function useAppActions(slug: MaybeRefOrGetter<string>) {
   return {
     cancel,
     restartService,
-    redeploy: action(api.redeploy, 'Redeploy started'),
+    redeploy: action(api.redeploy, 'Deployment started'),
     // Restart and start answer once the app runs again.
     restart: action(api.restart, 'App restarted'),
     stop: action(api.stop, 'App stopped', 'Its address shows a "stopped" page until you start it again.'),

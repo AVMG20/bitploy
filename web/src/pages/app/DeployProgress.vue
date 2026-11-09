@@ -108,7 +108,7 @@ watch(
 
       <div v-if="failed || cancelled" class="flex flex-wrap items-center gap-2">
         <Button :disabled="redeploy.isPending.value" @click="redeploy.mutate()">
-          <RefreshCw :class="redeploy.isPending.value && 'animate-spin'" /> {{ cancelled ? 'Build again' : 'Try again' }}
+          <RefreshCw :class="redeploy.isPending.value && 'animate-spin'" /> {{ cancelled ? 'Deploy again' : 'Try again' }}
         </Button>
         <CopyForAiButton v-if="app && failed" :app="app" :deployment="latest" variant="outline" />
       </div>

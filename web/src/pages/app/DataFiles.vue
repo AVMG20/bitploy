@@ -261,7 +261,7 @@ const remove = useMutation({
         v-else-if="notCreatedYet"
         :icon="Folder"
         title="The saved files folder is not there yet."
-        description="Restart or redeploy the app to create it."
+        description="Restart the app or deploy it again to create it."
       />
       <Skeleton v-else-if="!list" class="h-40 w-full" />
       <template v-else>

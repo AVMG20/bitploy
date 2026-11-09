@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
-import { ArrowUpCircle, ExternalLink, GitBranch, Globe, Hammer, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
+import { ArrowUpCircle, ExternalLink, GitBranch, Globe, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
@@ -220,7 +220,7 @@ const deleteOpen = ref(false)
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" class="w-60">
               <DropdownMenuItem v-if="primary !== 'git'" :disabled="busy || !canRebuild" @click="rebuild">
-                <Hammer /> Rebuild the current files
+                <RefreshCw /> Deploy again
               </DropdownMenuItem>
               <DropdownMenuItem v-if="canStop" :disabled="busy" @click="confirmStop = true"><Square /> Stop {{ thing }}</DropdownMenuItem>
               <DropdownMenuItem v-if="isWeb" @click="copyText(data.url, 'Link copied')"><Link /> Copy link</DropdownMenuItem>
