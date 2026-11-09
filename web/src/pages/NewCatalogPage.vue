@@ -173,7 +173,7 @@ const submit = form.handleSubmit((v) => {
 
     <template v-else>
       <PageHeader :title="entry.data.value.name" :description="entry.data.value.tagline">
-        <template #icon><CatalogMonogram :name="entry.data.value.name" size="lg" /></template>
+        <template #icon><CatalogMonogram :name="entry.data.value.name" :id="entry.data.value.id" size="lg" /></template>
       </PageHeader>
       <p v-if="bringsServices" class="-mt-3 text-sm text-muted-foreground" data-testid="catalog-services">
         Comes with

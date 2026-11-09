@@ -131,6 +131,21 @@ async function moveBy(id: string, step: number) {
   document.querySelector<HTMLElement>(`[data-project-link="${id}"]`)?.focus()
   await done
 }
+
+// The open project lists its apps; past MAX_SUB_APPS the rest collapse into "and N more",
+// but the app being viewed always stays in the list.
+const MAX_SUB_APPS = 5
+const expanded = (p: { id: string; apps: unknown[] }) => p.id === currentProject.value && p.apps.length > 1
+function subApps(p: (typeof list.value)[number]) {
+  const sorted = sortProjectApps(p.apps, templates.data.value ?? [])
+  if (sorted.length <= MAX_SUB_APPS) return { shown: sorted, hidden: 0 }
+  const head = sorted.slice(0, MAX_SUB_APPS)
+  if (currentSlug.value && !head.some((a) => a.slug === currentSlug.value)) {
+    const cur = sorted.find((a) => a.slug === currentSlug.value)
+    if (cur) head.splice(MAX_SUB_APPS - 1, 1, cur)
+  }
+  return { shown: head, hidden: sorted.length - MAX_SUB_APPS }
+}
 </script>
 
 <template>
@@ -194,18 +209,23 @@ async function moveBy(id: string, step: number) {
                   <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
                   <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->
-                  <small v-if="p.shared || p.apps.length > 1" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
+                  <small v-if="p.shared || (p.apps.length > 1 && !expanded(p))" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
                     <span v-if="p.shared" class="inline-flex" :title="`Shared by ${ownerName(p)}`"><Users class="size-3.5!" aria-hidden="true" /><span class="sr-only">Shared by {{ ownerName(p) }}</span></span>
-                    <template v-if="p.apps.length > 1">{{ p.apps.length }}</template>
+                    <template v-if="p.apps.length > 1 && !expanded(p)">{{ p.apps.length }}</template>
                   </small>
                 </RouterLink>
               </SidebarMenuButton>
-              <SidebarMenuSub v-if="p.id === currentProject && p.apps.length > 1">
-                <SidebarMenuSubItem v-for="a in sortProjectApps(p.apps, templates.data.value ?? [])" :key="a.id">
+              <SidebarMenuSub v-if="expanded(p)">
+                <SidebarMenuSubItem v-for="a in subApps(p).shown" :key="a.id">
                   <SidebarMenuSubButton as-child :is-active="a.slug === currentSlug">
                     <RouterLink :to="appRoute(a)" @click="setOpenMobile(false)">
                       <span class="truncate font-mono text-xs">{{ aliasOf(a) }}</span>
                     </RouterLink>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+                <SidebarMenuSubItem v-if="subApps(p).hidden">
+                  <SidebarMenuSubButton as-child class="text-muted-foreground">
+                    <RouterLink :to="projectRoute(p.id)" @click="setOpenMobile(false)"><span class="text-xs">and {{ subApps(p).hidden }} more</span></RouterLink>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
               </SidebarMenuSub>

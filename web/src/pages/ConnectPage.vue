@@ -55,7 +55,7 @@ function usePasted() {
 
 <template>
   <div class="grid gap-6">
-    <PageHeader title="Connect your AI assistant" description="Three steps, about two minutes. Then your assistant can put your code online for you." />
+    <PageHeader title="Connect your AI assistant" description="Your assistant can put your code online for you." />
 
     <Card>
       <CardHeader>

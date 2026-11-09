@@ -26,7 +26,7 @@ const catalog = useCatalog()
         :to="{ name: 'new-catalog', params: { catalogId: c.id }, query: name?.trim() || domain || project ? { name: name?.trim() || undefined, slug: slug || undefined, domain: domain || undefined, project: project || undefined } : undefined }"
         class="group flex min-w-0 items-center gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
       >
-        <CatalogMonogram :name="c.name" size="sm" />
+        <CatalogMonogram :name="c.name" :id="c.id" size="sm" />
         <span class="grid min-w-0 flex-1">
           <span class="truncate text-sm font-medium">{{ c.name }}</span>
           <span class="truncate text-xs text-muted-foreground" :title="c.tagline">{{ c.tagline }}</span>

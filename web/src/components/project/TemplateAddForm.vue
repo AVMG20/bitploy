@@ -157,7 +157,7 @@ const busy = computed(() => stage.value === 'adding')
   <div class="grid gap-5">
     <div class="flex items-start gap-3">
       <Button v-if="showBack && stage === 'form'" variant="ghost" size="icon" class="-ml-2 shrink-0" aria-label="Back to the list" @click="emit('back')"><ArrowLeft /></Button>
-      <ServiceIcon :role="role" />
+      <ServiceIcon :role="role" :logo="template.id" />
       <div class="min-w-0">
         <p class="font-medium">{{ template.name }} <span class="font-normal text-muted-foreground">{{ template.version }}</span></p>
         <p class="text-sm text-muted-foreground">{{ template.description }}</p>

@@ -26,10 +26,10 @@ const route = useRoute()
 const router = useRouter()
 const { list, project, tpls, fallback, apps, links, roleOf } = useProjectData(() => props.projectId)
 
-const LANES: { key: Lane; title: string; text: string }[] = [
-  { key: 'public', title: 'Open to visitors', text: 'Has a web address' },
-  { key: 'background', title: 'In the background', text: 'Reached only by the other apps' },
-  { key: 'data', title: 'Data', text: 'Keeps what your apps store' },
+const LANES: { key: Lane; title: string }[] = [
+  { key: 'public', title: 'Open to visitors' },
+  { key: 'background', title: 'In the background' },
+  { key: 'data', title: 'Data' },
 ]
 const lanes = computed(() =>
   LANES.map((l) => ({ ...l, apps: apps.value.filter((a) => roleOf(a).lane === l.key) })).filter((l) => l.apps.length),
@@ -293,7 +293,6 @@ const quickPicks = computed(() => {
         <section v-for="(l, i) in lanes" :key="l.key" :data-lane="i" :class="['grid content-start', layout.side && skips ? 'gap-8' : 'gap-3']" :aria-labelledby="`lane-${l.key}`">
           <div class="px-1">
             <h2 :id="`lane-${l.key}`" class="truncate text-xs font-medium text-foreground/80">{{ l.title }}</h2>
-            <p class="truncate text-[11px] text-muted-foreground">{{ l.text }}</p>
           </div>
           <!-- One under the other, a lane's cards fill the row. -->
           <div :class="layout.side ? 'contents' : 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-3'">

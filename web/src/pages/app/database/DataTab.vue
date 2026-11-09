@@ -30,8 +30,6 @@ import ValueDialog from './ValueDialog.vue'
 // The rows of one table or view. The parent gives this component a new key per
 // table, so paging, sorting, filters and the selection start fresh for each.
 const props = defineProps<{ source: DbSource; table: DbTable; /** Allow changes is off on the page: nothing can be changed from here. */ readOnly: boolean }>()
-// Asks the page to turn on Allow changes (it confirms first).
-const emit = defineEmits<{ 'allow-changes': [] }>()
 const qc = useQueryClient()
 
 const PAGE_SIZES = [50, 100, 250, 500, 1000]
@@ -526,11 +524,7 @@ const remove = useMutation({
       <span v-if="data.total !== null">{{ rowsLabel(data.total, narrowed) }}</span>
       <span v-else>Count not available</span>
       <Loader2 v-if="loading" class="size-3.5 animate-spin" />
-      <span v-if="source.write && readOnly" class="ml-auto inline-flex items-center gap-1" data-testid="db-read-only">
-        Read-only.
-        <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" @click="emit('allow-changes')">Allow changes</button>
-      </span>
-      <span v-else-if="canWrite && !hintDismissed && data.rows.length" class="ml-auto inline-flex items-center gap-1">
+      <span v-if="canWrite && !hintDismissed && data.rows.length" class="ml-auto inline-flex items-center gap-1">
         {{ touch ? 'Tick rows, then Edit' : 'Double-click a cell to edit' }}
         <button type="button" class="inline-flex size-4 items-center justify-center rounded hover:text-foreground" aria-label="Dismiss" @click="dismissHint"><X class="size-3" /></button>
       </span>

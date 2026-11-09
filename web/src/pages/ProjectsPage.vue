@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import { Bot, Boxes, Container, FileCode2, Github, Plus, SearchX, Upload } from 'lucide-vue-next'
-import EmptyState from '@/components/EmptyState.vue'
-import ListSearch from '@/components/ListSearch.vue'
+import { computed } from 'vue'
+import { RouterLink } from 'vue-router'
+import { Bot, Boxes, Container, FileCode2, Github, Plus, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
 import ProjectCard from '@/components/project/ProjectCard.vue'
@@ -11,14 +9,11 @@ import UsageCard from '@/components/UsageCard.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMe, useProjects, useServiceTemplates } from '@/composables/queries'
-import { useQueryParam } from '@/composables/useQueryParam'
 import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
-import { aliasOf } from '@/lib/projects'
-import { projectRoute } from '@/lib/appLinks'
+import { usageBar } from '@/lib/usage'
 
 // Home: every project as a card, with the apps inside it, in the order of
 // the sidebar (dragged there; a new project on top).
-const router = useRouter()
 const me = useMe()
 const projects = useProjects()
 const templates = useServiceTemplates()
@@ -54,18 +49,27 @@ const appsAlert = computed(() =>
 // A first visit with no projects: the cards would only show zeros.
 const showStats = computed(() => projects.isPending.value || all.value.length > 0)
 
-const search = useQueryParam('q', '')
 const all = computed(() => projects.data.value?.projects ?? [])
-const shown = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  const match = (p: (typeof all.value)[number]) =>
-    !q || p.name.toLowerCase().includes(q) || p.apps.some((a) => a.name.toLowerCase().includes(q) || aliasOf(a).includes(q) || a.url.toLowerCase().includes(q))
-  return all.value.filter(match)
+
+// Below sm the four cards would push the projects off the screen: one compact figure and bar each.
+const strip = computed(() => {
+  const u = usage.value
+  const q = quota.value
+  if (!u || !q) return []
+  const row = (label: string, used: number, allocated: number, max: number | null, text: string, alert: string) => ({
+    label,
+    text,
+    alert,
+    bar: usageBar(used, allocated, max),
+  })
+  return [
+    row('memory', u.memory_used_mb, u.memory_reserved_mb, unlimited.value ? null : q.memory_mb, `${formatMB(u.memory_used_mb)}${unlimited.value ? '' : ` / ${formatMB(q.memory_mb)}`}`, memAlert.value),
+    row('CPU', cpuFromPercent(u.cpu_now_percent) * 1000, u.cpu_reserved_millis, unlimited.value ? null : q.cpu_millis, `${formatCPU(cpuFromPercent(u.cpu_now_percent)).replace(' CPU', '')} / ${unlimited.value ? 'no limit' : formatCPUMillis(q.cpu_millis)}`, cpuAlert.value),
+    row('storage', storageUsed.value, storageTaken.value, q.volume_mb, `${formatMB(storageUsed.value)} / ${formatMB(q.volume_mb)}`, storageAlert.value),
+    row('apps running', u.apps_running, u.apps, q.apps, `${u.apps_running} / ${q.apps}`, appsAlert.value),
+  ]
 })
-const searchEl = ref<InstanceType<typeof ListSearch> | null>(null)
-function openOnly() {
-  if (shown.value.length === 1) void router.push(projectRoute(shown.value[0]!.id))
-}
+const stripTone = (level: string) => (level === 'ok' ? 'bg-primary' : level === 'warn' ? 'bg-warning' : 'bg-destructive')
 
 // Connecting an AI assistant first, then the same choices, names and words
 // as the first step of New project.
@@ -90,7 +94,18 @@ function sourceTo(key: string) {
     </PageHeader>
 
     <!-- Each card: in use right now (solid), allocated by the apps (light), and the most that may be allocated (the whole bar). -->
-    <div v-if="showStats" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div v-if="showStats && strip.length" class="grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border bg-card px-4 py-3 sm:hidden" data-testid="usage-strip">
+      <div v-for="r in strip" :key="r.label" class="grid min-w-0 gap-1">
+        <p class="truncate text-xs text-muted-foreground"><span class="font-medium text-foreground tabular-nums">{{ r.text }}</span> {{ r.label }}</p>
+        <div class="relative h-1 w-full overflow-hidden rounded-full bg-muted" role="img" :aria-label="`${r.label}: ${r.text}${r.alert ? '. ' + r.alert : ''}`">
+          <div :class="['absolute inset-y-0 left-0 rounded-full opacity-30', stripTone(r.bar.level)]" :style="{ width: `${r.bar.allocatedPct}%` }" />
+          <div :class="['absolute inset-y-0 left-0 rounded-full', stripTone(r.bar.level)]" :style="{ width: `${r.bar.usedPct}%` }" />
+        </div>
+      </div>
+      <p v-for="r in strip.filter((x) => x.alert)" :key="r.label" class="col-span-2 text-xs font-medium text-destructive" role="status">{{ r.alert }}</p>
+    </div>
+    <Skeleton v-else-if="showStats && me.isPending.value" class="h-24 rounded-xl sm:hidden" />
+    <div v-if="showStats" class="hidden grid-cols-2 gap-4 sm:grid lg:grid-cols-4">
       <UsageCard
         title="Memory"
         :loading="me.isPending.value"
@@ -173,22 +188,11 @@ function sourceTo(key: string) {
     </section>
 
     <section v-else class="grid gap-3" aria-label="Projects">
-      <div class="flex items-center gap-3">
-        <ListSearch ref="searchEl" v-model="search" class="flex-1 sm:max-w-sm" placeholder="Search projects and apps" label="Search projects" @enter="openOnly" />
-        <p class="ml-auto hidden shrink-0 text-xs text-muted-foreground sm:block" aria-live="polite">
-          <template v-if="search.trim()">{{ shown.length }} of {{ all.length }} projects</template>
-          <template v-else>{{ all.length }} {{ all.length === 1 ? 'project' : 'projects' }}</template>
-        </p>
-      </div>
+      <p class="text-xs text-muted-foreground">{{ all.length }} {{ all.length === 1 ? 'project' : 'projects' }}</p>
 
-      <EmptyState v-if="!shown.length" :icon="SearchX" :title="`No projects match “${search.trim()}”.`" description="Search looks at project names, app names and addresses.">
-        <Button variant="outline" @click="search = ''; searchEl?.focus()">Clear search</Button>
-      </EmptyState>
-
-      <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <ProjectCard v-for="p in shown" :key="p.id" :project="p" :templates="templates.data.value ?? []" />
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ProjectCard v-for="p in all" :key="p.id" :project="p" :templates="templates.data.value ?? []" />
         <RouterLink
-          v-if="!search.trim()"
           :to="{ name: 'new-app' }"
           class="grid min-h-48 place-items-center rounded-xl border border-dashed text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
         >

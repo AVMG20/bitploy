@@ -20,8 +20,6 @@ import ValueDialog from './ValueDialog.vue'
 // (the same switch as editing in the grid). The last queries are remembered for
 // this browser tab (sessionStorage), per app, so they do not outlive a logout.
 const props = defineProps<{ source: DbSource; /** A table name to start the first query with. */ startTable?: string; /** Allow changes is off on the page: the SQL runs read-only. */ readOnly: boolean }>()
-// Asks the page to turn on Allow changes (it confirms first).
-const emit = defineEmits<{ 'allow-changes': [] }>()
 const qc = useQueryClient()
 
 const MAX_SQL_BYTES = 64 * 1024
@@ -159,11 +157,7 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
       </div>
       <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <p v-if="!writable" class="text-xs text-muted-foreground">Read-only. Hidden (secret) columns come back as NULL here.</p>
-        <p v-else-if="!write" class="text-xs text-muted-foreground">
-          Runs read-only.
-          <button type="button" class="font-medium text-foreground underline-offset-4 hover:underline" @click="emit('allow-changes')">Allow changes</button>
-          to run INSERT, UPDATE or DELETE.
-        </p>
+        <p v-else-if="!write" class="text-xs text-muted-foreground">Runs read-only. Turn on Allow changes to run INSERT, UPDATE or DELETE.</p>
         <Badge v-else variant="destructive">Changes are allowed and saved at once</Badge>
         <div class="flex items-center gap-2">
           <span v-if="tooLong" class="text-xs text-destructive">Too long: SQL can be up to 64 KB.</span>
@@ -202,8 +196,7 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
       <TriangleAlert class="mt-0.5 size-4 shrink-0" />
       <div class="min-w-0 flex-1">
         <template v-if="failure.code === 'db_read_only'">
-          <span>This runs read-only, so nothing was changed.</span>
-          <Button v-if="writable && readOnly" class="ml-2 align-baseline" variant="outline" size="xs" @click="emit('allow-changes')">Allow changes</Button>
+          <span>This runs read-only, so nothing was changed.<template v-if="writable && readOnly"> Turn on Allow changes to run it.</template></span>
         </template>
         <template v-else>
           <span v-if="failure.statement && (failure.statement > 1 || results.length)" class="font-medium">Statement {{ failure.statement }}: </span>

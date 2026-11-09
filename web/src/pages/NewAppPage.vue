@@ -307,7 +307,7 @@ const TILES: Tile[] = [
   { id: 'upload', title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.', icon: Upload },
   { id: 'dockerfile', title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.', icon: FileCode },
   { id: 'image', title: 'Docker image', text: 'A published image, like nginx:1.27 or ghcr.io/owner/app.', icon: Container },
-  { id: 'ready-made', title: 'Ready-made', text: 'Well-known apps set up for you, like Uptime Kuma, Vaultwarden or PocketBase.', icon: LayoutGrid },
+  { id: 'ready-made', title: 'Ready-made', text: 'Uptime Kuma, Vaultwarden, PocketBase and more.', icon: LayoutGrid },
 ]
 const SOURCE_LABEL: Record<Source, string> = {
   github: 'From GitHub',
@@ -467,14 +467,14 @@ const submit = form.handleSubmit(run)
     <!-- Step 1: where the code is. -->
     <div v-else-if="!chosenSource" class="grid gap-3" data-testid="source-picker">
       <!-- GitHub connected: the repositories, right here. -->
-      <Card v-if="canPick" class="border-primary/30" data-testid="start-github">
+      <Card v-if="canPick" data-testid="start-github">
         <CardContent class="grid gap-4">
           <div class="flex items-start gap-3">
             <span class="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
             <span class="grid gap-0.5">
               <span class="flex items-center gap-2 text-base font-semibold">
                 Deploy from GitHub
-                <span class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">Connected</span>
+                <span class="inline-flex items-center gap-1.5 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success"><span class="size-1.5 rounded-full bg-success" aria-hidden="true" />Connected</span>
               </span>
               <span class="text-sm text-muted-foreground">Pick a repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.</span>
             </span>
