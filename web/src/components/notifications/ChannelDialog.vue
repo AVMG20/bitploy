@@ -22,6 +22,8 @@ const props = defineProps<{
   pushState: PushState
   /** The endpoint hash of this browser's subscription. */
   currentHash?: string | null
+  /** This browser has a channel already: it is not offered as a new one. */
+  browserAdded?: boolean
 }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ saved: [NotificationChannel] }>()
@@ -34,7 +36,12 @@ const errors = ref<{ name?: string; config?: string }>({})
 const busy = ref(false)
 
 const editing = computed(() => !!props.channel)
-const types = computed(() => props.options.types.map((t) => CHANNEL_TYPES[t.type]).filter(Boolean))
+const types = computed(() =>
+  props.options.types
+    .filter((t) => !(t.type === 'browser' && props.browserAdded))
+    .map((t) => CHANNEL_TYPES[t.type])
+    .filter(Boolean),
+)
 const ui = computed(() => CHANNEL_TYPES[type.value])
 const current = computed(() => !!props.channel && props.channel.config.endpoint_hash === props.currentHash && !!props.currentHash)
 const browserBlocked = computed(() => type.value === 'browser' && !editing.value && props.pushState !== 'default' && props.pushState !== 'granted')
@@ -113,7 +120,7 @@ const saveLabel = computed(() => {
         <DialogDescription>Pick where messages go and which events send one.</DialogDescription>
       </DialogHeader>
       <form id="notification-channel" class="grid gap-5" novalidate @submit.prevent="save">
-        <div v-if="!editing" class="grid gap-2" role="radiogroup" aria-label="Channel type">
+        <div v-if="!editing && types.length > 1" class="grid gap-2" role="radiogroup" aria-label="Channel type">
           <button
             v-for="t in types"
             :key="t.type"

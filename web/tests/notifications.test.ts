@@ -105,7 +105,7 @@ test('emergency marks per channel type', () => {
 
 test('channel target lines show no secrets', () => {
   assert.equal(channelTarget({ type: 'discord', config: { webhook_id: '1122', webhook_url_set: true } }), 'Webhook 1122')
-  assert.equal(channelTarget({ type: 'browser', config: { push_service: 'Google', endpoint_hash: 'ab' } }), "Browser, through Google's push service")
+  assert.equal(channelTarget({ type: 'browser', config: { push_service: 'Google', endpoint_hash: 'ab' } }), '')
 })
 
 test('the channel of this browser is found by endpoint hash', () => {

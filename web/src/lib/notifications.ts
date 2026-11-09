@@ -89,10 +89,9 @@ export function emergencyMark(type: NotificationChannelType): string {
   return type === 'discord' ? 'pings @everyone' : 'stays on screen'
 }
 
-/** One line about where a channel's messages go. */
+/** Where a channel's messages go, when its name and type do not say it; else ''. */
 export function channelTarget(c: Pick<NotificationChannel, 'type' | 'config'>): string {
-  if (c.type === 'discord') return c.config.webhook_id ? `Webhook ${c.config.webhook_id}` : 'Discord webhook'
-  if (c.type === 'browser') return c.config.push_service ? `Browser, through ${c.config.push_service}'s push service` : 'Browser'
+  if (c.type === 'discord') return c.config.webhook_id ? `Webhook ${c.config.webhook_id}` : ''
   return ''
 }
 

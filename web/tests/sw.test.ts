@@ -88,14 +88,14 @@ test('a push without usable data still shows a notification', async () => {
   )
 })
 
-test('a link to another site becomes the dashboard home', async () => {
+test('a link to another origin keeps its path on the dashboard', async () => {
   const sw = load()
-  await push(sw, { title: 't', url: 'https://evil.example/phish' })
+  await push(sw, { title: 't', url: 'https://evil.example/phish?x=1' })
   await push(sw, { title: 't', url: 'javascript:alert(1)' })
   await push(sw, { title: 't', url: '/apps/a1' })
   assert.deepEqual(
     sw.shown.map((n) => n.options.data.url),
-    [`${ORIGIN}/`, `${ORIGIN}/`, `${ORIGIN}/apps/a1`],
+    [`${ORIGIN}/phish?x=1`, `${ORIGIN}/`, `${ORIGIN}/apps/a1`],
   )
 })
 
@@ -117,6 +117,6 @@ test('a click focuses an open dashboard tab and goes to the link', async () => {
 test('a click opens a new window when no dashboard tab is open', async () => {
   const other: FakeClient = { url: 'https://other.example/', focus: async () => other, navigate: async () => {} }
   const sw = load([other])
-  await click(sw, 'https://evil.example/')
-  assert.deepEqual(sw.opened, [`${ORIGIN}/`])
+  await click(sw, 'https://evil.example//other.example/x')
+  assert.deepEqual(sw.opened, [`${ORIGIN}/other.example/x`])
 })

@@ -1566,7 +1566,7 @@ const notificationChannels: (NotificationChannel & { endpoint?: string })[] = [
     id: 'nch_mock2', name: '#ops-alerts', type: 'discord', enabled: false,
     events: ['deployment.failed', 'backup.failed', 'app.crashed'],
     config: { webhook_id: '1093311552400719872', webhook_url_set: true },
-    last_success_at: ago(60 * 24 * 2), last_error: 'Turned off. Discord says this webhook does not exist (Unknown Webhook). It was deleted or its URL changed: make a new webhook and paste its URL.', last_error_at: ago(60 * 5),
+    last_success_at: ago(60 * 24 * 2), last_error: 'Turned off: Discord says this webhook no longer exists. Make a new webhook in Discord and paste its URL under Edit.', last_error_at: ago(60 * 5),
     created_at: ago(60 * 24 * 10), updated_at: ago(60 * 5),
   },
 ]
@@ -1670,9 +1670,11 @@ function notificationRoutes(method: string, parts: string[], body: Record<string
   if (method === 'POST' && parts[2] === 'test') {
     // A webhook id starting with 1093 plays a deleted webhook.
     if (c.type === 'discord' && String(c.config.webhook_id).startsWith('1093')) {
-      c.last_error = 'Discord says this webhook does not exist (Unknown Webhook). It was deleted or its URL changed: make a new webhook and paste its URL.'
+      const why = 'Discord says this webhook no longer exists. Make a new webhook in Discord and paste its URL under Edit.'
+      c.enabled = false
+      c.last_error = `Turned off: ${why}`
       c.last_error_at = new Date().toISOString()
-      throw new HttpError(422, 'notification_test_failed', c.last_error, "Check the channel's settings and send another test.")
+      throw new HttpError(422, 'notification_test_failed', why, "Check the channel's settings and send another test.")
     }
     c.last_success_at = new Date().toISOString()
     c.last_error = ''

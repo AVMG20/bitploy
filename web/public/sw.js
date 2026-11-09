@@ -6,11 +6,14 @@
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
-// Only pages of this dashboard are opened from a notification.
+// Only pages of this dashboard are opened from a notification: a link to
+// another origin (the server's public URL when the dashboard is opened at
+// another address) keeps its path on this origin.
 function sameOrigin(url) {
   try {
     const u = new URL(url || '/', self.location.origin)
-    return u.origin === self.location.origin ? u.href : self.location.origin + '/'
+    if (u.origin === self.location.origin) return u.href
+    return u.protocol === 'https:' || u.protocol === 'http:' ? self.location.origin + u.pathname.replace(/^\/+/, '/') + u.search : self.location.origin + '/'
   } catch {
     return self.location.origin + '/'
   }
@@ -30,7 +33,7 @@ self.addEventListener('push', (event) => {
       tag: typeof data.tag === 'string' && data.tag ? data.tag : 'bitploy',
       renotify: true,
       requireInteraction: data.requireInteraction === true,
-      icon: '/favicon.svg',
+      icon: '/notification-icon.png', // not the SVG favicon: Chrome shows no SVG icon in a notification
       data: { url: sameOrigin(data.url) },
     }),
   )

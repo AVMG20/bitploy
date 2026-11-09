@@ -14,7 +14,6 @@ const blocked = computed(() => pushBlockedText(props.pushState, browserName(navi
     <template v-if="existing">
       <p v-if="current">This is the browser you are using now.</p>
       <p v-else class="text-muted-foreground">Another browser or device. To change which browser gets these, open bitploy there.</p>
-      <p v-if="existing.push_service" class="text-muted-foreground">Delivered through {{ existing.push_service }}'s push service.</p>
     </template>
     <template v-else>
       <p v-if="error" class="text-destructive">{{ error }}</p>

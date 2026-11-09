@@ -139,13 +139,13 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
         <div class="grid min-w-0 flex-1 gap-0.5">
           <p class="text-sm font-medium">This browser</p>
           <p v-if="thisBrowser" class="text-sm text-muted-foreground">
-            {{ thisBrowser.enabled ? `Gets notifications as ${thisBrowser.name}.` : `${thisBrowser.name} is turned off.` }}
+            {{ thisBrowser.enabled ? `On, as ${thisBrowser.name}. Logging out turns them off here.` : `${thisBrowser.name} is turned off.` }}
           </p>
           <p v-else-if="blockedText" class="text-sm text-muted-foreground">{{ blockedText }}</p>
           <p v-else class="text-sm text-muted-foreground">Get notifications on this device, also when no bitploy tab is open.</p>
         </div>
-        <Button v-if="!thisBrowser && !blockedText" size="sm" :disabled="turnOn.isPending.value" @click="turnOn.mutate()">
-          <Bell /> {{ turnOn.isPending.value ? 'Turning on...' : 'Turn on notifications in this browser' }}
+        <Button v-if="!thisBrowser && !blockedText" size="sm" variant="outline" :disabled="turnOn.isPending.value" @click="turnOn.mutate()">
+          <Bell /> {{ turnOn.isPending.value ? 'Turning on...' : 'Turn on' }}
         </Button>
       </div>
 
@@ -169,10 +169,10 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
                 <Badge v-if="thisBrowser?.id === c.id" variant="outline" class="border-primary/40 text-primary">This browser</Badge>
               </div>
               <p class="text-sm text-muted-foreground">
-                {{ channelTarget(c) }} · {{ c.events.length ? eventCount(c) : 'No events' }}
+                {{ [channelTarget(c), c.events.length ? eventCount(c) : 'No events'].filter(Boolean).join(' · ') }}
               </p>
               <p v-if="channelHealth(c) === 'failing'" class="text-sm text-destructive">
-                Last message failed <RelativeTime :date="c.last_error_at" />: {{ c.last_error }}
+                Last message failed <RelativeTime :date="c.last_error_at" />. {{ c.last_error }}
               </p>
               <p v-else-if="channelHealth(c) === 'ok'" class="text-sm text-muted-foreground">Last message sent <RelativeTime :date="c.last_success_at" /></p>
               <p v-else class="text-sm text-muted-foreground">No messages sent yet</p>
@@ -203,6 +203,7 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
       :start-type="startType"
       :push-state="pushState"
       :current-hash="currentHash"
+      :browser-added="!!thisBrowser"
       @saved="onSaved"
     />
 
