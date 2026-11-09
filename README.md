@@ -153,6 +153,8 @@ sudo deploy/probe-test.sh     # must end with "All checks passed."
 
 Open your domain, log in, and invite colleagues from the Admin page. Under Connect AI they find the MCP setup for their assistant.
 
+Admin → Signups decides who can create an account: only people an admin invites, also people a project owner invites (the default), or anyone. It also sets the limits new accounts get (apps, memory, CPU, storage, deploys per hour, domains per app) and whether an account made with a project invite can deploy apps of its own. Older versions read this from `BITPLOY_SIGNUP`; that variable is gone, so a server that had `BITPLOY_SIGNUP=open` needs "Anyone can sign up" picked there once.
+
 **Back up `BITPLOY_SECRET_KEY` now, somewhere that is not this server** (a password manager). It encrypts every saved env var and the GitHub App's credentials. Without it a restored database is readable, but those secrets are gone for good.
 
 ```bash
@@ -193,7 +195,6 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials. `openssl rand -base64 32` |
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files, backups |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account (written into Traefik's config by `install.sh`) |
-| `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
 | `BITPLOY_ADMIN_PASSWORD` | — | Password for `bitploy admin create-user` without a prompt (scripts only) |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
 | `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `6g` | Limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network) |

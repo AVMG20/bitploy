@@ -6,7 +6,7 @@ Defaults picked where the brief was open:
 
 | Decision | Default in this prompt | Why |
 | --- | --- | --- |
-| Signup | Invite-only now; `BITPLOY_SIGNUP=open` later | Colleagues first; may go public, so public is a config switch, not a rewrite |
+| Signup | Invite-only by default; an admin can open it in Admin → Signups | Colleagues first; may go public, so public is a setting, not a rewrite |
 | Database | One SQLite file (WAL mode) | One server, nothing to operate |
 | Reverse proxy | Traefik v3; bitploy writes the routes as files | Zero-downtime swaps, routing owned by bitploy |
 | Control plane | `bitploy.nl` serves dashboard, `/api/v1` and `/mcp` | Apps live on `*.bitploy.nl` |
@@ -103,9 +103,10 @@ A user has two kinds of credential: a session cookie for the dashboard and beare
 
 **Users and signup**
 
-- Invite-only. The first admin is created with `bitploy admin create-user --email you@x.nl --admin`. Admins create single-use invite links (7-day expiry) in the dashboard; the invitee picks a name and password.
+- Invite-only by default. The first admin is created with `bitploy admin create-user --email you@x.nl --admin`. Admins create single-use invite links (7-day expiry) in the dashboard; the invitee picks a name and password.
+- Admin → Signups (server settings, `GET` `PATCH /api/v1/admin/settings`) decides who can create an account: `admin_invites` (only with an admin's invite link; a project invite then works only for people who already have an account), `any_invite` (the default: a project invite can also create one) or `open` (anyone, at `/invite/open`). It also holds the limits every new account gets (default 10 apps, 2 GB memory, 2 CPUs, 25 GB storage, 20 deploys per hour, 5 domains per app; at most what the server has) and whether an account made with a project invite may deploy apps of its own (default on; off gives it 0 apps, memory and CPU, and it works in the shared project on the owner's quota). Existing accounts keep their limits. Each account records how it joined (`setup`, `admin_invite`, `project_invite`, `open`), shown in Admin → People.
 - Roles: `user` and `admin`. Admins manage users, invites and quotas, can read every app, and can stop any app.
-- Project members: the owner of a project shares it with single-use invite links (7-day expiry, optionally locked to one email address; bitploy sends no email, the owner passes the link on) at `/join/<code>`. A member sees the project and its apps and can do on them what the owner's deploy token can; only the owner renames or deletes the project and manages its members. Someone without an account can sign up through a project invite, also when signup is `invite`. Details under Projects.
+- Project members: the owner of a project shares it with single-use invite links (7-day expiry, optionally locked to one email address; bitploy sends no email, the owner passes the link on) at `/join/<code>`. A member sees the project and its apps and can do on them what the owner's deploy token can; only the owner renames or deletes the project and manages its members. Someone without an account can sign up through a project invite unless Admin → Signups allows only admin invites. Details under Projects.
 - Passwords: argon2id at or above the OWASP minimum parameters, at least 10 characters. Failed logins are limited to 5 per 15 minutes per email and IP.
 
 **Sessions (dashboard)**
@@ -427,7 +428,8 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET` `POST /api/v1/projects`, `GET` `PATCH` `DELETE /api/v1/projects/{id}` | `list_projects`, `create_project`, `get_project`; rename; delete with `?confirm=<name>` (409 `project_not_empty` unless `with_apps=true`). `{id}` is an id or a name |
 | `GET /api/v1/projects/{id}/members`, `DELETE …/members/{user}` | The owner and members of a project (any scope); the owner removes a member, `me` leaves (session only) |
 | `GET` `POST /api/v1/projects/{id}/invites`, `DELETE …/invites/{invite}` | Invite links to a project: list the open ones, make one (`{email?}`, the `url` once), revoke (owner, session only) |
-| `GET /api/v1/project-invites/{code}`, `POST …/accept`, `POST …/signup` | The invite page: what the link is for (no login), join as the logged-in user (session), or sign up and join (no login; whatever `BITPLOY_SIGNUP` says) |
+| `GET /api/v1/project-invites/{code}`, `POST …/accept`, `POST …/signup` | The invite page: what the link is for and whether it can create an account (`signup`, no login), join as the logged-in user (session), or sign up and join (no login; 403 `project_invite_signup_off` while only admin invites create accounts) |
+| `GET /api/v1/signup-rules` | No login: `{open_signup, project_invite_signup}` for the login, invite and Members pages |
 | `GET /api/v1/service-templates` | `list_service_templates` (any scope) |
 | `POST /api/v1/projects/{id}/services` | `add_service` (`{template, name?, connect_to?, memory_mb?, volume_mb?}`; 202 with the App; accepts `Idempotency-Key`) |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
@@ -452,6 +454,8 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET` `POST /api/v1/apps/{app}/backups`, `PUT …/backup-settings` | `list_backups`, `create_backup`, `set_backup_schedule` (restore, download and upload are dashboard and REST only) |
 | `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` with `write: false`, `write_db` with `write: true` |
 | `/api/v1/admin/users`, `/invites`, `/quotas`, `/server`, `/server/metrics` | Admin only |
+| `GET` `PATCH /api/v1/admin/settings` | Who can create an account and the limits of new accounts (admin, session) |
+| `GET /api/v1/admin/project-invites`, `DELETE …/{id}` | Every user's open project invites; revoke any of them (admin, session) |
 | `GET /api/v1/admin/db`, `POST /api/v1/admin/db/rows`, `POST /api/v1/admin/db/sql` | Admin only, dashboard session only: a read-only view of bitploy's own database with every secret hidden (see Admin database viewer). No MCP tool |
 
 Serve the generated spec at `/api/v1/openapi.json` and a read-only reference page at `/docs/api`.
@@ -595,7 +599,7 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
 | Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos), notification channels (Discord webhooks and browsers, each with the events it gets and whether its last message went out) | Change, connect or disconnect GitHub, sign out everywhere; add, edit, test, turn off or delete a notification channel, turn on notifications in this browser |
-| Admin | Users with app count, usage and quota; invites; server CPU, RAM, disk, Docker disk use, build queue; the public port range and the open ports; a read-only view of bitploy's own database (secrets hidden) | Invite, edit quota, disable user, stop any app, close any public port |
+| Admin | Users with app count, usage, quota and how they joined; invites, and every user's open project invites; signups (who can create an account, limits for new accounts); server CPU, RAM, disk, Docker disk use, build queue; the public port range and the open ports; a read-only view of bitploy's own database (secrets hidden) | Invite, revoke any project invite, change signup settings, edit quota, disable user, stop any app, close any public port |
 
 **Connect AI page** — the page noobs will use most. Prefill the token they just created, and verify each snippet against the client's current docs when you build it:
 
@@ -735,7 +739,6 @@ In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443
 | `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials |
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account |
-| `BITPLOY_SIGNUP` | `invite` | `invite` or `open` |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
 | `BITPLOY_PUBLIC_PORTS` | `30000-30099` | Ports users may open to connect to a database for debugging (Public ports); at most 1000, 1024 and up, not 8080 or 8081. Empty or `off`: none. firewall.sh reads it too |
 | `BITPLOY_PUBLIC_PORTS_PER_USER` | `3` | Open public ports per user; 0: nobody can open one |
