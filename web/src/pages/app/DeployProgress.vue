@@ -2,10 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Check, LoaderCircle, RefreshCw } from 'lucide-vue-next'
+import { ArrowRight, Check, LoaderCircle, RefreshCw, ScrollText } from 'lucide-vue-next'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import LogLines from '@/components/LogLines.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,7 +12,6 @@ import { keys, liveMs } from '@/composables/queries'
 import { liveBuildLogs } from '@/composables/useEvents'
 import { useAppActions } from '@/composables/useAppActions'
 import { api } from '@/lib/api'
-import { deploymentStateInfo } from '@/lib/format'
 import type { App } from '@/lib/types'
 import DeployFailure from './DeployFailure.vue'
 
@@ -79,9 +77,8 @@ watch(
   <Skeleton v-if="list.isPending.value" class="h-48 w-full" />
   <slot v-else-if="!latest" />
   <Card v-else>
-    <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
+    <CardHeader>
       <CardTitle>{{ failed ? 'The deploy failed' : cancelled ? 'The build was cancelled' : latest.state === 'running' ? 'Your app is online' : 'Putting your app online' }}</CardTitle>
-      <StatusBadge v-bind="deploymentStateInfo(latest.state, app?.status)" />
     </CardHeader>
     <CardContent class="grid gap-4">
       <ol v-if="!failed && !cancelled" class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4 lg:grid-cols-7" aria-label="Deploy steps">
@@ -113,10 +110,14 @@ watch(
         <CopyForAiButton v-if="app && failed" :app="app" :deployment="latest" variant="outline" />
       </div>
 
-      <p class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <RouterLink :to="{ name: 'app-logs', params: { slug }, query: { kind: 'build' } }" class="font-medium text-foreground hover:underline">Open the full build log</RouterLink>
-        <RouterLink :to="{ name: 'app-deployments', params: { slug } }" class="font-medium text-foreground hover:underline">All deployments</RouterLink>
-      </p>
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <Button as-child size="sm" variant="outline">
+          <RouterLink :to="{ name: 'app-logs', params: { slug }, query: { kind: 'build' } }"><ScrollText /> Open the full build log</RouterLink>
+        </Button>
+        <Button as-child size="sm" variant="outline">
+          <RouterLink :to="{ name: 'app-deployments', params: { slug } }">All deployments <ArrowRight /></RouterLink>
+        </Button>
+      </div>
     </CardContent>
   </Card>
 </template>

@@ -106,6 +106,11 @@ function stateOf(d: Deployment) {
   if (d.state === 'running' && current && d.id !== current) return deploymentStateInfo('superseded')
   return deploymentStateInfo(d.state, app.data.value?.status)
 }
+// A failed deploy newer than the version the app runs: that version is still live.
+function liveKept(d: Deployment) {
+  const a = app.data.value
+  return d.state === 'failed' && a?.status === 'running' && !!a.current_deployment && d.seq > a.current_deployment.seq
+}
 function serviceState(d: Deployment, s: DeploymentService) {
   if (s.reused) return { label: 'Unchanged', tone: 'muted' as const }
   return deploymentStateInfo(s.state ?? (s.error ? 'failed' : d.state))
@@ -152,12 +157,14 @@ function serviceState(d: Deployment, s: DeploymentService) {
             <span v-if="d.commit_message" class="ml-1.5">{{ d.commit_message }}</span>
           </span>
         </div>
-        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi" :slug="slug">
-          <details v-if="d.log_tail?.length" class="mt-2">
-            <summary class="cursor-pointer text-xs underline">Show the last log lines</summary>
+        <DeployFailure v-if="d.error && d.state !== 'cancelled'" :error="d.error" :log-tail="d.log_tail" :multi="multi" :slug="slug" :live-kept="liveKept(d)">
+          <template #actions>
+            <CopyForAiButton v-if="d.state === 'failed' && app.data.value" :app="app.data.value" :deployment="d" />
+          </template>
+          <details v-if="d.log_tail?.length" class="mt-3">
+            <summary class="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Show the last log lines</summary>
             <div class="mt-2 max-h-60 overflow-auto rounded bg-background/60 p-2 font-mono text-xs leading-relaxed text-foreground"><LogLines :lines="d.log_tail" /></div>
           </details>
-          <CopyForAiButton v-if="d.state === 'failed' && app.data.value" class="mt-3" :app="app.data.value" :deployment="d" />
         </DeployFailure>
         <details v-if="multi && d.services?.length" class="group rounded-lg border" :open="d.services.some((s) => !!s.error) || undefined">
           <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">

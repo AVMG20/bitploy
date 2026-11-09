@@ -176,7 +176,7 @@ const deleteOpen = ref(false)
           </span>
           <span v-else>Runs in the background, no web address</span>
           <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
-          <span v-else>Not deployed yet</span>
+          <span v-else-if="data.status !== 'deploying'">Not deployed yet</span>
           <template v-if="data.git_source">
             <span class="inline-flex items-center gap-1.5">
               <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
