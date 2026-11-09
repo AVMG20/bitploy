@@ -117,7 +117,7 @@ function readyMade() {
               class="group flex items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:border-foreground/25 hover:bg-accent/40"
               @click="picked = t"
             >
-              <ServiceIcon :role="templateRole(t)" size="sm" class="mt-0.5" />
+              <ServiceIcon :role="templateRole(t)" :logo="t.id" size="sm" class="mt-0.5" />
               <span class="min-w-0 flex-1">
                 <span class="flex items-baseline gap-1.5 text-sm font-medium">{{ t.name }} <span class="text-xs font-normal text-muted-foreground">{{ t.version }}</span></span>
                 <span class="block text-xs text-muted-foreground">{{ t.description }}</span>

@@ -234,10 +234,10 @@ const hasRedacted = computed(() => tables.value.some((t) => t.columns.some((c) =
 
         <template v-if="tab !== 'sql'">
           <EmptyState v-if="!table" :icon="Database" title="This database has no tables." :description="fixedReadOnly ? undefined : 'Create one in the SQL tab.'" />
-          <DataTab v-else-if="tab === 'data'" :key="`${path}:${table.name}`" :source="source" :table="table" :read-only="readOnly" @allow-changes="setAllow(true)" />
+          <DataTab v-else-if="tab === 'data'" :key="`${path}:${table.name}`" :source="source" :table="table" :read-only="readOnly" />
           <StructureTab v-else :table="table" />
         </template>
-        <SqlConsole v-show="tab === 'sql'" :source="source" :start-table="table?.name" :read-only="readOnly" @allow-changes="setAllow(true)" />
+        <SqlConsole v-show="tab === 'sql'" :source="source" :start-table="table?.name" :read-only="readOnly" />
       </div>
     </div>
 

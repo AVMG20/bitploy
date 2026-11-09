@@ -26,7 +26,7 @@ const tab = computed<AdminTab>(() => (route.query.code && !route.query.tab ? 'gi
 
 <template>
   <div class="grid gap-5">
-    <PageHeader title="Admin" description="People, invites, signups, GitHub and the health of the server." />
+    <PageHeader title="Admin" />
     <AdminTabBar :tab="tab">
       <TabsContent value="users" class="pt-6"><AdminUsers /></TabsContent>
       <TabsContent value="invites" class="pt-6"><AdminInvites /></TabsContent>
