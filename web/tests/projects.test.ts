@@ -280,12 +280,12 @@ test('dependentsFromError reads details.dependents of app_in_use', () => {
 })
 
 test('groupTemplates groups by category and keeps unknown ones', () => {
-  const other: ServiceTemplate = { ...POSTGRES, id: 'minio', name: 'MinIO', category: 'storage' }
+  const other: ServiceTemplate = { ...POSTGRES, id: 'queue', name: 'Queue', category: 'monitoring' }
   assert.deepEqual(groupTemplates([REDIS, POSTGRES, MEILI, other]).map((g) => [g.key, g.items.map((t) => t.id)]), [
     ['database', ['postgres']],
     ['cache', ['redis']],
     ['search', ['meilisearch']],
-    ['other', ['minio']],
+    ['other', ['queue']],
   ])
 })
 
