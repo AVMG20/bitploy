@@ -594,7 +594,7 @@ Layout: shadcn-vue `Sidebar` with Apps, Tokens, Connect AI, Settings and (admins
 | App → Settings | Source (linked repo, branch, folder, deploy on every push), password protection (switch, username, write-only password), public port for apps without a web address (switch, close after 1 h / 24 h / never, allow list with "only my IP", address and connection URL with copy, password hidden until Show), env vars with their values (a hidden one masked), memory and CPU within quota (fixed for a static site) | Edit; delete app (type the slug to confirm) |
 | Tokens | Name, prefix, scope, created, last used, expiry | Create (value shown once), revoke |
 | Connect AI | Copy-paste setup per client, plus a starter prompt | Copy |
-| Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos) | Change, connect or disconnect GitHub, sign out everywhere |
+| Settings | Profile, password, active sessions, GitHub (connected accounts, choose repos), notification channels (Discord webhooks and browsers, each with the events it gets and whether its last message went out) | Change, connect or disconnect GitHub, sign out everywhere; add, edit, test, turn off or delete a notification channel, turn on notifications in this browser |
 | Admin | Users with app count, usage and quota; invites; server CPU, RAM, disk, Docker disk use, build queue; the public port range and the open ports; a read-only view of bitploy's own database (secrets hidden) | Invite, edit quota, disable user, stop any app, close any public port |
 
 **Connect AI page** — the page noobs will use most. Prefill the token they just created, and verify each snippet against the client's current docs when you build it:

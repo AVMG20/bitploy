@@ -20,7 +20,7 @@ and one audit round covering a code review, the MCP flows and a beginner UI pass
 
 - No health status based on 5xx rates or dependencies.
 - No moving apps between projects. It was removed; users redeploy.
-- Notifications: not yet.
+- More notification channels (Slack, email, ntfy): later. Each is a new `notify.Sender` and a config form.
 - The health check timeout stays fixed at 60 s.
 
 ## Known limits
