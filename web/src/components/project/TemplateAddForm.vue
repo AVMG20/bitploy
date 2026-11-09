@@ -290,7 +290,7 @@ const busy = computed(() => stage.value === 'adding')
         </li>
         <li class="flex items-start gap-3 text-sm">
           <span
-            :class="cn('mt-0.5 flex size-5 items-center justify-center rounded-full', state === 'running' ? 'bg-success/15 text-success' : state === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-info/15 text-info')"
+            :class="cn('mt-0.5 flex size-5 items-center justify-center rounded-full', state === 'running' ? 'bg-success/15 text-success' : state === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-muted text-foreground')"
           >
             <Check v-if="state === 'running'" class="size-3.5" />
             <X v-else-if="state === 'failed'" class="size-3.5" />

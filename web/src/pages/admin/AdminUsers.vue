@@ -8,8 +8,10 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { MoreHorizontal } from 'lucide-vue-next'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -146,7 +148,9 @@ const setStatus = useMutation({
             <TableHead>Person</TableHead>
             <TableHead>Apps</TableHead>
             <TableHead>Memory for apps</TableHead>
-            <TableHead class="hidden md:table-cell">This month</TableHead>
+            <TableHead class="hidden text-right md:table-cell">Deploys</TableHead>
+            <TableHead class="hidden text-right md:table-cell">Build min</TableHead>
+            <TableHead class="hidden text-right md:table-cell">Running h</TableHead>
             <TableHead class="w-0" />
           </TableRow>
         </TableHeader>
@@ -166,18 +170,23 @@ const setStatus = useMutation({
               <span class="whitespace-nowrap">{{ formatMB(u.usage.memory_reserved_mb) }}<template v-if="!u.quota.overallocate"> / {{ formatMB(u.quota.memory_mb) }}</template></span>
               <Badge v-if="u.quota.overallocate" variant="secondary" class="ml-1.5" title="Memory and CPU are not checked for this person: not against a limit and not against what the server has free.">No limit</Badge>
             </TableCell>
-            <TableCell class="hidden text-xs text-muted-foreground md:table-cell">
-              {{ u.usage.deploys_month }} deploys<br />
-              {{ Math.round(u.usage.build_minutes_month) }} build min<br />
-              {{ Math.round(u.usage.running_hours_month) }} running h
-            </TableCell>
+            <TableCell class="hidden text-right tabular-nums md:table-cell">{{ u.usage.deploys_month }}</TableCell>
+            <TableCell class="hidden text-right tabular-nums md:table-cell">{{ Math.round(u.usage.build_minutes_month) }}</TableCell>
+            <TableCell class="hidden text-right tabular-nums md:table-cell">{{ Math.round(u.usage.running_hours_month) }}</TableCell>
             <TableCell>
-              <div class="flex gap-1">
+              <div class="flex items-center justify-end gap-1">
                 <UserDomainsSelect :user="u" />
-                <Button size="sm" variant="outline" :aria-label="`Limits for ${u.name}`" @click="edit(u)">Limits</Button>
-                <Button v-if="u.id !== self?.id" size="sm" variant="ghost" :class="u.status !== 'suspended' && 'text-destructive'" :aria-label="`${u.status === 'suspended' ? 'Reactivate' : 'Suspend'} ${u.name}`" @click="toggling = u">
-                  {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger as-child>
+                    <Button size="icon-sm" variant="ghost" class="text-muted-foreground" :aria-label="`Actions for ${u.name}`"><MoreHorizontal /></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem @select="edit(u)">Limits</DropdownMenuItem>
+                    <DropdownMenuItem v-if="u.id !== self?.id" :variant="u.status === 'suspended' ? 'default' : 'destructive'" @select="toggling = u">
+                      {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </TableCell>
           </TableRow>

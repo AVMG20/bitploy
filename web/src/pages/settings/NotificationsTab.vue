@@ -18,6 +18,7 @@ import { api } from '@/lib/api'
 import { browserName, channelHealth, channelTarget, currentBrowserChannel, defaultEvents, pushBlockedText, type PushState } from '@/lib/notifications'
 import { currentEndpointHash, PushDenied, pushState as readPushState, subscribe, unsubscribe } from '@/lib/push'
 import { toastError, toastOk } from '@/lib/notify'
+import { quietDestructive } from '@/lib/utils'
 import type { NotificationChannel, NotificationChannelType } from '@/lib/types'
 
 const qc = useQueryClient()
@@ -189,7 +190,7 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
               <Send /> {{ testing === c.id ? 'Sending...' : 'Send test message' }}
             </Button>
             <Button size="sm" variant="ghost" @click="edit(c)"><Pencil /> Edit</Button>
-            <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Delete ${c.name}`" @click="toDelete = c"><Trash2 /> Delete</Button>
+            <Button size="sm" variant="ghost" :class="quietDestructive" :aria-label="`Delete ${c.name}`" @click="toDelete = c"><Trash2 /> Delete</Button>
           </div>
         </li>
       </ul>

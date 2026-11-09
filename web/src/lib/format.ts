@@ -1,16 +1,16 @@
 import type { App, AppStatus, Deployment, DeploymentState, DomainStatus } from './types'
 
-export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
+export type Tone = 'success' | 'warning' | 'danger' | 'progress' | 'muted'
 
 export function appStatusInfo(status: string): { label: string; tone: Tone } {
   // Shown while a restart or start request runs.
-  if (status === 'restarting') return { label: 'Restarting', tone: 'info' }
-  if (status === 'starting') return { label: 'Starting', tone: 'info' }
+  if (status === 'restarting') return { label: 'Restarting', tone: 'progress' }
+  if (status === 'starting') return { label: 'Starting', tone: 'progress' }
   switch (status as AppStatus) {
     case 'running':
       return { label: 'Running', tone: 'success' }
     case 'deploying':
-      return { label: 'Deploying', tone: 'info' }
+      return { label: 'Deploying', tone: 'progress' }
     case 'failed':
       return { label: 'Failed', tone: 'danger' }
     case 'crashed':
@@ -41,19 +41,19 @@ export function deploymentStateInfo(state: string, appStatus?: string): { label:
   }
   switch (state as DeploymentState) {
     case 'queued':
-      return { label: 'Waiting', tone: 'info' }
+      return { label: 'Waiting', tone: 'progress' }
     case 'fetching':
-      return { label: 'Getting code', tone: 'info' }
+      return { label: 'Getting code', tone: 'progress' }
     case 'validating':
-      return { label: 'Checking', tone: 'info' }
+      return { label: 'Checking', tone: 'progress' }
     case 'building':
-      return { label: 'Building', tone: 'info' }
+      return { label: 'Building', tone: 'progress' }
     case 'starting':
-      return { label: 'Starting', tone: 'info' }
+      return { label: 'Starting', tone: 'progress' }
     case 'health_check':
-      return { label: 'Testing', tone: 'info' }
+      return { label: 'Testing', tone: 'progress' }
     case 'swapping':
-      return { label: 'Going live', tone: 'info' }
+      return { label: 'Going live', tone: 'progress' }
     case 'failed':
       return { label: 'Failed', tone: 'danger' }
     case 'superseded':
@@ -72,7 +72,7 @@ export function domainStatusInfo(status: string): { label: string; tone: Tone } 
     case 'pending_dns':
       return { label: 'Waiting for DNS', tone: 'warning' }
     case 'issuing_cert':
-      return { label: 'Getting certificate', tone: 'info' }
+      return { label: 'Getting certificate', tone: 'progress' }
     case 'failed':
       return { label: 'Failed', tone: 'danger' }
     default:

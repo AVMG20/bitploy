@@ -34,6 +34,7 @@ import { isServedSite, variableNeedsDeploy } from '@/lib/buildVars'
 import { looksSecretName } from '@/lib/secretName'
 import { isServerDb } from '@/lib/dbvalue'
 import { toastError, toastOk } from '@/lib/notify'
+import { quietDestructive } from '@/lib/utils'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
 import { useQueryParam } from '@/composables/useQueryParam'
 import type { Ref } from 'vue'
@@ -313,16 +314,14 @@ const importAll = useMutation({
             Only <span class="font-mono">{{ scope }}</span> gets these. One with the same name as a shared variable wins over it. A change applies after a restart.
           </CardDescription>
           <CardDescription v-else-if="multi">
-            Shared variables: every service of this app gets them. Tick Hidden for a password or key: its value is never shown again. A change applies after a restart, or on the
-            next deploy when the build reads it.
+            Every service of this app gets these. Hidden values are never shown again. A change applies after a restart, or on the next deploy when the build reads it.
           </CardDescription>
           <CardDescription v-else-if="site">
             Settings your site needs while it is built, like VITE_API_URL. Anyone can read a VITE_ or NEXT_PUBLIC_ value in the site, so never put a password in one. A change
             applies on the next deploy.
           </CardDescription>
           <CardDescription v-else>
-            Passwords, API keys and other settings your app reads when it starts and while it is built. Tick Hidden for a password or key: its value is never shown again. A change
-            applies after a restart, or on the next deploy when the build reads it.
+            Hidden values are never shown again. A change applies after a restart, or on the next deploy when the build reads it.
           </CardDescription>
         </div>
         <div class="flex gap-2">
@@ -420,9 +419,9 @@ const importAll = useMutation({
                     <RouterLink
                       v-if="'ref' in part && byAlias.get(part.ref.app)"
                       :to="appRoute(byAlias.get(part.ref.app)!)"
-                      class="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-xs text-foreground hover:border-primary/60"
+                      class="inline-flex items-center gap-1 rounded-md border bg-muted px-1.5 py-0.5 text-xs text-foreground hover:bg-accent"
                       :title="`${part.ref.variable} of ${part.ref.app}, kept up to date by bitploy`"
-                    ><span class="text-primary">{{ part.ref.app }}</span><span class="text-muted-foreground">.</span>{{ part.ref.variable }}</RouterLink>
+                    ><span>{{ part.ref.app }}</span><span class="text-muted-foreground">.</span>{{ part.ref.variable }}</RouterLink>
                     <span v-else-if="'ref' in part" class="rounded-md border border-dashed px-1.5 py-0.5 text-xs" :title="`No app called ${part.ref.app} in this project`">{{ part.ref.raw }}</span>
                     <span v-else-if="part.text.includes('•')" class="tracking-tight" title="The rest of the value is hidden">{{ part.text }}</span>
                     <span v-else>{{ part.text }}</span>
@@ -434,8 +433,8 @@ const importAll = useMutation({
                 </span>
                 <span class="text-xs text-muted-foreground">changed <RelativeTime :date="v.updated_at" /></span>
                 <div v-if="editing !== v.name" class="ml-auto flex gap-1">
-                  <Button size="sm" variant="ghost" :aria-label="`Change ${v.name}`" @click="startEdit(v)"><Pencil /> Change</Button>
-                  <Button size="sm" variant="ghost" class="text-muted-foreground hover:text-destructive" :aria-label="`Remove ${v.name}`" @click="toRemove = v.name"><Trash2 /> Remove</Button>
+                  <Button size="icon-sm" variant="ghost" class="text-muted-foreground" :title="`Change ${v.name}`" :aria-label="`Change ${v.name}`" @click="startEdit(v)"><Pencil /></Button>
+                  <Button size="icon-sm" variant="ghost" :class="quietDestructive" :title="`Remove ${v.name}`" :aria-label="`Remove ${v.name}`" @click="toRemove = v.name"><Trash2 /></Button>
                 </div>
               </div>
               <form v-if="editing === v.name" class="mt-2 grid gap-2" novalidate @submit.prevent="saveEdit">

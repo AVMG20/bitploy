@@ -278,7 +278,7 @@ export const LOG_TOKEN_CLASS: Record<LogTokenType, string> = {
   step: 'font-medium text-code-key',
   keyword: 'font-semibold text-sql-keyword',
   done: 'text-success',
-  method: 'font-medium text-sql-keyword',
+  method: 'font-medium text-foreground',
   path: 'text-code-key',
   url: 'text-code-key underline decoration-code-key/40 underline-offset-2',
   status2: 'font-medium text-success',

@@ -33,6 +33,7 @@ import { keys, useMe } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { rememberToken } from '@/lib/mcp'
 import { toastError, toastOk } from '@/lib/notify'
+import { quietDestructive } from '@/lib/utils'
 import type { Token, TokenCreated } from '@/lib/types'
 
 const qc = useQueryClient()
@@ -144,7 +145,7 @@ function expiryState(t: Token): 'never' | 'expired' | 'date' {
               <RelativeTime v-else :date="t.expires_at" />
             </TableCell>
             <TableCell>
-              <Button v-if="!t.revoked_at" size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke token ${t.name}`" @click="toRevoke = t"><Trash2 /> Revoke</Button>
+              <Button v-if="!t.revoked_at" size="sm" variant="ghost" :class="quietDestructive" :aria-label="`Revoke token ${t.name}`" @click="toRevoke = t"><Trash2 /> Revoke</Button>
             </TableCell>
           </TableRow>
         </TableBody>

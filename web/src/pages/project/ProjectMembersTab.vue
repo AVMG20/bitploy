@@ -22,6 +22,7 @@ import { keys, useSignupRules } from '@/composables/queries'
 import { useProjectData } from '@/composables/useProjectData'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
+import { quietDestructive } from '@/lib/utils'
 import { ownerName } from '@/lib/projects'
 import { projectInviteCardText } from '@/lib/signups'
 import type { ProjectInvite, ProjectMember } from '@/lib/types'
@@ -125,7 +126,7 @@ const removeText = computed(() => {
     <SettingsSection
       v-if="isOwner"
       title="Invite someone"
-      description="Members can see this project, deploy its apps and change their settings, variables and data. Only you can invite, remove members and delete the project."
+      description="Members can deploy the project's apps and change their settings, variables and data. Only you can invite and remove people, and delete the project."
     >
       <Card>
         <CardHeader>
@@ -157,7 +158,7 @@ const removeText = computed(() => {
 
     <SettingsSection
       title="Members"
-      :description="isOwner ? 'The people who can use this project. Apps they add belong to you and count towards your limits.' : `${ownerName(project)} owns this project and decides who is in it. Apps you add here belong to them and count towards their limits.`"
+      :description="isOwner ? 'Apps members add belong to you and count towards your limits.' : `${ownerName(project)} owns this project. Apps you add here belong to them and count towards their limits.`"
     >
       <QueryError v-if="members.isError.value" :error="members.error.value" @retry="members.refetch()" />
       <Skeleton v-else-if="members.isPending.value" class="h-24 w-full" />
@@ -182,8 +183,8 @@ const removeText = computed(() => {
               </TableCell>
               <TableCell class="hidden text-muted-foreground sm:table-cell"><RelativeTime :date="m.created_at" /></TableCell>
               <TableCell class="text-right">
-                <Button v-if="m.role === 'member' && m.you" size="sm" variant="ghost" class="text-destructive" @click="toRemove = m">Leave</Button>
-                <Button v-else-if="m.role === 'member' && isOwner" size="sm" variant="ghost" class="text-destructive" :aria-label="`Remove ${m.name || m.email}`" @click="toRemove = m">Remove</Button>
+                <Button v-if="m.role === 'member' && m.you" size="sm" variant="ghost" :class="quietDestructive" @click="toRemove = m">Leave</Button>
+                <Button v-else-if="m.role === 'member' && isOwner" size="sm" variant="ghost" :class="quietDestructive" :aria-label="`Remove ${m.name || m.email}`" @click="toRemove = m">Remove</Button>
               </TableCell>
             </TableRow>
           </TableBody>
@@ -192,7 +193,7 @@ const removeText = computed(() => {
       <p v-if="isOwner && members.data.value?.length === 1" class="mt-3 text-sm text-muted-foreground">Only you so far. Make an invite link above to share this project.</p>
     </SettingsSection>
 
-    <SettingsSection v-if="isOwner" title="Open invites" description="Links nobody has used yet. Used and expired links drop off this list.">
+    <SettingsSection v-if="isOwner" title="Open invites">
       <QueryError v-if="invites.isError.value" :error="invites.error.value" @retry="invites.refetch()" />
       <Skeleton v-else-if="invites.isPending.value" class="h-16 w-full" />
       <p v-else-if="!invites.data.value?.length" class="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No open invites.</p>
@@ -212,7 +213,7 @@ const removeText = computed(() => {
               <TableCell class="text-muted-foreground"><RelativeTime :date="i.expires_at" /></TableCell>
               <TableCell class="hidden text-muted-foreground sm:table-cell"><RelativeTime :date="i.created_at" /></TableCell>
               <TableCell class="text-right">
-                <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke invite for ${i.email || 'anyone with the link'}`" @click="toRevoke = i">Revoke</Button>
+                <Button size="sm" variant="ghost" :class="quietDestructive" :aria-label="`Revoke invite for ${i.email || 'anyone with the link'}`" @click="toRevoke = i">Revoke</Button>
               </TableCell>
             </TableRow>
           </TableBody>

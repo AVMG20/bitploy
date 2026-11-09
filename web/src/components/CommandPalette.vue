@@ -63,7 +63,7 @@ const inputEl = ref<HTMLInputElement | null>(null)
 const DOT: Record<string, string> = {
   success: 'bg-success',
   danger: 'bg-destructive',
-  info: 'bg-info',
+  progress: 'bg-foreground',
   warning: 'bg-warning',
   muted: 'bg-muted-foreground/50',
 }
