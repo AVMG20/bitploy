@@ -4,25 +4,24 @@ import { paletteGroups, paletteMatches } from '../src/lib/palette.ts'
 import type { PaletteEntry } from '../src/lib/palette.ts'
 
 const items: (PaletteEntry & { id: string })[] = [
-  { id: 'proj-restart-web', label: 'Restart web', group: 'Shop', groupKey: 'project:shop', keywords: 'restart' },
-  { id: 'proj-vars', label: 'Project variables', group: 'Shop', groupKey: 'project:shop' },
+  { id: 'proj-vars', label: 'Variables', group: 'Shop', groupKey: 'project:shop', keywords: 'env' },
   { id: 'p-shop', label: 'Shop', group: 'Projects', groupKey: 'projects' },
-  { id: 'notes-logs', label: 'notes › Logs', group: 'Apps', groupKey: 'apps' },
-  { id: 'web-logs', label: 'web › Logs', group: 'Apps', groupKey: 'apps', near: true },
+  { id: 'notes', label: 'notes', group: 'Apps', groupKey: 'apps' },
+  { id: 'web', label: 'web', group: 'Apps', groupKey: 'apps', near: true },
   // An app called Shop: the same heading as the project.
   { id: 'app-shop-logs', label: 'Logs', group: 'Shop', groupKey: 'app:shop', keywords: 'shop' },
 ]
 
-test('restart finds the actions of the project', () => {
+test('a keyword finds an item whose label does not contain it', () => {
   assert.deepEqual(
-    paletteMatches(items, 'restart').map((i) => i.id),
-    ['proj-restart-web'],
+    paletteMatches(items, 'env').map((i) => i.id),
+    ['proj-vars'],
   )
 })
 
 test('the apps of the project you are in come first', () => {
-  const ids = paletteMatches(items, 'logs').map((i) => i.id)
-  assert.ok(ids.indexOf('web-logs') < ids.indexOf('notes-logs'))
+  const ids = paletteMatches(items, 'e').map((i) => i.id)
+  assert.ok(ids.indexOf('web') < ids.indexOf('notes'))
 })
 
 test('groups with the same heading stay apart and every group is listed once', () => {

@@ -3,17 +3,12 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import { Box, Boxes, CornerDownLeft, ExternalLink, Github, KeyRound, Link, Maximize2, Monitor, Moon, PanelRight, Plus, RefreshCw, RotateCw, Search, Settings, Settings2, ShieldCheck, Sparkles, Sun, Variable } from 'lucide-vue-next'
+import { Bell, Box, Boxes, CornerDownLeft, Github, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
-import { useQueryClient } from '@tanstack/vue-query'
-import { keys, useProjects, useServiceTemplates } from '@/composables/queries'
-import { useAppActions } from '@/composables/useAppActions'
-import { openAdd } from '@/composables/useAddToProject'
+import { useProjects } from '@/composables/queries'
 import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, appRole, isPublicApp, projectIdOf, roleTitle, templateLabel } from '@/lib/projects'
-import { api } from '@/lib/api'
-import { copyText, toastError, toastOk } from '@/lib/notify'
+import { aliasOf, appRole, isPublicApp, projectHealth, projectIdOf, roleTitle } from '@/lib/projects'
 import { paletteGroups, paletteMatches } from '@/lib/palette'
 import { useSession } from '@/composables/useSession'
 import { paletteOpen } from '@/composables/useShortcuts'
@@ -21,13 +16,13 @@ import { APP_TABS } from '@/lib/appTabs'
 import { isMulti } from '@/lib/services'
 import { terminalOffered } from '@/lib/terminal'
 import { appStatusInfo, hostOf } from '@/lib/format'
+import type { App } from '@/lib/types'
 import { setTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
-// The quick switcher: type a few letters of a project, an app, a page or an
-// action and press Enter. "web logs" finds the Logs tab of the app called web;
-// "restart" restarts the app you are on (or, on the canvas, one of the
-// project's apps), "postgres" adds one to this project.
+// The finder (Ctrl K): type a few letters of a project, an app or a page and
+// press Enter. It only takes you somewhere; it never acts on an app. Inside a
+// project it also lists that project's tabs, inside an app that app's tabs.
 interface Item {
   id: string
   /** The heading shown above the group. */
@@ -42,7 +37,7 @@ interface Item {
   /** Extra words that find this item. */
   keywords?: string
   icon?: Component
-  /** A coloured dot, for an app's status. */
+  /** A coloured dot, for a project's or an app's status. */
   dot?: string
   to?: RouteLocationRaw
   run?: () => void
@@ -70,23 +65,25 @@ const DOT: Record<string, string> = {
 
 // The app you are on: its page, or its panel on the canvas (?app=).
 const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : typeof route.query.app === 'string' ? route.query.app : ''))
-const templates = useServiceTemplates()
-const actions = useAppActions(currentSlug)
 const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 
-// Restart or deploy another app of the project, from the canvas.
-const qc = useQueryClient()
-async function runFor(slug: string, fn: (s: string) => Promise<unknown>, done: string, detail?: string) {
-  try {
-    await fn(slug)
-    toastOk(done, detail)
-  } catch (e) {
-    toastError(e)
-  } finally {
-    void qc.invalidateQueries({ queryKey: keys.app(slug) })
-    void qc.invalidateQueries({ queryKey: keys.deployments(slug) })
-    void qc.invalidateQueries({ queryKey: keys.apps })
-  }
+const ADMIN_TABS: [string, string][] = [
+  ['invites', 'Invites'],
+  ['signups', 'Signups'],
+  ['server', 'Server'],
+  ['apps', 'All apps'],
+  ['domains', 'Domains'],
+  ['github', 'GitHub'],
+  ['audit', 'Activity log'],
+]
+
+function twin(p: { name: string; apps: App[] }): boolean {
+  return p.apps.length === 1 && p.apps[0]!.name.toLowerCase() === p.name.toLowerCase()
+}
+
+// The tabs of one app's page the viewer can open.
+function tabsOf(app: App) {
+  return APP_TABS.filter((t) => !t.database && !(t.webOnly && !isPublicApp(app)) && !(t.terminal && !terminalOffered(app, user.value?.id ?? '')))
 }
 
 const items = computed<Item[]>(() => {
@@ -98,71 +95,56 @@ const items = computed<Item[]>(() => {
   const current = list.find((a) => a.slug === currentSlug.value)
   // The project you are in, on its pages or on the page of one of its apps.
   const nearId = currentProject.value || (current ? projectIdOf(current) : '')
+  const here = fallback ? undefined : plist.find((p) => p.id === nearId)
+  // The app you are on: its tabs, listed first.
   if (current) {
-    const web = isPublicApp(current)
-    const live = !!current.current_deployment
     const g = current.name
     const gk = `app:${current.id}`
-    if (current.git_source) out.push({ id: 'act-deploy', group: g, groupKey: gk, label: 'Deploy latest', hint: current.git_source.branch, icon: RefreshCw, keywords: 'deploy build redeploy commit', run: () => actions.redeploy.mutate() })
-    // A project with several services restarts all of them and lists them on its first tab.
     const multi = isMulti(current)
-    if (live) out.push({ id: 'act-restart', group: g, groupKey: gk, label: `Restart ${current.name}`, hint: multi ? 'every service' : undefined, icon: RotateCw, keywords: 'restart reboot', run: () => actions.restart.mutate() })
-    if (web && live) {
-      out.push({ id: 'act-open', group: g, groupKey: gk, label: `Open ${hostOf(current.url)}`, icon: ExternalLink, keywords: 'open visit website app', run: () => window.open(current.url, '_blank', 'noopener') })
-      out.push({ id: 'act-copy', group: g, groupKey: gk, label: 'Copy link', icon: Link, keywords: 'copy url address', run: () => void copyText(current.url, 'Link copied') })
-    }
-    if (route.params.slug && !fallback) out.push({ id: 'act-canvas', group: g, groupKey: gk, label: 'Show on the canvas', icon: PanelRight, keywords: 'project panel', to: projectRoute(projectIdOf(current), { app: current.slug }) })
-    else if (!route.params.slug) out.push({ id: 'act-page', group: g, groupKey: gk, label: 'Open full page', icon: Maximize2, keywords: 'app page details', to: appRoute(current) })
-    for (const t of APP_TABS) {
-      if (t.database || (t.webOnly && !isPublicApp(current)) || (t.terminal && !terminalOffered(current, user.value?.id ?? ''))) continue
+    for (const t of tabsOf(current)) {
       out.push({ id: `cur-${t.name}`, group: g, groupKey: gk, label: multi && t.name === 'app' ? 'Services' : t.label, keywords: current.slug, to: appRoute(current, t.name) })
     }
   }
-  // The project you are in: add to it, and act on its other apps.
-  const here = plist.find((p) => p.id === currentProject.value)
-  if (here && !fallback) {
+  // The project you are in: its tabs, and the tabs of its other apps while searching.
+  if (here) {
     const pk = `project:${here.id}`
-    out.push({ id: 'add-here', group: here.name, groupKey: pk, label: `Add to ${here.name}`, icon: Plus, keywords: 'add database postgres redis service app github repository docker', run: () => openAdd(here.id) })
-    for (const t of templates.data.value ?? []) {
-      out.push({ id: `add-${t.id}`, group: here.name, groupKey: pk, label: `Add ${t.name}`, hint: templateLabel(t), icon: Plus, keywords: `add ${t.id} ${t.category} database cache`, run: () => openAdd(here.id, t.id), searchOnly: true })
+    const tabs: [string, string, string][] = [
+      ['project', 'Canvas', 'apps'],
+      ['project-variables', 'Variables', 'env environment connections'],
+      ['project-members', 'Members', 'people invite access'],
+      ['project-settings', 'Settings', 'rename delete'],
+    ]
+    for (const [name, label, keywords] of tabs) {
+      if (name === route.name && !current) continue
+      out.push({ id: `proj-${name}`, group: here.name, groupKey: pk, label, keywords, to: { name, params: { projectId: here.id } } })
     }
     for (const a of here.apps) {
       if (a.id === current?.id) continue
-      if (a.current_deployment) {
-        out.push({ id: `restart-${a.id}`, group: here.name, groupKey: pk, label: `Restart ${a.name}`, icon: RotateCw, keywords: `restart reboot ${a.slug} ${aliasOf(a)}`, run: () => void runFor(a.slug, api.restart, `${a.name} restarted`), searchOnly: true })
-      }
-      if (a.git_source) {
-        out.push({
-          id: `deploy-${a.id}`,
-          group: here.name,
-          groupKey: pk,
-          label: `Deploy latest of ${a.name}`,
-          hint: a.git_source.branch,
-          icon: RefreshCw,
-          keywords: `deploy build redeploy commit ${a.slug} ${aliasOf(a)}`,
-          run: () => void runFor(a.slug, api.redeploy, 'Deployment started'),
-          searchOnly: true,
-        })
+      for (const t of tabsOf(a)) {
+        if (t.name === 'app') continue
+        out.push({ id: `tab-${a.id}-${t.name}`, group: here.name, groupKey: pk, label: `${a.name} › ${t.label}`, keywords: `${a.slug} ${aliasOf(a)}`, to: appRoute(a, t.name), searchOnly: true })
       }
     }
-    if (route.name !== 'project-variables') out.push({ id: 'proj-vars', group: here.name, groupKey: pk, label: 'Project variables', icon: Variable, keywords: 'env environment connections', to: { name: 'project-variables', params: { projectId: here.id } } })
-    if (route.name !== 'project-settings') out.push({ id: 'proj-settings', group: here.name, groupKey: pk, label: 'Project settings', icon: Settings2, keywords: 'rename delete project', to: { name: 'project-settings', params: { projectId: here.id } } })
   }
   for (const p of plist) {
     if (fallback) break
+    const health = projectHealth(p.apps).status
     out.push({
       id: `project-${p.id}`,
       group: 'Projects',
       groupKey: 'projects',
       near: p.id === nearId,
       label: p.name,
-      hint: p.apps.length === 1 ? '1 app' : `${p.apps.length} apps`,
+      hint: twin(p) ? (isPublicApp(p.apps[0]!) ? hostOf(p.apps[0]!.url) : roleTitle(appRole(p.apps[0]!))) : p.apps.length === 1 ? '1 app' : `${p.apps.length} apps`,
       keywords: p.apps.map((a) => `${a.name} ${aliasOf(a)}`).join(' '),
-      icon: Boxes,
+      dot: DOT[appStatusInfo(health === 'empty' ? 'new' : health).tone],
       to: projectRoute(p.id),
     })
   }
+  // A project holding one app of the same name is listed once, as the project.
+  const twins = new Set(fallback ? [] : plist.filter(twin).map((p) => p.apps[0]!.id))
   for (const a of list) {
+    if (twins.has(a.id)) continue
     const pn = projectName.get(a.id)
     out.push({
       id: `app-${a.id}`,
@@ -176,25 +158,24 @@ const items = computed<Item[]>(() => {
       to: appRoute(a),
     })
   }
-  // Every tab of every app, for "shop logs". Only while searching, or the list would be endless.
-  for (const a of list) {
-    for (const t of APP_TABS) {
-      if (t.name === 'app' || t.database || (t.webOnly && !isPublicApp(a)) || (t.terminal && !terminalOffered(a, user.value?.id ?? ''))) continue
-      out.push({ id: `tab-${a.id}-${t.name}`, group: 'Apps', groupKey: 'apps', near: !!nearId && projectIdOf(a) === nearId, label: `${a.name} › ${t.label}`, keywords: `${a.slug} ${projectName.get(a.id) ?? ''}`, to: appRoute(a, t.name), searchOnly: true })
-    }
-  }
+  const page = (id: string, label: string, icon: Component, keywords: string, to: RouteLocationRaw, searchOnly = false): Item => ({ id, group: 'Pages', groupKey: 'pages', label, icon, keywords, to, searchOnly })
   out.push(
-    { id: 'p-apps', group: 'Go to', groupKey: 'goto', label: 'All projects', icon: Box, keywords: 'home overview apps', to: { name: 'overview' } },
-    { id: 'p-new', group: 'Go to', groupKey: 'goto', label: 'New project', icon: Plus, keywords: 'create deploy upload app docker compose', to: { name: 'new-app' } },
-    { id: 'p-new-git', group: 'Go to', groupKey: 'goto', label: 'New project from a GitHub repository', icon: Github, keywords: 'create deploy git repo', to: { name: 'new-app', query: { source: 'github' } } },
-    { id: 'p-ready', group: 'Go to', groupKey: 'goto', label: 'Ready-made apps and databases', icon: Boxes, keywords: 'catalog postgres redis mysql template', to: { name: 'ready-made' } },
-    { id: 'p-connect', group: 'Go to', groupKey: 'goto', label: 'Connect AI', icon: Sparkles, keywords: 'mcp assistant claude', to: '/connect' },
-    { id: 'p-settings', group: 'Go to', groupKey: 'goto', label: 'Settings', icon: Settings, keywords: 'account profile password', to: { name: 'settings' } },
-    { id: 'p-tokens', group: 'Go to', groupKey: 'goto', label: 'API tokens', icon: KeyRound, keywords: 'settings token', to: { name: 'settings-tokens' } },
-    { id: 'p-github', group: 'Go to', groupKey: 'goto', label: 'GitHub connection', icon: Settings, keywords: 'settings git repository', to: { name: 'settings-github' } },
-    { id: 'p-sessions', group: 'Go to', groupKey: 'goto', label: 'Devices you are logged in on', icon: Settings, keywords: 'settings sessions log out', to: { name: 'settings-sessions' } },
+    page('p-apps', 'All projects', Box, 'home overview apps', { name: 'overview' }),
+    page('p-new', 'New project', Plus, 'create deploy upload app docker compose github repository', { name: 'new-app' }),
+    page('p-ready', 'Ready-made apps and databases', Boxes, 'catalog postgres redis mysql template', { name: 'ready-made' }),
+    page('p-connect', 'Connect AI', Sparkles, 'mcp assistant claude', '/connect'),
+    page('p-settings', 'Settings', Settings, 'account profile password', { name: 'settings' }),
+    page('p-tokens', 'API tokens', KeyRound, 'settings token', { name: 'settings-tokens' }),
+    page('p-notifications', 'Notifications', Bell, 'settings alerts discord push', { name: 'settings-notifications' }),
+    page('p-github', 'GitHub connection', Github, 'settings repository', { name: 'settings-github' }),
+    page('p-sessions', 'Sessions', Settings, 'settings devices log out', { name: 'settings-sessions' }),
   )
-  if (isAdmin.value) out.push({ id: 'p-admin', group: 'Go to', groupKey: 'goto', label: 'Admin', icon: ShieldCheck, keywords: 'people users invites server', to: { name: 'admin' } })
+  if (isAdmin.value) {
+    out.push(page('p-admin', 'Admin', ShieldCheck, 'people users invites server', { name: 'admin' }))
+    out.push(page('p-admin-users', 'Admin › People', ShieldCheck, 'users accounts', { name: 'admin' }, true))
+    for (const [tab, label] of ADMIN_TABS) out.push(page(`p-admin-${tab}`, `Admin › ${label}`, ShieldCheck, 'admin', { name: 'admin', query: { tab } }, true))
+    out.push(page('p-admin-database', 'Admin › Database', ShieldCheck, 'admin sqlite', { name: 'admin-database' }, true))
+  }
   out.push(
     { id: 't-light', group: 'Theme', groupKey: 'theme', label: 'Light theme', icon: Sun, keywords: 'theme appearance', run: () => setTheme('light'), searchOnly: true },
     { id: 't-dark', group: 'Theme', groupKey: 'theme', label: 'Dark theme', icon: Moon, keywords: 'theme appearance', run: () => setTheme('dark'), searchOnly: true },
@@ -253,14 +234,14 @@ function choose(item: Item | undefined) {
       @close-auto-focus="restoreFocus"
     >
       <DialogTitle class="sr-only">Go to</DialogTitle>
-      <DialogDescription class="sr-only">Type the name of an app, a page or an action, then press Enter.</DialogDescription>
+      <DialogDescription class="sr-only">Type the name of a project, an app or a page, then press Enter.</DialogDescription>
       <div class="flex items-center gap-2 border-b px-3">
         <Search class="size-4 shrink-0 text-muted-foreground" />
         <input
           ref="inputEl"
           v-model="query"
           class="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          placeholder="Go to a project, an app or an action..."
+          placeholder="Find a project, an app or a page..."
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"
@@ -300,7 +281,7 @@ function choose(item: Item | undefined) {
       <div class="hidden items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground sm:flex">
         <span class="inline-flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> to move</span>
         <span class="inline-flex items-center gap-1"><Kbd>Enter</Kbd> to open</span>
-        <span class="ml-auto inline-flex items-center gap-1"><Kbd>/</Kbd> searches the list you are on</span>
+        <span class="inline-flex items-center gap-1"><Kbd>Esc</Kbd> to close</span>
       </div>
     </DialogContent>
   </Dialog>
