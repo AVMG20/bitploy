@@ -23,6 +23,7 @@ const busy = ref(false)
 const rules = useSignupRules()
 
 const { handleSubmit } = useForm({
+  initialValues: { email: '', password: '' },
   validationSchema: toTypedSchema(
     z.object({
       // Only the shape: the server knows which addresses have an account (a@b.c can be one).

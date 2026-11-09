@@ -31,6 +31,8 @@ const description = computed(() => {
 })
 
 const { handleSubmit } = useForm({
+  // Empty, not unset: an empty field gets its message ("Enter your name."), not "Required".
+  initialValues: { name: '', email: '', password: '', confirm: '' },
   validationSchema: toTypedSchema(
     z
       .object({
