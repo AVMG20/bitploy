@@ -684,6 +684,95 @@ var entries = []Entry{
 			"For tags suggested by AI, add the environment variable OPENAI_API_KEY with your own key and restart the app.",
 		},
 	},
+	// Version: https://hub.docker.com/v2/repositories/grafana/grafana/tags (13.3.0, 2026-10-27).
+	{
+		ID:          "grafana",
+		Name:        "Grafana",
+		Tagline:     "Dashboards and charts for your metrics, logs and databases",
+		Description: "Grafana draws dashboards from data sources such as Prometheus, Loki, PostgreSQL, MySQL and ClickHouse, and sends alerts when a value crosses a line. Dashboards, users and settings are kept in a SQLite database in the app's saved files (/data).",
+		Category:    "Monitoring",
+		Version:     "13.3.0",
+		Website:     "https://grafana.com",
+		Port:        3000,
+		MemoryMB:    512,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/api/health",
+		Env: []EnvSpec{
+			{Name: "GF_SERVER_ROOT_URL", Value: "{url}", Description: "The address of this app. Grafana needs it for links in alerts and for sign-in redirects."},
+		},
+		FirstSteps: []string{
+			"Open {url} at once and sign in with the user admin and the password admin. Grafana then asks for a new password; until you set one, anyone who reaches the address can sign in the same way.",
+			"Add a data source under Connections, Data sources. A bitploy database in the same project is reached by its alias (for example postgres:5432), not by a web address.",
+			"Make backups in the Storage tab: the saved files hold every dashboard.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/searxng/searxng/tags (rolling release, 2026.11.9-57ff753ad).
+	{
+		ID:          "searxng",
+		Name:        "SearXNG",
+		Tagline:     "A private search engine that asks many others and tracks no one",
+		Description: "SearXNG sends your search to Google, Bing, DuckDuckGo, Wikipedia and dozens of other engines and shows the combined results, without ads or profiles. Other tools can search through it too, as JSON. It keeps nothing worth saving, so it has no saved files and no backups.",
+		Category:    "Search",
+		Version:     "2026.11.9",
+		Website:     "https://docs.searxng.org",
+		Port:        8080,
+		MemoryMB:    512,
+		Volume:      false,
+		HealthPath:  "/healthz",
+		Env: []EnvSpec{
+			{Name: "SEARXNG_BASE_URL", Value: "{url}", Description: "The address of this app, used in links and when adding it to a browser."},
+			{Name: "SEARXNG_SECRET", Generate: "secret", Description: "Signs the instance's cookies and image proxy links."},
+		},
+		FirstSteps: []string{
+			"Open {url} and search. There is no sign-in: anyone who reaches the address can search through it, and the engines see requests from this server.",
+			"To use it as the default search in a browser, add {url}/search?q=%s as a search engine. For tools that read JSON, request {url}/search?q=test&format=json.",
+			"Keep the address private if you do not want strangers to use it: turn on password protection for the app.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/filebrowser/filebrowser/tags (v2.63.23, 2026-07-27).
+	{
+		ID:          "file-browser",
+		Name:        "File Browser",
+		Tagline:     "Upload, download and manage files in your browser",
+		Description: "File Browser is a web file manager: browse folders, upload and download, edit text files, preview images and share a file with a link. It manages one folder of the app's saved files (/data/files) and keeps its users and settings in a database next to it.",
+		Category:    "Productivity",
+		Version:     "2.63.23",
+		Website:     "https://filebrowser.org",
+		Port:        8080,
+		MemoryMB:    256,
+		Volume:      true,
+		VolumeMB:    5120,
+		HealthPath:  "/health",
+		FirstSteps: []string{
+			"File Browser makes the user admin with a random password at its first start. Open the app's Logs and look for the line User 'admin' initialized with a randomly generated password.",
+			"Open {url}, sign in as admin with that password, then change it under Settings, Profile settings.",
+			"Make backups in the Storage tab: the saved files hold every file and user.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/dgtlmoon/changedetection.io/tags (0.70.2, 2026-11-05).
+	{
+		ID:          "changedetection",
+		Name:        "changedetection.io",
+		Tagline:     "Get told when a web page changes or a product comes back in stock",
+		Description: "changedetection.io checks web pages on a schedule and shows what changed, for price drops, restocks, new listings or edited terms. It sends the alert to email, Discord, Telegram, ntfy and many others. Pages that need JavaScript to show their content are not rendered, because no browser runs next to it. Watches and snapshots are kept in the app's saved files (/data).",
+		Category:    "Monitoring",
+		Version:     "0.70.2",
+		Website:     "https://changedetection.io",
+		Port:        5000,
+		MemoryMB:    512,
+		Volume:      true,
+		VolumeMB:    1024,
+		HealthPath:  "/",
+		Env: []EnvSpec{
+			{Name: "BASE_URL", Value: "{url}", Description: "The address of this app, used in links in alerts."},
+		},
+		FirstSteps: []string{
+			"Open {url}. There is no sign-in at first: set a password under Settings, General before you add watches.",
+			"Paste a page address under Add a new change detection watch, press Watch, and pick how often to check under the watch's Edit page.",
+			"Add a notification address under Settings, Notifications, for example discord://webhook_id/webhook_token or ntfy://topic.",
+		},
+	},
 }
 
 // All returns the entries in the order shown to users, each with its Dockerfile.
