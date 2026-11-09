@@ -12,11 +12,11 @@ import (
 
 func TestCatchAllCoversEveryAppDomain(t *testing.T) {
 	// One domain: the rule is unchanged from before extra domains existed.
-	if got := CatchAllRule([]string{"bitploy.nl"}); got != "HostRegexp(`^[a-z0-9-]+\\.bitploy\\.nl$`)" {
+	if got := CatchAllRule([]string{"bitploy.nl"}, nil); got != "HostRegexp(`^[a-z0-9-]+\\.bitploy\\.nl$`)" {
 		t.Fatalf("single domain rule = %s", got)
 	}
 	w := &Writer{Dir: t.TempDir(), EntryPoint: "websecure", TLS: true}
-	if err := w.WriteCatchAll([]string{"bitploy.nl", "Example.COM", "apps.example.org"}, "http://bitploy:8080"); err != nil {
+	if err := w.WriteCatchAll([]string{"bitploy.nl", "Example.COM", "apps.example.org"}, []string{"Example.COM", "apps.example.org"}, "http://bitploy:8080"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(w.Dir, "_catchall.yml"))
@@ -31,7 +31,12 @@ func TestCatchAllCoversEveryAppDomain(t *testing.T) {
 	if rt.Priority != 1 || rt.TLS == nil || rt.Service != "bitploy-catchall" {
 		t.Fatalf("router = %+v", rt)
 	}
-	m := regexp.MustCompile("`(.*)`").FindStringSubmatch(rt.Rule)
+	// The extra domains themselves, which an app can hold, are matched exactly.
+	rule, roots, _ := strings.Cut(rt.Rule, " || ")
+	if roots != "Host(`example.com`) || Host(`apps.example.org`)" {
+		t.Fatalf("root hosts in rule = %s", rt.Rule)
+	}
+	m := regexp.MustCompile("^HostRegexp\\(`(.*)`\\)$").FindStringSubmatch(rule)
 	if m == nil {
 		t.Fatalf("rule = %s", rt.Rule)
 	}

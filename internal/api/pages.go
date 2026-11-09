@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
@@ -53,18 +55,25 @@ func (a *API) appHostSlug(hostHeader string) (slug, domain string, ok bool) {
 	return a.svc.AppHostSlug(host)
 }
 
-// appPage is the friendly catch-all for unknown and stopped app subdomains.
-// domain is the app domain of the address: an app that lives on another
-// domain is not here.
+// appPage is the friendly catch-all for unknown and stopped app subdomains,
+// and for an extra domain itself (slug ""), which an app can hold. domain is
+// the app domain of the address: an app that lives on another domain is not
+// here.
 func (a *API) appPage(w http.ResponseWriter, r *http.Request, slug, domain string) {
 	d := pageData{Home: a.cfg.PublicURL}
 	status := http.StatusNotFound
 	d.Title = "No app here"
 	d.Lines = []string{"Nothing is deployed at this address yet.", "If you own it, ask your AI assistant to deploy it with bitploy."}
-	if slug != "" && !strings.Contains(slug, ".") {
-		row, err := a.svc.Q.GetAppBySlug(r.Context(), slug)
-		if err == nil && !strings.EqualFold(a.svc.AppDomainOf(row), domain) {
-			err = sql.ErrNoRows
+	if !strings.Contains(slug, ".") {
+		var row db.App
+		var err error
+		if slug == "" {
+			row, err = a.svc.Q.GetRootApp(r.Context(), domain)
+		} else {
+			row, err = a.svc.Q.GetAppBySlug(r.Context(), slug)
+			if err == nil && !strings.EqualFold(a.svc.AppDomainOf(row), domain) {
+				err = sql.ErrNoRows
+			}
 		}
 		switch {
 		case err == nil && row.Status == "running" && row.DesiredState == "running":

@@ -333,7 +333,7 @@ func TestAppDomainCertificate(t *testing.T) {
 func TestAppHostSlug(t *testing.T) {
 	e := newDomainEnv(t)
 	e.addAppDomain(t, "example.com")
-	for host, want := range map[string]string{"shop.bitploy.test": "shop|bitploy.test", "shop.example.com": "shop|example.com", "shop.example.org": "|"} {
+	for host, want := range map[string]string{"shop.bitploy.test": "shop|bitploy.test", "shop.example.com": "shop|example.com", "shop.example.org": "|", "example.com": "|example.com", "bitploy.test": "|"} {
 		slug, domain, _ := e.svc.AppHostSlug(host)
 		if got := slug + "|" + domain; got != want {
 			t.Errorf("AppHostSlug(%q) = %q, want %q", host, got, want)

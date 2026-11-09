@@ -297,15 +297,16 @@ func (w *Writer) Read(slug string) ([]byte, error) {
 }
 
 // WriteCatchAll writes _catchall.yml: a lowest-priority router for any host
-// directly under one of the app domains that sends unknown and stopped apps
-// to bitploy's friendly "No app here" / "This app is stopped" page at
+// directly under one of the app domains, and for each of the roots (extra app
+// domains themselves, which an app can hold), that sends unknown and stopped
+// apps to bitploy's friendly "No app here" / "This app is stopped" page at
 // bitployURL. It is written at startup and again when an admin adds or
 // removes an app domain.
-func (w *Writer) WriteCatchAll(appsDomains []string, bitployURL string) error {
+func (w *Writer) WriteCatchAll(appsDomains, roots []string, bitployURL string) error {
 	var f file
 	f.HTTP.Routers = map[string]router{}
 	f.HTTP.Services = map[string]service{}
-	rt := router{Rule: CatchAllRule(appsDomains), EntryPoints: []string{w.entry()}, Service: "bitploy-catchall", Priority: 1}
+	rt := router{Rule: CatchAllRule(appsDomains, roots), EntryPoints: []string{w.entry()}, Service: "bitploy-catchall", Priority: 1}
 	if w.TLS {
 		rt.TLS = &tlsConf{}
 	}
@@ -318,18 +319,27 @@ func (w *Writer) WriteCatchAll(appsDomains []string, bitployURL string) error {
 	return atomicWrite(filepath.Join(w.Dir, "_catchall.yml"), b, 0o644)
 }
 
-// CatchAllRule matches a host with one label below any of the domains.
-func CatchAllRule(domains []string) string {
+// CatchAllRule matches a host with one label below any of the domains, and
+// each of the roots itself.
+func CatchAllRule(domains, roots []string) string {
 	quoted := make([]string, 0, len(domains))
 	for _, d := range domains {
 		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
 			quoted = append(quoted, strings.ReplaceAll(d, ".", `\.`))
 		}
 	}
+	var rule string
 	if len(quoted) == 1 {
-		return fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", quoted[0])
+		rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", quoted[0])
+	} else {
+		rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.(%s)$`)", strings.Join(quoted, "|"))
 	}
-	return fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.(%s)$`)", strings.Join(quoted, "|"))
+	for _, r := range roots {
+		if r = strings.ToLower(strings.TrimSpace(r)); r != "" {
+			rule += fmt.Sprintf(" || Host(`%s`)", r)
+		}
+	}
+	return rule
 }
 
 // Cert is the certificate of one app domain, PEM-encoded.

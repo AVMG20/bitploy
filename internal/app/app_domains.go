@@ -169,8 +169,15 @@ func (s *Service) AllAppDomains() []string {
 }
 
 // AppHostSlug reports whether host (lower case, no port) is <label>.<an app
-// domain> and returns the label and the domain. The longest matching domain wins.
+// domain> and returns the label and the domain. The longest matching domain
+// wins. An extra domain itself, which an app can hold (address @), comes back
+// with an empty label.
 func (s *Service) AppHostSlug(host string) (slug, domain string, ok bool) {
+	for _, d := range s.extraAppDomains() {
+		if host == d {
+			return "", d, true
+		}
+	}
 	best := ""
 	for _, d := range s.AllAppDomains() {
 		if d != "" && strings.HasSuffix(host, "."+d) && len(d) > len(best) {
@@ -410,7 +417,7 @@ func (s *Service) ApplyAppDomains(ctx context.Context) error {
 	if s.Routes == nil { // tests without Traefik files
 		return nil
 	}
-	if err := s.Routes.WriteCatchAll(s.AllAppDomains(), s.Cfg.InternalURL); err != nil {
+	if err := s.Routes.WriteCatchAll(s.AllAppDomains(), s.extraAppDomains(), s.Cfg.InternalURL); err != nil {
 		return err
 	}
 	rows, err := s.Q.ListAppDomains(ctx)

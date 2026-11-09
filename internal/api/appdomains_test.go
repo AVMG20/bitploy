@@ -20,12 +20,14 @@ func TestAdminAppDomainsEndpoints(t *testing.T) {
 	}
 	e.login("admin@example.nl", true)
 
-	w := e.asSession("POST", "/api/v1/admin/app-domains", map[string]any{"domain": "Example.com"})
+	// Not example.com: httptest sends that Host, and bitploy answers an extra
+	// domain itself with the catch-all page.
+	w := e.asSession("POST", "/api/v1/admin/app-domains", map[string]any{"domain": "Example.org"})
 	if w.Code != 201 {
 		t.Fatalf("add: %d %s", w.Code, w.Body)
 	}
 	d := decode[app.AppDomain](t, w)
-	if d.Domain != "example.com" || d.Certificate != "none" {
+	if d.Domain != "example.org" || d.Certificate != "none" {
 		t.Fatalf("added %+v", d)
 	}
 	w = e.asSession("GET", "/api/v1/admin/app-domains", nil)
@@ -44,8 +46,8 @@ func TestAdminAppDomainsEndpoints(t *testing.T) {
 
 	// The catch-all knows the new domain, and an app is only found on its own domain.
 	for host, text := range map[string]string{
-		"nothing.example.com":      "No app here",
-		"stopped-app.example.com":  "No app here",
+		"nothing.example.org":      "No app here",
+		"stopped-app.example.org":  "No app here",
 		"stopped-app.bitploy.test": "This app is stopped",
 	} {
 		r := httptest.NewRequest("GET", "/", nil)
@@ -55,6 +57,27 @@ func TestAdminAppDomainsEndpoints(t *testing.T) {
 		if !strings.Contains(rw.Body.String(), text) {
 			t.Errorf("%s: %d %q", host, rw.Code, rw.Body)
 		}
+	}
+
+	// The domain itself: nothing until an app holds it, then that app's page.
+	root := func() string {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Host = "example.org"
+		rw := httptest.NewRecorder()
+		e.h.ServeHTTP(rw, r)
+		return rw.Body.String()
+	}
+	if body := root(); !strings.Contains(body, "No app here") {
+		t.Errorf("example.org without a root app: %q", body)
+	}
+	if _, err := e.svc.Store.DB.Exec(`UPDATE apps SET base_domain = 'example.org', on_root = 1 WHERE id = 'app_1'`); err != nil {
+		t.Fatal(err)
+	}
+	if body := root(); !strings.Contains(body, "This app is stopped") {
+		t.Errorf("example.org held by a stopped app: %q", body)
+	}
+	if _, err := e.svc.Store.DB.Exec(`DELETE FROM apps WHERE id = 'app_1'`); err != nil {
+		t.Fatal(err)
 	}
 
 	if w := e.asSession("DELETE", "/api/v1/admin/app-domains/"+d.ID, nil); w.Code != 204 {

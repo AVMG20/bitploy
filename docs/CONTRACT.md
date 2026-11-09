@@ -84,10 +84,11 @@ rename or remove anything, and mention it in your final summary.
   `Host: proxy.CandidateHost(slug)`. Traefik has an unpublished entrypoint
   `internal` on `:8081` for this (dev publishes it on `localhost:8081`).
   Traefik is connected to every `bp-<slug>` network (container `cfg.TraefikContainer`).
-- **Catch-all**: Traefik sends unknown `*.<app domain>` hosts to bitploy
-  (`cfg.InternalURL`). The root router renders "No app here" / "This app is
-  stopped" for any Host that is a subdomain of an app domain (`AppsDomain` or
-  an extra one) and isn't the public URL's host. `_catchall.yml` is written at
+- **Catch-all**: Traefik sends unknown `*.<app domain>` hosts and each extra
+  app domain itself to bitploy (`cfg.InternalURL`). The root router renders
+  "No app here" / "This app is stopped" for any Host that is a subdomain of an
+  app domain (`AppsDomain` or an extra one), or an extra domain itself (looked
+  up as its root app), and isn't the public URL's host. `_catchall.yml` is written at
   startup and again whenever an admin adds or removes an app domain
   (`Service.ApplyAppDomains`).
 - **App domains** (`internal/app/app_domains.go`, `internal/domains/appdomain.go`,

@@ -1154,7 +1154,7 @@ func TestSyncRouteAndReconcileRoutes(t *testing.T) {
 	path := filepath.Join(e.s.Cfg.RoutesDir(), app.Slug+".yml")
 	_ = os.WriteFile(path, []byte("garbage"), 0o644)
 	_ = os.WriteFile(filepath.Join(e.s.Cfg.RoutesDir(), "ghost-app.yml"), []byte("x"), 0o644)
-	_ = e.s.Routes.WriteCatchAll([]string{"bitploy.test"}, "http://bitploy:8080")
+	_ = e.s.Routes.WriteCatchAll([]string{"bitploy.test"}, nil, "http://bitploy:8080")
 	e.s.reconcileRoutes(ctx)
 	if got, _ := e.s.Routes.Read(app.Slug); string(got) != string(b) {
 		t.Errorf("tampered route not repaired:\n%s", got)
