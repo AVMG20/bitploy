@@ -10,12 +10,13 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import RelativeTime from '@/components/RelativeTime.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { keys } from '@/composables/queries'
+import { useSaveBarEntry } from '@/composables/useSaveBar'
 import { useSession } from '@/composables/useSession'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
@@ -72,11 +73,26 @@ const save = useMutation({
     api.setGitSource(slug.value, { repo_url: props.source.repo_url, branch: v.branch, subdir: v.subdir, auto_deploy: props.source.auto_deploy }),
   onSuccess: (updated) => {
     refresh(updated)
-    toastOk('Saved', `The next deploy builds ${updated.git_source?.branch ?? 'this branch'}.`)
+    toastOk('Repository settings saved', `The next deploy builds ${updated.git_source?.branch ?? 'this branch'}.`)
   },
   onError: (e) => toastError(e),
 })
-const submit = form.handleSubmit((v) => save.mutate(v))
+
+useSaveBarEntry({
+  changes: () => Number((form.values.branch ?? '').trim() !== props.source.branch) + Number((form.values.subdir ?? '').trim() !== (props.source.subdir ?? '')),
+  later: true,
+  save: async () => {
+    const { valid } = await form.validate()
+    if (!valid) return false
+    try {
+      await save.mutateAsync({ branch: (form.values.branch ?? '').trim(), subdir: (form.values.subdir ?? '').trim() })
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => form.resetForm({ values: { branch: props.source.branch, subdir: props.source.subdir ?? '' } }),
+})
 
 const toggle = useMutation({
   mutationFn: (on: boolean) => api.setAutoDeploy(slug.value, on),
@@ -140,7 +156,7 @@ const statusText = computed(() => props.source.push_message.replace(/\.$/, ''))
         <Button class="ml-auto" size="sm" variant="outline" @click="disconnectOpen = true">Disconnect repo</Button>
       </div>
 
-      <form class="grid gap-4" novalidate @submit.prevent="submit">
+      <form class="grid gap-4" novalidate @submit.prevent>
         <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
           <FormField v-slot="{ componentField }" name="branch">
             <FormItem>
@@ -159,13 +175,9 @@ const statusText = computed(() => props.source.push_message.replace(/\.$/, ''))
             <FormItem>
               <FormLabel>Folder (optional)</FormLabel>
               <FormControl><Input placeholder="Whole repository" autocapitalize="off" autocomplete="off" spellcheck="false" class="font-mono" v-bind="componentField" /></FormControl>
-              <FormDescription>Only if your app is in a subfolder of the repository, like apps/web.</FormDescription>
               <FormMessage />
             </FormItem>
           </FormField>
-        </div>
-        <div>
-          <Button type="submit" :disabled="save.isPending.value || !form.meta.value.dirty">{{ save.isPending.value ? 'Checking...' : 'Save' }}</Button>
         </div>
       </form>
 

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { Button } from '@/components/ui/button'
 import FormCard from '@/components/FormCard.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { keys, useProject, useProjectEnv } from '@/composables/queries'
+import { useSaveBarEntry } from '@/composables/useSaveBar'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import { toastOk } from '@/lib/notify'
@@ -40,11 +40,28 @@ const saveAlias = useMutation({
   },
 })
 const aliasFail = computed(() => (saveAlias.error.value ? friendlyError(saveAlias.error.value).message : ''))
+
+useSaveBarEntry({
+  changes: () => Number(alias.value.trim() !== aliasOf(props.app)),
+  save: async () => {
+    if (aliasError.value) return false
+    try {
+      await saveAlias.mutateAsync()
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    alias.value = aliasOf(props.app)
+    saveAlias.reset()
+  },
+})
 </script>
 
 <template>
   <div class="grid gap-4">
-    <form novalidate @submit.prevent="!aliasError && saveAlias.mutate()">
+    <form novalidate @submit.prevent>
       <FormCard title="Short name">
         <template #description>
           The other apps of {{ project?.name ?? 'the project' }} reach this one at this name, and use its variables as
@@ -59,10 +76,6 @@ const aliasFail = computed(() => (saveAlias.error.value ? friendlyError(saveAlia
             {{ listWords(users.map((u) => u.name)) }} {{ users.length === 1 ? 'uses' : 'use' }} <span class="font-mono">{{ aliasOf(app) }}</span> in {{ users.length === 1 ? 'its' : 'their' }} variables. Change those too, or they lose the connection.
           </p>
         </div>
-        <template #hint>Lowercase letters, numbers and dashes.</template>
-        <template #actions>
-          <Button type="submit" :disabled="!!aliasError || alias.trim() === aliasOf(app) || saveAlias.isPending.value">{{ saveAlias.isPending.value ? 'Saving...' : 'Save' }}</Button>
-        </template>
       </FormCard>
     </form>
   </div>

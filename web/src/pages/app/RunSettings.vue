@@ -2,11 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import FormCard from '@/components/FormCard.vue'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { keys } from '@/composables/queries'
+import { useSaveBarEntry } from '@/composables/useSaveBar'
 import { ApiError, api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
 import { runChanges, runErrors, runFieldOfError, runFieldsFor, runFormOf } from '@/lib/runSettings'
@@ -38,7 +38,6 @@ const shown = computed(() => runFieldsFor(props.app, form.value.type))
 const ownDockerfile = computed(() => props.app.build_mode === 'dockerfile')
 const anyShown = computed(() => Object.values(shown.value).some(Boolean))
 const changes = computed(() => runChanges(props.app, form.value, shown.value))
-const changed = computed(() => Object.keys(changes.value).length > 0)
 
 // Problems found here, then the server's answer for the field it is about.
 const serverErrors = ref<Partial<Record<RunField, string>>>({})
@@ -49,7 +48,7 @@ watch(form, () => (serverErrors.value = {}), { deep: true })
 const save = useMutation({
   mutationFn: () => api.updateApp(props.app.slug, changes.value),
   onSuccess: (updated) => {
-    toastOk('Saved', 'It applies on the next deploy.')
+    toastOk('Run settings saved')
     form.value = runFormOf(updated)
     tried.value = false
     qc.setQueryData(keys.app(props.app.slug), updated)
@@ -61,16 +60,29 @@ const save = useMutation({
     else toastError(e)
   },
 })
-function submit() {
-  tried.value = true
-  if (Object.keys(runErrors(form.value, shown.value)).length) return
-  save.mutate()
-}
+useSaveBarEntry({
+  changes: () => Object.keys(changes.value).length,
+  later: true,
+  save: async () => {
+    tried.value = true
+    if (Object.keys(runErrors(form.value, shown.value)).length) return false
+    try {
+      await save.mutateAsync()
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    form.value = runFormOf(props.app)
+    tried.value = false
+  },
+})
 </script>
 
 <template>
-  <form v-if="anyShown" id="run" class="scroll-mt-16" novalidate @submit.prevent="submit">
-    <FormCard title="How it runs" description="Settings for the next deploy.">
+  <form v-if="anyShown" id="run" class="scroll-mt-16" novalidate @submit.prevent>
+    <FormCard title="How it runs">
       <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
         <div v-if="shown.type" class="grid gap-1.5 sm:col-span-2">
           <Label for="run-type">Kind of app</Label>
@@ -153,10 +165,6 @@ function submit() {
           <p v-else class="text-xs text-muted-foreground">The folder the Dockerfile copies files from. A dot is the top folder of your code; use backend for a folder of that name.</p>
         </div>
       </div>
-      <template #hint>Applies on the next deploy.</template>
-      <template #actions>
-        <Button type="submit" :disabled="!changed || save.isPending.value">{{ save.isPending.value ? 'Saving...' : 'Save' }}</Button>
-      </template>
     </FormCard>
   </form>
 </template>
