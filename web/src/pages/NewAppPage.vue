@@ -29,7 +29,7 @@ import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { toastError } from '@/lib/notify'
-import { composeFit } from '@/lib/quota'
+import { composeFit, NO_OWN_APPS, noOwnApps } from '@/lib/quota'
 import { addressParts as toAddressParts, freeSlug, slugify, slugSchema } from '@/lib/slug'
 import type { BuildMode, ComposeCheck, DockerfileFinding, GitHubRepo, GitSourceInput } from '@/lib/types'
 import RepoPicker from './app/RepoPicker.vue'
@@ -46,6 +46,10 @@ const { list: projects, project } = useProject(intoProject)
 const fallback = computed(() => !!projects.data.value?.fallback)
 const backTo = computed(() => (project.value ? projectRoute(project.value.id) : '/'))
 const thing = computed(() => (intoProject.value ? 'app' : 'project'))
+// An account with no apps of its own (Admin > Signups, or its Limits) can only
+// add apps to projects shared with it; they count against the owner.
+const noOwn = computed(() => noOwnApps(me.data.value) && !project.value?.shared)
+const sharedProjects = computed(() => (projects.data.value?.projects ?? []).filter((p) => p.shared))
 watchEffect(() => {
   if (project.value) document.title = `Add an app - ${project.value.name} - bitploy`
 })
@@ -443,11 +447,25 @@ const submit = form.handleSubmit(run)
   <div class="grid gap-6">
     <PageHeader
       :title="project ? `Add an app to ${project.name}` : 'New project'"
-      :description="chosenSource ? `Name the ${thing} and press Deploy.` : 'Where is your code? bitploy builds it and puts it online.'"
+      :description="noOwn ? undefined : chosenSource ? `Name the ${thing} and press Deploy.` : 'Where is your code? bitploy builds it and puts it online.'"
     />
 
+    <Alert v-if="noOwn" data-testid="no-own-apps">
+      <AlertTitle>{{ NO_OWN_APPS }}</AlertTitle>
+      <AlertDescription>
+        <template v-if="sharedProjects.length">
+          <p>You can add apps to the projects shared with you:</p>
+          <ul class="mt-1 grid gap-1">
+            <li v-for="p in sharedProjects" :key="p.id">
+              <RouterLink :to="{ name: 'new-app', query: { project: p.id } }" class="text-foreground underline underline-offset-4">Add an app to {{ p.name }}</RouterLink>
+            </li>
+          </ul>
+        </template>
+      </AlertDescription>
+    </Alert>
+
     <!-- Step 1: where the code is. -->
-    <div v-if="!chosenSource" class="grid gap-3" data-testid="source-picker">
+    <div v-else-if="!chosenSource" class="grid gap-3" data-testid="source-picker">
       <!-- GitHub connected: the repositories, right here. -->
       <Card v-if="canPick" class="border-primary/30" data-testid="start-github">
         <CardContent class="grid gap-4">

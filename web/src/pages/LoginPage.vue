@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
@@ -12,12 +12,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api, ApiError } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { SESSION_KEY } from '@/composables/useSession'
+import { useSignupRules } from '@/composables/queries'
 import { safeNext } from '@/lib/utils'
 
 const route = useRoute()
 const router = useRouter()
 const failure = ref<ApiError | null>(null)
 const busy = ref(false)
+// With open signup (Admin > Signups) anyone can make an account on /invite/open.
+const rules = useSignupRules()
 
 const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
@@ -71,7 +74,8 @@ const submit = handleSubmit(async (values) => {
         </FormItem>
       </FormField>
       <Button type="submit" :disabled="busy" class="w-full">{{ busy ? 'Logging in...' : 'Log in' }}</Button>
-      <p class="text-center text-xs text-muted-foreground">No account yet? Ask an admin for an invite link.</p>
+      <p v-if="rules.data.value?.open_signup" class="text-center text-xs text-muted-foreground">No account yet? <RouterLink to="/invite/open" class="text-foreground underline underline-offset-4">Make one</RouterLink>.</p>
+      <p v-else class="text-center text-xs text-muted-foreground">No account yet? Ask an admin for an invite link.</p>
     </form>
   </AuthShell>
 </template>

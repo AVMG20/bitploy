@@ -72,6 +72,9 @@ const LABELS: Record<string, string> = {
   'invite.create': 'Made an invite',
   'invite.revoke': 'Revoked an invite',
   'admin.quota_set': 'Changed someone’s limits',
+  'admin.settings_update': 'Changed who can sign up or the limits for new accounts',
+  'admin.project_invite_revoke': 'Revoked someone’s project invite',
+  'user.signup': 'Made an account',
   'admin.db.query': 'Ran a query on the bitploy database',
   'github_app.create': 'Set up the GitHub app',
   'github_app.disconnect': 'Disconnected the GitHub app',
@@ -99,6 +102,27 @@ export function auditGroup(action: string): AuditGroup {
 
 const ROLE_WORDS: Record<string, string> = { user: 'Member', admin: 'Admin' }
 
+const isScalar = (x: unknown) => x === null || ['string', 'number', 'boolean'].includes(typeof x)
+
+/**
+ * A change logged as {from, to}: "a → b", or for two objects (the limits for
+ * new accounts) only the keys that changed, "apps 10 → 2".
+ */
+function fromTo(v: unknown): string | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || !('from' in v) || !('to' in v)) return null
+  const { from, to } = v as { from: unknown; to: unknown }
+  if (isScalar(from) && isScalar(to)) return `${String(from)} → ${String(to)}`
+  if (from && to && typeof from === 'object' && typeof to === 'object') {
+    const a = from as Record<string, unknown>
+    const b = to as Record<string, unknown>
+    const parts = Object.keys(b)
+      .filter((k) => a[k] !== b[k])
+      .map((k) => `${k.replace(/_/g, ' ')} ${String(a[k])} → ${String(b[k])}`)
+    return parts.join(', ')
+  }
+  return null
+}
+
 /** The details of an entry as short "key: value" parts, without ids nobody can read. */
 export function auditDetails(d: Record<string, unknown> | null): string[] {
   if (!d) return []
@@ -107,7 +131,8 @@ export function auditDetails(d: Record<string, unknown> | null): string[] {
     if (v === null || v === undefined || v === '' || /(^|_)id$/.test(k)) continue
     // A list of names or numbers reads as a list; other objects stay JSON.
     const plain = Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string' || typeof x === 'number')
-    let val = plain ? (v as unknown[]).join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
+    const change = fromTo(v)
+    let val = change ?? (plain ? (v as unknown[]).join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v))
     // Roles in the words the invite form uses.
     if (k === 'role') val = ROLE_WORDS[val] ?? val
     out.push(`${k.replace(/_/g, ' ')}: ${val.length > 80 ? `${val.slice(0, 77)}...` : val}`)

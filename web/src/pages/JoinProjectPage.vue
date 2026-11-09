@@ -23,7 +23,8 @@ import type { SessionInfo } from '@/lib/types'
 
 // An invite to someone's project (/join/<code>). Logged in: one click joins
 // it. Not logged in: log in first (and come back here), or make an account
-// with the link, which joins the project at the same time.
+// with the link, which joins the project at the same time. That last one only
+// while the server lets project invites create accounts (Admin > Signups).
 const route = useRoute()
 const router = useRouter()
 const code = computed(() => String(route.params.code))
@@ -58,6 +59,7 @@ const lockedElsewhere = computed(() => {
   return !!e && !!user.value && e.toLowerCase() !== user.value.email.toLowerCase()
 })
 const loginTo = computed(() => ({ name: 'login', query: { next: route.fullPath } }))
+const canSignUp = computed(() => info.data.value?.signup === true)
 
 const title = computed(() => (info.data.value ? `Join ${info.data.value.project_name}` : 'Join a project'))
 const description = computed(() => {
@@ -170,13 +172,17 @@ const signup = handleSubmit(async (values) => {
       </template>
 
       <template v-else>
+        <Alert v-if="!canSignUp">
+          <AlertTitle>You need an account on this server first</AlertTitle>
+          <AlertDescription>This invite only works for people who already have an account here. Log in if you have one. Otherwise ask an admin of this server for an invite link, make your account, then open this link again.</AlertDescription>
+        </Alert>
         <Button as-child class="w-full"><RouterLink :to="loginTo">I have an account: log in</RouterLink></Button>
-        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+        <div v-if="canSignUp" class="flex items-center gap-3 text-xs text-muted-foreground">
           <span class="h-px flex-1 bg-border" />
           or make an account
           <span class="h-px flex-1 bg-border" />
         </div>
-        <form class="grid gap-4" novalidate @submit.prevent="signup">
+        <form v-if="canSignUp" class="grid gap-4" novalidate @submit.prevent="signup">
           <Alert v-if="failure" variant="destructive">
             <AlertTitle>{{ failure.message }}</AlertTitle>
             <AlertDescription v-if="failure.code === 'email_taken'">This address has an account already. <RouterLink :to="loginTo" class="underline">Log in</RouterLink> and join from here.</AlertDescription>

@@ -10,6 +10,7 @@ import AdminDomains from './admin/AdminDomains.vue'
 import AdminGithub from './admin/AdminGithub.vue'
 import AdminInvites from './admin/AdminInvites.vue'
 import AdminServer from './admin/AdminServer.vue'
+import AdminSignups from './admin/AdminSignups.vue'
 import AdminTabBar from './admin/AdminTabBar.vue'
 import AdminUsers from './admin/AdminUsers.vue'
 import { ADMIN_PAGE_TABS, type AdminTab } from './admin/adminTabs'
@@ -25,10 +26,11 @@ const tab = computed<AdminTab>(() => (route.query.code && !route.query.tab ? 'gi
 
 <template>
   <div class="grid gap-5">
-    <PageHeader title="Admin" description="People, invites, GitHub and the health of the server." />
+    <PageHeader title="Admin" description="People, invites, signups, GitHub and the health of the server." />
     <AdminTabBar :tab="tab">
       <TabsContent value="users" class="pt-6"><AdminUsers /></TabsContent>
       <TabsContent value="invites" class="pt-6"><AdminInvites /></TabsContent>
+      <TabsContent value="signups" class="pt-6"><AdminSignups /></TabsContent>
       <TabsContent value="server" class="pt-6"><AdminServer /></TabsContent>
       <TabsContent value="apps" class="pt-6"><AdminApps /></TabsContent>
       <TabsContent value="domains" class="pt-6"><AdminDomains /></TabsContent>

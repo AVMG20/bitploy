@@ -572,6 +572,8 @@ export interface ProjectInviteInfo {
   email: string | null
   role: 'member'
   expires_at: string
+  /** Someone without an account can make one with this link; false: only people who already have an account on this server can accept it. */
+  signup: boolean
 }
 
 /** A signup through a project invite: the new session and the project it joined. */
@@ -819,6 +821,63 @@ export interface AdminUser extends User {
   app_count: number
   /** Extra app domains this person may use (the default domain is always allowed). */
   app_domain_ids: string[]
+  /** How the account was made; null for accounts made before bitploy recorded it. */
+  joined: AccountOrigin | null
+}
+
+/** How an account was made. */
+export interface AccountOrigin {
+  /** setup: made on the command line; admin_invite: an invite link from an admin; project_invite: an invite to a project; open: signed up on their own. */
+  via: 'setup' | 'admin_invite' | 'project_invite' | 'open'
+  /** Who made the invite; null when there was none or that user is gone. */
+  by: UserBrief | null
+  /** The project of a project invite; null otherwise or when it was deleted. */
+  project: ProjectRef | null
+  project_deleted?: boolean
+}
+
+/** Who can create an account: only with an admin's invite, also with a project invite (the default), or anyone. */
+export type SignupMode = 'admin_invites' | 'any_invite' | 'open'
+
+/** The limits a new account gets. */
+export interface NewAccountQuota {
+  apps: number
+  memory_mb: number
+  cpu_millis: number
+  deploys_per_hour: number
+  domains_per_app: number
+  volume_mb: number
+}
+
+/** GET /admin/settings: who can make an account, and the limits of new accounts. */
+export interface ServerSettings {
+  signups: SignupMode
+  /** Accounts made with a project invite can deploy apps of their own; false: 0 apps, memory and CPU of their own. */
+  project_invite_apps: boolean
+  /** The limits every account made from now on gets; existing accounts keep theirs. */
+  new_account_quota: NewAccountQuota
+  updated_at: string | null
+  /** What the server has, the most a limit may be; 0 when not known. */
+  server: { memory_mb: number; cpu_millis: number; disk_mb: number }
+}
+
+/** GET /signup-rules (no login needed). */
+export interface SignupRules {
+  /** Anyone can make an account, on /invite/open. */
+  open_signup: boolean
+  /** A project invite can also create an account; false: it only works for people who already have one. */
+  project_invite_signup: boolean
+}
+
+/** An open project invite in the admin's list of all of them. */
+export interface AdminProjectInvite {
+  id: string
+  project: ProjectRef
+  /** Null when that user is gone. */
+  invited_by: UserBrief | null
+  email: string | null
+  created_at: string
+  expires_at: string
 }
 
 export interface ServerStats {

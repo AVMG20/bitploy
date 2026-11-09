@@ -31,6 +31,11 @@ export function useMe() {
   return useQuery({ queryKey: keys.me, queryFn: api.me, refetchInterval: livePoll(REFRESH_MS) })
 }
 
+/** Who can make an account here (no login needed): the login, invite and Members pages follow it. */
+export function useSignupRules() {
+  return useQuery({ queryKey: keys.signupRules, queryFn: api.signupRules, staleTime: 60_000 })
+}
+
 export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }

@@ -27,6 +27,7 @@ import type { FriendlyError } from '@/lib/errors'
 import { formatMB } from '@/lib/format'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { aliasOf, freeAlias } from '@/lib/projects'
+import { NO_OWN_APPS, noOwnApps } from '@/lib/quota'
 import { addressParts as toAddressParts, slugify, slugSchema } from '@/lib/slug'
 
 const props = defineProps<{ catalogId: string }>()
@@ -117,6 +118,9 @@ const renamed = computed(() => {
   return !!target.value && !aliasError.value && alias.value.trim() !== id && target.value.apps.some((x) => aliasOf(x) === id)
 })
 const bringsServices = computed(() => !!entry.data.value?.services?.length)
+// An account with no apps of its own can still add one to a project shared with it.
+const noOwn = computed(() => noOwnApps(me.data.value) && !target.value?.shared)
+const sharedProjects = computed(() => (projects.data.value?.projects ?? []).filter((p) => p.shared))
 const deploy = useMutation({
   mutationFn: (v: { name: string; slug: string }) =>
     api.deployCatalog(props.catalogId, {
@@ -149,7 +153,7 @@ const deploy = useMutation({
   },
 })
 const submit = form.handleSubmit((v) => {
-  if (aliasError.value) return
+  if (aliasError.value || noOwn.value) return
   error.value = null
   deploy.mutate(v)
 })
@@ -275,13 +279,17 @@ const submit = form.handleSubmit((v) => {
           </CardContent>
         </Card>
 
-        <Alert v-if="error" variant="destructive">
+        <Alert v-if="noOwn" data-testid="no-own-apps">
+          <AlertTitle>{{ NO_OWN_APPS }}</AlertTitle>
+          <AlertDescription v-if="sharedProjects.length">You can add it to a project shared with you: pick it under Project.</AlertDescription>
+        </Alert>
+        <Alert v-else-if="error" variant="destructive">
           <AlertTitle>{{ error.message }}</AlertTitle>
           <AlertDescription><p v-if="error.hint">{{ error.hint }}</p></AlertDescription>
         </Alert>
 
         <div class="flex flex-wrap items-center gap-3">
-          <Button type="submit" :disabled="deploy.isPending.value">{{ deploy.isPending.value ? 'Creating the app...' : target ? `Deploy to ${target.name}` : `Deploy ${entry.data.value?.name ?? 'app'}` }}</Button>
+          <Button type="submit" :disabled="deploy.isPending.value || noOwn">{{ deploy.isPending.value ? 'Creating the app...' : target ? `Deploy to ${target.name}` : `Deploy ${entry.data.value?.name ?? 'app'}` }}</Button>
           <Button as-child variant="ghost" :disabled="deploy.isPending.value"><RouterLink :to="target ? projectRoute(target.id) : { name: 'ready-made' }">Cancel</RouterLink></Button>
         </div>
       </form>

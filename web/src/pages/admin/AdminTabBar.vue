@@ -12,6 +12,7 @@ const router = useRouter()
 const tabs: { value: AdminTab; label: string }[] = [
   { value: 'users', label: 'People' },
   { value: 'invites', label: 'Invites' },
+  { value: 'signups', label: 'Signups' },
   { value: 'server', label: 'Server' },
   { value: 'apps', label: 'All apps' },
   { value: 'domains', label: 'Domains' },

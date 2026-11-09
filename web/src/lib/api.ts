@@ -1,6 +1,11 @@
 import type {
   AddServiceInput,
+  AdminProjectInvite,
   AdminUser,
+  NewAccountQuota,
+  ServerSettings,
+  SignupMode,
+  SignupRules,
   AppDomain,
   AppDomainList,
   ApiErrorBody,
@@ -78,6 +83,7 @@ export const paths = {
   logout: `${V1}/auth/logout`,
   session: `${V1}/session`,
   acceptInvite: (code: string) => `${V1}/invites/${enc(code)}/accept`,
+  signupRules: `${V1}/signup-rules`,
   me: `${V1}/me`,
   meProfile: `${V1}/me`, // PATCH
   mePassword: `${V1}/me/password`,
@@ -165,6 +171,9 @@ export const paths = {
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
   adminInvites: `${V1}/admin/invites`,
   adminInvite: (id: string) => `${V1}/admin/invites/${enc(id)}`,
+  adminProjectInvites: `${V1}/admin/project-invites`,
+  adminProjectInvite: (id: string) => `${V1}/admin/project-invites/${enc(id)}`,
+  adminSettings: `${V1}/admin/settings`,
   adminServer: `${V1}/admin/server`,
   adminServerMetrics: `${V1}/admin/server/metrics`,
   adminApps: `${V1}/admin/apps`,
@@ -396,6 +405,8 @@ export const api = {
     await request('POST', paths.logout, { noRedirect: true })
     setCsrfToken('')
   },
+  /** Who can make an account here (no login needed). */
+  signupRules: () => request<SignupRules>('GET', paths.signupRules, { noRedirect: true }),
   acceptInvite(code: string, input: { name: string; email: string; password: string }): Promise<unknown> {
     return request('POST', paths.acceptInvite(code), { body: input, noRedirect: true })
   },
@@ -651,6 +662,14 @@ export const api = {
   },
   createInvite: (input: { email?: string; role?: string }) => request<Invite>('POST', paths.adminInvites, { body: input }),
   revokeInvite: (id: string) => request<void>('DELETE', paths.adminInvite(id)),
+  /** The open project invites of every user. */
+  async adminProjectInvites(): Promise<AdminProjectInvite[]> {
+    return listAll<AdminProjectInvite>(paths.adminProjectInvites)
+  },
+  revokeAdminProjectInvite: (id: string) => request<void>('DELETE', paths.adminProjectInvite(id)),
+  adminSettings: () => request<ServerSettings>('GET', paths.adminSettings),
+  updateAdminSettings: (input: { signups?: SignupMode; project_invite_apps?: boolean; new_account_quota?: NewAccountQuota }) =>
+    request<ServerSettings>('PATCH', paths.adminSettings, { body: input }),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
   adminServerMetrics: (window: MetricWindow) => request<ServerMetrics>('GET', paths.adminServerMetrics, { query: { window } }),
   async adminApps(): Promise<App[]> {

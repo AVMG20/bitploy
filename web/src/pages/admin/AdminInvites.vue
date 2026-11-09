@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
-import type { Invite } from '@/lib/types'
+import type { AdminProjectInvite, Invite } from '@/lib/types'
 
 const qc = useQueryClient()
 const invites = useQuery({ queryKey: keys.adminInvites, queryFn: api.invites, refetchInterval: 15_000 })
@@ -70,6 +70,25 @@ const revoke = useMutation({
     toastOk('Invite revoked')
     toRevoke.value = null
     void qc.invalidateQueries({ queryKey: keys.adminInvites })
+  },
+  onError: (e) => toastError(e),
+})
+
+// The open invites people made to their projects: an admin sees them all and can revoke any.
+const projectInvites = useQuery({ queryKey: keys.adminProjectInvites, queryFn: api.adminProjectInvites, refetchInterval: 15_000 })
+const toRevokeProject = ref<AdminProjectInvite | null>(null)
+const revokeProjectOpen = computed({
+  get: () => toRevokeProject.value !== null,
+  set: (v) => {
+    if (!v) toRevokeProject.value = null
+  },
+})
+const revokeProject = useMutation({
+  mutationFn: (id: string) => api.revokeAdminProjectInvite(id),
+  onSuccess: () => {
+    toastOk('Project invite revoked')
+    toRevokeProject.value = null
+    void qc.invalidateQueries({ queryKey: keys.adminProjectInvites })
   },
   onError: (e) => toastError(e),
 })
@@ -153,6 +172,55 @@ function state(i: Invite): { label: string; tone: string; date: string } {
         </TableBody>
       </Table>
     </div>
+
+    <div class="mt-4 grid gap-1">
+      <h2 class="text-base font-semibold">Project invites</h2>
+      <p class="text-sm text-muted-foreground">Links people made to share their projects, not used yet. Revoke one to stop it working.</p>
+    </div>
+    <QueryError v-if="projectInvites.isError.value" :error="projectInvites.error.value" @retry="projectInvites.refetch()" />
+    <Skeleton v-else-if="projectInvites.isPending.value" class="h-24 w-full" />
+    <EmptyState v-else-if="!projectInvites.data.value?.length" title="No open project invites." description="Invites that project owners make in their Members tab show up here." />
+    <div v-else class="overflow-x-auto rounded-xl border bg-card shadow-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Project</TableHead>
+            <TableHead>Invited by</TableHead>
+            <TableHead class="hidden sm:table-cell">For</TableHead>
+            <TableHead class="hidden md:table-cell">Created</TableHead>
+            <TableHead>Expires</TableHead>
+            <TableHead class="w-0" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="p in projectInvites.data.value" :key="p.id">
+            <TableCell class="font-medium">
+              {{ p.project.name }}
+              <span class="block text-xs font-normal text-muted-foreground sm:hidden">{{ p.email || 'Anyone with the link' }}</span>
+            </TableCell>
+            <TableCell>
+              <template v-if="p.invited_by">{{ p.invited_by.name || p.invited_by.email }}<span class="block text-xs text-muted-foreground">{{ p.invited_by.email }}</span></template>
+              <span v-else class="text-muted-foreground">A deleted account</span>
+            </TableCell>
+            <TableCell class="hidden sm:table-cell">{{ p.email || 'Anyone with the link' }}</TableCell>
+            <TableCell class="hidden md:table-cell"><RelativeTime :date="p.created_at" /></TableCell>
+            <TableCell class="text-muted-foreground"><RelativeTime :date="p.expires_at" /></TableCell>
+            <TableCell>
+              <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke the invite to ${p.project.name}`" @click="toRevokeProject = p">Revoke</Button>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
+
+    <ConfirmDialog
+      v-model:open="revokeProjectOpen"
+      title="Revoke this project invite?"
+      :description="`The link to ${toRevokeProject?.project.name ?? 'the project'} stops working straight away. The person who made it is not told.`"
+      confirm-label="Revoke invite"
+      :loading="revokeProject.isPending.value"
+      @confirm="toRevokeProject && revokeProject.mutate(toRevokeProject.id)"
+    />
 
     <ConfirmDialog
       v-model:open="revokeOpen"

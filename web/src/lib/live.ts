@@ -39,6 +39,10 @@ export const keys = {
   adminGithub: ['admin', 'github'] as const,
   adminUsers: ['admin', 'users'] as const,
   adminInvites: ['admin', 'invites'] as const,
+  adminProjectInvites: ['admin', 'project-invites'] as const,
+  adminSettings: ['admin', 'settings'] as const,
+  /** Public: who can make an account here. */
+  signupRules: ['signup-rules'] as const,
   adminServer: ['admin', 'server'] as const,
   adminServerMetrics: (window: MetricWindow) => ['admin', 'server-metrics', window] as const,
   adminApps: ['admin', 'apps'] as const,

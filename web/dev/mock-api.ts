@@ -7,15 +7,22 @@
 // /projects and /service-templates answer 404, to try the one-project-per-app
 // fallback. MOCK_OVERALLOCATE=1 lets the user allocate memory and CPU without a
 // limit (the admin switch), to see the Projects usage cards for such a user.
+// MOCK_NO_OWN_APPS=1 gives the user no apps, memory or CPU of their own, like
+// an account made with a project invite while those may not deploy.
+// MOCK_LOGGED_OUT=1 starts logged out (GET /session answers 401 until a login);
+// Log out does the same, to see the login, join and signup pages.
 
 import { createHash, generateKeyPairSync } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
 import type {
+  AdminProjectInvite,
   App,
   AppService,
   AdminUser,
+  ServerSettings,
+  SignupRules,
   AppDomain,
   AppVolume,
   AuditEntry,
@@ -425,10 +432,58 @@ const members: Record<string, MemberRow[]> = {
   ],
 }
 
-/** Open invites of Ada's projects. */
+/** Open invites of the projects (Ada sees those of her own in Members; an admin sees all in Admin > Invites). */
 const projectInvites: Record<string, ProjectInvite[]> = {
   prj_shop: [{ id: 'pin_ken', email: 'ken@example.com', role: 'member', created_at: ago(60 * 5), expires_at: ago(-60 * 24 * 7 + 60 * 5) }],
+  prj_wiki: [{ id: 'pin_wiki', email: null, role: 'member', created_at: ago(60 * 26), expires_at: ago(-60 * 24 * 6) }],
 }
+
+/** Admin > Signups (GET/PATCH /admin/settings). */
+const settings: ServerSettings = {
+  signups: 'any_invite',
+  project_invite_apps: true,
+  new_account_quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
+  updated_at: null,
+  server: { memory_mb: 16384, cpu_millis: 8000, disk_mb: 409600 },
+}
+const signupRules = (): SignupRules => ({ open_signup: settings.signups === 'open', project_invite_signup: settings.signups !== 'admin_invites' })
+
+function updateSettings(body: Record<string, unknown>): ServerSettings {
+  const bad = (code: string, msg: string, hint = '') => new HttpError(422, code, msg, hint)
+  if (body.signups === undefined && body.project_invite_apps === undefined && body.new_account_quota === undefined)
+    throw new HttpError(400, 'nothing_to_change', 'Send signups, project_invite_apps and/or new_account_quota.')
+  if (body.signups !== undefined && !['admin_invites', 'any_invite', 'open'].includes(String(body.signups)))
+    throw bad('invalid_signups', 'signups must be admin_invites, any_invite or open.')
+  const q = body.new_account_quota as ServerSettings['new_account_quota'] | undefined
+  if (q) {
+    const s = settings.server
+    if (Object.values(q).some((v) => typeof v !== 'number' || v < 0 || !Number.isInteger(v))) throw bad('invalid_quota', 'Limits must be zero or a positive whole number.')
+    if (q.deploys_per_hour < 1) throw bad('invalid_quota', 'Deploys per hour must be at least 1.')
+    if (q.volume_mb < 100) throw bad('invalid_quota', 'Storage must be at least 100 MB.')
+    if (q.memory_mb > s.memory_mb) throw bad('invalid_quota', `${q.memory_mb} MB of memory is more than this server has (${s.memory_mb} MB).`, 'Use at most what the server has.')
+    if (q.cpu_millis > s.cpu_millis) throw bad('invalid_quota', `${q.cpu_millis} CPU millis is more than this server has (${s.cpu_millis}).`, 'Use at most what the server has.')
+    if (q.volume_mb > s.disk_mb) throw bad('invalid_quota', `${q.volume_mb} MB of storage is more than this server's disk (${s.disk_mb} MB).`, 'Use at most what the disk holds.')
+    settings.new_account_quota = { ...q }
+  }
+  if (body.signups !== undefined) settings.signups = body.signups as ServerSettings['signups']
+  if (typeof body.project_invite_apps === 'boolean') settings.project_invite_apps = body.project_invite_apps
+  settings.updated_at = new Date().toISOString()
+  return settings
+}
+
+/** Every open project invite, for Admin > Invites. */
+function allProjectInvites(): AdminProjectInvite[] {
+  return Object.entries(projectInvites)
+    .flatMap(([pid, list]) => {
+      const row = projects.find((p) => p.id === pid)!
+      const owner = row.owner ?? { id: user.id, name: user.name, email: user.email }
+      return list.map((i): AdminProjectInvite => ({ id: i.id, project: { id: row.id, name: row.name }, invited_by: owner, email: i.email, created_at: i.created_at, expires_at: i.expires_at }))
+    })
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+/** Logged out (MOCK_LOGGED_OUT=1, or after Log out): GET /session answers 401 until a login. */
+let loggedOut = process.env.MOCK_LOGGED_OUT === '1'
 
 /** The invite links the demo knows: /join/mock-join for anyone, /join/mock-join-other for another address. */
 const joinCodes: Record<string, { project: string; email: string | null; used?: boolean }> = {
@@ -886,10 +941,13 @@ function memberRoutes(method: string, parts: string[], body: Record<string, unkn
     const j = joinCode(parts[1])
     if (method === 'GET' && !parts[2]) {
       const owner = j.row.owner ?? user
-      send(res, 200, { project_name: j.row.name, invited_by: owner.name, email: j.email, role: 'member', expires_at: ago(-60 * 24 * 6) } satisfies ProjectInviteInfo)
+      send(res, 200, { project_name: j.row.name, invited_by: owner.name, email: j.email, role: 'member', expires_at: ago(-60 * 24 * 6), signup: signupRules().project_invite_signup } satisfies ProjectInviteInfo)
       return true
     }
     if (method === 'POST' && (parts[2] === 'accept' || parts[2] === 'signup')) {
+      if (parts[2] === 'signup' && !signupRules().project_invite_signup)
+        throw new HttpError(403, 'project_invite_signup_off', 'You need an account on this server first: this invite only works for people who already have one.', 'Log in if you have an account. Otherwise ask an admin of this server for an invite link, make your account, then open this link again.')
+      if (parts[2] === 'signup') loggedOut = false
       if (j.email && parts[2] === 'accept' && j.email !== user.email)
         throw new HttpError(403, 'invite_email_mismatch', 'This invite is for a different email address.', `Log in with the account of ${j.email}, or ask for an invite for ${user.email}.`)
       const list = (members[j.row.id] ??= [])
@@ -1268,7 +1326,12 @@ function me(): Me {
   const running = apps.filter((a) => a.status === 'running')
   return {
     user,
-    quota: process.env.MOCK_OVERALLOCATE === '1' ? { ...QUOTA, overallocate: true } : QUOTA,
+    quota:
+      process.env.MOCK_NO_OWN_APPS === '1'
+        ? { ...QUOTA, apps: 0, memory_mb: 0, cpu_millis: 0 }
+        : process.env.MOCK_OVERALLOCATE === '1'
+          ? { ...QUOTA, overallocate: true }
+          : QUOTA,
     usage: {
       apps: apps.length,
       apps_running: running.length,
@@ -1367,7 +1430,16 @@ function adminUsers(): AdminUser[] {
     ['usr_linus', 'linus@example.com', 'Linus', 'user', 'active', 3],
     ['usr_grace', 'grace@example.com', 'Grace', 'user', 'active', 1],
     ['usr_ken', 'ken@example.com', 'Ken', 'user', 'suspended', 0],
+    ['usr_mia', 'mia@example.com', 'Mia', 'user', 'active', 0],
   ]
+  const ada = { id: 'usr_ada', name: 'Ada', email: 'ada@example.com' }
+  // How each account was made; Ken's is from before bitploy recorded it.
+  const joined: Record<string, AdminUser['joined']> = {
+    usr_ada: { via: 'setup', by: null, project: null },
+    usr_linus: { via: 'admin_invite', by: ada, project: null },
+    usr_grace: { via: 'open', by: null, project: null },
+    usr_mia: { via: 'project_invite', by: ada, project: { id: 'prj_shop', name: 'Shop' } },
+  }
   return people.map(([id, email, name, role, status, count], i) => ({
     id,
     email,
@@ -1376,18 +1448,20 @@ function adminUsers(): AdminUser[] {
     status: userEdits[id]?.status ?? status,
     created_at: ago(60 * 24 * (90 - i * 20)),
     // The admin runs the demo projects and has room for them.
-    quota: { ...(role === 'admin' ? { ...m.quota, apps: 30, memory_mb: 8192 } : m.quota), ...userEdits[id]?.quota },
+    // Mia came with a project invite while those could not deploy: nothing of her own.
+    quota: { ...(role === 'admin' ? { ...QUOTA, apps: 30, memory_mb: 8192 } : id === 'usr_mia' ? { ...QUOTA, apps: 0, memory_mb: 0, cpu_millis: 0 } : QUOTA), ...userEdits[id]?.quota },
     usage: {
       ...m.usage,
       apps: count,
       apps_running: status === 'active' ? count : 0,
       memory_reserved_mb: Math.round((m.usage.memory_reserved_mb * count) / Math.max(1, apps.length)),
-      deploys_month: [38, 12, 3, 0][i]!,
-      build_minutes_month: [42, 15, 4, 0][i]!,
-      running_hours_month: [3100, 2160, 720, 0][i]!,
+      deploys_month: [38, 12, 3, 0, 0][i]!,
+      build_minutes_month: [42, 15, 4, 0, 0][i]!,
+      running_hours_month: [3100, 2160, 720, 0, 0][i]!,
     },
     app_count: count,
     app_domain_ids: id === 'usr_linus' ? ['apd_shop'] : [],
+    joined: joined[id] ?? null,
   }))
 }
 const invites: Invite[] = [
@@ -1705,6 +1779,23 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     return send(res, 200, adminUsers().find((u) => u.id === parts[2]))
   }
 
+  // Signup with an invite link from an admin, or open signup on /invite/open.
+  if (method === 'POST' && parts[0] === 'invites' && parts[1] && parts[2] === 'accept') {
+    if (parts[1] === 'open' && !signupRules().open_signup) throw new HttpError(403, 'signup_closed', 'This server does not let people make an account on their own.', 'Ask an admin of this server for an invite link.')
+    loggedOut = false
+    return send(res, 201, { user, csrf_token: 'mock-csrf' } satisfies SessionInfo)
+  }
+  if (method === 'DELETE' && parts[0] === 'admin' && parts[1] === 'project-invites' && parts[2]) {
+    for (const list of Object.values(projectInvites)) {
+      const i = list.findIndex((x) => x.id === parts[2])
+      if (i >= 0) {
+        list.splice(i, 1)
+        return send(res, 204)
+      }
+    }
+    throw new HttpError(404, 'invite_not_found', 'There is no unused project invite with that id.', 'Used invites cannot be revoked. List the open ones with GET /api/v1/admin/project-invites.')
+  }
+
   if (memberRoutes(method, parts, body, res)) return
   if (notificationRoutes(method, parts, body, res)) return
 
@@ -1718,10 +1809,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
   switch (route) {
     // ---------------------------------------------------------------- session and account
     case 'GET /session':
+      if (loggedOut) throw new HttpError(401, 'unauthorized', 'Log in first.')
       return send(res, 200, { user, csrf_token: 'mock-csrf' } satisfies SessionInfo)
     case 'POST /auth/login':
-    case 'POST /auth/logout':
+      loggedOut = false
       return send(res, 200, {})
+    case 'POST /auth/logout':
+      loggedOut = true
+      return send(res, 200, {})
+    case 'GET /signup-rules':
+      return send(res, 200, signupRules())
     case 'GET /me':
       return send(res, 200, me())
     case 'GET /events':
@@ -1736,6 +1833,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       return send(res, 200, items(adminUsers()))
     case 'GET /admin/invites':
       return send(res, 200, items(invites))
+    case 'GET /admin/project-invites':
+      return send(res, 200, items(allProjectInvites()))
+    case 'GET /admin/settings':
+      return send(res, 200, settings)
+    case 'PATCH /admin/settings':
+      return send(res, 200, updateSettings(body))
     case 'POST /admin/invites': {
       const inv: Invite = { id: newId('inv'), email: body.email ? String(body.email) : null, role: body.role === 'admin' ? 'admin' : 'user', created_at: ago(0), expires_at: ago(-60 * 24 * 7), used_at: null, url: 'http://localhost:5177/invite/mock-code' }
       invites.unshift(inv)

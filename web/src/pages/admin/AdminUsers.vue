@@ -19,6 +19,7 @@ import { useSession } from '@/composables/useSession'
 import { api } from '@/lib/api'
 import { formatMB } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
+import { joinedText } from '@/lib/signups'
 import type { AdminUser } from '@/lib/types'
 import UserDomainsSelect from './UserDomainsSelect.vue'
 
@@ -54,8 +55,8 @@ const form = useForm({
   validationSchema: toTypedSchema(
     z.object({
       apps: whole('Apps', 0),
-      memory_gb: z.coerce.number({ invalid_type_error: 'Memory: enter a number.' }).min(0.0625, 'Memory: at least 0.0625 GB (64 MB).'),
-      cpus: z.coerce.number({ invalid_type_error: 'CPU cores: enter a number.' }).min(0.1, 'CPU cores: at least 0.1.'),
+      memory_gb: z.coerce.number({ invalid_type_error: 'Memory: enter a number.' }).min(0, 'Memory: at least 0.'),
+      cpus: z.coerce.number({ invalid_type_error: 'CPU cores: enter a number.' }).min(0, 'CPU cores: at least 0.'),
       deploys_per_hour: whole('Deploys per hour', 1),
       domains_per_app: whole('Domains', 0),
       volume_gb: z.coerce.number({ invalid_type_error: 'Storage: enter a number.' }).min(0, 'Storage: at least 0.'),
@@ -67,7 +68,7 @@ const form = useForm({
 
 // Memory and CPU come last, next to the switch that turns their check off.
 const fields = [
-  { name: 'apps', label: 'Apps', hint: '' },
+  { name: 'apps', label: 'Apps', hint: '0: they can only work in projects shared with them.' },
   { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
   { name: 'domains_per_app', label: 'Custom domains per app', hint: '' },
   { name: 'volume_gb', label: 'Storage in total (GB)', hint: '' },
@@ -158,6 +159,7 @@ const setStatus = useMutation({
                 <Badge v-if="u.status === 'suspended'" variant="destructive" class="ml-1">Suspended</Badge>
               </p>
               <p class="text-xs text-muted-foreground">{{ u.email }}</p>
+              <p v-if="joinedText(u.joined)" class="text-xs text-muted-foreground">{{ joinedText(u.joined) }}</p>
             </TableCell>
             <TableCell class="tabular-nums">{{ u.app_count }} / {{ u.quota.apps }}<span class="block text-xs text-muted-foreground">{{ u.usage.apps_running }} running</span></TableCell>
             <TableCell class="tabular-nums">

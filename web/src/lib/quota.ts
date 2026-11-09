@@ -25,6 +25,18 @@ export function storageLeftMB(me: MeLike): number | null {
   return Math.max(0, me.quota.volume_mb - me.usage.files_mb - me.usage.backups_mb - me.usage.volume_reserved_mb)
 }
 
+/**
+ * An admin gave the account no apps of its own (apps 0, like an account made
+ * with a project invite while those may not deploy): it can only add apps to
+ * projects shared with it, which count against their owner.
+ */
+export function noOwnApps(me: MeLike): boolean {
+  return !!me && me.quota.apps <= 0
+}
+
+/** What a new app page says to an account with no apps of its own. */
+export const NO_OWN_APPS = "Your account can't create apps of its own. Ask an admin to raise your limits."
+
 /** The account has as many apps as it may have. */
 export function appsFull(me: MeLike): boolean {
   return !!me && me.usage.apps >= me.quota.apps

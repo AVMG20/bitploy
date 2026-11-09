@@ -18,11 +18,12 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { keys } from '@/composables/queries'
+import { keys, useSignupRules } from '@/composables/queries'
 import { useProjectData } from '@/composables/useProjectData'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
 import { ownerName } from '@/lib/projects'
+import { projectInviteCardText } from '@/lib/signups'
 import type { ProjectInvite, ProjectMember } from '@/lib/types'
 
 // Who can use the project: its owner and the people it is shared with. The
@@ -33,6 +34,9 @@ const router = useRouter()
 const qc = useQueryClient()
 const { project } = useProjectData(() => props.projectId)
 const isOwner = computed(() => project.value?.role === 'owner')
+// Whether a project invite can also create an account follows Admin > Signups.
+const rules = useSignupRules()
+const inviteText = computed(() => projectInviteCardText(rules.data.value?.project_invite_signup ?? true))
 
 const members = useQuery({
   queryKey: computed(() => keys.projectMembers(props.projectId)),
@@ -126,7 +130,7 @@ const removeText = computed(() => {
       <Card>
         <CardHeader>
           <CardTitle>Invite link</CardTitle>
-          <CardDescription>You get a single-use link that works for 7 days. Send it to them yourself. Someone without an account can sign up with it.</CardDescription>
+          <CardDescription>{{ inviteText }}</CardDescription>
         </CardHeader>
         <CardContent>
           <form class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start" novalidate @submit.prevent="submit">

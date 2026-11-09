@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
@@ -12,12 +12,18 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { api, ApiError } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { SESSION_KEY } from '@/composables/useSession'
+import { useSignupRules } from '@/composables/queries'
 import { toastOk } from '@/lib/notify'
 
 const route = useRoute()
 const router = useRouter()
 const failure = ref<ApiError | null>(null)
 const busy = ref(false)
+// /invite/open is open signup: it works only while Admin > Signups lets anyone make an account.
+const open = computed(() => String(route.params.code) === 'open')
+const rules = useSignupRules()
+const closed = computed(() => open.value && rules.data.value?.open_signup === false)
+const description = computed(() => (open.value ? 'Make an account on this bitploy server.' : 'You were invited to bitploy. Pick a password to get started.'))
 
 const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
@@ -60,8 +66,15 @@ const submit = handleSubmit(async (values) => {
 </script>
 
 <template>
-  <AuthShell title="Create your account" description="You were invited to bitploy. Pick a password to get started.">
-    <form class="grid gap-4" novalidate @submit.prevent="submit">
+  <AuthShell title="Create your account" :description="description">
+    <div v-if="closed" class="grid gap-4">
+      <Alert>
+        <AlertTitle>This server does not let people make an account on their own</AlertTitle>
+        <AlertDescription>Ask an admin of this server for an invite link.</AlertDescription>
+      </Alert>
+      <Button variant="outline" as-child class="w-full"><RouterLink to="/login">Log in</RouterLink></Button>
+    </div>
+    <form v-else class="grid gap-4" novalidate @submit.prevent="submit">
       <Alert v-if="failure" variant="destructive">
         <AlertTitle>{{ failure.message }}</AlertTitle>
         <AlertDescription v-if="failure.hint">{{ failure.hint }}</AlertDescription>

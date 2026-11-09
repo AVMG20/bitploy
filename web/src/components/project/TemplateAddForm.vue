@@ -16,6 +16,7 @@ import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { formatMB, pct } from '@/lib/format'
 import { aliasOf, appRole, connectable, defaultConnect, freeAlias, roleTitle, sharedVar, templateRole, varSource } from '@/lib/projects'
+import { memoryLeftMB, NO_OWN_APPS, noOwnApps, storageLeftMB } from '@/lib/quota'
 import { listWords } from '@/lib/services'
 import type { RoleKey } from '@/lib/services'
 import type { App, ServiceTemplate } from '@/lib/types'
@@ -97,15 +98,17 @@ function usesNow(slug: string): string {
 const role = computed<RoleKey>(() => templateRole(props.template))
 
 // ---------------------------------------------------------------- does it fit
-const memLeft = computed(() => (me.data.value && !me.data.value.quota.overallocate ? Math.max(0, me.data.value.quota.memory_mb - me.data.value.usage.memory_reserved_mb) : null))
-const storageLeft = computed(() => {
-  const m = me.data.value
-  return m ? Math.max(0, m.quota.volume_mb - m.usage.files_mb - m.usage.backups_mb - m.usage.volume_reserved_mb) : null
-})
+// A project shared with you counts against its owner's allowance, which the
+// server checks; only your own projects are checked here.
+const shared = computed(() => !isNew.value && !!project.value?.shared)
+const own = computed(() => (shared.value ? null : me.data.value))
+const memLeft = computed(() => memoryLeftMB(own.value))
+const storageLeft = computed(() => storageLeftMB(own.value))
 const backedUp = computed(() => templateRole(props.template) === 'database')
 const memOver = computed(() => memLeft.value !== null && props.template.memory_mb > memLeft.value)
 const storageOver = computed(() => storageLeft.value !== null && props.template.volume_mb > storageLeft.value)
-const appsFull = computed(() => !!me.data.value && me.data.value.usage.apps >= me.data.value.quota.apps)
+const noOwn = computed(() => noOwnApps(own.value))
+const appsFull = computed(() => !!own.value && own.value.usage.apps >= own.value.quota.apps)
 
 // ---------------------------------------------------------------- add, then follow it
 const stage = ref<'form' | 'adding' | 'progress'>('form')
@@ -258,7 +261,9 @@ const busy = computed(() => stage.value === 'adding')
             {{ formatMB(template.volume_mb) }}<span v-if="storageLeft !== null" class="text-muted-foreground"> of {{ formatMB(storageLeft) }} left</span>
           </span>
         </div>
-        <p v-if="memOver || storageOver" class="text-xs text-destructive">This does not fit in what is left of your allowance. Stop or delete an app first, or ask your admin for more.</p>
+        <p v-if="shared" class="text-xs text-muted-foreground">It counts against the limits of the project's owner.</p>
+        <p v-if="noOwn" class="text-xs text-destructive">{{ NO_OWN_APPS }}</p>
+        <p v-else-if="memOver || storageOver" class="text-xs text-destructive">This does not fit in what is left of your allowance. Stop or delete an app first, or ask your admin for more.</p>
         <p v-else-if="appsFull" class="text-xs text-destructive">You have {{ me.data.value?.quota.apps }} apps, the most your account allows. Delete one first, or ask your admin for more.</p>
       </div>
 
@@ -269,7 +274,7 @@ const busy = computed(() => stage.value === 'adding')
 
       <div class="flex flex-wrap items-center justify-end gap-2">
         <Button v-if="showBack" variant="ghost" :disabled="busy" @click="emit('back')">Back</Button>
-        <Button :disabled="busy || (!isNew && !!nameError) || memOver || storageOver || appsFull" @click="add">
+        <Button :disabled="busy || (!isNew && !!nameError) || memOver || storageOver || appsFull || noOwn" @click="add">
           <Loader2 v-if="busy" class="animate-spin" />
           {{ busy ? `Adding ${template.name}...` : `Add ${template.name}` }}
         </Button>
