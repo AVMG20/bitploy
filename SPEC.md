@@ -292,6 +292,10 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
     list_catalog, then deploy_catalog_app. To run another published image,
     deploy one Dockerfile `FROM <image>:<tag>` with a pinned tag (EXPOSE is
     optional) and keep its data in /data.
+11. When the user asks whether they will know if an app breaks: bitploy can
+    send a Discord or browser message when a deploy fails or an app crashes
+    or fails its health check. The user turns that on in the dashboard under
+    Settings > Notifications; you cannot do it for them.
 ```
 
 **Tools**
@@ -330,6 +334,10 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
 | `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings (with `time_utc`) and restore state. A database service gets a dump (`format: dump`). Restoring is dashboard-only on purpose | deploy / read | — / read-only |
 | `set_backup_schedule(app, schedule?, keep_mode?, keep?)` | `PUT /apps/{app}/backup-settings`: off, daily or weekly at the app's time; keep the newest N or N days | deploy | idempotent |
+| `get_storage()` | The storage allowance and what takes it per owned app: space kept for /data, app files, every backup with id and size, biggest first. Next steps for `storage_quota_exceeded` / `storage_full` | read | read-only |
+| `delete_backup(app, id)` | `DELETE /apps/{app}/backups/{id}`; only with the user's go-ahead | deploy | destructive |
+| `list_files(app, path?, volume?)` | `GET /apps/{app}/files`: one folder of /data (names, types, sizes); points at a SQLite file for `query_db` | read | read-only |
+| `get_dockerfile(app)` / `set_dockerfile(app, content)` | `GET` / `PUT /apps/{app}/dockerfile`: read the Dockerfile from the stored source, or replace only it and deploy (no checkout or full resend needed) | read / deploy | read-only / write |
 | `query_db(app, path?, sql, volume?)` | Read-only SQL on a SQLite file in /data (`volume` picks another volume of a compose app), or on a PostgreSQL, MySQL or MariaDB service (`path` is the database name, left out: its own). Always `write: false` on `/db/sql`. Results as compact text tables, at most 200 rows and about 50 KB | read | read-only |
 | `write_db(app, path?, sql, volume?)` | The same with `write: true`: changes are committed, audited as `db.write` | deploy | destructive |
 | `list_env(app, names?)` | Variables with their values (a hidden one only masked), services and references; `names` says which are set | read | read-only |

@@ -94,6 +94,7 @@ func NewServer(svc *app.Service) *mcp.Server {
 	s.registerTools()
 	s.registerProjectTools()
 	s.registerAppTools()
+	s.registerStorageTools()
 	s.registerResources()
 	s.registerPrompts()
 	return s.mcp

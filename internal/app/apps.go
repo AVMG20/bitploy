@@ -1046,7 +1046,7 @@ func (s *Service) checkVolumeQuota(ctx context.Context, u db.User, excludeID str
 	if taken+volMB > u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_quota_exceeded",
 			fmt.Sprintf("This needs %d MB of storage, but your apps already take %d MB of your %d MB storage (app files, backups and the space kept for /data).", volMB, taken, u.QuotaVolumeMb),
-			"Use a smaller volume_mb for this app, lower it on another app, turn off a volume or delete an app you no longer need, or ask a bitploy admin for more storage.").WithNext("update_app")
+			"Use a smaller volume_mb for this app, lower it on another app, delete old backups, turn off a volume or delete an app you no longer need, or ask a bitploy admin for more storage.").WithNext("get_storage")
 	}
 	return nil
 }
@@ -1065,7 +1065,7 @@ func (s *Service) checkStorageRoom(ctx context.Context, u db.User) error {
 	if taken >= u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_full",
 			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files, backups and the space kept for /data), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
-			"Make room: delete an app you no longer need, lower the /data limit (volume_mb) of an app, or slim the image (smaller base image, no big files in the source). Or ask a bitploy admin for more storage.").WithNext("list_apps")
+			"Make room: delete old backups or an app you no longer need, lower the /data limit (volume_mb) of an app, or slim the image (smaller base image, no big files in the source). Or ask a bitploy admin for more storage.").WithNext("get_storage")
 	}
 	return nil
 }

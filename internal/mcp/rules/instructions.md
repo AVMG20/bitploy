@@ -56,3 +56,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
     list_catalog, then deploy_catalog_app. To run another published image,
     deploy one Dockerfile `FROM <image>:<tag>` with a pinned tag (EXPOSE is
     optional) and keep its data in /data.
+11. When the user asks whether they will know if an app breaks: bitploy can
+    send a Discord or browser message when a deploy fails or an app crashes
+    or fails its health check. The user turns that on in the dashboard under
+    Settings > Notifications; you cannot do it for them.

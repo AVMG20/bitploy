@@ -253,7 +253,7 @@ func queryDBError(ctx context.Context, svc *app.Service, a app.Actor, in queryDB
 		if serverDB(ctx, svc, a, in.App) {
 			return redo("Leave path out to open the database the service was made with, or list its databases with query_db: SELECT datname FROM pg_database (PostgreSQL) or SHOW DATABASES (MySQL, MariaDB).", "query_db")
 		}
-		return redo("path is the SQLite file relative to /data (or to the volume's folder), like app.db. Find it where the app's code opens its database, or ask the user; do not try names one after another.", "get_app")
+		return redo("path is the SQLite file relative to /data (or to the volume's folder), like app.db. Find it where the app's code opens its database, or list /data with list_files; do not try names one after another.", "list_files")
 	case "not_sqlite":
 		return redo("Point path at the SQLite file the app's code opens (often .db, .sqlite or .sqlite3; not the -wal, -shm or -journal file next to it). Ask the user when the code does not say.", "get_app")
 	case "volume_off":

@@ -431,10 +431,10 @@ func (s *Service) startCurrentLocked(ctx context.Context, app db.App, only ...st
 		}
 		r, ok := byService[sp.Name]
 		if !ok || !r.Image.Valid {
-			return apperr.Conflict("app_not_deployed", "The current deployment has no image for the "+sp.Name+" service.", "Deploy the app again.").WithNext("deploy_files")
+			return apperr.Conflict("app_not_deployed", "The current deployment has no image for the "+sp.Name+" service.", "Deploy the app again.").WithNext("deploy")
 		}
 		if _, err := s.Docker.InspectImage(ctx, r.Image.String); err != nil {
-			return apperr.Conflict("image_missing", "The image of the "+sp.Name+" service is gone from the server.", "Deploy the app again.").WithNext("deploy_files")
+			return apperr.Conflict("image_missing", "The image of the "+sp.Name+" service is gone from the server.", "Deploy the app again.").WithNext("deploy")
 		}
 		plan := startPlan{App: app, DepID: d.ID, Seq: d.Seq, Image: r.Image.String, Port: r.Port.Int64, Service: &sp}
 		name := plan.name()
@@ -464,13 +464,13 @@ func (s *Service) startCurrentLocked(ctx context.Context, app db.App, only ...st
 // startCurrentSingle is startCurrentLocked for a single-layout app.
 func (s *Service) startCurrentSingle(ctx context.Context, app db.App, d db.Deployment) *apperr.Error {
 	if !d.Image.Valid {
-		return apperr.Conflict("app_not_deployed", "The current deployment has no image.", "Deploy the app again.").WithNext("deploy_files")
+		return apperr.Conflict("app_not_deployed", "The current deployment has no image.", "Deploy the app again.").WithNext("deploy")
 	}
 	if s.Docker == nil {
 		return apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Tell the bitploy admin.")
 	}
 	if _, err := s.Docker.InspectImage(ctx, d.Image.String); err != nil {
-		return apperr.Conflict("image_missing", "The image of the current deployment is gone from the server.", "Deploy the app again.").WithNext("deploy_files")
+		return apperr.Conflict("image_missing", "The image of the current deployment is gone from the server.", "Deploy the app again.").WithNext("deploy")
 	}
 	port := int64(0)
 	if d.Port.Valid {

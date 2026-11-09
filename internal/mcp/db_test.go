@@ -125,8 +125,8 @@ func TestQueryDB(t *testing.T) {
 		if m != nil && (m["code"] != code) {
 			t.Errorf("%s: %v", path, m)
 		}
-		// No guessing loop: find the file in the code or ask the user.
-		if m != nil && code == "db_not_found" && (m["next_tool"] != "get_app" || !strings.Contains(m["hint"].(string), "ask the user") || strings.Contains(m["hint"].(string), "list")) {
+		// No guessing loop: find the file in the code or list /data.
+		if m != nil && code == "db_not_found" && (m["next_tool"] != "list_files" || !strings.Contains(m["hint"].(string), "list_files") || !strings.Contains(m["hint"].(string), "do not try names")) {
 			t.Errorf("db_not_found = %v", m)
 		}
 	}

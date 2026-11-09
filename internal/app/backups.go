@@ -215,7 +215,7 @@ func (s *Service) backupRoom(ctx context.Context, u db.User) (int64, error) {
 func (s *Service) noRoomErr(u db.User) *apperr.Error {
 	return apperr.Forbidden("storage_quota_exceeded",
 		fmt.Sprintf("There is no storage left for a backup: your apps already take your %d MB.", u.QuotaVolumeMb),
-		"Delete an old backup or an app you no longer need, lower the /data limit of an app, or ask a bitploy admin for more storage.")
+		"Delete old backups or an app you no longer need, or lower the /data limit of an app. If that is not enough, ask a bitploy admin for more storage.").WithNext("get_storage")
 }
 
 func (s *Service) checkBackupDisk() error {
