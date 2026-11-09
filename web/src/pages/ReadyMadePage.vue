@@ -60,16 +60,19 @@ const open = computed({ get: () => !!picked.value, set: (v) => !v && (picked.val
           v-for="t in services"
           :key="t.id"
           type="button"
-          class="group flex items-center gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+          class="group flex flex-col gap-2 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
           @click="picked = t"
         >
-          <ServiceIcon :role="templateRole(t)" :logo="t.id" size="sm" class="mt-0.5 self-start" />
-          <span class="min-w-0 flex-1">
-            <span class="flex items-baseline gap-1.5 text-sm font-medium">{{ t.name }} <span class="text-xs font-normal text-muted-foreground">{{ t.version }}</span></span>
-            <span class="block text-xs text-muted-foreground">{{ t.description }}</span>
-            <span class="mt-1.5 block text-[11px] text-muted-foreground tabular-nums">{{ categoryLabel(t.category) }} · Up to {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb">, {{ formatMB(t.volume_mb) }} storage</template></span>
+          <span class="flex items-center gap-3">
+            <ServiceIcon :role="templateRole(t)" :logo="t.id" />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium">{{ t.name }}</span>
+              <span class="block truncate text-xs text-muted-foreground tabular-nums">{{ categoryLabel(t.category) }} · {{ t.version }}</span>
+            </span>
+            <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
           </span>
-          <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          <span class="line-clamp-2 text-xs text-muted-foreground">{{ t.description }}</span>
+          <span class="mt-auto text-[11px] text-muted-foreground tabular-nums">Up to {{ formatMB(t.memory_mb) }} memory<template v-if="t.volume_mb">, {{ formatMB(t.volume_mb) }} storage</template></span>
         </button>
       </div>
     </section>

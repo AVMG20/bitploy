@@ -24,7 +24,7 @@ const mark = computed(() => (props.logo ? logoFor(props.logo) : null))
     )"
     aria-hidden="true"
   >
-    <svg v-if="mark" viewBox="0 0 24 24" :class="size === 'sm' ? 'size-3.5' : 'size-4'" :fill="mark.color ?? 'currentColor'"><path :d="mark.path" /></svg>
+    <svg v-if="mark" viewBox="0 0 24 24" :class="size === 'sm' ? 'size-4' : 'size-5'" :fill="mark.color ?? 'currentColor'"><path :d="mark.path" /></svg>
     <component :is="icon" v-else :class="size === 'sm' ? 'size-3.5' : 'size-4'" />
   </span>
 </template>
