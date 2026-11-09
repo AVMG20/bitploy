@@ -14,6 +14,26 @@ export const slugSchema = z
   .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Use letters, numbers and -, not at the start or end.')
   .refine((s) => !RESERVED.has(s) && !s.startsWith('bp-'), 'bitploy keeps this name for itself. Pick another one.')
 
+/** The Address of an app on the domain itself (https://example.com). Only admins set it. */
+export const ROOT_ADDRESS = '@'
+
+const SUBDOMAIN_CHARS = 'Use letters, numbers and -, not at the start or end.'
+
+/**
+ * What is wrong with an existing app's Address field, or undefined. "@" is
+ * allowed only where rootAllowed (an admin on a domain that offers it, or the
+ * app already has the domain itself); elsewhere it gets the plain rule, or
+ * rootRefusal when there is a reason to give.
+ */
+export function addressError(value: string, rootAllowed = false, rootRefusal?: string): string | undefined {
+  const s = value.trim().toLowerCase()
+  if (s === ROOT_ADDRESS) return rootAllowed ? undefined : (rootRefusal ?? SUBDOMAIN_CHARS)
+  if (!s) return 'Fill in a subdomain.'
+  if (s.length > 40) return 'Use at most 40 characters.'
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(s)) return SUBDOMAIN_CHARS
+  return undefined
+}
+
 /** A name as a subdomain: "My cool app!" becomes "my-cool-app". */
 export function slugify(name: string): string {
   return name

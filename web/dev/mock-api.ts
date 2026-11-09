@@ -24,6 +24,7 @@ import type {
   ServerSettings,
   SignupRules,
   AppDomain,
+  AppDomainChoice,
   AppVolume,
   AuditEntry,
   Backup,
@@ -93,7 +94,8 @@ const newId = (prefix: string) => `${prefix}_${(idSeq++).toString(36)}${Math.ran
 
 // ---------------------------------------------------------------- the person
 
-const user: User = { id: 'usr_ada', email: 'ada@example.com', name: 'Ada', role: 'admin', status: 'active', created_at: ago(60 * 24 * 90) }
+// MOCK_ROLE=user plays a person who is not an admin.
+const user: User = { id: 'usr_ada', email: 'ada@example.com', name: 'Ada', role: process.env.MOCK_ROLE === 'user' ? 'user' : 'admin', status: 'active', created_at: ago(60 * 24 * 90) }
 
 // ---------------------------------------------------------------- templates
 
@@ -663,6 +665,7 @@ function makeApp(s: AppSeed): App {
     type,
     url: type === 'web' ? `https://${s.slug}.${DOMAIN}` : '',
     domain: DOMAIN,
+    root: false,
     owner_id: user.id,
     status,
     desired_state: 'running',
@@ -1080,6 +1083,7 @@ function blankApp(name: string, slug: string, projectId: string, extra: Partial<
     type: 'web',
     url: `https://${slug}.${DOMAIN}`,
     domain: DOMAIN,
+    root: false,
     owner_id: user.id,
     status: 'new',
     desired_state: 'running',
@@ -1322,6 +1326,29 @@ function usedMemory(): number {
   return apps.reduce((n, a) => n + (a.static ? 0 : a.memory_mb), 0)
 }
 
+/**
+ * whoami's app_domains: the default, plus the extra domains this person may
+ * use (an admin: all of them, with whether an app can have the domain itself).
+ */
+function myAppDomains(): AppDomainChoice[] {
+  const admin = user.role === 'admin'
+  const extra = appDomains.filter((d) => !d.default && (admin || d.user_count > 0))
+  return [
+    { domain: DOMAIN, default: true, url_template: `https://{slug}.${DOMAIN}` },
+    ...extra.map((d): AppDomainChoice => {
+      const c: AppDomainChoice = { domain: d.domain, default: false, url_template: `https://{slug}.${d.domain}` }
+      if (!admin) return c
+      const dns = d.certificate === 'own' ? 'proxied in Cloudflare like the subdomains' : 'DNS only (grey cloud in Cloudflare)'
+      return {
+        ...c,
+        root_allowed: true,
+        root_app: apps.find((a) => a.root && a.domain === d.domain)?.slug,
+        root_dns: `DNS: ${d.domain} needs an A record to 203.0.113.10 and an AAAA record to 2001:db8::10, ${dns}.`,
+      }
+    }),
+  ]
+}
+
 function me(): Me {
   const running = apps.filter((a) => a.status === 'running')
   return {
@@ -1351,7 +1378,7 @@ function me(): Me {
     },
     apps_domain: DOMAIN,
     app_url_template: `https://{slug}.${DOMAIN}`,
-    app_domains: [{ domain: DOMAIN, default: true, url_template: `https://{slug}.${DOMAIN}` }],
+    app_domains: myAppDomains(),
     public_url: 'http://localhost:5174',
     scope: 'session',
   }
@@ -1469,9 +1496,9 @@ const invites: Invite[] = [
   { id: 'inv_used', email: 'grace@example.com', role: 'user', created_at: ago(60 * 24 * 40), expires_at: ago(60 * 24 * 33), used_at: ago(60 * 24 * 39) },
 ]
 const appDomains: AppDomain[] = [
-  { id: 'default', domain: DOMAIN, default: true, certificate: 'install', cert_expires_at: ago(-60 * 24 * 61), app_count: 14, user_count: 0, created_at: null },
-  { id: 'apd_shop', domain: 'shop.example.com', default: false, certificate: 'own', cert_expires_at: ago(-60 * 24 * 20), app_count: 2, user_count: 1, created_at: ago(60 * 24 * 15) },
-  { id: 'apd_new', domain: 'apps.example.org', default: false, certificate: 'none', cert_expires_at: null, app_count: 0, user_count: 0, created_at: ago(60 * 3) },
+  { id: 'default', domain: DOMAIN, default: true, certificate: 'install', cert_expires_at: ago(-60 * 24 * 61), app_count: 14, user_count: 0, root_app: null, created_at: null },
+  { id: 'apd_shop', domain: 'shop.example.com', default: false, certificate: 'own', cert_expires_at: ago(-60 * 24 * 20), app_count: 2, user_count: 1, root_app: null, created_at: ago(60 * 24 * 15) },
+  { id: 'apd_new', domain: 'apps.example.org', default: false, certificate: 'none', cert_expires_at: null, app_count: 0, user_count: 0, root_app: null, created_at: ago(60 * 3) },
 ]
 const auditRows: [string, string, string, string, Record<string, unknown> | null][] = [
   ['deployment.queue', 'app', 'mk-api', 'mcp', { source: 'git', commit: '4f2a9c1' }],
@@ -1859,7 +1886,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
           .map((a) => ({ app: a.slug, app_name: a.name, owner_email: user.email, service: a.public_port!.service, port: a.public_port!.port!, allow_from: a.public_port!.allow_from, expires_at: a.public_port!.expires_at, opened_at: a.public_port!.opened_at! })),
       } satisfies PublicPortsOverview)
     case 'GET /admin/app-domains':
-      return send(res, 200, { items: appDomains, server_ipv4: '203.0.113.10', server_ipv6: '2001:db8::10' })
+      return send(res, 200, {
+        items: appDomains.map((d) => {
+          const root = d.default ? undefined : apps.find((a) => a.root && a.domain === d.domain)
+          return { ...d, root_app: root ? { slug: root.slug, name: root.name } : null }
+        }),
+        server_ipv4: '203.0.113.10',
+        server_ipv6: '2001:db8::10',
+      })
     case 'GET /admin/audit':
       return send(res, 200, { items: audit })
     case 'GET /admin/github':
@@ -1993,6 +2027,24 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       const a = needApp(id)
       if (body.project !== undefined) throw new HttpError(422, 'project_move_unsupported', 'An app cannot move to another project.', 'Create a new app in the other project and deploy the code to it.')
       if (typeof body.name === 'string') a.name = body.name
+      // The address: a domain from whoami, and @ (admins) for the domain itself.
+      // The mock does not rename apps: any other slug only leaves the domain itself.
+      if (typeof body.domain === 'string' || typeof body.slug === 'string') {
+        const domain = typeof body.domain === 'string' && body.domain ? body.domain : a.domain
+        const choice = myAppDomains().find((d) => d.domain === domain)
+        if (!choice) throw new HttpError(403, 'domain_not_allowed', `"${domain}" is not a domain you can put apps on.`, `Use one of: ${myAppDomains().map((d) => d.domain).join(', ')}.`)
+        let root = typeof body.slug === 'string' ? body.slug.trim() === '@' : a.root && domain === a.domain
+        if (root && !(a.root && domain === a.domain)) {
+          if (user.role !== 'admin') throw new HttpError(403, 'root_admin_only', 'Only a bitploy admin can give an app the domain itself as its address.', `Type a name for the address instead, like ${a.slug}.`)
+          if (choice.default) throw new HttpError(422, 'root_default_domain', `The address @ works on the extra app domains only, not on ${DOMAIN}.`, 'Pick another domain next to the address, or type a name.')
+          const holder = apps.find((x) => x !== a && x.root && x.domain === domain)
+          if (holder) throw new HttpError(409, 'root_taken', `${domain} is already the address of ${holder.name} (${holder.slug}).`, 'Give that app another address in its Settings first.')
+        }
+        if (a.type !== 'web') root = false
+        a.domain = domain
+        a.root = root
+        if (a.type === 'web') a.url = root ? `https://${domain}` : `https://${a.slug}.${domain}`
+      }
       if (typeof body.alias === 'string') {
         const taken = apps.some((x) => x !== a && x.project?.id === a.project?.id && (x.alias || x.slug) === body.alias)
         if (taken) throw new HttpError(409, 'alias_taken', `Another app in ${a.project?.name} is called ${body.alias}.`, 'Pick another short name.')
@@ -2004,7 +2056,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       if (body.port === 22) throw new HttpError(422, 'port_reserved', 'Port 22 is reserved.', 'Use the port your app listens on, like 3000.')
       if (body.type === 'web' || body.type === 'worker') {
         a.type = body.type
-        a.url = a.type === 'web' ? `https://${a.slug}.${DOMAIN}` : ''
+        a.url = a.type === 'web' ? (a.root ? `https://${a.domain}` : `https://${a.slug}.${a.domain}`) : ''
       }
       for (const k of ['health_path', 'dockerfile_path', 'context_dir'] as const) if (typeof body[k] === 'string') a[k] = body[k] as string
       for (const k of ['before_deploy_command', 'after_deploy_command'] as const)

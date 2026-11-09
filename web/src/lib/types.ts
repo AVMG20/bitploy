@@ -64,6 +64,12 @@ export interface AppDomainChoice {
   default: boolean
   /** The address with {slug} in place of the app's name. */
   url_template: string
+  /** Admins: an app can have the domain itself as its address (@ as the name). */
+  root_allowed?: boolean
+  /** Admins: the slug of the app on the domain itself. */
+  root_app?: string
+  /** Admins: the DNS record the domain itself needs, in one line. */
+  root_dns?: string
 }
 
 /** A domain apps can live under, as an admin sees it. */
@@ -78,6 +84,8 @@ export interface AppDomain {
   app_count: number
   /** People (admins aside) allowed to use it. */
   user_count: number
+  /** The app on the domain itself (address @), if any. */
+  root_app: { slug: string; name: string } | null
   created_at: string | null
 }
 
@@ -335,8 +343,10 @@ export interface App {
   name: string
   type: 'web' | 'worker'
   url: string
-  /** The domain of the address: <slug>.<domain>. */
+  /** The domain of the address: <slug>.<domain>, or the domain itself when root is set. */
   domain: string
+  /** The address is the domain itself (set by an admin with @); <slug>.<domain> keeps working too. */
+  root: boolean
   owner_id: string
   /** True when the app is in a project another user shared with you (owner_id is theirs). */
   shared?: boolean
@@ -679,6 +689,7 @@ export interface UpdateAppInput {
   name?: string
   /** Its short name in the project (phase 4b). */
   alias?: string
+  /** A new subdomain; "@" (admins) makes the domain itself the address and keeps the slug. */
   slug?: string
   /** Move the address to another domain (one of me.app_domains). */
   domain?: string

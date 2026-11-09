@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ChevronRight, Plus } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -17,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { appPath } from '@/lib/appLinks'
 import { toastError, toastOk } from '@/lib/notify'
 import type { AppDomain } from '@/lib/types'
 
@@ -129,6 +131,9 @@ function certInfo(d: AppDomain): { label: string; tone: string } {
             <TableCell>
               <span class="font-mono text-[13px]">{{ d.domain }}</span>
               <Badge v-if="d.default" variant="secondary" class="ml-1">Default</Badge>
+              <p v-if="d.root_app" class="mt-0.5 text-xs text-muted-foreground" data-testid="root-app">
+                The address of <RouterLink :to="appPath(d.root_app.slug)" class="underline hover:text-foreground">{{ d.root_app.name }}</RouterLink>
+              </p>
             </TableCell>
             <TableCell class="tabular-nums">{{ d.app_count }}</TableCell>
             <TableCell class="hidden text-sm sm:table-cell">{{ who(d) }}</TableCell>

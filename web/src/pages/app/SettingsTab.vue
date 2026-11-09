@@ -32,6 +32,7 @@ import ProjectSettings from './ProjectSettings.vue'
 import RunSettings from './RunSettings.vue'
 import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
+import { ROOT_ADDRESS, addressError } from '@/lib/slug'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { toastError, toastOk } from '@/lib/notify'
@@ -87,36 +88,60 @@ watch(
 )
 
 // ---------------------------------------------------------------- name and address
+const domain = ref('')
+// The domain picked next to the Address field, as whoami lists it.
+const domainChoice = computed(() => {
+  const list = me.data.value?.app_domains ?? []
+  return list.find((d) => d.domain === domain.value) ?? (domain.value ? undefined : list.find((d) => d.default))
+})
+const shownDomain = computed(() => domain.value || me.data.value?.apps_domain || '')
+// An admin may give the app the domain itself (@) where whoami offers it; an
+// app that already has it keeps @ on that domain.
+const rootAllowed = computed(
+  () => !isPrivate.value && (!!domainChoice.value?.root_allowed || (!!app.data.value?.root && domain.value === app.data.value.domain)),
+)
+const isAdmin = computed(() => me.data.value?.user.role === 'admin' && me.data.value.scope === 'session')
+const rootRefusal = computed(() => (isAdmin.value && !isPrivate.value ? `${shownDomain.value} itself cannot be an app's address. Type a name.` : undefined))
+const addressOf = (a: { slug: string; root: boolean }) => (a.root ? ROOT_ADDRESS : a.slug)
+
 const generalForm = useForm({
-  validationSchema: toTypedSchema(
-    z.object({
-      name: z.string().trim().min(1, 'Give the app a name.').max(80, 'Use at most 80 characters.'),
-      slug: z
-        .string()
-        .trim()
-        .toLowerCase()
-        .min(1, 'Fill in a subdomain.')
-        .max(40, 'Use at most 40 characters.')
-        .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, 'Use letters, numbers and -, not at the start or end.'),
-    }),
+  validationSchema: computed(() =>
+    toTypedSchema(
+      z.object({
+        name: z.string().trim().min(1, 'Give the app a name.').max(80, 'Use at most 80 characters.'),
+        slug: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .superRefine((s, ctx) => {
+            const message = addressError(s, rootAllowed.value, rootRefusal.value)
+            if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+          }),
+      }),
+    ),
   ),
   initialValues: { name: '', slug: '' },
 })
 
 let generalLoadedFor = ''
-const domain = ref('')
 watch(
   () => app.data.value,
   (a) => {
     if (a && generalLoadedFor !== a.id) {
       generalLoadedFor = a.id
-      generalForm.resetForm({ values: { name: a.name, slug: a.slug } })
+      generalForm.resetForm({ values: { name: a.name, slug: addressOf(a) } })
       domain.value = a.domain
     }
   },
   { immediate: true },
 )
 const domainChanged = computed(() => !!domain.value && !!app.data.value && domain.value !== app.data.value.domain)
+const typedRoot = computed(() => (generalForm.values.slug ?? '').trim() === ROOT_ADDRESS)
+// Another app has the domain itself now: the server refuses @ until it moves.
+const rootHolder = computed(() => {
+  const holder = domainChoice.value?.root_app
+  return holder && holder !== props.slug ? holder : ''
+})
 
 // A new subdomain moves the app, so it is confirmed first.
 const pendingRename = ref<{ name: string; slug: string } | null>(null)
@@ -130,20 +155,27 @@ const renameOpen = computed({
 const saveGeneral = useMutation({
   mutationFn: (v: { name: string; slug: string }) => {
     const input: UpdateAppInput = {}
-    if (v.name !== app.data.value?.name) input.name = v.name
-    if (v.slug !== props.slug) input.slug = v.slug
+    const a = app.data.value
+    if (v.name !== a?.name) input.name = v.name
+    // @ is sent while it changes something; any name leaves the domain itself.
+    if (v.slug === ROOT_ADDRESS ? !a?.root || domainChanged.value : v.slug !== props.slug || a?.root) input.slug = v.slug
     if (domainChanged.value) input.domain = domain.value
     return api.updateApp(props.slug, input)
   },
   onSuccess: async (updated) => {
     const oldSlug = props.slug
-    const moved = updated.domain !== app.data.value?.domain
+    const before = app.data.value
+    const moved = updated.domain !== before?.domain || updated.root !== before?.root
+    // Getting the domain itself on the same domain keeps <slug>.<domain> working.
+    const kept = updated.root && updated.domain === before?.domain
     pendingRename.value = null
-    generalForm.resetForm({ values: { name: updated.name, slug: updated.slug } })
+    generalForm.resetForm({ values: { name: updated.name, slug: addressOf(updated) } })
     domain.value = updated.domain
     void qc.invalidateQueries({ queryKey: keys.apps })
+    void qc.invalidateQueries({ queryKey: keys.me })
     if (updated.slug === oldSlug) {
-      toastOk(moved ? 'Address changed' : 'Name saved', moved && updated.url ? `The app is at ${updated.url}. The old address stops working.` : undefined)
+      const detail = kept ? `The app is at ${updated.url}. ${updated.slug}.${updated.domain} keeps working too.` : `The app is at ${updated.url}. The old address stops working.`
+      toastOk(moved ? 'Address changed' : 'Name saved', moved && updated.url ? detail : undefined)
       void qc.invalidateQueries({ queryKey: keys.app(oldSlug) })
       return
     }
@@ -161,13 +193,23 @@ const saveGeneral = useMutation({
   },
 })
 const submitGeneral = generalForm.handleSubmit((v) => {
-  if (v.slug !== props.slug || domainChanged.value) pendingRename.value = v
-  else if (v.name !== app.data.value?.name) saveGeneral.mutate(v)
+  const a = app.data.value
+  if (v.slug !== (a ? addressOf(a) : props.slug) || domainChanged.value) pendingRename.value = v
+  else if (v.name !== a?.name) saveGeneral.mutate(v)
 })
 const renameDescription = computed(() => {
   if (isPrivate.value) return 'Links to this page and API calls that use the old ID stop working. The other apps keep reaching it by its short name.'
-  const to = `${pendingRename.value?.slug ?? ''}.${domain.value || me.data.value?.apps_domain || ''}`
-  return `The app moves to ${to} and is down for a few seconds. The old address stops working, so links and bookmarks to it break.`
+  const next = pendingRename.value?.slug ?? ''
+  const d = shownDomain.value
+  if (next === ROOT_ADDRESS) {
+    return domainChanged.value
+      ? `The app moves to ${d}, and ${props.slug}.${d} works too. The old address stops working, so links and bookmarks to it break.`
+      : `The app gets ${d} as its address. ${props.slug}.${d} keeps working too.`
+  }
+  if (app.data.value?.root && next === props.slug && !domainChanged.value) {
+    return `The app moves to ${next}.${d}. ${d} itself stops working, so links and bookmarks to it break.`
+  }
+  return `The app moves to ${next}.${d} and is down for a few seconds. The old address stops working, so links and bookmarks to it break.`
 })
 
 // ---------------------------------------------------------------- type
@@ -406,13 +448,21 @@ const deleteText = computed(() => {
                       <DomainSelect v-if="me.data.value && app.data.value && !isPrivate" v-model="domain" :current="app.data.value.domain" />
                     </div>
                     <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
-                    <FormDescription v-else>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                    <template v-else-if="typedRoot && rootAllowed">
+                      <FormDescription v-if="rootHolder" class="text-warning" data-testid="root-holder">{{ shownDomain }} is the address of {{ rootHolder }} now. Give that app another address first.</FormDescription>
+                      <FormDescription v-else-if="domainChoice?.root_dns" data-testid="root-dns">{{ domainChoice.root_dns }}</FormDescription>
+                      <FormDescription v-if="!rootHolder">The app answers on {{ shownDomain }} and on {{ props.slug }}.{{ shownDomain }}.</FormDescription>
+                    </template>
+                    <template v-else>
+                      <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
+                      <FormDescription v-if="isAdmin && domainChoice?.root_allowed" data-testid="root-hint">@ uses the domain itself: {{ shownDomain }}</FormDescription>
+                    </template>
                     <FormMessage />
                   </FormItem>
                 </FormField>
               </div>
               <template #actions>
-                <Button type="submit" :disabled="saveGeneral.isPending.value || !generalForm.meta.value.dirty">{{ saveGeneral.isPending.value ? 'Saving...' : isPrivate ? 'Save name' : 'Save name and address' }}</Button>
+                <Button type="submit" :disabled="saveGeneral.isPending.value || !(generalForm.meta.value.dirty || domainChanged)">{{ saveGeneral.isPending.value ? 'Saving...' : isPrivate ? 'Save name' : 'Save name and address' }}</Button>
               </template>
             </FormCard>
           </form>
