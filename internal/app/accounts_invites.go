@@ -100,7 +100,10 @@ type signupReq struct {
 	sigKey      string
 	via         string
 	by, project string
-	inTx        func(q *db.Queries, u db.User) error
+	// allowed checks the signup mode again inside the transaction, so a
+	// change made while the password was hashed still counts; nil: always.
+	allowed func(st db.ServerSetting) error
+	inTx    func(q *db.Queries, u db.User) error
 }
 
 // signup checks the form, spends one of the 5 signups per hour of the IP and
@@ -146,6 +149,12 @@ func (s *Service) signup(ctx context.Context, r signupReq) (db.User, error) {
 		if e != nil {
 			return e
 		}
+		if r.allowed != nil {
+			if e := r.allowed(st); e != nil {
+				lim.refund(r.sigKey)
+				return e
+			}
+		}
 		u, e := s.insertUserHashed(ctx, q, acctNewUser{Email: email, Name: name, Role: r.role,
 			Quota: newAccountQuota(st, r.via), JoinedVia: r.via, JoinedBy: r.by, JoinedProject: r.project}, hash)
 		if e != nil {
@@ -184,6 +193,13 @@ func signupClosed() *apperr.Error {
 		"Ask an admin of this server for an invite link.")
 }
 
+func openSignupAllowed(st db.ServerSetting) error {
+	if st.Signups != SignupOpen {
+		return signupClosed()
+	}
+	return nil
+}
+
 // AcceptInvite creates the user and logs them in. Code "open" is open
 // signup, accepted while the server settings let anyone make an account.
 func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInviteInput, ip, userAgent string) (cookie string, info SessionInfo, err error) {
@@ -194,8 +210,8 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 		if err != nil {
 			return "", SessionInfo{}, err
 		}
-		if st.Signups != SignupOpen {
-			return "", SessionInfo{}, signupClosed()
+		if err := openSignupAllowed(st); err != nil {
+			return "", SessionInfo{}, err
 		}
 	}
 	// Signup and invite acceptance: 5 attempts per hour per IP. Wrong invite
@@ -228,6 +244,12 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 	}
 	user, err := s.signup(ctx, signupReq{in: in, lockedEmail: inv.Email.String, role: role, sigKey: sigKey,
 		via: via, by: inv.CreatedBy.String,
+		allowed: func(st db.ServerSetting) error {
+			if open {
+				return openSignupAllowed(st)
+			}
+			return nil
+		},
 		inTx: func(q *db.Queries, u db.User) error {
 			if open {
 				return nil

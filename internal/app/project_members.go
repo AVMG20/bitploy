@@ -101,6 +101,13 @@ func projectInviteNoSignup() *apperr.Error {
 		"Log in if you have an account. Otherwise ask an admin of this server for an invite link, make your account, then open this link again.")
 }
 
+func projectInviteSignupAllowed(st db.ServerSetting) error {
+	if st.Signups == SignupAdminInvites {
+		return projectInviteNoSignup()
+	}
+	return nil
+}
+
 func projectInviteInvalid(status int, why string) *apperr.Error {
 	return apperr.New(status, "invite_invalid", why, "Ask the person who invited you for a new invite link.")
 }
@@ -442,11 +449,11 @@ func (s *Service) SignupProjectInvite(ctx context.Context, code string, in Accep
 	if err != nil {
 		return "", ProjectSignup{}, err
 	}
-	if st.Signups == SignupAdminInvites {
-		return "", ProjectSignup{}, projectInviteNoSignup()
+	if err := projectInviteSignupAllowed(st); err != nil {
+		return "", ProjectSignup{}, err
 	}
 	user, err := s.signup(ctx, signupReq{in: in, lockedEmail: inv.Email.String, role: "user", sigKey: sigKey,
-		via: joinedProjectInvite, by: inv.CreatedBy.String, project: p.ID,
+		via: joinedProjectInvite, by: inv.CreatedBy.String, project: p.ID, allowed: projectInviteSignupAllowed,
 		inTx: func(q *db.Queries, u db.User) error { return s.addMember(ctx, q, inv, u.ID) }})
 	if err != nil {
 		return "", ProjectSignup{}, apperr.As(err)

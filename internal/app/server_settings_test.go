@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
 // setSignups switches who can make an account, as an admin would.
@@ -266,6 +269,10 @@ func TestProjectInviteSignupFollowsSettings(t *testing.T) {
 	if depCode(err) != "apps_quota_exceeded" || !strings.Contains(err.Error(), "can't create apps of its own") {
 		t.Errorf("own app: %v", err)
 	}
+	// ...and no empty project either (it could only bring in more accounts)...
+	if _, err := s.CreateProject(ctx, erin, CreateProjectInput{Name: "Mine"}); depCode(err) != "apps_quota_exceeded" {
+		t.Errorf("own project: %v", err)
+	}
 	// ...but the shared project works: its apps are alice's.
 	made, err := s.CreateApp(ctx, erin, CreateAppInput{Name: "Admin", Slug: "shop-admin", Project: m.shop.ID})
 	if err != nil || made.OwnerID != "usr_alice" {
@@ -352,3 +359,30 @@ func TestAdminProjectInvites(t *testing.T) {
 }
 
 func i64p(v int64) *int64 { return &v }
+
+// The signup mode is checked again in the signup's transaction: a change made
+// while the password was hashed still stops the account, and the try is not
+// counted against the IP.
+func TestSignupModeCheckedInTransaction(t *testing.T) {
+	s, _ := acctTestSvc(t)
+	ctx := context.Background()
+	req := func(email string, allowed func(db.ServerSetting) error) error {
+		_, err := s.signup(ctx, signupReq{in: AcceptInviteInput{Name: "N", Email: email, Password: "password-1234"},
+			role: "user", sigKey: "signup|203.0.113.9", via: joinedOpen, allowed: allowed})
+		return err
+	}
+	for i := 0; i < 6; i++ {
+		if err := req(fmt.Sprintf("n%d@example.nl", i), openSignupAllowed); code(err) != "signup_closed" {
+			t.Fatalf("try %d: %v", i, err)
+		}
+	}
+	var n int
+	_ = s.Store.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE email LIKE 'n%@example.nl'`).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d accounts made while closed", n)
+	}
+	setSignups(t, s, SignupOpen)
+	if err := req("ok@example.nl", openSignupAllowed); err != nil {
+		t.Errorf("open: %v", err)
+	}
+}

@@ -350,6 +350,11 @@ func (s *Service) CreateProject(ctx context.Context, a Actor, in CreateProjectIn
 	if err != nil {
 		return Project{}, err
 	}
+	// An account with no apps of its own could never fill a project; it could
+	// only use one to bring in new accounts through project invites.
+	if user.QuotaApps == 0 {
+		return Project{}, noOwnApps()
+	}
 	name, ae := validProjectName(in.Name)
 	if ae != nil {
 		return Project{}, ae
