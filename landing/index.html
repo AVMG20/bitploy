@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bitploy: ask your AI to deploy it</title>
+<meta name="description" content="bitploy is an open-source deploy platform for your own server. Your AI assistant sends the code over MCP and you get a live https address back.">
+<link rel="canonical" href="https://info.bitploy.nl/">
+<meta name="theme-color" content="#0a0a0a">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://info.bitploy.nl/">
+<meta property="og:title" content="bitploy: ask your AI to deploy it">
+<meta property="og:description" content="An open-source deploy platform for your own server. Your AI assistant sends the code over MCP and you get a live https address back.">
+<meta property="og:image" content="https://info.bitploy.nl/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23000'/%3E%3Cg fill='none' stroke='%23fff'%3E%3Cpolygon points='50,10 84.6,30 84.6,70 50,90 15.4,70 15.4,30' stroke-width='7.5'/%3E%3Cpolygon points='50,31 66.5,40.5 66.5,59.5 50,69 33.5,59.5 33.5,40.5' stroke-width='5'/%3E%3Cpath d='M50 50V69M50 50L33.5 40.5M50 50L66.5 40.5' stroke-width='5'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: oklch(0.125 0 0);
+  --raised: oklch(0.16 0 0);
+  --card: oklch(0.172 0 0);
+  --inset: oklch(0.14 0 0);
+  --fg: oklch(0.95 0 0);
+  --muted: oklch(0.69 0 0);
+  --dim: oklch(0.58 0 0);
+  --line: oklch(1 0 0 / 0.08);
+  --line-2: oklch(1 0 0 / 0.14);
+  --orange: oklch(0.57 0.19 40);
+  --orange-hi: oklch(0.7 0.19 40);
+  --orange-pale: oklch(0.84 0.11 60);
+  --green: oklch(0.72 0.15 152);
+  --sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --wrap: 1120px;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; line-height: 1.55; font-feature-settings: 'cv11', 'ss01', 'ss03'; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+code, pre, .mono, .tool, .log, .code, .rowi, .snippet, .term-bar { font-family: var(--mono); font-variant-ligatures: none; }
+h1, h2, h3, p { margin: 0; }
+svg { display: block; }
+::selection { background: oklch(0.57 0.19 40 / 0.45); }
+:focus-visible { outline: 2px solid var(--orange-hi); outline-offset: 3px; border-radius: 6px; }
+.wrap { width: 100%; max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+
+/* ---------- nav ---------- */
+.nav { position: sticky; top: 0; z-index: 50; border-bottom: 1px solid transparent; transition: border-color .2s, background .2s; }
+.nav.stuck { border-bottom-color: var(--line); background: oklch(0.125 0 0 / 0.78); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); }
+.nav .wrap { display: flex; align-items: center; height: 60px; gap: 28px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.02em; font-size: 17px; }
+.brand svg { width: 24px; height: 24px; }
+.nav-links { display: flex; gap: 4px; margin-left: 8px; }
+.nav-links a { color: var(--muted); font-size: 14px; padding: 6px 10px; border-radius: 6px; transition: color .15s, background .15s; }
+.nav-links a:hover { color: var(--fg); background: oklch(1 0 0 / 0.05); }
+.nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 10px; font-size: 15px; font-weight: 500; letter-spacing: -0.005em; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, transform .15s, box-shadow .2s; white-space: nowrap; font-family: inherit; }
+.btn svg { width: 16px; height: 16px; }
+.btn.sm { height: 34px; padding: 0 12px; font-size: 13.5px; border-radius: 8px; }
+.btn.primary { background: var(--orange); color: oklch(0.99 0 0); box-shadow: 0 1px 0 oklch(1 0 0 / 0.18) inset, 0 8px 28px -8px oklch(0.57 0.19 40 / 0.7); }
+.btn.primary:hover { background: oklch(0.61 0.19 40); transform: translateY(-1px); box-shadow: 0 1px 0 oklch(1 0 0 / 0.2) inset, 0 12px 34px -8px oklch(0.57 0.19 40 / 0.85); }
+.btn.ghost { background: oklch(1 0 0 / 0.04); border-color: var(--line-2); color: var(--fg); }
+.btn.ghost:hover { background: oklch(1 0 0 / 0.08); border-color: oklch(1 0 0 / 0.22); }
+.btn .arrow { transition: transform .15s; }
+.btn:hover .arrow { transform: translateX(3px); }
+
+/* ---------- hero ---------- */
+.hero { position: relative; padding: 60px 0 0; text-align: center; isolation: isolate; }
+.hero::before { content: ""; position: absolute; inset: -60px 0 auto; height: 760px; z-index: -2; background:
+  radial-gradient(48% 46% at 50% 0%, oklch(0.57 0.19 40 / 0.26), transparent 72%),
+  radial-gradient(30% 30% at 50% 6%, oklch(0.75 0.16 55 / 0.14), transparent 70%); pointer-events: none; }
+.hero::after { content: ""; position: absolute; inset: -60px 0 auto; height: 720px; z-index: -1; background-image: radial-gradient(oklch(1 0 0 / 0.11) 1px, transparent 1.4px); background-size: 26px 26px; -webkit-mask-image: radial-gradient(60% 62% at 50% 22%, #000 10%, transparent 78%); mask-image: radial-gradient(60% 62% at 50% 22%, #000 10%, transparent 78%); pointer-events: none; }
+.pill { display: inline-flex; align-items: center; gap: 10px; height: 32px; padding: 0 14px 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: oklch(1 0 0 / 0.04); font-size: 13px; color: var(--muted); transition: border-color .15s, color .15s; }
+.pill:hover { border-color: oklch(0.7 0.19 40 / 0.5); color: var(--fg); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--orange-hi); box-shadow: 0 0 0 4px oklch(0.7 0.19 40 / 0.18); }
+.pill b { color: var(--fg); font-weight: 500; }
+.pill .sep { width: 1px; height: 12px; background: var(--line-2); }
+h1 { margin-top: 22px; font-size: clamp(2.5rem, 7vw, 5.1rem); line-height: 1.02; letter-spacing: -0.045em; font-weight: 600; text-wrap: balance; }
+h1 .accent { display: block; background: linear-gradient(92deg, var(--orange-hi) 5%, var(--orange-pale) 60%, oklch(0.93 0.04 70) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: 0.08em; }
+.lede { margin: 20px auto 0; max-width: 620px; font-size: clamp(1rem, 1.6vw, 1.16rem); color: var(--muted); text-wrap: pretty; }
+.lede code { font-size: 0.9em; color: var(--fg); background: oklch(1 0 0 / 0.06); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.cta { margin-top: 30px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.stack-line { margin-top: 22px; display: flex; gap: 10px 22px; justify-content: center; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+.stack-line span { display: inline-flex; align-items: center; gap: 8px; }
+.stack-line span::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--dim); }
+
+/* ---------- demo window ---------- */
+.demo-wrap { position: relative; margin-top: 44px; }
+.demo-wrap::before { content: ""; position: absolute; left: 8%; right: 8%; top: 30%; bottom: -6%; z-index: -1; background: radial-gradient(50% 50% at 50% 50%, oklch(0.57 0.19 40 / 0.32), transparent 72%); filter: blur(50px); }
+.demo { text-align: left; border-radius: 16px; border: 1px solid var(--line-2); background: linear-gradient(180deg, oklch(0.18 0 0), oklch(0.145 0 0)); box-shadow: 0 1px 0 oklch(1 0 0 / 0.08) inset, 0 50px 100px -30px oklch(0 0 0 / 0.8); overflow: hidden; }
+.demo-bar { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.demo-bar i { width: 10px; height: 10px; border-radius: 50%; background: oklch(1 0 0 / 0.13); }
+.demo-bar span { margin-left: 10px; font-size: 12.5px; color: var(--dim); font-family: var(--mono); }
+.demo-body { display: grid; grid-template-columns: 1.08fr 0.92fr; }
+.chat { padding: 26px 26px 30px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid var(--line); min-width: 0; }
+.demo [data-s] { opacity: 0; transform: translateY(6px); transition: opacity .35s ease, transform .35s ease; }
+.demo [data-s].on { opacity: 1; transform: none; }
+.who { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin-bottom: 2px; }
+.msg { font-size: 15px; line-height: 1.5; max-width: 92%; }
+.msg.user { align-self: flex-end; background: oklch(1 0 0 / 0.07); border: 1px solid var(--line); padding: 9px 14px; border-radius: 14px 14px 4px 14px; margin-bottom: 8px; }
+.msg.ai { margin-top: 10px; color: var(--fg); }
+.msg.ai .link { color: var(--orange-hi); font-family: var(--mono); font-size: 13.5px; border-bottom: 1px solid oklch(0.7 0.19 40 / 0.4); }
+.tool { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 13px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--inset); min-width: 0; }
+.tool b { font-weight: 500; color: var(--fg); }
+.tool span { color: var(--dim); margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool .ic { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid oklch(1 0 0 / 0.18); border-top-color: var(--orange-hi); animation: spin .8s linear infinite; }
+.tool.done .ic { animation: none; border: 0; background: no-repeat center/14px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2362c98a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.panel { padding: 26px; display: flex; flex-direction: column; gap: 16px; background: oklch(0.135 0 0); min-width: 0; }
+.app-head { display: flex; align-items: center; gap: 12px; }
+.mono-tile { flex: none; width: 38px; height: 38px; border-radius: 9px; border: 1px solid var(--line-2); background: oklch(0.22 0 0); display: grid; place-items: center; font-weight: 600; }
+.app-head .name { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+.app-head .url { font-family: var(--mono); font-size: 12px; color: var(--dim); transition: color .4s; }
+.demo[data-state="running"] .app-head .url { color: var(--orange-hi); }
+.badge { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.demo[data-state="building"] .badge::before { background: var(--muted); animation: pulse 1.1s ease-in-out infinite; }
+.demo[data-state="running"] .badge { color: var(--green); border-color: oklch(0.72 0.15 152 / 0.35); background: oklch(0.72 0.15 152 / 0.08); }
+.demo[data-state="running"] .badge::before { background: var(--green); }
+@keyframes pulse { 50% { opacity: 0.25; } }
+.log { font-family: var(--mono); font-size: 12px; line-height: 1.9; color: var(--dim); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-height: 142px; overflow: hidden; }
+.log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .k { color: var(--orange-pale); }
+.log .ok { color: var(--green); }
+.meters { display: grid; gap: 12px; }
+.meter .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.meter .row span:last-child { font-family: var(--mono); color: var(--dim); }
+.bar { height: 6px; border-radius: 99px; background: oklch(1 0 0 / 0.07); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; border-radius: 99px; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.bar.cpu i { background: var(--orange-hi); }
+.bar.mem i { background: var(--green); }
+.demo[data-state="running"] .bar.cpu i { width: 14%; }
+.demo[data-state="running"] .bar.mem i { width: 31%; }
+
+/* ---------- sections ---------- */
+section { padding: 120px 0 0; }
+.eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--orange-hi); text-transform: uppercase; }
+h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08; letter-spacing: -0.035em; font-weight: 600; text-wrap: balance; }
+.sub { margin-top: 16px; max-width: 580px; color: var(--muted); font-size: 1.05rem; text-wrap: pretty; }
+.head.center { text-align: center; }
+.head.center .sub { margin-left: auto; margin-right: auto; }
+
+/* numbers */
+.stats { margin-top: 76px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.stat { background: var(--bg); padding: 30px 12px 28px; text-align: center; }
+.stat b { display: block; font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 600; letter-spacing: -0.045em; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat span { display: block; margin-top: 10px; font-size: 13.5px; color: var(--muted); }
+
+/* faq */
+.faq { margin: 48px auto 0; max-width: 780px; border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 16px; padding: 20px 4px; font-weight: 500; font-size: 1.03rem; letter-spacing: -0.01em; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: ""; margin-left: auto; flex: none; width: 9px; height: 9px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: translateY(-2px) rotate(45deg); transition: transform .2s; }
+.faq details[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.faq summary:hover::after { border-color: var(--orange-hi); }
+.faq p { padding: 0 44px 22px 4px; color: var(--muted); text-wrap: pretty; }
+.faq p code { font-size: 0.88em; color: var(--fg); }
+
+/* steps */
+.steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--raised); overflow: hidden; }
+.step { padding: 30px 28px 32px; position: relative; min-width: 0; }
+.step + .step { border-left: 1px solid var(--line); }
+.step .n { font-family: var(--mono); font-size: 12.5px; color: var(--orange-hi); display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid oklch(0.7 0.19 40 / 0.35); background: oklch(0.7 0.19 40 / 0.08); }
+.step h3 { margin-top: 20px; font-size: 1.14rem; letter-spacing: -0.015em; font-weight: 600; }
+.step p { margin-top: 8px; color: var(--muted); font-size: 0.95rem; }
+.step .snippet { margin-top: 20px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step .snippet em { font-style: normal; color: var(--orange-pale); }
+
+/* bento */
+.bento { margin-top: 56px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+.cell { --mx: 50%; --my: 0%; position: relative; grid-column: span 2; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 26px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .2s; min-width: 0; }
+.cell::before { content: ""; position: absolute; inset: 0; background: radial-gradient(340px circle at var(--mx) var(--my), oklch(0.7 0.19 40 / 0.11), transparent 65%); opacity: 0; transition: opacity .3s; pointer-events: none; }
+.cell:hover { border-color: var(--line-2); }
+.cell:hover::before { opacity: 1; }
+.cell.w4 { grid-column: span 4; }
+.cell.w3 { grid-column: span 3; }
+.cell h3 { font-size: 1.12rem; letter-spacing: -0.015em; font-weight: 600; }
+.cell p { margin-top: 8px; color: var(--muted); font-size: 0.95rem; text-wrap: pretty; }
+.cell .art { margin-top: auto; padding-top: 24px; position: relative; }
+.cell.split { flex-direction: row; gap: 28px; align-items: stretch; }
+.cell.split .txt { flex: 1 1 42%; min-width: 0; }
+.cell.split .art { flex: 1 1 58%; margin: 0; padding: 0; min-width: 0; align-self: center; }
+.icon { width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line-2); background: oklch(1 0 0 / 0.04); display: grid; place-items: center; margin-bottom: 18px; color: var(--orange-hi); }
+.icon svg { width: 18px; height: 18px; }
+.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.75; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--muted); overflow: hidden; }
+.code div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code .k { color: var(--orange-pale); }
+.code .s { color: oklch(0.8 0.1 152); }
+.code .c { color: var(--dim); }
+.after { margin-top: 10px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); font-family: var(--mono); }
+.after i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.rows { display: grid; gap: 8px; }
+.rowi { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12.5px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--muted); min-width: 0; }
+.rowi .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rowi .r { margin-left: auto; color: var(--dim); white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
+.rowi .r.ok { color: var(--green); }
+.rowi .r i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.rowi .r.wait i { animation: pulse 1.1s ease-in-out infinite; }
+.rowi .h { color: var(--orange-pale); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.chip.mono { font-family: var(--mono); font-size: 12px; }
+.chip img { width: 14px; height: 14px; opacity: 0.9; }
+.nights { display: flex; gap: 6px; align-items: flex-end; margin-bottom: 10px; }
+.nights i { flex: 1; height: 26px; border-radius: 5px; background: oklch(0.72 0.15 152 / 0.22); border: 1px solid oklch(0.72 0.15 152 / 0.3); }
+.nights i:last-child { background: oklch(0.72 0.15 152 / 0.55); }
+.chart { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 10px; }
+.chart .lg { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.chart .lg span { display: inline-flex; align-items: center; gap: 7px; }
+.chart .lg i { width: 8px; height: 2px; border-radius: 2px; }
+.chart svg { width: 100%; height: 132px; }
+
+/* extras */
+.extras { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--line); gap: 1px; }
+.extra { background: var(--raised); padding: 20px 22px; display: flex; gap: 12px; align-items: flex-start; }
+.extra svg { flex: none; width: 16px; height: 16px; margin-top: 4px; color: var(--orange-hi); }
+.extra b { display: block; font-weight: 500; font-size: 0.95rem; }
+.extra span { display: block; color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
+
+/* catalog */
+.marquee { margin-top: 48px; display: grid; gap: 12px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); overflow: hidden; }
+.track { display: flex; gap: 12px; width: max-content; animation: slide 60s linear infinite; }
+.track.rev { animation-direction: reverse; animation-duration: 70s; }
+.marquee:hover .track { animation-play-state: paused; }
+@keyframes slide { to { transform: translateX(calc(-50% - 6px)); } }
+.appchip { display: inline-flex; align-items: center; gap: 10px; height: 46px; padding: 0 16px 0 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 14.5px; font-weight: 500; white-space: nowrap; }
+.appchip .tile { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: oklch(0.22 0 0); display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--muted); }
+.appchip img { width: 16px; height: 16px; }
+
+/* install */
+.install { margin-top: 56px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; align-items: stretch; }
+.install.flip { margin-top: 14px; grid-template-columns: 0.85fr 1.15fr; }
+.need p { margin-top: 10px; color: var(--muted); font-size: 0.94rem; }
+.term pre .v { color: var(--orange-pale); }
+.term { border: 1px solid var(--line-2); border-radius: 16px; background: oklch(0.105 0 0); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 30px 80px -40px oklch(0.57 0.19 40 / 0.45); }
+.term-bar { display: flex; align-items: center; height: 42px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12.5px; color: var(--dim); }
+.copy { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 12.5px var(--sans); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.copy:hover { color: var(--fg); border-color: var(--line-2); background: oklch(1 0 0 / 0.05); }
+.copy svg { width: 13px; height: 13px; }
+.copy.done { color: var(--green); border-color: oklch(0.72 0.15 152 / 0.4); }
+.term pre { margin: 0; padding: 22px 20px 26px; font-size: 13px; line-height: 1.9; overflow-x: auto; scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 0.16) transparent; color: var(--fg); flex: 1; }
+.term pre .c { color: var(--dim); }
+.term pre .p { color: var(--orange-hi); user-select: none; }
+.term pre .o { color: var(--muted); }
+.term pre .g { color: var(--green); }
+.need { border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 26px; }
+.need h3 { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.need ul { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 14px; }
+.need li { display: flex; gap: 12px; color: var(--muted); font-size: 0.94rem; }
+.need li svg { flex: none; width: 16px; height: 16px; margin-top: 4px; color: var(--orange-hi); }
+.need li b { color: var(--fg); font-weight: 500; }
+
+/* final */
+.final { margin-top: 120px; position: relative; border: 1px solid var(--line-2); border-radius: 24px; padding: 76px 28px; text-align: center; overflow: hidden; background: var(--raised); isolation: isolate; }
+.final::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(55% 90% at 50% 115%, oklch(0.57 0.19 40 / 0.42), transparent 70%); }
+.final::after { content: ""; position: absolute; inset: 0; z-index: -1; background-image: radial-gradient(oklch(1 0 0 / 0.1) 1px, transparent 1.4px); background-size: 26px 26px; -webkit-mask-image: radial-gradient(60% 80% at 50% 100%, #000, transparent 75%); mask-image: radial-gradient(60% 80% at 50% 100%, #000, transparent 75%); }
+.final .logo { width: 52px; height: 52px; margin: 0 auto 22px; }
+.final h2 { margin-top: 0; }
+.final .sub { margin-left: auto; margin-right: auto; }
+
+footer { margin-top: 72px; border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--dim); font-size: 13.5px; }
+footer .wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+footer .brand { font-size: 15px; color: var(--fg); }
+footer .brand svg { width: 20px; height: 20px; }
+footer nav { margin-left: auto; display: flex; gap: 20px; }
+footer nav a:hover { color: var(--fg); }
+
+/* reveal */
+.js .reveal { opacity: 0; transform: translateY(16px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); transition-delay: var(--d, 0s); }
+.js .reveal.in { opacity: 1; transform: none; }
+
+@media (max-width: 960px) {
+  .nav-links { display: none; }
+  .demo-body { grid-template-columns: 1fr; }
+  .chat { border-right: 0; border-bottom: 1px solid var(--line); }
+  .steps { grid-template-columns: 1fr; }
+  .step + .step { border-left: 0; border-top: 1px solid var(--line); }
+  .bento { grid-template-columns: repeat(2, 1fr); }
+  .cell, .cell.w3 { grid-column: span 1; }
+  .cell.w4 { grid-column: span 2; }
+  .extras { grid-template-columns: repeat(2, 1fr); }
+  .install, .install.flip { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  section { padding-top: 96px; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 18px; }
+  .hero { padding-top: 40px; }
+  .faq p { padding-right: 4px; }
+  .stats { margin-top: 56px; }
+  .bento { grid-template-columns: 1fr; }
+  .cell, .cell.w3, .cell.w4 { grid-column: span 1; }
+  .cell.split { flex-direction: column; gap: 0; }
+  .cell.split .txt { flex: none; }
+  .cell.split .art { flex: none; align-self: stretch; padding-top: 24px; }
+  .extras { grid-template-columns: 1fr; }
+  .chat, .panel { padding: 18px; }
+  .cta .btn { flex: 1 1 100%; }
+  .nav .btn.ghost span { display: none; }
+  .final { padding: 56px 20px; margin-top: 96px; }
+  footer nav { margin-left: 0; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .track, .tool .ic, .badge::before, .rowi .r.wait i { animation: none !important; }
+  .js .reveal, .demo [data-s] { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 100 100"><g fill="none" stroke="currentColor" stroke-linejoin="round"><polygon points="50,10 84.6,30 84.6,70 50,90 15.4,70 15.4,30" stroke-width="7.5"/><polygon points="50,31 66.5,40.5 66.5,59.5 50,69 33.5,59.5 33.5,40.5" stroke-width="5"/><path d="M50 50V69M50 50L33.5 40.5M50 50L66.5 40.5" stroke-width="5"/></g></symbol>
+  <symbol id="gh" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></g></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M8 7h8a4 4 0 0 1 4 4v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5a4 4 0 0 1 4-4ZM9 13v2M15 13v2"/></g></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 3-3 4-6 4H8.5"/></g></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></g></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7.5V12l3 2"/></g></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.2 2.9 7.6 7 9.5 4.1-1.9 7-5.3 7-9.5V6l-7-3ZM9 12l2 2 4-4.5"/></g></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.500 5.6 12 3Z"/></g></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2.5-7 5 14L17 12h4"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></g></symbol>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="bitploy home"><svg aria-hidden="true"><use href="#logo"/></svg>bitploy</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#catalog">Catalog</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn sm ghost" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#gh"/></svg><span>GitHub</span></a>
+      <a class="btn sm primary" href="#install">Install</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap">
+      <a class="pill reveal" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><span class="dot"></span><b>Open source</b><span class="sep"></span>MIT license</a>
+      <h1 class="reveal" style="--d:.05s">Ask your AI to deploy it.<span class="accent">Get a live URL back.</span></h1>
+      <p class="lede reveal" style="--d:.1s">bitploy is a deploy platform you run on your own server. Your AI assistant sends the code over MCP, bitploy builds it and puts it online at <code>https://your-app.yourdomain.com</code>.</p>
+      <div class="cta reveal" style="--d:.15s">
+        <a class="btn primary" href="#install">Install on your server <svg class="arrow" aria-hidden="true"><use href="#arrow"/></svg></a>
+        <a class="btn ghost" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#gh"/></svg>View on GitHub</a>
+      </div>
+      <div class="stack-line reveal" style="--d:.2s"><span>One Go binary</span><span>One SQLite file</span><span>Docker and Traefik underneath</span></div>
+
+      <div class="demo-wrap reveal" style="--d:.25s">
+        <div class="demo" id="demo" data-state="idle" role="img" aria-label="Example: an AI assistant deploys an app to bitploy">
+          <div class="demo-bar"><i></i><i></i><i></i><span>~/shop</span></div>
+          <div class="demo-body">
+            <div class="chat">
+              <div class="msg user" data-s="1">Deploy this to bitploy.</div>
+              <div class="who" data-s="3">Assistant</div>
+              <div class="tool" data-s="3" data-d="5"><i class="ic"></i><b>validate_dockerfile</b><span>no errors</span></div>
+              <div class="tool" data-s="5" data-d="7"><i class="ic"></i><b>create_app</b><span>shop</span></div>
+              <div class="tool" data-s="7" data-d="9"><i class="ic"></i><b>deploy_files</b><span>42 files</span></div>
+              <div class="tool" data-s="9" data-d="16"><i class="ic"></i><b>get_deployment</b><span id="dep-state">building</span></div>
+              <div class="msg ai" data-s="17">It's live at <span class="link">https://shop.example.com</span>. I built it from your Dockerfile, and its data in <code>/data</code> gets a backup every night.</div>
+            </div>
+            <div class="panel">
+              <div class="app-head" data-s="5">
+                <div class="mono-tile">S</div>
+                <div><div class="name">shop</div><div class="url">shop.example.com</div></div>
+                <div class="badge" id="badge">Created</div>
+              </div>
+              <div class="log" data-s="5">
+                <div data-s="9"><span class="k">build</span> FROM node:24-alpine</div>
+                <div data-s="10"><span class="k">build</span> RUN npm ci</div>
+                <div data-s="12"><span class="k">build</span> RUN npm run build</div>
+                <div data-s="14"><span class="k">start</span> listening on 0.0.0.0:3000</div>
+                <div data-s="15"><span class="k">check</span> GET / <span class="ok">200</span></div>
+                <div data-s="16" class="ok">live at https://shop.example.com</div>
+              </div>
+              <div class="meters" data-s="5">
+                <div class="meter"><div class="row"><span>CPU</span><span>0.04 / 0.25</span></div><div class="bar cpu"><i></i></div></div>
+                <div class="meter"><div class="row"><span>Memory</span><span>158 / 512 MB</span></div><div class="bar mem"><i></i></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats reveal">
+        <div class="stat"><b>51</b><span>MCP tools for your assistant</span></div>
+        <div class="stat"><b>31</b><span>ready-made apps</span></div>
+        <div class="stat"><b>10</b><span>databases and services</span></div>
+        <div class="stat"><b>1</b><span>server runs all of it</span></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="head center reveal">
+        <div class="eyebrow">How it works</div>
+        <h2>From a folder of code to a live address</h2>
+        <p class="sub">You talk to your assistant. It talks to bitploy.</p>
+      </div>
+      <div class="steps reveal">
+        <div class="step">
+          <span class="n">1</span>
+          <h3>Install it on one server</h3>
+          <p>A fresh Ubuntu server and a domain. The install script sets up Docker, Traefik, the firewall and HTTPS.</p>
+          <div class="snippet"><em>$</em> sudo bash install.sh</div>
+        </div>
+        <div class="step">
+          <span class="n">2</span>
+          <h3>Connect your AI</h3>
+          <p>Create a token in the dashboard and add bitploy's MCP server to Claude Code, Cursor or any assistant that speaks MCP.</p>
+          <div class="snippet">https://yourdomain.com<em>/mcp</em></div>
+        </div>
+        <div class="step">
+          <span class="n">3</span>
+          <h3>Ask for a deploy</h3>
+          <p>The assistant checks the Dockerfile, sends the code and waits for the build. You get the address.</p>
+          <div class="snippet"><em>&gt;</em> Use bitploy to put this folder online.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="eyebrow">Features</div>
+        <h2>Everything a small app needs.<br>Nothing you have to babysit.</h2>
+        <p class="sub">One Dockerfile and a SQLite file cover most apps. When yours needs more, bitploy has it.</p>
+      </div>
+
+      <div class="bento">
+        <div class="cell w4 split reveal">
+          <div class="txt">
+            <div class="icon"><svg aria-hidden="true"><use href="#i-bot"/></svg></div>
+            <h3>Built for AI agents</h3>
+            <p>More than 50 MCP tools, and a REST API that does the same. Every error has a code and a hint the assistant can act on, so it fixes a failed deploy without you reading a log.</p>
+          </div>
+          <div class="art">
+            <div class="code">
+              <div><span class="c">// get_deployment</span></div>
+              <div>"state": <span class="s">"failed"</span>,</div>
+              <div>"error": {</div>
+              <div>&nbsp;&nbsp;"code": <span class="k">"unhealthy"</span>,</div>
+              <div>&nbsp;&nbsp;"message": <span class="s">"The app did not answer."</span>,</div>
+              <div>&nbsp;&nbsp;"hint": <span class="s">"It listens on localhost; make</span></div>
+              <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="s">it listen on 0.0.0.0:$PORT"</span></div>
+              <div>}</div>
+            </div>
+            <div class="after"><i></i>assistant fixes the port and deploys again</div>
+          </div>
+        </div>
+
+        <div class="cell reveal" style="--d:.06s">
+          <div class="icon"><svg aria-hidden="true"><use href="#i-git"/></svg></div>
+          <h3>Push to deploy</h3>
+          <p>Link a GitHub repository. Every push to the branch builds and goes live.</p>
+          <div class="art rows">
+            <div class="rowi"><span class="t"><span class="h">a1f3c9e</span> Fix checkout total</span><span class="r ok"><i></i>Live</span></div>
+            <div class="rowi"><span class="t"><span class="h">7be02d4</span> Add order emails</span><span class="r">2h ago</span></div>
+          </div>
+        </div>
+
+        <div class="cell reveal">
+          <div class="icon"><svg aria-hidden="true"><use href="#i-db"/></svg></div>
+          <h3>Databases in one step</h3>
+          <p>Add a database next to your app on a private network. bitploy generates the passwords and sets <span class="mono" style="font-size:.86em;color:var(--fg)">DATABASE_URL</span>.</p>
+          <div class="art chips" id="dbchips"></div>
+        </div>
+
+        <div class="cell reveal" style="--d:.06s">
+          <div class="icon"><svg aria-hidden="true"><use href="#i-back"/></svg></div>
+          <h3>Backups and rollbacks</h3>
+          <p>App data is backed up every night and kept for 14 days. A bad release rolls back to the version before it.</p>
+          <div class="art">
+            <div class="nights" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="after" style="margin-top:0"><i></i>14 nightly backups</div>
+          </div>
+        </div>
+
+        <div class="cell reveal" style="--d:.12s">
+          <div class="icon"><svg aria-hidden="true"><use href="#i-shield"/></svg></div>
+          <h3>Locked down by default</h3>
+          <p>Each app runs in its own container on its own network, and cannot reach the server or other people's apps.</p>
+          <div class="art chips">
+            <span class="chip mono">no-new-privileges</span><span class="chip mono">no capabilities</span><span class="chip mono">memory limit</span><span class="chip mono">CPU limit</span><span class="chip mono">PID limit</span>
+          </div>
+        </div>
+
+        <div class="cell reveal">
+          <div class="icon"><svg aria-hidden="true"><use href="#i-globe"/></svg></div>
+          <h3>Your domains, with HTTPS</h3>
+          <p>Point a domain at the server. bitploy checks the DNS and gets a Let's Encrypt certificate.</p>
+          <div class="art rows">
+            <div class="rowi"><svg width="13" height="13" style="color:var(--green);flex:none" aria-hidden="true"><use href="#lock"/></svg><span class="t">shop.example.com</span><span class="r ok"><i></i>Active</span></div>
+            <div class="rowi"><svg width="13" height="13" style="color:var(--dim);flex:none" aria-hidden="true"><use href="#lock"/></svg><span class="t">www.example.com</span><span class="r wait"><i></i>Checking DNS</span></div>
+          </div>
+        </div>
+
+        <div class="cell w4 split reveal" style="--d:.06s">
+          <div class="txt">
+            <div class="icon"><svg aria-hidden="true"><use href="#i-pulse"/></svg></div>
+            <h3>See what is running</h3>
+            <p>A dashboard with logs, CPU and memory, traffic, a terminal, a file browser and a SQLite viewer for every app. Your assistant reads the same numbers.</p>
+          </div>
+          <div class="art">
+            <div class="chart">
+              <div class="lg"><span><i style="background:var(--orange-hi)"></i>CPU</span><span><i style="background:var(--green)"></i>Memory</span></div>
+              <svg viewBox="0 0 400 96" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="go" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.7 0.19 40)" stop-opacity=".28"/><stop offset="1" stop-color="oklch(0.7 0.19 40)" stop-opacity="0"/></linearGradient>
+                </defs>
+                <g stroke="oklch(1 0 0 / 0.06)" stroke-width="1"><path d="M0 24H400M0 48H400M0 72H400"/></g>
+                <path d="M0 70 L25 66 L50 72 L75 58 L100 62 L125 40 L150 52 L175 60 L200 34 L225 48 L250 56 L275 44 L300 62 L325 50 L350 28 L375 46 L400 40 V96 H0Z" fill="url(#go)"/>
+                <path d="M0 70 L25 66 L50 72 L75 58 L100 62 L125 40 L150 52 L175 60 L200 34 L225 48 L250 56 L275 44 L300 62 L325 50 L350 28 L375 46 L400 40" fill="none" stroke="oklch(0.7 0.19 40)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                <path d="M0 54 L50 53 L100 50 L150 51 L200 47 L250 48 L300 44 L350 45 L400 42" fill="none" stroke="oklch(0.72 0.15 152)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="extras reveal">
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Static sites without a Dockerfile</b><span>Plain HTML, or a Vite, Astro or Next.js export.</span></div></div>
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Compose files</b><span>For code that already ships one and needs its services.</span></div></div>
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Deploy commands</b><span>Run migrations before a new version goes live.</span></div></div>
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Password protection</b><span>Put an app behind a password while you work on it.</span></div></div>
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Projects for teams</b><span>Invite people to a project and set limits per person.</span></div></div>
+        <div class="extra"><svg aria-hidden="true"><use href="#check"/></svg><div><b>Notifications</b><span>Discord and browser push when a deploy fails.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="catalog">
+    <div class="wrap">
+      <div class="head center reveal">
+        <div class="eyebrow">Catalog</div>
+        <h2>31 self-hosted apps, ready to run</h2>
+        <p class="sub">A password manager, an uptime monitor, analytics, a blog. Each one has a pinned version and tells you when a newer one is out.</p>
+      </div>
+    </div>
+    <div class="marquee reveal" aria-label="Apps in the catalog">
+      <div class="track" id="track1"></div>
+      <div class="track rev" id="track2"></div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <div class="head reveal">
+        <div class="eyebrow">Install</div>
+        <h2>Two commands on a fresh server</h2>
+        <p class="sub">The script asks for your domain and the first admin account, then starts everything. Run it again to upgrade.</p>
+      </div>
+      <div class="install">
+        <div class="term reveal">
+          <div class="term-bar">root@your-server
+            <button class="copy" type="button" data-copy="curl -fsSLO https://raw.githubusercontent.com/AVMG20/bitploy/main/install.sh&#10;sudo bash install.sh"><svg aria-hidden="true"><use href="#copy"/></svg><span>Copy</span></button>
+          </div>
+<pre class="mono"><span class="c"># Ubuntu 24.04 or 26.04</span>
+<span class="p">$ </span>curl -fsSLO \
+    https://raw.githubusercontent.com/AVMG20/bitploy/main/install.sh
+<span class="p">$ </span>sudo bash install.sh
+
+<span class="o">==&gt; Installing Docker
+==&gt; Building bitploy
+==&gt; Starting Traefik and bitploy</span>
+<span class="g">bitploy runs at https://yourdomain.com</span></pre>
+        </div>
+        <div class="need reveal" style="--d:.08s">
+          <h3>What you need</h3>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#check"/></svg><span><b>One Linux server.</b> 4 vCPU, 8 GB RAM and 160 GB disk is a good start for a small team.</span></li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg><span><b>A domain.</b> Apps go on its subdomains, like <span class="mono" style="font-size:.88em">shop.yourdomain.com</span>.</span></li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg><span><b>An AI assistant with MCP.</b> Or use the dashboard and the REST API yourself.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="install flip">
+        <div class="need reveal">
+          <h3>Then connect your assistant</h3>
+          <p>Create a token in the dashboard and add bitploy as an MCP server. This is the command for Claude Code.</p>
+          <p>The Connect AI page in the dashboard has the setup for Claude Desktop, Cursor and VS Code too, with your address and token filled in.</p>
+        </div>
+        <div class="term reveal" style="--d:.08s">
+          <div class="term-bar">your computer
+            <button class="copy" type="button" data-copy="claude mcp add --scope user --transport http bitploy https://yourdomain.com/mcp --header &quot;Authorization: Bearer YOUR_TOKEN&quot;"><svg aria-hidden="true"><use href="#copy"/></svg><span>Copy</span></button>
+          </div>
+<pre class="mono"><span class="p">$ </span>claude mcp add --scope user --transport http bitploy \
+    <span class="v">https://yourdomain.com/mcp</span> \
+    --header "Authorization: Bearer <span class="v">YOUR_TOKEN</span>"
+
+<span class="p">&gt; </span>Use bitploy to put this folder online.</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <div class="head center reveal">
+        <div class="eyebrow">FAQ</div>
+        <h2>Questions people ask first</h2>
+      </div>
+      <div class="faq reveal">
+        <details open>
+          <summary>What does it cost?</summary>
+          <p>Nothing. bitploy is open source under the MIT license. You pay for the server you run it on.</p>
+        </details>
+        <details>
+          <summary>Which AI assistants work with it?</summary>
+          <p>Claude Code, Claude Desktop, Cursor, VS Code and other tools that can connect to an MCP server over HTTP. The dashboard shows the setup for each one.</p>
+        </details>
+        <details>
+          <summary>Can I use it without an AI assistant?</summary>
+          <p>Yes. The dashboard deploys from a GitHub repository, a zip or the catalog, and the REST API offers what the MCP tools offer.</p>
+        </details>
+        <details>
+          <summary>What can it run?</summary>
+          <p>Anything with a Dockerfile, any published Docker image, static sites, and compose files with up to 6 services. Small apps keep their data in SQLite under <code>/data</code>; bigger ones get a database next to them.</p>
+        </details>
+        <details>
+          <summary>Does it run on more than one server?</summary>
+          <p>No. bitploy is built for one server: one binary, one SQLite file, no cluster to manage.</p>
+        </details>
+        <details>
+          <summary>Where does my data live?</summary>
+          <p>On your server. Each app's files are in its own volume, with nightly backups you can download or restore from the dashboard.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="final reveal">
+      <svg class="logo" aria-hidden="true"><use href="#logo"/></svg>
+      <h2>Open source, MIT licensed</h2>
+      <p class="sub">Run it, read it, change it. The whole platform is one repository.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#gh"/></svg>Star on GitHub</a>
+        <a class="btn ghost" href="https://github.com/AVMG20/bitploy#readme" target="_blank" rel="noopener">Read the docs <svg class="arrow" aria-hidden="true"><use href="#arrow"/></svg></a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top"><svg aria-hidden="true"><use href="#logo"/></svg>bitploy</a>
+    <span>Released under the MIT License.</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/AVMG20/bitploy" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/AVMG20/bitploy#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/AVMG20/bitploy/issues" target="_blank" rel="noopener">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var doc = document.documentElement;
+  doc.classList.add('js');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // In-page links: scroll without changing the address.
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    var target = document.querySelector(a.getAttribute('href'));
+    if (!target) return;
+    e.preventDefault();
+    var y = target.getBoundingClientRect().top + window.scrollY - (target.id === 'top' ? 200 : 40);
+    window.scrollTo({ top: Math.max(0, y), behavior: reduced ? 'auto' : 'smooth' });
+  });
+
+  var nav = document.getElementById('nav');
+  function onScroll() { nav.classList.toggle('stuck', window.scrollY > 8); }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // Catalog and database chips.
+  var ICON = 'https://cdn.simpleicons.org/';
+  function icon(slug, size) {
+    var img = new Image(size, size);
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = ICON + slug + '/d4d4d4';
+    return img;
+  }
+  var apps = [
+    ['Vaultwarden', 'vaultwarden'], ['Uptime Kuma', 'uptimekuma'], ['n8n', 'n8n'], ['Grafana', 'grafana'],
+    ['Ghost', 'ghost'], ['Forgejo', 'forgejo'], ['Umami', 'umami'], ['Excalidraw', 'excalidraw'],
+    ['PocketBase', 'pocketbase'], ['Memos'], ['Open WebUI'], ['Directus', 'directus'], ['NocoDB'],
+    ['Actual Budget', 'actualbudget'], ['Vikunja', 'vikunja'], ['ntfy', 'ntfy'],
+    ['Mealie', 'mealie'], ['Linkwarden'], ['Karakeep', 'karakeep'], ['Miniflux'], ['Listmonk', 'listmonk'],
+    ['SearXNG', 'searxng'], ['Stirling-PDF'], ['Docmost'], ['changedetection.io', 'changedetection'],
+    ['File Browser'], ['IT-Tools'], ['PrivateBin'], ['Shlink'], ['Linkding'], ['Arnotes']
+  ];
+  function appChip(a) {
+    var chip = document.createElement('span');
+    chip.className = 'appchip';
+    var tile = document.createElement('span');
+    tile.className = 'tile';
+    if (a[1]) {
+      var img = icon(a[1], 16);
+      img.onerror = function () { tile.textContent = a[0].charAt(0).toUpperCase(); };
+      tile.appendChild(img);
+    } else {
+      tile.textContent = a[0].charAt(0).toUpperCase();
+    }
+    chip.appendChild(tile);
+    chip.appendChild(document.createTextNode(a[0]));
+    return chip;
+  }
+  function fill(id, list) {
+    var track = document.getElementById(id);
+    for (var pass = 0; pass < 2; pass++) {
+      list.forEach(function (a) {
+        var chip = appChip(a);
+        if (pass) chip.setAttribute('aria-hidden', 'true');
+        track.appendChild(chip);
+      });
+    }
+  }
+  var half = Math.ceil(apps.length / 2);
+  fill('track1', apps.slice(0, half));
+  fill('track2', apps.slice(half));
+
+  var dbs = [['PostgreSQL', 'postgresql'], ['MySQL', 'mysql'], ['MariaDB', 'mariadb'], ['Redis', 'redis'], ['Meilisearch', 'meilisearch'], ['ClickHouse', 'clickhouse']];
+  var dbBox = document.getElementById('dbchips');
+  dbs.forEach(function (d) {
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    var img = icon(d[1], 14);
+    img.onerror = function () { img.remove(); };
+    chip.appendChild(img);
+    chip.appendChild(document.createTextNode(d[0]));
+    dbBox.appendChild(chip);
+  });
+
+  // Reveal on scroll.
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !reduced) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 });
+    reveals.forEach(function (el) { io.observe(el); });
+  } else {
+    reveals.forEach(function (el) { el.classList.add('in'); });
+  }
+
+  // Spotlight that follows the pointer on feature cards.
+  document.querySelectorAll('.cell').forEach(function (cell) {
+    cell.addEventListener('pointermove', function (e) {
+      var r = cell.getBoundingClientRect();
+      cell.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      cell.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+
+  // The hero demo: a deploy, step by step, on a loop.
+  var demo = document.getElementById('demo');
+  var steps = demo.querySelectorAll('[data-s]');
+  var badge = document.getElementById('badge');
+  var depState = document.getElementById('dep-state');
+  var END = 42, t = 0, timer = null;
+  function render() {
+    steps.forEach(function (el) {
+      el.classList.toggle('on', t >= +el.dataset.s);
+      if (el.dataset.d) el.classList.toggle('done', t >= +el.dataset.d);
+    });
+    var state = t >= 16 ? 'running' : t >= 9 ? 'building' : 'idle';
+    demo.dataset.state = state;
+    badge.textContent = state === 'running' ? 'Running' : state === 'building' ? 'Building' : 'Created';
+    depState.textContent = state === 'running' ? 'running' : 'building';
+  }
+  function tick() { t = t >= END ? 0 : t + 1; render(); }
+  if (reduced) {
+    t = END; render();
+  } else {
+    render();
+    var start = function () { if (!timer) timer = setInterval(tick, 430); };
+    var stop = function () { clearInterval(timer); timer = null; };
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        entries[0].isIntersecting ? start() : stop();
+      }, { threshold: 0.2 }).observe(demo);
+    } else {
+      start();
+    }
+  }
+
+  // Copy buttons: each carries its text in data-copy.
+  function copied(btn) {
+    var label = btn.querySelector('span');
+    btn.classList.add('done');
+    label.textContent = 'Copied';
+    setTimeout(function () { btn.classList.remove('done'); label.textContent = 'Copy'; }, 1600);
+  }
+  function fallbackCopy(btn, text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { if (document.execCommand('copy')) copied(btn); } catch (err) {}
+    ta.remove();
+  }
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.dataset.copy;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { copied(btn); }, function () { fallbackCopy(btn, text); });
+      } else {
+        fallbackCopy(btn, text);
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
