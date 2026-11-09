@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUpRight, Users } from 'lucide-vue-next'
+import { ArrowUpRight, Cpu, MemoryStick, Rocket, Users } from 'lucide-vue-next'
 import RelativeTime from '@/components/RelativeTime.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import StatusDot from '@/components/StatusDot.vue'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTapTooltips } from '@/composables/useTapTooltips'
 import { projectRoute } from '@/lib/appLinks'
-import { formatMB, hostOf } from '@/lib/format'
+import { formatCPUMillis, formatMB, hostOf } from '@/lib/format'
 import { aliasOf, appRole, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, projectUsage, sortProjectApps } from '@/lib/projects'
 import type { Project, ServiceTemplate } from '@/lib/types'
 
@@ -28,6 +30,14 @@ const lastAt = computed(() => {
   return at
 })
 const healthText = computed(() => projectHealthText(props.project.apps))
+// Who else is on the project, in full for the tooltip next to the short form.
+const sharing = computed(() => {
+  const p = props.project
+  if (p.shared) return `Shared with you by ${ownerName(p)}`
+  if (p.member_count) return `Shared with ${p.member_count === 1 ? '1 person' : `${p.member_count} people`}`
+  return ''
+})
+const tips = useTapTooltips()
 </script>
 
 <template>
@@ -70,16 +80,30 @@ const healthText = computed(() => projectHealthText(props.project.apps))
       <span v-if="!apps.length" class="w-full text-center text-xs text-muted-foreground">Open it to add an app or a database.</span>
     </div>
 
-    <div class="mt-auto flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 pb-3.5 text-xs text-muted-foreground">
-      <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}</span>
-      <span v-if="usage.memoryMB" class="tabular-nums">{{ formatMB(usage.memoryMB) }} memory</span>
-      <span v-if="project.shared" class="inline-flex min-w-0 items-center gap-1" :title="`${ownerName(project)} shared this project with you`">
-        <Users class="size-3 shrink-0" aria-hidden="true" /><span class="truncate">Shared by {{ ownerName(project) }}</span>
+    <!-- One line: the memory and CPU the apps may use, who else is on it, the last deploy. -->
+    <div class="mt-auto flex min-w-0 items-center gap-3 px-4 pt-3 pb-3.5 text-xs whitespace-nowrap text-muted-foreground">
+      <span v-if="usage.memoryMB" class="inline-flex items-center gap-1 tabular-nums">
+        <MemoryStick class="size-3 shrink-0" aria-hidden="true" />{{ formatMB(usage.memoryMB) }}<span class="sr-only"> memory</span>
       </span>
-      <span v-else-if="project.member_count" class="inline-flex items-center gap-1">
-        <Users class="size-3 shrink-0" aria-hidden="true" />Shared with {{ project.member_count === 1 ? '1 person' : `${project.member_count} people` }}
+      <span v-if="usage.cpuMillis" class="inline-flex items-center gap-1 tabular-nums">
+        <Cpu class="size-3 shrink-0" aria-hidden="true" />{{ formatCPUMillis(usage.cpuMillis) }}
       </span>
-      <span v-if="lastAt" class="ml-auto">Deployed <RelativeTime :date="lastAt" /></span>
+      <Tooltip v-if="sharing" :open="tips.open('shared')" disable-closing-trigger @update:open="tips.onOpen('shared', $event)">
+        <TooltipTrigger as-child>
+          <span
+            data-tap-tooltip="shared"
+            class="relative z-10 -m-1 inline-flex min-w-0 cursor-default items-center gap-1 rounded-sm p-1 tabular-nums hover:text-foreground"
+            :aria-label="sharing"
+            @pointerup="tips.onTap('shared', $event)"
+          >
+            <Users class="size-3 shrink-0" aria-hidden="true" /><span class="truncate">{{ project.shared ? ownerName(project) : project.member_count }}</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" @pointer-down-outside="tips.onOutside('shared', $event)" @escape-key-down="tips.close">{{ sharing }}</TooltipContent>
+      </Tooltip>
+      <span v-if="lastAt" class="ml-auto inline-flex shrink-0 items-center gap-1">
+        <Rocket class="size-3 shrink-0" aria-hidden="true" /><span class="sr-only">Deployed </span><RelativeTime :date="lastAt" />
+      </span>
     </div>
   </article>
 </template>
