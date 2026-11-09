@@ -322,8 +322,9 @@ func rootTaken(domain string, holder db.App) error {
 
 // rootDNS is the one line of DNS the domain itself needs. With a stored
 // certificate that covers it, Cloudflare's proxy can stay on, like for the
-// subdomains; without one the server gets a Let's Encrypt certificate, which
-// needs the record to point straight at it.
+// subdomains. Without one, both ways work: behind the proxy with Cloudflare's
+// SSL mode on Full (Cloudflare accepts the server's default certificate), or
+// DNS only, where the server gets a Let's Encrypt certificate for it.
 func (s *Service) rootDNS(domain string) string {
 	v4, v6 := s.Cfg.ServerIPv4, s.Cfg.ServerIPv6
 	var target string
@@ -342,7 +343,7 @@ func (s *Service) rootDNS(domain string) string {
 	if s.apexHasCert(domain) {
 		return "DNS: " + domain + " needs " + target + ", proxied in Cloudflare like the subdomains."
 	}
-	return "DNS: " + domain + " needs " + target + ", DNS only (grey cloud in Cloudflare)."
+	return "DNS: " + domain + " needs " + target + ". In Cloudflare, proxied works with SSL/TLS on Full; DNS only gets its own Let's Encrypt certificate."
 }
 
 // pickAppDomain checks that the user may put an app on the requested domain
