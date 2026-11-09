@@ -44,7 +44,7 @@ const saveAccess = useMutation({
   onSuccess: (s) => {
     saved(s)
     fillAccess(s)
-    toastOk('Signup settings saved', 'They apply to the next account that is made.')
+    toastOk('Signup settings saved')
   },
   onError: (e) => toastError(e),
 })
@@ -74,9 +74,9 @@ const form = useForm({
 })
 
 const fields = [
-  { name: 'apps', label: 'Apps', hint: '0: the account can only work in projects shared with it.' },
+  { name: 'apps', label: 'Apps', hint: '0: no apps of their own; they can still work in projects shared with them.' },
   { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
-  { name: 'domains_per_app', label: 'Custom domains per app', hint: '' },
+  { name: 'domains_per_app', label: 'Custom domains per app', hint: '0: none, only the bitploy address.' },
   { name: 'volume_gb', label: 'Storage in total (GB)', hint: 'disk' },
   { name: 'memory_gb', label: 'Memory in total (GB)', hint: 'memory' },
   { name: 'cpus', label: 'CPU cores in total', hint: 'cpu' },
@@ -85,8 +85,8 @@ const fields = [
 /** What the server has, under the field it limits. */
 function hint(h: string): string {
   const server = st.value?.server
-  if (h === 'memory') return server?.memory_mb ? `This server has ${formatMB(server.memory_mb)}.` : ''
-  if (h === 'cpu') return server?.cpu_millis ? `This server has ${server.cpu_millis / 1000} cores. 0.5 is half of one.` : '0.5 is half of one core.'
+  if (h === 'memory') return `${server?.memory_mb ? `This server has ${formatMB(server.memory_mb)}. ` : ''}0: no apps of their own.`
+  if (h === 'cpu') return `${server?.cpu_millis ? `This server has ${server.cpu_millis / 1000} cores. ` : ''}0.5 is half of one core; 0: no apps of their own.`
   if (h === 'disk') return server?.disk_mb ? `The disk holds ${formatMB(server.disk_mb)}.` : ''
   return h
 }
@@ -121,7 +121,7 @@ const saveLimits = useMutation({
   onSuccess: (s) => {
     saved(s)
     fillLimits(s)
-    toastOk('Limits saved', 'Accounts made from now on get them.')
+    toastOk('Limits saved')
   },
   onError: (e) => toastError(e),
 })
@@ -141,7 +141,7 @@ const submitLimits = form.handleSubmit((v) => {
       <Card>
         <CardHeader>
           <CardTitle>Who can create an account</CardTitle>
-          <CardDescription>Project owners can always invite people who already have an account here. This decides whether a project invite can also create one.</CardDescription>
+          <CardDescription>Project owners can always invite people who already have an account here. This decides who can make a new account.</CardDescription>
         </CardHeader>
         <CardContent class="grid gap-4">
           <div class="grid gap-2" role="radiogroup" aria-label="Who can create an account">
@@ -163,16 +163,15 @@ const submitLimits = form.handleSubmit((v) => {
               </span>
             </button>
           </div>
-          <div :class="cn('flex items-start justify-between gap-3 rounded-lg border p-3', mode === 'admin_invites' && 'opacity-60')">
+          <div v-if="mode !== 'admin_invites'" class="flex items-start justify-between gap-3 rounded-lg border p-3">
             <div class="grid gap-1">
               <Label for="own-apps">Accounts made with a project invite can deploy apps of their own</Label>
               <p class="text-sm text-muted-foreground">
-                <template v-if="mode === 'admin_invites'">Project invites do not create accounts while only admin invites do.</template>
-                <template v-else-if="ownApps">They get the limits below.</template>
-                <template v-else>They get no apps, memory or CPU of their own. They work in the project they were invited to, on its owner's limits. You can raise their limits in People.</template>
+                <template v-if="ownApps">They get the limits below.</template>
+                <template v-else>They get no apps, memory or CPU of their own and work in the project they were invited to, on its owner's limits. Raise them for one person with Limits in People.</template>
               </p>
             </div>
-            <Switch id="own-apps" v-model="ownApps" :disabled="mode === 'admin_invites'" />
+            <Switch id="own-apps" v-model="ownApps" />
           </div>
         </CardContent>
         <CardFooter class="flex-wrap justify-between gap-3">

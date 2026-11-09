@@ -68,12 +68,12 @@ const form = useForm({
 
 // Memory and CPU come last, next to the switch that turns their check off.
 const fields = [
-  { name: 'apps', label: 'Apps', hint: '0: they can only work in projects shared with them.' },
+  { name: 'apps', label: 'Apps', hint: '0: no apps of their own; they can still work in projects shared with them.' },
   { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
-  { name: 'domains_per_app', label: 'Custom domains per app', hint: '' },
-  { name: 'volume_gb', label: 'Storage in total (GB)', hint: '' },
-  { name: 'memory_gb', label: 'Memory in total (GB)', hint: '' },
-  { name: 'cpus', label: 'CPU cores in total', hint: '1 is one processor core; 0.5 is half of one.' },
+  { name: 'domains_per_app', label: 'Custom domains per app', hint: '0: none, only the bitploy address.' },
+  { name: 'volume_gb', label: 'Storage in total (GB)', hint: '0: no limit.' },
+  { name: 'memory_gb', label: 'Memory in total (GB)', hint: '0: no apps of their own.' },
+  { name: 'cpus', label: 'CPU cores in total', hint: '0.5 is half of one core; 0: no apps of their own.' },
 ] as const
 const unchecked = (name: string) => !!form.values.overallocate && (name === 'memory_gb' || name === 'cpus')
 
@@ -191,7 +191,7 @@ const setStatus = useMutation({
           <DialogTitle>Limits for {{ editing?.name }}</DialogTitle>
           <DialogDescription>These are the most this person can use.</DialogDescription>
         </DialogHeader>
-        <form id="quota-form" class="grid gap-3 sm:grid-cols-2" novalidate @submit.prevent="submit">
+        <form id="quota-form" class="grid items-start gap-3 sm:grid-cols-2" novalidate @submit.prevent="submit">
           <FormField v-for="f in fields" :key="f.name" v-slot="{ componentField }" :name="f.name">
             <FormItem>
               <FormLabel :class="unchecked(f.name) && 'text-muted-foreground'">{{ f.label }}</FormLabel>

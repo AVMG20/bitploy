@@ -175,7 +175,7 @@ function state(i: Invite): { label: string; tone: string; date: string } {
 
     <div class="mt-4 grid gap-1">
       <h2 class="text-base font-semibold">Project invites</h2>
-      <p class="text-sm text-muted-foreground">Links people made to share their projects, not used yet. Revoke one to stop it working.</p>
+      <p class="text-sm text-muted-foreground">Links people made to share their projects, not used yet.</p>
     </div>
     <QueryError v-if="projectInvites.isError.value" :error="projectInvites.error.value" @retry="projectInvites.refetch()" />
     <Skeleton v-else-if="projectInvites.isPending.value" class="h-24 w-full" />
@@ -188,7 +188,7 @@ function state(i: Invite): { label: string; tone: string; date: string } {
             <TableHead>Invited by</TableHead>
             <TableHead class="hidden sm:table-cell">For</TableHead>
             <TableHead class="hidden md:table-cell">Created</TableHead>
-            <TableHead>Expires</TableHead>
+            <TableHead class="hidden sm:table-cell">Expires</TableHead>
             <TableHead class="w-0" />
           </TableRow>
         </TableHeader>
@@ -204,7 +204,7 @@ function state(i: Invite): { label: string; tone: string; date: string } {
             </TableCell>
             <TableCell class="hidden sm:table-cell">{{ p.email || 'Anyone with the link' }}</TableCell>
             <TableCell class="hidden md:table-cell"><RelativeTime :date="p.created_at" /></TableCell>
-            <TableCell class="text-muted-foreground"><RelativeTime :date="p.expires_at" /></TableCell>
+            <TableCell class="hidden text-muted-foreground sm:table-cell"><RelativeTime :date="p.expires_at" /></TableCell>
             <TableCell>
               <Button size="sm" variant="ghost" class="text-destructive" :aria-label="`Revoke the invite to ${p.project.name}`" @click="toRevokeProject = p">Revoke</Button>
             </TableCell>

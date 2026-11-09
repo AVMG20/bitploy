@@ -134,6 +134,8 @@ const signup = handleSubmit(async (values) => {
     await arrive(out.project.id)
   } catch (e) {
     fail(e, 'Could not create your account.')
+    // The admin stopped project invites from making accounts after the page loaded.
+    if (e instanceof ApiError && e.code === 'project_invite_signup_off') void info.refetch()
   } finally {
     busy.value = false
   }
@@ -174,7 +176,7 @@ const signup = handleSubmit(async (values) => {
       <template v-else>
         <Alert v-if="!canSignUp">
           <AlertTitle>You need an account on this server first</AlertTitle>
-          <AlertDescription>This invite only works for people who already have an account here. Log in if you have one. Otherwise ask an admin of this server for an invite link, make your account, then open this link again.</AlertDescription>
+          <AlertDescription>This invite only works for people who already have an account here. To make one, ask an admin of this server for an invite link, then open this link again.</AlertDescription>
         </Alert>
         <Button as-child class="w-full"><RouterLink :to="loginTo">I have an account: log in</RouterLink></Button>
         <div v-if="canSignUp" class="flex items-center gap-3 text-xs text-muted-foreground">

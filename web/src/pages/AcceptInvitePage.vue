@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Skeleton } from '@/components/ui/skeleton'
 import { api, ApiError } from '@/lib/api'
 import { queryClient } from '@/lib/queryClient'
 import { SESSION_KEY } from '@/composables/useSession'
@@ -23,7 +24,11 @@ const busy = ref(false)
 const open = computed(() => String(route.params.code) === 'open')
 const rules = useSignupRules()
 const closed = computed(() => open.value && rules.data.value?.open_signup === false)
-const description = computed(() => (open.value ? 'Make an account on this bitploy server.' : 'You were invited to bitploy. Pick a password to get started.'))
+const waiting = computed(() => open.value && rules.isPending.value)
+const description = computed(() => {
+  if (!open.value) return 'You were invited to bitploy. Pick a password to get started.'
+  return closed.value || waiting.value ? undefined : 'Make an account on this bitploy server.'
+})
 
 const { handleSubmit } = useForm({
   validationSchema: toTypedSchema(
@@ -59,6 +64,8 @@ const submit = handleSubmit(async (values) => {
     await router.replace('/connect')
   } catch (e) {
     failure.value = e instanceof ApiError ? e : new ApiError(0, { message: 'Could not create your account.' })
+    // Open signup was turned off after the page loaded.
+    if (e instanceof ApiError && e.code === 'signup_closed') void rules.refetch()
   } finally {
     busy.value = false
   }
@@ -67,7 +74,11 @@ const submit = handleSubmit(async (values) => {
 
 <template>
   <AuthShell title="Create your account" :description="description">
-    <div v-if="closed" class="grid gap-4">
+    <div v-if="waiting" class="grid gap-3">
+      <Skeleton class="h-10 w-full" />
+      <Skeleton class="h-10 w-full" />
+    </div>
+    <div v-else-if="closed" class="grid gap-4">
       <Alert>
         <AlertTitle>This server does not let people make an account on their own</AlertTitle>
         <AlertDescription>Ask an admin of this server for an invite link.</AlertDescription>
@@ -109,6 +120,7 @@ const submit = handleSubmit(async (values) => {
         </FormItem>
       </FormField>
       <Button type="submit" :disabled="busy" class="w-full">{{ busy ? 'Creating...' : 'Create account' }}</Button>
+      <p v-if="open" class="text-center text-xs text-muted-foreground">Have an account? <RouterLink to="/login" class="text-foreground underline underline-offset-4">Log in</RouterLink>.</p>
     </form>
   </AuthShell>
 </template>
