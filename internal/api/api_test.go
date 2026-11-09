@@ -49,6 +49,7 @@ func newEnv(t *testing.T) *env {
 	web := fstest.MapFS{
 		"index.html":      {Data: []byte("<!doctype html><title>spa</title>")},
 		"assets/app-1.js": {Data: []byte("console.log(1)")},
+		"sw.js":           {Data: []byte("self.addEventListener('push', () => {})")},
 	}
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("mcp ok")) })
 	return &env{t: t, svc: svc, h: New(svc, mcp, web)}
@@ -654,7 +655,7 @@ func TestSecurityHeaders(t *testing.T) {
 		h := w.Header()
 		csp := h.Get("Content-Security-Policy")
 		if !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "unsafe-eval") ||
-			!strings.Contains(csp, "connect-src 'self' wss://bitploy.test;") {
+			!strings.Contains(csp, "connect-src 'self' wss://bitploy.test;") || !strings.Contains(csp, "worker-src 'self';") {
 			t.Errorf("%s: csp %q", path, csp)
 		}
 		if h.Get("X-Frame-Options") != "DENY" || h.Get("X-Content-Type-Options") != "nosniff" ||
@@ -696,6 +697,11 @@ func TestSPAFallback(t *testing.T) {
 	}
 	if cc := e.req("GET", "/assets/app-1.js", nil, nil).Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
 		t.Errorf("assets cache-control %q", cc)
+	}
+	// The service worker of browser notifications, from the root (its scope).
+	w := e.req("GET", "/sw.js", nil, nil)
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "javascript") || w.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("sw.js: %d %v", w.Code, w.Header())
 	}
 }
 

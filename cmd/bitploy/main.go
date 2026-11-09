@@ -151,6 +151,12 @@ func serve(log *slog.Logger) error {
 		svc.RunBackground(ctx)
 	}()
 	go svc.RunAccountsMaintenance(ctx)
+	// Notifications go out from a queue, so a slow channel never holds up a deploy.
+	notifyDone := make(chan struct{})
+	go func() {
+		defer close(notifyDone)
+		svc.RunNotifications(ctx)
+	}()
 
 	srv := &http.Server{
 		Addr:              svc.Cfg.Listen,
@@ -189,6 +195,13 @@ func serve(log *slog.Logger) error {
 	case <-termsDone:
 	case <-time.After(5 * time.Second):
 		log.Warn("terminals did not close in time")
+	}
+	// Queued notifications get a few seconds to go out (RunNotifications
+	// cuts off its sends by itself, notifyDrainTimeout after the stop).
+	select {
+	case <-notifyDone:
+	case <-time.After(5 * time.Second):
+		log.Warn("notifications did not stop in time")
 	}
 	// Let the background jobs finish: traffic counts are saved and running backups thaw their app.
 	select {

@@ -446,6 +446,7 @@ func (p *pipeline) afterDeployFailed(ctx context.Context, why string) {
 		_ = p.s.Q.SetDeploymentWarnings(ctx, db.SetDeploymentWarningsParams{Warnings: nullStr(mustJSON(list)), ID: p.dep.ID})
 	}
 	p.markAfterDeploy(ctx, afterDeployFailed)
+	p.s.notifyAfterDeployFailed(ctx, p.dep.ID, why)
 }
 
 // afterDeployBusy reports an after-deploy command that has yet to finish.

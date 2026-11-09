@@ -98,6 +98,7 @@ func (s *Service) reconcileDeployments(ctx context.Context) {
 			s.setCandidate(app.ID, "")
 			_ = s.SyncRoute(ctx, app.ID)
 			s.Audit(ctx, System, "deployment.interrupted", "deployment", d.ID, map[string]any{"app": app.Slug, "state": d.State})
+			s.notifyDeployment(ctx, d.ID, EventDeploymentFailed)
 		}
 		s.NotifyDeployment(d.ID)
 	}

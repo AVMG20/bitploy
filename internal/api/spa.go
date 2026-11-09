@@ -32,6 +32,11 @@ func spa(web fs.FS) http.Handler {
 					if strings.HasPrefix(p, "assets/") {
 						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 					}
+					if p == "sw.js" {
+						// The service worker of browser notifications: a new
+						// version must reach browsers on their next visit.
+						w.Header().Set("Cache-Control", "no-cache")
+					}
 					if rs, ok := f.(io.ReadSeeker); ok {
 						http.ServeContent(w, r, p, st.ModTime(), rs)
 						return

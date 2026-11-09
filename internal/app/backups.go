@@ -504,6 +504,7 @@ func (s *Service) createBackups(ctx context.Context, a Actor, ref, volume string
 						FinishedAt: nullInt(s.now(), true), ID: b.ID,
 					})
 					s.publishBackup(ctx, row.ID)
+					s.notifyBackup(ctx, row.ID, b.ID)
 					continue
 				}
 			}

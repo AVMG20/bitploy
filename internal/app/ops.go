@@ -48,6 +48,7 @@ func (s *Service) metricsMgr() *metrics.Manager {
 		}
 		m.SyncRoute = s.opsSyncRoute
 		m.Notify = s.publishApp
+		m.Crashed = s.notifyCrash
 		m.BuildxPrune = s.buildBuilder().Prune
 		s.ops.mgr = m
 	})

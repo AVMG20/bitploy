@@ -31,6 +31,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	a.catalogRoutes()
 	a.projectRoutes()
 	a.projectMemberRoutes()
+	a.notificationRoutes()
 	a.dbRoutes()
 	a.adminDBRoutes()
 	a.githubRoutes()

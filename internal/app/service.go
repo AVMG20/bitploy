@@ -81,7 +81,9 @@ type Service struct {
 
 	pub publicPortState // forwarders of public ports (public_ports.go)
 
-	term terminalState // open terminals per user (terminal.go)
+	term  terminalState // open terminals per user (terminal.go)
+	notif notifyState   // queue and senders of notifications (notifications_send.go)
+	vapid vapidState    // the key pair for browser notifications (notifications_push.go)
 
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no
 	// network is needed.

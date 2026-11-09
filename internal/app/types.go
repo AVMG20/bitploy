@@ -882,3 +882,63 @@ type BackupSettingsInput struct {
 	KeepMode *string `json:"keep_mode,omitempty" doc:"last (keep the newest backups) or days (keep backups for some days)"`
 	Keep     *int64  `json:"keep,omitempty" doc:"How many backups, or how many days, depending on keep_mode"`
 }
+
+// ---- notifications (notifications.go) ----
+
+// NotificationEvent is one kind of notification a channel can get.
+type NotificationEvent struct {
+	Type        string `json:"type" doc:"Like deployment.failed"`
+	Group       string `json:"group" enum:"deployments,backups,app"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Emergency   bool   `json:"emergency" doc:"Announced loudly: @everyone on Discord instead of @here"`
+	Default     bool   `json:"default" doc:"On for a new channel when no events are given"`
+}
+
+// NotificationType is a kind of channel bitploy can send to.
+type NotificationType struct {
+	Type string `json:"type" enum:"discord,browser"`
+	Name string `json:"name"`
+}
+
+// NotificationOptions is what the Notifications settings offer.
+type NotificationOptions struct {
+	Events []NotificationEvent `json:"events"`
+	Types  []NotificationType  `json:"types"`
+	// VAPIDPublicKey is the applicationServerKey for pushManager.subscribe.
+	VAPIDPublicKey string `json:"vapid_public_key" doc:"base64url public key browsers subscribe with (applicationServerKey); empty when browser notifications are unavailable"`
+}
+
+// NotificationChannel is one place a user gets notifications, with the
+// events it gets. config holds the settings of its type, secrets masked.
+type NotificationChannel struct {
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	Enabled       bool           `json:"enabled"`
+	Events        []string       `json:"events"`
+	Config        map[string]any `json:"config" doc:"discord: {webhook_id, webhook_url_set}; browser: {push_service, endpoint_hash (hex SHA-256 of the endpoint)}. Secrets are never returned"`
+	LastSuccessAt *time.Time     `json:"last_success_at"`
+	LastError     string         `json:"last_error" doc:"Why the last message failed; empty when it was sent"`
+	LastErrorAt   *time.Time     `json:"last_error_at"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+}
+
+// CreateNotificationChannelInput makes a channel.
+type CreateNotificationChannelInput struct {
+	Type    string         `json:"type" enum:"discord,browser"`
+	Name    string         `json:"name" doc:"1 to 60 characters"`
+	Enabled *bool          `json:"enabled,omitempty" doc:"Default true"`
+	Events  []string       `json:"events,omitempty" doc:"Event types; left out: the defaults (failures and live deployments)"`
+	Config  map[string]any `json:"config" doc:"discord: {webhook_url}; browser: the PushSubscription as toJSON() gives it, {endpoint, keys: {p256dh, auth}}. A browser already added is updated instead"`
+}
+
+// UpdateNotificationChannelInput changes a channel. Fields left out keep
+// their value, and so does a secret left out of config (the webhook URL).
+type UpdateNotificationChannelInput struct {
+	Name    *string        `json:"name,omitempty"`
+	Enabled *bool          `json:"enabled,omitempty"`
+	Events  *[]string      `json:"events,omitempty" doc:"The complete list; [] turns every event off"`
+	Config  map[string]any `json:"config,omitempty"`
+}

@@ -39,6 +39,7 @@ func (s *Service) finishBackup(ctx context.Context, app db.App, owner db.User, b
 	defer s.publishBackup(ctx, app.ID)
 	_, err := s.makeBackup(ctx, app, owner, backupID, room, appLocked)
 	if err == nil {
+		s.notifyBackup(ctx, app.ID, backupID)
 		return nil
 	}
 	// A stop of bitploy is not the backup's fault and does not use up the
@@ -49,6 +50,9 @@ func (s *Service) finishBackup(ctx context.Context, app db.App, owner db.User, b
 		FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: backupID,
 	}); uerr != nil {
 		s.Log.Error("recording backup result failed", "backup", backupID, "err", uerr)
+	}
+	if !errors.Is(err, dockerx.ErrNoVolume) { // no data yet: an automatic backup is tried again later
+		s.notifyBackup(ctx, app.ID, backupID)
 	}
 	return err
 }

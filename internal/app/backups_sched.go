@@ -349,6 +349,7 @@ func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.Us
 			Status: backupFailed, Error: msg, FinishedAt: nullInt(s.now(), true), ID: b.ID,
 		})
 		s.publishBackup(ctx, app.ID)
+		s.notifyBackup(ctx, app.ID, b.ID)
 	}
 	if err := s.checkBackupDisk(); err != nil {
 		fail("The server is almost out of disk space, so no backup was made. Tell the bitploy admin.")

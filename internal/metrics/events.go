@@ -251,6 +251,9 @@ func (m *Manager) crashLoop(ctx context.Context, app db.App, ev dockerx.Event, c
 	m.audit(ctx, "app.crashed", "app", app.ID, map[string]any{
 		"container": ev.Name, "service": ServiceOf(ev.Service), "deaths_in_window": count, "log_tail": tail,
 	})
+	if m.Crashed != nil {
+		m.Crashed(ctx, app.ID, msg)
+	}
 	if m.SyncRoute != nil {
 		if err := m.SyncRoute(ctx, app.ID); err != nil {
 			m.Log.Warn("route sync after crash failed", "app", app.ID, "err", err)

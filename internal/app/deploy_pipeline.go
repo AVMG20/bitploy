@@ -149,6 +149,7 @@ func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) 
 	p.dep, p.app = dep, app
 	p.audience = s.appAudience(ctx, app) // who sees the live build log
 	s.NotifyDeployment(depID)
+	s.notifyDeployment(ctx, depID, EventDeploymentStarted)
 
 	_ = os.MkdirAll(s.Cfg.LogsDir(), 0o750)
 	if f, err := os.OpenFile(s.Cfg.BuildLog(depID), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640); err == nil {
@@ -1378,6 +1379,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}()
 
 	if ae == nil {
+		s.notifyDeployment(bg, p.dep.ID, EventDeploymentSucceeded)
 		s.runAfterLive(bg, p.dep.ID)
 		s.pruneApp(bg, p.app.ID)
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
@@ -1403,10 +1405,12 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 			s.settleStatusAfterCancel(bg, p.app.ID)
 			s.auditCancel(bg, who, p.app.Slug, p.dep.ID, p.dep.Seq, p.dep.State)
 			s.metricsMgr().MeasureSoon() // the image of the build is gone
+			s.notifyDeployment(bg, p.dep.ID, EventDeploymentCancelled)
 			return
 		}
 		_ = s.Q.FinishDeployment(bg, db.FinishDeploymentParams{State: "cancelled", FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID})
 		p.logf("Cancelled.")
+		s.notifyDeployment(bg, p.dep.ID, EventDeploymentCancelled)
 		return
 	}
 
@@ -1429,6 +1433,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	s.settleStatusAfterFailure(bg, p.app.ID, apperr.Redact(ae.Message))
 	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
 		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
+	s.notifyDeployment(bg, p.dep.ID, EventDeploymentFailed)
 	s.pruneApp(bg, p.app.ID)
 	s.metricsMgr().MeasureSoon()
 }

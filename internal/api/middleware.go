@@ -169,7 +169,8 @@ func policy(cfg *config.Config) string {
 			formAction += " " + u.Scheme + "://" + u.Host
 		}
 	}
-	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	// worker-src: the service worker of browser notifications (/sw.js).
+	return "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self' data:; connect-src " + connect + "; " +
 		"frame-ancestors 'none'; base-uri 'none'; form-action " + formAction + "; object-src 'none'"
 }
