@@ -52,7 +52,7 @@ func (a *API) notificationRoutes() {
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "updateNotificationChannel", Method: http.MethodPatch, Path: "/notification-channels/{id}", Tags: []string{"Notifications"},
 		Summary:     "Change a notification channel",
-		Description: "Session only. Fields left out keep their value; config without webhook_url (or endpoint) keeps the stored one. 404 notification_channel_not_found.",
+		Description: "Session only. Fields left out keep their value; config without webhook_url keeps the stored one. 400 channel_config_fixed (a browser channel's subscription cannot be changed); 404 notification_channel_not_found.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		NotificationChannelRef
 		Body app.UpdateNotificationChannelInput

@@ -200,6 +200,12 @@ func (s *Service) UpdateNotificationChannel(ctx context.Context, a Actor, id str
 		changed = append(changed, "events")
 	}
 	sealed, dest := row.ConfigEnc, row.DestKey
+	if _, ok := snd.(destinationSender); ok && len(in.Config) > 0 {
+		// A browser is added from that browser (create), which also takes it
+		// over from another user; it is never moved onto a channel.
+		return NotificationChannel{}, apperr.BadRequest("channel_config_fixed", "The browser of a browser channel cannot be changed.",
+			"Turn notifications on in the other browser instead: Settings, Notifications, This browser.")
+	}
 	if in.Config != nil {
 		old, err := s.Crypto.Open(row.ConfigEnc, channelAAD(row.ID))
 		if err != nil {

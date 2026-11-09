@@ -223,7 +223,7 @@ func TestNotificationsReachTheAppsUsers(t *testing.T) {
 	for _, f := range msg.Fields {
 		fields[f.Name] = f.Value
 	}
-	if fields["App"] != "Shop" || fields["Project"] != "Shop" || fields["Deployment"] != "1" || fields["Source"] != "Uploaded files" {
+	if fields["App"] != "Shop" || fields["Project"] != "Shop" || fields["Source"] != "Uploaded files" {
 		t.Errorf("fields = %v", fields)
 	}
 
@@ -234,6 +234,15 @@ func TestNotificationsReachTheAppsUsers(t *testing.T) {
 	m.s.notifyDeployment(ctx, "dep_fail2", EventDeploymentFailed)
 	if got := queued(m.s); len(got) != 3 || got[bobHooks.ID].Event != EventDeploymentFailed {
 		t.Errorf("before-deploy failure queued for %v", keysOf(got))
+	}
+
+	// A deployment that a restart of bitploy stopped failed, but nothing
+	// broke: no @everyone.
+	m.insertDep(t, m.app, "dep_int", 3, "failed")
+	m.exec(t, `UPDATE deployments SET error_code = 'interrupted', error_message = 'bitploy restarted' WHERE id = 'dep_int'`)
+	m.s.notifyDeployment(ctx, "dep_int", EventDeploymentFailed)
+	if got := queued(m.s); got[alice.ID].Severity != notify.Normal || got[alice.ID].Tone != notify.ToneFailure {
+		t.Errorf("interrupted = %+v", got[alice.ID])
 	}
 
 	// Started is a normal (not emergency) message.
@@ -287,7 +296,7 @@ func TestNotificationDeliveryRecordsTheOutcome(t *testing.T) {
 	rec.err = &notify.SendError{Status: 404, Msg: "Discord says this webhook does not exist.", Gone: true}
 	m.s.sendQueued(ctx, notifyJob{channelID: c.ID, msg: msg})
 	list, _ = m.s.ListNotificationChannels(ctx, m.alice)
-	if list[0].Enabled || list[0].LastError != "Turned off. Discord says this webhook does not exist." {
+	if list[0].Enabled || list[0].LastError != "Turned off: Discord says this webhook does not exist." {
 		t.Errorf("after the webhook was deleted: %+v", list[0])
 	}
 	m.s.notifyCrash(ctx, m.app.ID, "Crashed: again")
@@ -412,6 +421,11 @@ func TestBrowserChannels(t *testing.T) {
 		t.Errorf("bob has %+v", bl)
 	}
 
+	// A browser channel is not moved to another subscription by an edit.
+	if _, err := m.s.UpdateNotificationChannel(ctx, m.bob, bc.ID, UpdateNotificationChannelInput{Config: other}); depCode(err) != "channel_config_fixed" {
+		t.Errorf("moving a browser channel: %v", err)
+	}
+
 	// A subscription at a host that is no push service is refused.
 	evil, _, _ := testSubscription(t, "https://169.254.169.254/latest")
 	if _, err := m.s.CreateNotificationChannel(ctx, m.alice, CreateNotificationChannelInput{Type: "browser", Name: "x", Config: evil}); depCode(err) != "push_subscription_invalid" {
@@ -460,7 +474,7 @@ func TestBrowserPushDelivery(t *testing.T) {
 		m.s.sendQueued(ctx, j)
 	}
 	list, _ := m.s.ListNotificationChannels(ctx, m.alice)
-	if len(list) != 1 || list[0].Enabled || !strings.HasPrefix(list[0].LastError, "Turned off. The browser ended this subscription") {
+	if len(list) != 1 || list[0].Enabled || !strings.HasPrefix(list[0].LastError, "Turned off: The browser ended this subscription") {
 		t.Fatalf("after 410: %+v", list)
 	}
 }

@@ -140,7 +140,7 @@ func (s *Service) deliverNotification(ctx context.Context, channelID string, m n
 		_ = s.Q.SetNotificationChannelSuccess(bg, db.SetNotificationChannelSuccessParams{LastSuccessAt: nullInt(s.now(), true), ID: row.ID})
 	case notify.IsGone(err):
 		_ = s.Q.DisableNotificationChannel(bg, db.DisableNotificationChannelParams{
-			LastError: apperr.Redact("Turned off. " + notify.ErrorText(err)), LastErrorAt: nullInt(s.now(), true), ID: row.ID,
+			LastError: apperr.Redact("Turned off: " + notify.ErrorText(err)), LastErrorAt: nullInt(s.now(), true), ID: row.ID,
 		})
 		s.Audit(bg, System, "notification_channel.disable", "notification_channel", row.ID,
 			map[string]any{"name": row.Name, "type": row.Type, "user": row.UserID, "reason": "destination_gone"})
@@ -251,6 +251,10 @@ func (s *Service) notifyDeployment(ctx context.Context, depID, event string) {
 	case EventDeploymentFailed:
 		m.Title = fmt.Sprintf("Deployment %d of %s failed", d.Seq, app.Name)
 		m.Tone, m.Severity = notify.ToneFailure, notify.Emergency
+		if d.ErrorCode.String == "interrupted" {
+			// A restart of bitploy stopped it; the live version kept running.
+			m.Severity = notify.Normal
+		}
 		m.Body, m.Hint = d.ErrorMessage.String, d.ErrorHint.String
 		if strings.HasPrefix(d.ErrorCode.String, "before_deploy_") {
 			events = append(events, EventDeployCommandFailed) // a channel with both gets one message
@@ -258,12 +262,9 @@ func (s *Service) notifyDeployment(ctx context.Context, depID, event string) {
 	default:
 		return
 	}
-	m.Fields = append(s.appFields(ctx, app), notify.Field{Name: "Deployment", Value: fmt.Sprintf("%d", d.Seq), Inline: true})
+	m.Fields = s.appFields(ctx, app)
 	if src := s.deploymentSource(ctx, app, d); src != "" {
 		m.Fields = append(m.Fields, notify.Field{Name: "Source", Value: src})
-	}
-	if event == EventDeploymentFailed && d.ErrorCode.Valid {
-		m.Fields = append(m.Fields, notify.Field{Name: "Error code", Value: d.ErrorCode.String, Inline: true})
 	}
 	s.notifyApp(ctx, app, m, events...)
 }
@@ -284,9 +285,9 @@ func (s *Service) notifyAfterDeployFailed(ctx context.Context, depID, why string
 		Event: EventDeployCommandFailed, Severity: notify.Emergency, Tone: notify.ToneFailure, Time: s.Now(), Tag: app.ID,
 		Title: fmt.Sprintf("After-deploy command of %s failed (deployment %d)", app.Name, d.Seq),
 		Body:  why, URL: s.appPage(app, "deployments"),
-		Hint: "Read the lines marked [after-deploy] in the deploy log, then fix the command or the code. It runs again on the next deploy.",
+		Hint:   "Read the lines marked [after-deploy] in the deploy log, then fix the command or the code. It runs again on the next deploy.",
+		Fields: s.appFields(ctx, app),
 	}
-	m.Fields = append(s.appFields(ctx, app), notify.Field{Name: "Deployment", Value: fmt.Sprintf("%d", d.Seq), Inline: true})
 	s.notifyApp(ctx, app, m, EventDeployCommandFailed)
 }
 
