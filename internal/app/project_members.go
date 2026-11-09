@@ -183,6 +183,8 @@ func (s *Service) RemoveProjectMember(ctx context.Context, a Actor, ref, userID 
 		return apperr.NotFound("member_not_found", "That user is not a member of this project.",
 			"List the members with GET /api/v1/projects/{id}/members.")
 	}
+	// Shared with them again later, it comes first like a new project.
+	_ = s.Q.DeleteProjectPosition(ctx, db.DeleteProjectPositionParams{UserID: userID, ProjectID: p.ID})
 	action := "project.member_remove"
 	if userID == a.UserID {
 		action = "project.leave"

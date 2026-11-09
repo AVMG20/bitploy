@@ -43,6 +43,28 @@ export function projectsFromApps(apps: readonly App[]): Project[] {
   return [...byId.values()]
 }
 
+// ---------------------------------------------------------------- order
+
+/**
+ * The ids with `id` moved next to `target`: before it, or after it when
+ * `after`. The same ids when either is missing or they are the same.
+ */
+export function placeId(ids: readonly string[], id: string, target: string, after: boolean): string[] {
+  if (id === target || !ids.includes(id) || !ids.includes(target)) return [...ids]
+  const out = ids.filter((x) => x !== id)
+  out.splice(out.indexOf(target) + (after ? 1 : 0), 0, id)
+  return out
+}
+
+/** The projects in the order of `ids`; the ones not in it first, as they were (like a project made meanwhile). */
+export function sortByIds<T extends { id: string }>(items: readonly T[], ids: readonly string[]): T[] {
+  const at = new Map(ids.map((id, i) => [id, i]))
+  return items
+    .map((p, i) => ({ p, k: at.get(p.id) ?? i - items.length }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.p)
+}
+
 // ---------------------------------------------------------------- roles
 
 /** Where an app sits on the project page: what visitors open, what runs in the background, what keeps data. */

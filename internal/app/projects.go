@@ -315,7 +315,8 @@ func (s *Service) projectView(ctx context.Context, a Actor, p db.Project) (Proje
 }
 
 // ListProjects returns the caller's projects and the projects shared with
-// them, newest first, with their apps.
+// them, with their apps, in the caller's order (OrderProjects): the ones
+// never placed first, newest first, then the placed ones.
 func (s *Service) ListProjects(ctx context.Context, a Actor) ([]Project, error) {
 	rows, err := s.Q.ListProjectsForUser(ctx, a.UserID)
 	if err != nil {
@@ -330,6 +331,49 @@ func (s *Service) ListProjects(ctx context.Context, a Actor) ([]Project, error) 
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// OrderProjectsInput is the order a user puts their projects in.
+type OrderProjectsInput struct {
+	IDs []string `json:"ids" maxItems:"1000" doc:"Project ids, top first. Projects left out (like one made since) come before them, newest first; ids of projects you no longer see are skipped."`
+}
+
+// OrderProjects saves the order the caller sees their projects in (the
+// dashboard sidebar and home page, list_projects). It is the caller's own:
+// each member of a shared project places it for themselves.
+func (s *Service) OrderProjects(ctx context.Context, a Actor, in OrderProjectsInput) error {
+	if err := RequireDeploy(a); err != nil {
+		return err
+	}
+	rows, err := s.Q.ListProjectsForUser(ctx, a.UserID)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	visible := make(map[string]bool, len(rows))
+	for _, p := range rows {
+		visible[p.ID] = true
+	}
+	err = s.Store.Tx(ctx, func(q *db.Queries) error {
+		if err := q.DeleteProjectPositions(ctx, a.UserID); err != nil {
+			return err
+		}
+		pos := int64(0)
+		for _, id := range in.IDs {
+			if !visible[id] {
+				continue
+			}
+			visible[id] = false // a repeated id keeps its first place
+			pos++
+			if err := q.InsertProjectPosition(ctx, db.InsertProjectPositionParams{UserID: a.UserID, ProjectID: id, Position: pos}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	return nil
 }
 
 // GetProject returns one project (by id or name) with its apps.

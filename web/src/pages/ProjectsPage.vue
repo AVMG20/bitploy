@@ -13,11 +13,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useMe, useProjects, useServiceTemplates } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
-import { aliasOf, projectHealth } from '@/lib/projects'
+import { aliasOf } from '@/lib/projects'
 import { projectRoute } from '@/lib/appLinks'
 
-// Home: every project as a card, with the apps inside it. A project with a
-// problem comes first, then the most recently deployed.
+// Home: every project as a card, with the apps inside it, in the order of
+// the sidebar (dragged there; a new project on top).
 const router = useRouter()
 const me = useMe()
 const projects = useProjects()
@@ -56,24 +56,11 @@ const showStats = computed(() => projects.isPending.value || all.value.length > 
 
 const search = useQueryParam('q', '')
 const all = computed(() => projects.data.value?.projects ?? [])
-const URGENT: Record<string, number> = { failed: 0, crashed: 0, deploying: 1 }
-function lastDeploy(p: (typeof all.value)[number]): string {
-  let at = p.created_at
-  for (const a of p.apps) {
-    const d = a.current_deployment?.finished_at ?? a.current_deployment?.queued_at
-    if (d && d > at) at = d
-  }
-  return at
-}
 const shown = computed(() => {
   const q = search.value.trim().toLowerCase()
   const match = (p: (typeof all.value)[number]) =>
     !q || p.name.toLowerCase().includes(q) || p.apps.some((a) => a.name.toLowerCase().includes(q) || aliasOf(a).includes(q) || a.url.toLowerCase().includes(q))
-  return all.value
-    .filter(match)
-    .map((p) => ({ p, urgent: URGENT[projectHealth(p.apps).status] ?? 9, at: lastDeploy(p) }))
-    .sort((a, b) => a.urgent - b.urgent || b.at.localeCompare(a.at))
-    .map((x) => x.p)
+  return all.value.filter(match)
 })
 const searchEl = ref<InstanceType<typeof ListSearch> | null>(null)
 function openOnly() {

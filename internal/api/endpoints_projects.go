@@ -19,7 +19,7 @@ func (a *API) projectRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "listProjects", Method: http.MethodGet, Path: "/projects", Tags: []string{"Projects"},
 		Summary:     "List your projects",
-		Description: "Newest first, each with its apps. Every app is in exactly one project; the apps of a project share a private network and can refer to each other's variables as ${{<alias>.VAR}}.",
+		Description: "In the order you put them in (PUT /project-order): projects you never placed first, newest first, then the rest. Each with its apps. Every app is in exactly one project; the apps of a project share a private network and can refer to each other's variables as ${{<alias>.VAR}}.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ PageParams }) (*Out[app.Page[app.Project]], error) {
 		items, err := a.svc.ListProjects(ctx, act)
 		return pageOut(items, err, in.PageParams)
@@ -31,6 +31,17 @@ func (a *API) projectRoutes() {
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.CreateProjectInput }) (*Out[app.Project], error) {
 		return okOrNil(a.svc.CreateProject(ctx, act, in.Body))
+	})
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "orderProjects", Method: http.MethodPut, Path: "/project-order", Tags: []string{"Projects"},
+		Summary:       "Put your projects in order",
+		Description:   "Saves the order GET /projects lists your projects in, for you alone (each member of a shared project places it for themselves). A project made or shared with you later comes first.",
+		DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.OrderProjectsInput }) (*Empty, error) {
+		if err := a.svc.OrderProjects(ctx, act, in.Body); err != nil {
+			return nil, err
+		}
+		return &Empty{}, nil
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "getProject", Method: http.MethodGet, Path: "/projects/{id}", Tags: []string{"Projects"},

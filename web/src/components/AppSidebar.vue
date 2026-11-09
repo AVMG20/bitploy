@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
 import { Box, Boxes, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
@@ -23,10 +24,13 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { useProjects, useServiceTemplates } from '@/composables/queries'
+import { keys, useProjects, useServiceTemplates } from '@/composables/queries'
+import type { ProjectList } from '@/composables/queries'
+import { api } from '@/lib/api'
 import { useSession } from '@/composables/useSession'
 import { appRoute, projectRoute } from '@/lib/appLinks'
-import { aliasOf, ownerName, projectHealth, sortProjectApps } from '@/lib/projects'
+import { toastError } from '@/lib/notify'
+import { aliasOf, ownerName, placeId, projectHealth, sortByIds, sortProjectApps } from '@/lib/projects'
 
 const route = useRoute()
 const { isAdmin } = useSession()
@@ -47,14 +51,86 @@ const items = computed(() => {
   return list
 })
 
-// Your projects and the ones shared with you, newest first; the one you are in shows its apps.
+// Your projects and the ones shared with you, in the order the server keeps
+// for you (a new one on top); the one you are in shows its apps.
 const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 const MAX = 12
-const list = computed(() =>
-  [...(projects.data.value?.projects ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, MAX),
-)
-const more = computed(() => Math.max(0, (projects.data.value?.projects.length ?? 0) - MAX))
+const all = computed(() => projects.data.value?.projects ?? [])
+// While dragging: the order the list shows, saved on drop.
+const preview = ref<string[] | null>(null)
+const list = computed(() => {
+  const top = all.value.slice(0, MAX)
+  return preview.value ? sortByIds(top, preview.value) : top
+})
+const more = computed(() => Math.max(0, all.value.length - MAX))
+// One app per project on an old server: it keeps no order.
+const canSort = computed(() => !projects.data.value?.fallback && all.value.length > 1)
+
+const qc = useQueryClient()
+/** Saves the shown projects in `shown` order, the ones past MAX after them as they were. */
+async function saveOrder(shown: string[]) {
+  const ids = [...shown, ...all.value.map((p) => p.id).filter((id) => !shown.includes(id))]
+  if (ids.join() === all.value.map((p) => p.id).join()) return
+  await qc.cancelQueries({ queryKey: keys.projects })
+  qc.setQueryData<ProjectList>(keys.projects, (old) => (old ? { ...old, projects: sortByIds(old.projects, ids) } : old))
+  try {
+    await api.orderProjects(ids)
+  } catch (e) {
+    toastError(e)
+  }
+  void qc.invalidateQueries({ queryKey: keys.projects })
+}
+
+const dragId = ref<string | null>(null)
+let dropped = false
+function onDragStart(e: DragEvent, id: string) {
+  // The apps under the open project are links of their own, not handles.
+  if (!canSort.value || (e.target instanceof Element && e.target.closest('[data-sidebar=menu-sub]'))) {
+    e.preventDefault()
+    return
+  }
+  dragId.value = id
+  dropped = false
+  preview.value = list.value.map((p) => p.id)
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id) // Firefox starts no drag without data
+  }
+}
+// The dragged project goes before the one under the pointer, or after it
+// past its middle; deciding by the middle keeps a tall item from flipping.
+function onDragOver(e: DragEvent, id: string) {
+  if (!dragId.value || !preview.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  preview.value = placeId(preview.value, dragId.value, id, e.clientY > r.top + r.height / 2)
+}
+function onDrop(e: DragEvent) {
+  if (!dragId.value) return
+  e.preventDefault()
+  dropped = true
+}
+function onDragEnd() {
+  const order = preview.value
+  dragId.value = null
+  preview.value = null
+  if (dropped && order) void saveOrder(order)
+}
+
+// Alt+Up and Alt+Down move the focused project.
+async function moveBy(id: string, step: number) {
+  if (!canSort.value) return
+  const ids = list.value.map((p) => p.id)
+  const i = ids.indexOf(id)
+  const target = ids[i + step]
+  if (i < 0 || !target) return
+  const done = saveOrder(placeId(ids, id, target, step > 0))
+  await nextTick()
+  document.querySelector<HTMLElement>(`[data-project-link="${id}"]`)?.focus()
+  await done
+}
 </script>
 
 <template>
@@ -94,10 +170,27 @@ const more = computed(() => Math.max(0, (projects.data.value?.projects.length ??
           <RouterLink :to="{ name: 'new-app' }" @click="setOpenMobile(false)"><Plus /><span class="sr-only">New project</span></RouterLink>
         </SidebarGroupAction>
         <SidebarGroupContent>
-          <SidebarMenu>
-            <SidebarMenuItem v-for="p in list" :key="p.id">
+          <SidebarMenu @dragover="dragId && $event.preventDefault()" @drop="onDrop">
+            <SidebarMenuItem
+              v-for="p in list"
+              :key="p.id"
+              :draggable="canSort"
+              :class="p.id === dragId && 'opacity-50'"
+              @dragstart="onDragStart($event, p.id)"
+              @dragover="onDragOver($event, p.id)"
+              @drop="onDrop"
+              @dragend="onDragEnd"
+            >
               <SidebarMenuButton as-child :is-active="p.id === currentProject && !currentSlug">
-                <RouterLink :to="projectRoute(p.id)" @click="setOpenMobile(false)">
+                <RouterLink
+                  :to="projectRoute(p.id)"
+                  :data-project-link="p.id"
+                  draggable="false"
+                  :aria-keyshortcuts="canSort ? 'Alt+ArrowUp Alt+ArrowDown' : undefined"
+                  @click="setOpenMobile(false)"
+                  @keydown.alt.up.prevent="moveBy(p.id, -1)"
+                  @keydown.alt.down.prevent="moveBy(p.id, 1)"
+                >
                   <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
                   <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->

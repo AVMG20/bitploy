@@ -395,6 +395,12 @@ type ProjectMember struct {
 	CreatedAt int64
 }
 
+type ProjectPosition struct {
+	UserID    string
+	ProjectID string
+	Position  int64
+}
+
 type PublicPort struct {
 	AppID     string
 	Port      int64

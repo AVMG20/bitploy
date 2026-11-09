@@ -111,6 +111,7 @@ export const paths = {
   notificationChannelTest: (id: string) => `${V1}/notification-channels/${enc(id)}/test`,
   apps: `${V1}/apps`,
   projects: `${V1}/projects`,
+  projectOrder: `${V1}/project-order`,
   project: (id: string) => `${V1}/projects/${enc(id)}`,
   projectServices: (id: string) => `${V1}/projects/${enc(id)}/services`,
   projectMembers: (id: string) => `${V1}/projects/${enc(id)}/members`,
@@ -471,6 +472,8 @@ export const api = {
       throw e
     }
   },
+  /** Saves the order the caller sees their projects in, top first. */
+  orderProjects: (ids: string[]) => request<void>('PUT', paths.projectOrder, { body: { ids } }),
   project: (id: string) => request<Project>('GET', paths.project(id)),
   createProject: (input: { name: string }) => request<Project>('POST', paths.projects, { body: input }),
   updateProject: (id: string, input: { name: string }) => request<Project>('PATCH', paths.project(id), { body: input }),

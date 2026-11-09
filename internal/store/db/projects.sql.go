@@ -106,6 +106,29 @@ func (q *Queries) DeleteProjectMember(ctx context.Context, arg DeleteProjectMemb
 	return result.RowsAffected()
 }
 
+const deleteProjectPosition = `-- name: DeleteProjectPosition :exec
+DELETE FROM project_positions WHERE user_id = ? AND project_id = ?
+`
+
+type DeleteProjectPositionParams struct {
+	UserID    string
+	ProjectID string
+}
+
+func (q *Queries) DeleteProjectPosition(ctx context.Context, arg DeleteProjectPositionParams) error {
+	_, err := q.db.ExecContext(ctx, deleteProjectPosition, arg.UserID, arg.ProjectID)
+	return err
+}
+
+const deleteProjectPositions = `-- name: DeleteProjectPositions :exec
+DELETE FROM project_positions WHERE user_id = ?
+`
+
+func (q *Queries) DeleteProjectPositions(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteProjectPositions, userID)
+	return err
+}
+
 const deleteProjectRow = `-- name: DeleteProjectRow :exec
 DELETE FROM projects WHERE id = ?
 `
@@ -334,6 +357,21 @@ func (q *Queries) InsertProjectMember(ctx context.Context, arg InsertProjectMemb
 		arg.InvitedBy,
 		arg.CreatedAt,
 	)
+	return err
+}
+
+const insertProjectPosition = `-- name: InsertProjectPosition :exec
+INSERT INTO project_positions (user_id, project_id, position) VALUES (?, ?, ?)
+`
+
+type InsertProjectPositionParams struct {
+	UserID    string
+	ProjectID string
+	Position  int64
+}
+
+func (q *Queries) InsertProjectPosition(ctx context.Context, arg InsertProjectPositionParams) error {
+	_, err := q.db.ExecContext(ctx, insertProjectPosition, arg.UserID, arg.ProjectID, arg.Position)
 	return err
 }
 
@@ -667,14 +705,17 @@ func (q *Queries) ListProjectsByUser(ctx context.Context, userID string) ([]Proj
 
 const listProjectsForUser = `-- name: ListProjectsForUser :many
 
-SELECT id, user_id, name, auto, created_at, updated_at FROM projects
+SELECT projects.id, projects.user_id, projects.name, projects.auto, projects.created_at, projects.updated_at FROM projects
+LEFT JOIN project_positions pp ON pp.project_id = projects.id AND pp.user_id = ?1
 WHERE projects.user_id = ?1
    OR projects.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = ?1)
-ORDER BY created_at DESC, id
+ORDER BY pp.position IS NOT NULL, pp.position, projects.created_at DESC, projects.id
 `
 
 // ---- members (project_members.go) ----
-// The user's own projects and the projects shared with them.
+// The user's own projects and the projects shared with them, in the order
+// the user put them in: the ones without a position first (newest first),
+// then by position.
 func (q *Queries) ListProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := q.db.QueryContext(ctx, listProjectsForUser, userID)
 	if err != nil {

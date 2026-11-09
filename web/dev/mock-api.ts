@@ -416,6 +416,8 @@ const projects: ProjectRow[] = [
   // Linus invites Ada to this one with the link /join/mock-join; until then Ada does not see it.
   { id: 'prj_design', name: 'Design system', created_at: ago(60 * 24 * 5), owner: people.linus },
 ]
+// Newest first, as the server lists projects nobody placed yet.
+projects.sort((a, b) => b.created_at.localeCompare(a.created_at))
 
 // ---------------------------------------------------------------- project members
 
@@ -1922,8 +1924,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       const name = String(body.name ?? '').trim()
       if (!name) throw new HttpError(422, 'name_required', 'Give the project a name.')
       const row = { id: newId('prj'), name, created_at: new Date().toISOString() }
-      projects.push(row)
+      projects.unshift(row) // a new project lands on top, like on the server
       return send(res, 201, projectOf(row))
+    }
+    case 'PUT /project-order': {
+      // The list itself is the order: the projects given, in that order, after the ones left out.
+      const ids = (body.ids as string[] | undefined) ?? []
+      const at = new Map(ids.map((x, i) => [x, i]))
+      const sorted = projects.map((p, i) => ({ p, k: at.get(p.id) ?? i - projects.length })).sort((a, b) => a.k - b.k)
+      projects.splice(0, projects.length, ...sorted.map((x) => x.p))
+      return send(res, 204)
     }
     case 'GET /projects/:id':
     case 'PATCH /projects/:id':
@@ -2007,7 +2017,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       let pid = typeof body.project === 'string' ? body.project : ''
       if (!pid || !projects.some((p) => p.id === pid)) {
         const row = { id: newId('prj'), name, created_at: new Date().toISOString() }
-        projects.push(row)
+        projects.unshift(row)
         pid = row.id
       }
       const type = body.type === 'worker' ? 'worker' : 'web'
@@ -2286,7 +2296,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       let pid = typeof body.project === 'string' ? body.project : ''
       if (!pid || !projects.some((p) => p.id === pid)) {
         const row = { id: newId('prj'), name, created_at: new Date().toISOString() }
-        projects.push(row)
+        projects.unshift(row)
         pid = row.id
       }
       const alias = slugish(String(body.alias || c.id))

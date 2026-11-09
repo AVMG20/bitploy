@@ -56,11 +56,23 @@ ORDER BY r.deployment_id;
 -- ---- members (project_members.go) ----
 
 -- name: ListProjectsForUser :many
--- The user's own projects and the projects shared with them.
-SELECT * FROM projects
+-- The user's own projects and the projects shared with them, in the order
+-- the user put them in: the ones without a position first (newest first),
+-- then by position.
+SELECT projects.* FROM projects
+LEFT JOIN project_positions pp ON pp.project_id = projects.id AND pp.user_id = sqlc.arg(user_id)
 WHERE projects.user_id = sqlc.arg(user_id)
    OR projects.id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = sqlc.arg(user_id))
-ORDER BY created_at DESC, id;
+ORDER BY pp.position IS NOT NULL, pp.position, projects.created_at DESC, projects.id;
+
+-- name: DeleteProjectPositions :exec
+DELETE FROM project_positions WHERE user_id = ?;
+
+-- name: InsertProjectPosition :exec
+INSERT INTO project_positions (user_id, project_id, position) VALUES (?, ?, ?);
+
+-- name: DeleteProjectPosition :exec
+DELETE FROM project_positions WHERE user_id = ? AND project_id = ?;
 
 -- name: ListAppsForUser :many
 -- The user's own apps and the apps of the projects shared with them.

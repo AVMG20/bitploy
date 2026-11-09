@@ -16,8 +16,10 @@ import {
   mainApp,
   parseReferences,
   pastedKind,
+  placeId,
   projectHealth,
   projectHealthText,
+  sortByIds,
   projectLinks,
   projectHasRole,
   projectsFromApps,
@@ -376,4 +378,19 @@ test('publicPortText says where and for how long a port is open', () => {
   assert.match(publicPortText(mine, now)!.title, /Only 198\.51\.100\.7\/32/)
   const later = { public_port: { ...open.public_port, expires_at: '2026-11-06T15:10:00Z' } }
   assert.equal(publicPortText(later, now)?.text, 'Public at 203.0.113.5:30001, closes in 3 h')
+})
+
+test('placeId moves one id before or after another', () => {
+  const ids = ['a', 'b', 'c', 'd']
+  assert.deepEqual(placeId(ids, 'a', 'c', true), ['b', 'c', 'a', 'd'])
+  assert.deepEqual(placeId(ids, 'a', 'c', false), ['b', 'a', 'c', 'd'])
+  assert.deepEqual(placeId(ids, 'd', 'a', false), ['d', 'a', 'b', 'c'])
+  assert.deepEqual(placeId(ids, 'b', 'b', true), ids)
+  assert.deepEqual(placeId(ids, 'x', 'a', true), ids)
+})
+
+test('sortByIds follows the ids and puts the others first', () => {
+  const items = [{ id: 'new' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
+  assert.deepEqual(sortByIds(items, ['c', 'a', 'b']).map((p) => p.id), ['new', 'c', 'a', 'b'])
+  assert.deepEqual(sortByIds(items, []).map((p) => p.id), ['new', 'a', 'b', 'c'])
 })
