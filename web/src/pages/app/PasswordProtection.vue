@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { keys } from '@/composables/queries'
+import { useSaveBarEntry } from '@/composables/useSaveBar'
 import { api } from '@/lib/api'
 import { toastError, toastOk } from '@/lib/notify'
 import type { App } from '@/lib/types'
@@ -81,6 +82,26 @@ const save = useMutation({
 })
 const submit = form.handleSubmit((v) => save.mutate({ username: v.username.trim(), password: v.password }))
 
+// Changing the login of a protected app is an edit like any other. Turning
+// protection on stays its own button: nothing is protected until it is pressed.
+useSaveBarEntry({
+  changes: () => (isProtected.value ? Number((form.values.username ?? '').trim() !== (props.app.protected_username ?? '')) + Number(!!form.values.password) : 0),
+  save: async () => {
+    const { valid } = await form.validate()
+    if (!valid) return false
+    try {
+      await save.mutateAsync({ username: (form.values.username ?? '').trim(), password: form.values.password ?? '' })
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    form.resetForm({ values: { username: props.app.protected_username ?? '', password: '' } })
+    showPassword.value = false
+  },
+})
+
 const disable = useMutation({
   mutationFn: () => api.setPasswordProtection(props.app.slug, { enabled: false }),
   onSuccess: (updated) => {
@@ -127,7 +148,7 @@ const worker = computed(() => props.app.type !== 'web')
           <Button v-else variant="outline" size="sm" @click="toggle(true)">Set a password</Button>
         </div>
 
-        <form v-if="wantOn" class="grid gap-4" novalidate @submit.prevent="submit">
+        <form v-if="wantOn" class="grid gap-4" novalidate @submit.prevent="!isProtected && submit()">
           <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
             <FormField v-slot="{ componentField }" name="username">
               <FormItem>
@@ -171,10 +192,8 @@ const worker = computed(() => props.app.type !== 'web')
           <p class="text-sm text-muted-foreground">
             Covers the app's address and its own domains. The password cannot be shown again after saving, so keep it somewhere safe.
           </p>
-          <div>
-            <Button type="submit" :disabled="save.isPending.value || (isProtected && !form.meta.value.dirty)">
-              {{ save.isPending.value ? 'Saving...' : isProtected ? 'Save changes' : 'Turn on' }}
-            </Button>
+          <div v-if="!isProtected">
+            <Button type="submit" :disabled="save.isPending.value">{{ save.isPending.value ? 'Saving...' : 'Turn on' }}</Button>
           </div>
         </form>
       </template>

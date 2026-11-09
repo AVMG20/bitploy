@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import FormScope from '@/components/FormScope.vue'
@@ -34,6 +34,7 @@ import { api } from '@/lib/api'
 import { outputDirError } from '@/lib/detect'
 import { ROOT_ADDRESS, addressError } from '@/lib/slug'
 import { CPU_HINT, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
+import { provideSaveBar, useSaveBarEntry } from '@/composables/useSaveBar'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
@@ -44,6 +45,7 @@ import DeployCommands from './DeployCommands.vue'
 import { offersDeployCommands } from '@/lib/deployCommands'
 
 const props = defineProps<{ slug: string }>()
+const bar = provideSaveBar()
 const router = useRouter()
 
 // The page is grouped in sections; the links at the top jump to them.
@@ -200,11 +202,58 @@ const saveGeneral = useMutation({
     toastError(e)
   },
 })
-const submitGeneral = generalForm.handleSubmit((v) => {
-  const a = app.data.value
-  if (v.slug !== (a ? addressOf(a) : props.slug) || domainChanged.value) pendingRename.value = v
-  else if (v.name !== a?.name) saveGeneral.mutate(v)
+// Save asks first when the address moves; the answer is what the save bar waits for.
+let renameAnswer: ((saved: boolean) => void) | null = null
+function confirmRename() {
+  const v = pendingRename.value
+  const done = renameAnswer
+  renameAnswer = null
+  if (!v) return done?.(false)
+  saveGeneral.mutateAsync(v).then(
+    () => done?.(true),
+    () => done?.(false),
+  )
+}
+watch(renameOpen, (open) => {
+  if (!open && renameAnswer) {
+    renameAnswer(false)
+    renameAnswer = null
+  }
 })
+async function submitGeneral(): Promise<boolean> {
+  const { valid } = await generalForm.validate()
+  if (!valid) return false
+  const v = { name: (generalForm.values.name ?? '').trim(), slug: (generalForm.values.slug ?? '').trim().toLowerCase() }
+  const a = app.data.value
+  if (v.slug !== (a ? addressOf(a) : props.slug) || domainChanged.value) {
+    pendingRename.value = v
+    return new Promise((resolve) => (renameAnswer = resolve))
+  }
+  if (v.name === a?.name) return true
+  return saveGeneral.mutateAsync(v).then(
+    () => true,
+    () => false,
+  )
+}
+const generalChanges = computed(() => {
+  const a = app.data.value
+  if (!a) return 0
+  return (
+    Number((generalForm.values.name ?? '').trim() !== a.name) +
+    Number((generalForm.values.slug ?? '').trim().toLowerCase() !== addressOf(a)) +
+    Number(domainChanged.value)
+  )
+})
+useSaveBarEntry({
+  changes: generalChanges,
+  save: submitGeneral,
+  discard: () => {
+    const a = app.data.value
+    if (!a) return
+    generalForm.resetForm({ values: { name: a.name, slug: addressOf(a) } })
+    domain.value = a.domain
+  },
+}, bar)
 const renameDescription = computed(() => {
   if (isPrivate.value) return 'Links to this page and API calls that use the old ID stop working. The other apps keep reaching it by its short name.'
   const next = pendingRename.value?.slug ?? ''
@@ -237,17 +286,37 @@ watch(
   },
   { immediate: true },
 )
-const typeChanged = computed(() => !!app.data.value && (typeMode.value !== app.data.value.build_mode || typeOutput.value.trim() !== app.data.value.output_dir))
+const typeChanges = computed(() => {
+  const a = app.data.value
+  return a ? Number(typeMode.value !== a.build_mode) + Number(typeOutput.value.trim() !== a.output_dir) : 0
+})
 const saveType = useMutation({
   mutationFn: () => api.updateApp(props.slug, { build_mode: typeMode.value, output_dir: typeOutput.value.trim() }),
   onSuccess: (updated) => {
-    toastOk('Type saved', 'It applies on the next deploy.')
+    toastOk('Build type saved')
     typeOutput.value = updated.output_dir
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.apps })
   },
   onError: (e) => toastError(e),
 })
+useSaveBarEntry({
+  changes: typeChanges,
+  later: true,
+  save: async () => {
+    if (outputDirError(typeOutput.value)) return false
+    try {
+      await saveType.mutateAsync()
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    typeMode.value = app.data.value?.build_mode ?? 'auto'
+    typeOutput.value = app.data.value?.output_dir ?? ''
+  },
+}, bar)
 
 // ---------------------------------------------------------------- resources
 // What this app may have: the quota minus what the user's other running apps
@@ -318,7 +387,27 @@ const saveRes = useMutation({
   },
   onError: (e) => toastError(e),
 })
-const submitRes = resForm.handleSubmit((v) => saveRes.mutate(v))
+useSaveBarEntry({
+  changes: () => {
+    const a = app.data.value
+    if (!a || isStatic.value) return 0
+    return Number(Number(resForm.values.memory_mb) !== a.memory_mb) + Number(Number(resForm.values.cpus) !== a.cpu_millis / 1000)
+  },
+  save: async () => {
+    const { valid } = await resForm.validate()
+    if (!valid) return false
+    try {
+      await saveRes.mutateAsync({ memory_mb: Number(resForm.values.memory_mb), cpus: Number(resForm.values.cpus) })
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    const a = app.data.value
+    if (a) resForm.resetForm({ values: { memory_mb: a.memory_mb, cpus: a.cpu_millis / 1000 } })
+  },
+}, bar)
 
 // ---------------------------------------------------------------- dockerfile
 const dockerfile = useQuery({
@@ -397,6 +486,48 @@ function catalogUpdated() {
   dockerfileBase.value = null
 }
 
+// ---------------------------------------------------------------- save bar
+const { count: unsavedCount, later: unsavedLater, saving: barSaving } = bar
+
+// Leaving the page (or closing the tab) with unsaved changes asks first.
+const leaveOpen = ref(false)
+let leaveAnswer: ((leave: boolean) => void) | null = null
+function askToLeave() {
+  leaveOpen.value = true
+  return new Promise<boolean>((resolve) => (leaveAnswer = resolve))
+}
+function answerLeave(leave: boolean) {
+  const done = leaveAnswer
+  leaveAnswer = null
+  leaveOpen.value = false
+  done?.(leave)
+}
+watch(leaveOpen, (open) => {
+  if (!open && leaveAnswer) answerLeave(false)
+})
+// Saving can move the app to a new address (same page, new slug): not leaving.
+const guard = (to: { path: string }, from: { path: string }) =>
+  unsavedCount.value === 0 || barSaving.value || to.path === from.path ? true : askToLeave()
+onBeforeRouteLeave(guard)
+onBeforeRouteUpdate(guard)
+function beforeUnload(e: BeforeUnloadEvent) {
+  if (unsavedCount.value > 0) e.preventDefault()
+}
+function onKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    if (unsavedCount.value > 0) void bar.save()
+  }
+}
+onMounted(() => {
+  window.addEventListener('beforeunload', beforeUnload)
+  window.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforeUnload)
+  window.removeEventListener('keydown', onKey)
+})
+
 // ---------------------------------------------------------------- delete
 const deleteOpen = ref(false)
 const deleteText = computed(() => {
@@ -435,11 +566,8 @@ const deleteText = computed(() => {
     <SettingsSection id="general" class="scroll-mt-16" title="General" :description="isPrivate ? 'What the app is called in bitploy.' : 'Its name, its address and who may open it.'">
       <div class="grid gap-4">
         <FormScope :form="generalForm">
-          <form novalidate @submit.prevent="submitGeneral">
-            <FormCard
-              :title="isPrivate ? 'Name and ID' : 'Name and address'"
-              :description="isPrivate ? 'The name is only shown in bitploy. The ID is in the links to this page and in the API.' : 'The name is only shown in bitploy.'"
-            >
+          <form novalidate @submit.prevent>
+            <FormCard :title="isPrivate ? 'Name and ID' : 'Name and address'">
               <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
                 <FormField v-slot="{ componentField }" name="name">
                   <FormItem>
@@ -469,9 +597,6 @@ const deleteText = computed(() => {
                   </FormItem>
                 </FormField>
               </div>
-              <template #actions>
-                <Button type="submit" :disabled="saveGeneral.isPending.value || !(generalForm.meta.value.dirty || domainChanged)">{{ saveGeneral.isPending.value ? 'Saving...' : isPrivate ? 'Save name' : 'Save name and address' }}</Button>
-              </template>
             </FormCard>
           </form>
         </FormScope>
@@ -481,11 +606,11 @@ const deleteText = computed(() => {
       </div>
     </SettingsSection>
 
-    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project" description="The short name the other apps of the project use to reach this one.">
+    <SettingsSection v-if="inProjects && app.data.value" id="project" class="scroll-mt-16" title="Project">
       <ProjectSettings :app="app.data.value" />
     </SettingsSection>
 
-    <SettingsSection v-if="app.data.value?.template" id="build" class="scroll-mt-16" title="Image" description="This runs a ready-made image. There is no code to build.">
+    <SettingsSection v-if="app.data.value?.template" id="build" class="scroll-mt-16" title="Image">
       <Card>
         <CardContent class="grid gap-1 text-sm">
           <p>
@@ -530,7 +655,7 @@ const deleteText = computed(() => {
         <Card v-if="showDockerfile && !multi">
           <CardHeader>
             <CardTitle>Dockerfile</CardTitle>
-            <CardDescription v-if="dockerfile.data.value?.editable">Change the image version or anything else, then save. bitploy builds and deploys it.</CardDescription>
+            <CardDescription v-if="dockerfile.data.value?.editable">Saving builds and deploys the new version.</CardDescription>
             <CardDescription v-else-if="dockerfile.data.value">{{ dockerfile.data.value.reason }}</CardDescription>
           </CardHeader>
           <CardContent v-if="(dockerfile.isError.value && !dockerfile.data.value) || dockerfile.data.value?.editable || dockerfile.data.value?.content">
@@ -547,13 +672,9 @@ const deleteText = computed(() => {
           </CardContent>
         </Card>
 
-        <form v-if="!multi" novalidate @submit.prevent="saveType.mutate()">
-          <FormCard title="Build type" description="How bitploy builds your files.">
+        <form v-if="!multi" novalidate @submit.prevent>
+          <FormCard title="Build type">
             <BuildTypeFields v-model:mode="typeMode" v-model:output-dir="typeOutput" later id-prefix="settings" />
-            <template #hint>Applies on the next deploy.</template>
-            <template #actions>
-              <Button type="submit" :disabled="!typeChanged || !!outputDirError(typeOutput) || saveType.isPending.value">{{ saveType.isPending.value ? 'Saving...' : 'Save build type' }}</Button>
-            </template>
           </FormCard>
         </form>
 
@@ -590,7 +711,7 @@ const deleteText = computed(() => {
 
     <SettingsSection v-else id="size" class="scroll-mt-16" title="Size" :description="`How much memory and CPU the app may use. ${CPU_HINT}`">
       <FormScope :form="resForm">
-        <form novalidate @submit.prevent="submitRes">
+        <form novalidate @submit.prevent>
           <FormCard>
             <p v-if="isStatic" class="mb-4 text-sm text-muted-foreground">Static sites have a fixed size and do not count towards your memory and CPU allowance.</p>
           <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
@@ -617,10 +738,6 @@ const deleteText = computed(() => {
               </FormItem>
             </FormField>
           </div>
-            <template #hint>Applies after a restart.</template>
-            <template #actions>
-              <Button type="submit" :disabled="isStatic || saveRes.isPending.value || !resForm.meta.value.dirty">{{ saveRes.isPending.value ? 'Saving...' : 'Save size' }}</Button>
-            </template>
           </FormCard>
         </form>
       </FormScope>
@@ -645,8 +762,32 @@ const deleteText = computed(() => {
       :confirm-label="isPrivate ? 'Change ID' : 'Change address'"
       :destructive="false"
       :loading="saveGeneral.isPending.value"
-      @confirm="pendingRename && saveGeneral.mutate(pendingRename)"
+      @confirm="confirmRename"
+    />
+    <ConfirmDialog
+      v-model:open="leaveOpen"
+      title="Leave without saving?"
+      :description="`You have ${unsavedCount} unsaved ${unsavedCount === 1 ? 'change' : 'changes'}. Leaving discards ${unsavedCount === 1 ? 'it' : 'them'}.`"
+      confirm-label="Leave"
+      @confirm="answerLeave(true)"
     />
     <DeleteAppDialog v-if="app.data.value" v-model:open="deleteOpen" :app="app.data.value" />
+
+    <div
+      v-if="unsavedCount > 0"
+      class="sticky bottom-4 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-card px-4 py-2.5 shadow-lg"
+      role="region"
+      aria-label="Unsaved changes"
+      data-testid="save-bar"
+    >
+      <p class="min-w-0 text-sm" aria-live="polite">
+        <span class="font-medium">{{ unsavedCount }} unsaved {{ unsavedCount === 1 ? 'change' : 'changes' }}</span>
+        <span v-if="unsavedLater" class="text-muted-foreground"> · applies on the next deploy</span>
+      </p>
+      <div class="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="sm" :disabled="barSaving" @click="bar.discard()">Discard</Button>
+        <Button size="sm" :disabled="barSaving" @click="bar.save()">{{ barSaving ? 'Saving...' : 'Save' }}</Button>
+      </div>
+    </div>
   </div>
 </template>

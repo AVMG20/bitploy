@@ -3,10 +3,10 @@ import { computed, ref, watch } from 'vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import FormCard from '@/components/FormCard.vue'
 import SettingsSection from '@/components/SettingsSection.vue'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { keys } from '@/composables/queries'
+import { useSaveBarEntry } from '@/composables/useSaveBar'
 import { api } from '@/lib/api'
 import { deployCommandError } from '@/lib/deployCommands'
 import { toastError, toastOk } from '@/lib/notify'
@@ -37,7 +37,7 @@ watch(
 
 const beforeError = computed(() => deployCommandError(before.value))
 const afterError = computed(() => deployCommandError(after.value))
-const changed = computed(() => before.value.trim() !== savedBefore.value || after.value.trim() !== savedAfter.value)
+const changes = computed(() => Number(before.value.trim() !== savedBefore.value) + Number(after.value.trim() !== savedAfter.value))
 
 const save = useMutation({
   mutationFn: () => {
@@ -54,11 +54,29 @@ const save = useMutation({
   },
   onError: (e) => toastError(e),
 })
+
+useSaveBarEntry({
+  changes,
+  later: true,
+  save: async () => {
+    if (beforeError.value || afterError.value) return false
+    try {
+      await save.mutateAsync()
+      return true
+    } catch {
+      return false
+    }
+  },
+  discard: () => {
+    before.value = savedBefore.value
+    after.value = savedAfter.value
+  },
+})
 </script>
 
 <template>
   <SettingsSection id="deploy-commands" class="scroll-mt-16" title="Deploy commands" description="Commands bitploy runs each time you deploy new code, such as updating your database.">
-    <form novalidate @submit.prevent="save.mutate()">
+    <form novalidate @submit.prevent>
       <FormCard
         title="Before and after a deploy"
         description="They run in your app's own image, with its variables, its database connection and its saved files (/data)."
@@ -104,10 +122,7 @@ const save = useMutation({
             <p v-if="afterError" class="text-sm text-destructive">{{ afterError }}</p>
           </div>
         </div>
-        <template #hint>Applies on the next deploy. Their output is in the deployment's log. Going back to an earlier version runs neither.</template>
-        <template #actions>
-          <Button type="submit" :disabled="!changed || !!beforeError || !!afterError || save.isPending.value">{{ save.isPending.value ? 'Saving...' : 'Save commands' }}</Button>
-        </template>
+        <p class="mt-5 text-xs text-muted-foreground">Their output is in the deployment's log. Going back to an earlier version runs neither.</p>
       </FormCard>
     </form>
   </SettingsSection>
