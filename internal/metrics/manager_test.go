@@ -542,9 +542,16 @@ func TestEventUnhealthyAndHealthy(t *testing.T) {
 	ev := func(h string) dockerx.Event {
 		return dockerx.Event{Action: "health_status", Health: h, ID: "c", Name: "bp-a-1", AppID: "app_1", Time: t0}
 	}
+	var told []string
+	e.m.Unhealthy = func(_ context.Context, appID, msg string) { told = append(told, appID+": "+msg) }
 	e.m.HandleEvent(ctx, ev("unhealthy"))
 	if st, msg, _ := e.app(t, "app_1"); st != "failed" || !strings.HasPrefix(msg, "Health check failing") {
 		t.Fatalf("unhealthy: %s / %q", st, msg)
+	}
+	// The users are told once, not again while it stays unhealthy.
+	e.m.HandleEvent(ctx, ev("unhealthy"))
+	if len(told) != 1 || !strings.HasPrefix(told[0], "app_1: Health check failing") {
+		t.Errorf("Unhealthy calls = %v", told)
 	}
 	e.m.HandleEvent(ctx, ev("healthy"))
 	if st, msg, _ := e.app(t, "app_1"); st != "running" || msg != "" {

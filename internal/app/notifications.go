@@ -49,8 +49,8 @@ var notificationEvents = []NotificationEvent{
 		Description: "The before-deploy or after-deploy command of the app failed."},
 	{Type: EventBackupSucceeded, Group: "backups", Label: "Backup made"},
 	{Type: EventBackupFailed, Group: "backups", Label: "Backup failed", Emergency: true, Default: true},
-	{Type: EventAppCrashed, Group: "app", Label: "App crashed", Emergency: true, Default: true,
-		Description: "The app stopped 5 times within 5 minutes, so bitploy stopped it."},
+	{Type: EventAppCrashed, Group: "app", Label: "App stopped working", Emergency: true, Default: true,
+		Description: "The app crashed 5 times within 5 minutes, so bitploy stopped it, or its health check started failing."},
 }
 
 func notificationEvent(typ string) (NotificationEvent, bool) {

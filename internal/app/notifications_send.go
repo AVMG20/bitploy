@@ -342,6 +342,28 @@ func (s *Service) notifyCrash(ctx context.Context, appID, msg string) {
 	s.notifyApp(ctx, app, m, EventAppCrashed)
 }
 
+// notifyUnhealthy tells the app's users that its HEALTHCHECK started
+// failing while it ran. It goes to the channels of app.crashed: both mean
+// the app stopped working.
+func (s *Service) notifyUnhealthy(ctx context.Context, appID, msg string) {
+	ctx = context.WithoutCancel(ctx)
+	app, err := s.Q.GetApp(ctx, appID)
+	if err != nil {
+		return
+	}
+	body := strings.TrimPrefix(msg, "Health check failing: ")
+	if body != "" {
+		body = strings.ToUpper(body[:1]) + body[1:] + "."
+	}
+	m := notify.Message{
+		Event: EventAppCrashed, Severity: notify.Emergency, Tone: notify.ToneFailure, Time: s.Now(), Tag: app.ID,
+		Title: fmt.Sprintf("%s fails its health check", app.Name), Body: body,
+		Hint: "The app may not answer its visitors. Read its logs and fix the error, then deploy again or restart it.",
+		URL:  s.appPage(app, "logs"), Fields: s.appFields(ctx, app),
+	}
+	s.notifyApp(ctx, app, m, EventAppCrashed)
+}
+
 // notifyBackup sends the message about a finished backup of an app: made
 // (err nil) or failed. Backups made before a restore are left out.
 func (s *Service) notifyBackup(ctx context.Context, appID, backupID string) {

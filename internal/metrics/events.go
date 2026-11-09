@@ -305,6 +305,9 @@ func (m *Manager) onHealth(ctx context.Context, app db.App, ev dockerx.Event) {
 		}
 		m.setStatus(ctx, app, "failed", msgUnhealthy+detail)
 		m.audit(ctx, "app.unhealthy", "app", app.ID, map[string]any{"container": ev.Name})
+		if m.Unhealthy != nil {
+			m.Unhealthy(ctx, app.ID, msgUnhealthy+detail)
+		}
 	case "healthy":
 		if app.Status == "failed" && strings.HasPrefix(app.StatusMessage, msgUnhealthy) {
 			m.setStatus(ctx, app, "running", "")

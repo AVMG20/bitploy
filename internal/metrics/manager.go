@@ -40,6 +40,9 @@ type Manager struct {
 	// Crashed tells the app's users that bitploy stopped the app after a
 	// crash loop; msg is the status message. May be nil.
 	Crashed func(ctx context.Context, appID, msg string)
+	// Unhealthy tells the app's users that a running app's HEALTHCHECK
+	// started failing; msg is the status message. May be nil.
+	Unhealthy func(ctx context.Context, appID, msg string)
 	// SyncRoute rewrites an app's Traefik route (deploy agent). May be nil.
 	SyncRoute func(ctx context.Context, appID string) error
 
