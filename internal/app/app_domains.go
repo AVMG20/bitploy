@@ -310,8 +310,8 @@ func (s *Service) checkRootClaim(ctx context.Context, a Actor, row db.App, domai
 }
 
 func rootNoAddress() error {
-	return apperr.BadRequest("root_no_address", "This app has no web address, so it cannot use the domain itself.",
-		"Only an app with a web address can have the domain itself as its address.")
+	return apperr.BadRequest("root_no_address", "This app has no web address, so it cannot have the domain itself.",
+		"Give the domain to a web app instead.")
 }
 
 func rootTaken(domain string, holder db.App) error {

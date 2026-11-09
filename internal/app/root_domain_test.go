@@ -127,7 +127,7 @@ func TestRootDomainClaimAndFree(t *testing.T) {
 		t.Fatalf("blog after shop left: %v %v", ap.Root, err)
 	}
 
-	// A new name takes it off the root too (the old name is reserved as usual).
+	// A new name takes it off the root too (the old name stays reserved for 30 days).
 	renamed := "journal"
 	ap, err = e.svc.UpdateApp(ctx, e.admin, "blog", UpdateAppInput{Slug: &renamed})
 	if err != nil {
