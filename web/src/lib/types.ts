@@ -952,7 +952,7 @@ export interface ApiErrorBody {
 // ---------------------------------------------------------------------------
 export type BackupKind = 'manual' | 'scheduled' | 'uploaded' | 'before_restore'
 export type BackupStatus = 'running' | 'ready' | 'failed'
-export type BackupSchedule = 'off' | 'daily' | 'weekly'
+export type BackupSchedule = 'off' | 'every_6h' | 'every_12h' | 'daily' | 'weekly' | 'monthly'
 export type BackupKeepMode = 'last' | 'days'
 /** volume: a .tar.gz of the files. dump: a .sql.gz of every database of a database service. */
 export type BackupFormat = 'volume' | 'dump'

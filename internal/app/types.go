@@ -913,7 +913,7 @@ type Backup struct {
 
 // BackupSettings are the automatic backups of one app.
 type BackupSettings struct {
-	Schedule string `json:"schedule"`  // off | daily | weekly
+	Schedule string `json:"schedule"`  // off | every_6h | every_12h | daily | weekly | monthly
 	KeepMode string `json:"keep_mode"` // last (keep the newest N) | days (keep N days)
 	Keep     int64  `json:"keep"`
 	// TimeUTC is the app's backup time (HH:MM, UTC), every day or on Sunday.
@@ -966,7 +966,7 @@ type BackupVolume struct {
 
 // BackupSettingsInput: nil fields are left unchanged.
 type BackupSettingsInput struct {
-	Schedule *string `json:"schedule,omitempty" doc:"off, daily or weekly"`
+	Schedule *string `json:"schedule,omitempty" doc:"off, every_6h, every_12h, daily, weekly or monthly"`
 	KeepMode *string `json:"keep_mode,omitempty" doc:"last (keep the newest backups) or days (keep backups for some days)"`
 	Keep     *int64  `json:"keep,omitempty" doc:"How many backups, or how many days, depending on keep_mode"`
 }

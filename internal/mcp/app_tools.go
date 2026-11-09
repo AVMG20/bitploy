@@ -25,7 +25,7 @@ type trafficIn struct {
 
 type backupScheduleIn struct {
 	App      string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
-	Schedule string `json:"schedule,omitempty" jsonschema:"off, daily (every night) or weekly (every Sunday), at the app's own backup time between 02:00 and 06:00 UTC. Leave it out to keep the current schedule."`
+	Schedule string `json:"schedule,omitempty" jsonschema:"off, every_6h or every_12h (at the app's own backup time and every 6 or 12 hours after it), daily (every night), weekly (every Sunday) or monthly (on the 1st), at the app's own backup time between 02:00 and 06:00 UTC. Leave it out to keep the current schedule."`
 	KeepMode string `json:"keep_mode,omitempty" jsonschema:"last: keep the newest keep backups; days: keep backups for keep days. Leave it out to keep the current one."`
 	Keep     *int64 `json:"keep,omitempty" jsonschema:"How many backups (keep_mode last, 1 to 100) or how many days (keep_mode days, 1 to 365). Leave it out to keep the current number."`
 }
@@ -41,6 +41,12 @@ func scheduleLine(st app.BackupSettings) string {
 		return fmt.Sprintf("Automatic backups: every night at %s UTC, %s.", st.TimeUTC, keep)
 	case "weekly":
 		return fmt.Sprintf("Automatic backups: every Sunday at %s UTC, %s.", st.TimeUTC, keep)
+	case "monthly":
+		return fmt.Sprintf("Automatic backups: on the 1st of every month at %s UTC, %s.", st.TimeUTC, keep)
+	case "every_6h":
+		return fmt.Sprintf("Automatic backups: every 6 hours, from %s UTC on, %s.", st.TimeUTC, keep)
+	case "every_12h":
+		return fmt.Sprintf("Automatic backups: every 12 hours, from %s UTC on, %s.", st.TimeUTC, keep)
 	}
 	return "Automatic backups are off."
 }
@@ -151,12 +157,12 @@ func (s *srv) registerAppTools() {
 
 	addTool(s, "set_backup_schedule", "Set automatic backups",
 		"Changes when bitploy backs up an app by itself and how long it keeps those backups. Apps with something to back up start with daily backups kept 14 days. "+
-			"schedule off, daily or weekly (Sunday), at the app's own time between 02:00 and 06:00 UTC (time_utc); keep_mode last keeps the newest keep backups, days keeps them keep days. "+
+			"schedule off, every_6h, every_12h, daily, weekly (Sunday) or monthly (the 1st), at the app's own time between 02:00 and 06:00 UTC (time_utc); keep_mode last keeps the newest keep backups, days keeps them keep days. "+
 			"Retention applies to automatic and before-restore backups; manual ones (create_backup) stay until the user deletes them. Fields left out stay as they are. "+
 			"Only turn backups off when the user asks: once set here, bitploy never changes the schedule by itself. Backups count towards the storage allowance (whoami). "+
 			"Valkey, Redis and Meilisearch get no backups (backups_not_needed). list_backups shows the settings and next_at.",
 		idempotent(), true,
-		enums(map[string][]string{"schedule": {"off", "daily", "weekly"}, "keep_mode": {"last", "days"}}),
+		enums(map[string][]string{"schedule": {"off", "every_6h", "every_12h", "daily", "weekly", "monthly"}, "keep_mode": {"last", "days"}}),
 		func(ctx context.Context, a app.Actor, in backupScheduleIn) (*result, error) {
 			var body app.BackupSettingsInput
 			if in.Schedule != "" {

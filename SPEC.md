@@ -333,7 +333,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `add_domain` / `check_domain` / `remove_domain` | Custom domains (Domains section) | deploy | — |
 | `get_metrics(app, window, service?)` | CPU, memory, network for `1h`, `24h` or `7d`; `service` narrows an app with several services | read | read-only |
 | `create_backup(app, volume?)` / `list_backups(app)` | Back up /data (every volume of a compose app unless `volume` picks one) in the background; list backups, settings (with `time_utc`) and restore state. A database service gets a dump (`format: dump`). Restoring is dashboard-only on purpose | deploy / read | — / read-only |
-| `set_backup_schedule(app, schedule?, keep_mode?, keep?)` | `PUT /apps/{app}/backup-settings`: off, daily or weekly at the app's time; keep the newest N or N days | deploy | idempotent |
+| `set_backup_schedule(app, schedule?, keep_mode?, keep?)` | `PUT /apps/{app}/backup-settings`: off, every_6h, every_12h, daily, weekly or monthly at the app's time; keep the newest N or N days | deploy | idempotent |
 | `get_storage()` | The storage allowance and what takes it per owned app: space kept for /data, app files, every backup with id and size, biggest first. Next steps for `storage_quota_exceeded` / `storage_full` | read | read-only |
 | `delete_backup(app, id)` | `DELETE /apps/{app}/backups/{id}`; only with the user's go-ahead | deploy | destructive |
 | `list_files(app, path?, volume?)` | `GET /apps/{app}/files`: one folder of /data (names, types, sizes); points at a SQLite file for `query_db` | read | read-only |

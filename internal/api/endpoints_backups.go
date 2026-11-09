@@ -78,7 +78,7 @@ func (a *API) backupRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "updateBackupSettings", Method: http.MethodPut, Path: "/apps/{app}/backup-settings", Tags: []string{"Backups"},
 		Summary: "Set the automatic backups",
-		Description: "schedule off, daily (every night) or weekly (on Sunday), at the app's own backup time between 02:00 and 06:00 UTC (time_utc); " +
+		Description: "schedule off, every_6h or every_12h (from the app's own backup time on), daily (every night), weekly (on Sunday) or monthly (on the 1st), at the app's own backup time between 02:00 and 06:00 UTC (time_utc); " +
 			"keep the newest `keep` backups (keep_mode last) or `keep` days (keep_mode days). " +
 			"Retention applies to automatic and before-restore backups. Fields left out stay unchanged. " +
 			"Apps with something to back up start with daily backups kept 14 days; once saved here, bitploy does not change the schedule again.",
