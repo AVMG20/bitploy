@@ -13,7 +13,7 @@ import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { forgetThisBrowser } from '@/lib/push'
+import { forgetAllBrowsers } from '@/lib/push'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
 
@@ -32,7 +32,7 @@ const everywhereOpen = ref(false)
 const everywhere = useMutation({
   mutationFn: async () => {
     await api.revokeOtherSessions()
-    await forgetThisBrowser()
+    await forgetAllBrowsers()
     await api.logout()
   },
   onSuccess: async () => {
@@ -78,7 +78,7 @@ const otherCount = computed(() => (sessions.data.value ?? []).filter((s) => !s.c
     <ConfirmDialog
       v-model:open="everywhereOpen"
       title="Log out everywhere?"
-      :description="`You will be logged out on this device${otherCount ? ` and ${otherCount} other${otherCount === 1 ? '' : 's'}` : ''}. API tokens keep working.`"
+      :description="`You will be logged out on this device${otherCount ? ` and ${otherCount} other${otherCount === 1 ? '' : 's'}` : ''}. Browser notifications stop on all your devices. API tokens keep working.`"
       confirm-label="Log out everywhere"
       :loading="everywhere.isPending.value"
       @confirm="everywhere.mutate()"

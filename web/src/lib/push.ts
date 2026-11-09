@@ -93,3 +93,18 @@ export async function forgetThisBrowser(): Promise<void> {
     // logging out goes on
   }
 }
+
+/**
+ * On "log out everywhere": deletes the channels of all your browsers (a
+ * lost laptop gets no more notifications) and ends this browser's
+ * subscription. Never throws.
+ */
+export async function forgetAllBrowsers(): Promise<void> {
+  try {
+    const browsers = (await api.notificationChannels()).filter((c) => c.type === 'browser')
+    await Promise.all(browsers.map((c) => api.deleteNotificationChannel(c.id)))
+    await unsubscribe()
+  } catch {
+    // logging out goes on
+  }
+}
