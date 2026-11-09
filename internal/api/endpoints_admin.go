@@ -91,6 +91,40 @@ func (a *API) adminRoutes() {
 	})
 
 	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminListProjectInvites", Method: http.MethodGet, Path: "/admin/project-invites", Tags: []string{"Admin"},
+		Summary: "List the open project invites of every user", Description: "Admin only. Unused and not expired, newest first.",
+	}, func(ctx context.Context, act app.Actor, in *struct{ PageParams }) (*Out[app.Page[app.AdminProjectInvite]], error) {
+		items, err := a.svc.AdminListProjectInvites(ctx, act)
+		return pageOut(items, err, in.PageParams)
+	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminRevokeProjectInvite", Method: http.MethodDelete, Path: "/admin/project-invites/{id}", Tags: []string{"Admin"},
+		Summary: "Revoke anyone's open project invite", Description: "Admin only. 404 invite_not_found.", DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		ID string `path:"id" doc:"The invite's id (pin_...)"`
+	}) (*Empty, error) {
+		if err := a.svc.AdminRevokeProjectInvite(ctx, act, in.ID); err != nil {
+			return nil, err
+		}
+		return &Empty{}, nil
+	})
+
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminGetSettings", Method: http.MethodGet, Path: "/admin/settings", Tags: []string{"Admin"},
+		Summary: "Who can make an account, and the limits new accounts get", Description: "Admin only.",
+	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.ServerSettings], error) {
+		return okOrNil(a.svc.GetServerSettings(ctx, act))
+	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminUpdateSettings", Method: http.MethodPatch, Path: "/admin/settings", Tags: []string{"Admin"},
+		Summary: "Change who can make an account, or the limits new accounts get",
+		Description: "Admin only. What is left out stays. The limits apply to accounts made from now on; existing accounts keep theirs. " +
+			"400 invalid_signups, invalid_quota (also when a limit is more than the server has).",
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.UpdateServerSettingsInput }) (*Out[app.ServerSettings], error) {
+		return okOrNil(a.svc.UpdateServerSettings(ctx, act, in.Body))
+	})
+
+	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminServer", Method: http.MethodGet, Path: "/admin/server", Tags: []string{"Admin"},
 		Summary: "Server CPU, RAM, disk, Docker disk use and build queue", Description: "Admin only.",
 	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.ServerStats], error) {

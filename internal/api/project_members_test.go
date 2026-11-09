@@ -84,7 +84,7 @@ func TestProjectInviteEndpoints(t *testing.T) {
 		t.Errorf("unknown code: %d", w.Code)
 	}
 
-	// Sign up through it (BITPLOY_SIGNUP=invite) and land in the project.
+	// Sign up through it (project invites make accounts by default) and land in the project.
 	w = e.req("POST", "/api/v1/project-invites/"+code+"/signup",
 		map[string]any{"name": "Bob", "password": "password-1234"}, map[string]string{"Origin": pub})
 	if w.Code != 201 {

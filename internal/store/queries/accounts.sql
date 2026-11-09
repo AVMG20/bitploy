@@ -1,9 +1,11 @@
 -- Users, sessions, invites, API tokens, audit reads. OWNER: auth-api agent.
 
 -- name: InsertUser :exec
--- quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
-INSERT INTO users (id, email, name, password_hash, role, status, quota_volume_mb, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', 25600, ?, ?);
+-- The limits come from the server settings (server_settings), not the column defaults.
+INSERT INTO users (id, email, name, password_hash, role, status,
+    quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb,
+    joined_via, joined_by, joined_project, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListUsers :many
 SELECT * FROM users ORDER BY created_at ASC;

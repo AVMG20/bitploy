@@ -70,7 +70,7 @@ func itSetup(t *testing.T) *itEnv {
 	traefikName := "bp-test-traefik-" + suffix
 	cfg := &config.Config{
 		PublicURL: "http://localhost:8080", AppsDomain: "localhost", AppsScheme: "http", AppsPort: "8000",
-		DataDir: dir, Signup: "invite", MaxParallelBuilds: 2, TraefikContainer: traefikName,
+		DataDir: dir, MaxParallelBuilds: 2, TraefikContainer: traefikName,
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		t.Fatal(err)

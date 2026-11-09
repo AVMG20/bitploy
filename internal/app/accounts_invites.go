@@ -16,7 +16,8 @@ import (
 
 const inviteTTL = 7 * 24 * time.Hour
 
-// OpenSignupCode is the invite code accepted when BITPLOY_SIGNUP=open.
+// OpenSignupCode is the invite code of open signup (/invite/open), accepted
+// while Admin > Signups lets anyone make an account (signups open).
 const OpenSignupCode = "open"
 
 func (s *Service) CreateInvite(ctx context.Context, a Actor, in CreateInviteInput) (Invite, error) {
@@ -89,17 +90,22 @@ func (s *Service) RevokeInvite(ctx context.Context, a Actor, id string) error {
 
 // signupReq is one new account from an invite link: the form, the address
 // the invite is locked to ("" for none), the role, the rate limit key of the
-// caller's IP, and what else the same transaction does (mark the invite used).
+// caller's IP, how the account joins (via, the invite's maker, the project of
+// a project invite) and what else the same transaction does (mark the invite
+// used).
 type signupReq struct {
 	in          AcceptInviteInput
 	lockedEmail string
 	role        string
 	sigKey      string
+	via         string
+	by, project string
 	inTx        func(q *db.Queries, u db.User) error
 }
 
 // signup checks the form, spends one of the 5 signups per hour of the IP and
-// creates the user together with inTx. The caller has checked the invite (and
+// creates the user together with inTx, with the limits for new accounts
+// (server settings, read in the same transaction). The caller has checked the invite (and
 // counted a wrong code against sigKey) and logs the user in afterwards. A
 // user invite (AcceptInvite) and a project invite (SignupProjectInvite) both
 // sign up here.
@@ -136,7 +142,12 @@ func (s *Service) signup(ctx context.Context, r signupReq) (db.User, error) {
 	}
 	var user db.User
 	terr := s.Store.Tx(ctx, func(q *db.Queries) error {
-		u, e := s.insertUserHashed(ctx, q, acctNewUser{Email: email, Name: name, Role: r.role}, hash)
+		st, e := s.serverSettings(ctx, q)
+		if e != nil {
+			return e
+		}
+		u, e := s.insertUserHashed(ctx, q, acctNewUser{Email: email, Name: name, Role: r.role,
+			Quota: newAccountQuota(st, r.via), JoinedVia: r.via, JoinedBy: r.by, JoinedProject: r.project}, hash)
 		if e != nil {
 			return e
 		}
@@ -168,11 +179,25 @@ func acctInviteInvalid(status int, why string) *apperr.Error {
 	return apperr.New(status, "invite_invalid", why, "Ask the person who invited you for a new invite link.")
 }
 
-// AcceptInvite creates the user and logs them in. With BITPLOY_SIGNUP=open,
-// code "open" is accepted for public signup.
+func signupClosed() *apperr.Error {
+	return apperr.Forbidden("signup_closed", "This server does not let people make an account on their own.",
+		"Ask an admin of this server for an invite link.")
+}
+
+// AcceptInvite creates the user and logs them in. Code "open" is open
+// signup, accepted while the server settings let anyone make an account.
 func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInviteInput, ip, userAgent string) (cookie string, info SessionInfo, err error) {
 	var inv db.Invite
-	open := code == OpenSignupCode && s.Cfg.Signup == "open"
+	open := code == OpenSignupCode
+	if open {
+		st, err := s.serverSettings(ctx, s.Q)
+		if err != nil {
+			return "", SessionInfo{}, err
+		}
+		if st.Signups != SignupOpen {
+			return "", SessionInfo{}, signupClosed()
+		}
+	}
 	// Signup and invite acceptance: 5 attempts per hour per IP. Wrong invite
 	// codes and real signups count; plain validation errors (bad email, short
 	// password) do not, so a typo is not punished.
@@ -197,11 +222,12 @@ func (s *Service) AcceptInvite(ctx context.Context, code string, in AcceptInvite
 			return "", SessionInfo{}, acctInviteInvalid(410, "This invite link has expired.")
 		}
 	}
-	role := "user"
+	role, via := "user", joinedOpen
 	if !open {
-		role = inv.Role
+		role, via = inv.Role, joinedAdminInvite
 	}
 	user, err := s.signup(ctx, signupReq{in: in, lockedEmail: inv.Email.String, role: role, sigKey: sigKey,
+		via: via, by: inv.CreatedBy.String,
 		inTx: func(q *db.Queries, u db.User) error {
 			if open {
 				return nil

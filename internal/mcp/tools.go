@@ -251,6 +251,8 @@ func (s *srv) registerTools() {
 			next := []string{"Call list_apps to see the existing apps, or create_app to make a new one (but first: a .bitploy file in the code folder names its app; no .bitploy means create a NEW app unless the user says it is already online)."}
 			if me.Scope == app.ScopeRead {
 				next = []string{"This token is read-only: you can look but not deploy. Ask the user for a token with the deploy scope (dashboard, Tokens), then call list_apps to look around."}
+			} else if me.Quota.Apps == 0 && me.Usage.Apps == 0 {
+				next = []string{"This account can't create apps of its own (its app limit is 0): call list_projects and add apps only to a project shared with it (create_app project=<id>), or ask the user to ask an admin to raise the limits."}
 			}
 			domainsLine := ""
 			if len(me.AppDomains) > 1 {

@@ -359,22 +359,33 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) error 
 
 const insertUser = `-- name: InsertUser :exec
 
-INSERT INTO users (id, email, name, password_hash, role, status, quota_volume_mb, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', 25600, ?, ?)
+INSERT INTO users (id, email, name, password_hash, role, status,
+    quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb,
+    joined_via, joined_by, joined_project, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertUserParams struct {
-	ID           string
-	Email        string
-	Name         string
-	PasswordHash string
-	Role         string
-	CreatedAt    int64
-	UpdatedAt    int64
+	ID                  string
+	Email               string
+	Name                string
+	PasswordHash        string
+	Role                string
+	QuotaApps           int64
+	QuotaMemoryMb       int64
+	QuotaCpuMillis      int64
+	QuotaDeploysPerHour int64
+	QuotaDomainsPerApp  int64
+	QuotaVolumeMb       int64
+	JoinedVia           string
+	JoinedBy            string
+	JoinedProject       string
+	CreatedAt           int64
+	UpdatedAt           int64
 }
 
 // Users, sessions, invites, API tokens, audit reads. OWNER: auth-api agent.
-// quota_volume_mb is set here: the column default (5120) predates the total storage allowance.
+// The limits come from the server settings (server_settings), not the column defaults.
 func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 	_, err := q.db.ExecContext(ctx, insertUser,
 		arg.ID,
@@ -382,6 +393,15 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 		arg.Name,
 		arg.PasswordHash,
 		arg.Role,
+		arg.QuotaApps,
+		arg.QuotaMemoryMb,
+		arg.QuotaCpuMillis,
+		arg.QuotaDeploysPerHour,
+		arg.QuotaDomainsPerApp,
+		arg.QuotaVolumeMb,
+		arg.JoinedVia,
+		arg.JoinedBy,
+		arg.JoinedProject,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -590,7 +610,7 @@ func (q *Queries) ListTokensOfUser(ctx context.Context, userID string) ([]ApiTok
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate FROM users ORDER BY created_at ASC
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users ORDER BY created_at ASC
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -618,6 +638,9 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Overallocate,
+			&i.JoinedVia,
+			&i.JoinedBy,
+			&i.JoinedProject,
 		); err != nil {
 			return nil, err
 		}

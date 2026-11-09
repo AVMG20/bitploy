@@ -334,6 +334,7 @@ type ProjectInviteInfo struct {
 	Email       *string   `json:"email" doc:"The address the invite is locked to, or null"`
 	Role        string    `json:"role" enum:"member"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	Signup      bool      `json:"signup" doc:"Someone without an account can make one with this link; false: only people who already have an account on this server can accept it"`
 }
 
 // ProjectSignup is the answer of a signup through a project invite: the new
@@ -652,6 +653,83 @@ type AdminUser struct {
 	// AppDomainIDs are the extra app domains this person may use (the default
 	// domain is always allowed; admins may use every domain).
 	AppDomainIDs []string `json:"app_domain_ids"`
+	// Joined is how the account was made; null for accounts made before
+	// bitploy recorded it.
+	Joined *AccountOrigin `json:"joined" doc:"How the account was made; null for accounts made before bitploy recorded it"`
+}
+
+// AccountOrigin is how an account was made (users.joined_via, migration 00380).
+type AccountOrigin struct {
+	Via string `json:"via" enum:"setup,admin_invite,project_invite,open" doc:"setup: bitploy admin create-user; admin_invite: an invite link from an admin; project_invite: an invite to a project; open: signed up on their own"`
+	// By is who made the invite; null without one, for an invite made on the
+	// command line, or when that user is gone.
+	By *UserBrief `json:"by" doc:"Who made the invite; null when there was none or that user is gone"`
+	// Project is the project of a project invite; null otherwise, or when the
+	// project was deleted (ProjectDeleted).
+	Project        *ProjectRef `json:"project" doc:"The project of a project invite; null otherwise or when it was deleted"`
+	ProjectDeleted bool        `json:"project_deleted,omitempty" doc:"The account came through a project invite to a project that was deleted since"`
+}
+
+// Signup modes (ServerSettings.Signups): who can create an account.
+const (
+	SignupAdminInvites = "admin_invites" // only with an invite link from an admin
+	SignupAnyInvite    = "any_invite"    // an admin invite, or a project invite (the default)
+	SignupOpen         = "open"          // anyone, on /invite/open
+)
+
+// ServerSettings is GET /admin/settings: who can make an account, and the
+// limits new accounts get (Admin > Signups).
+type ServerSettings struct {
+	Signups string `json:"signups" enum:"admin_invites,any_invite,open" doc:"Who can create an account. admin_invites: only with an invite link from an admin (a project invite then only works for people who already have an account). any_invite: an admin invite, or a project invite can also create the account (the default). open: anyone, on /invite/open"`
+	// ProjectInviteApps: an account made with a project invite gets
+	// NewAccountQuota. False: no apps, memory or CPU of its own.
+	ProjectInviteApps bool `json:"project_invite_apps" doc:"Accounts made with a project invite can deploy apps of their own (they get new_account_quota). False: 0 apps, memory and CPU of their own; they still work in the projects they were invited to"`
+	// NewAccountQuota are the limits of every account made from now on.
+	NewAccountQuota NewAccountQuota `json:"new_account_quota" doc:"The limits every account made from now on gets; existing accounts keep theirs"`
+	UpdatedAt       *time.Time      `json:"updated_at" doc:"When an admin last changed these; null: never"`
+	// Server is what this server has: the most a limit may be.
+	Server ServerCapacity `json:"server" doc:"What the server has, the most new_account_quota may be; 0 when not known"`
+}
+
+// NewAccountQuota are the limits a new account gets (the numbers of Quota).
+type NewAccountQuota struct {
+	Apps           int64 `json:"apps" minimum:"0"`
+	MemoryMB       int64 `json:"memory_mb" minimum:"0"`
+	CPUMillis      int64 `json:"cpu_millis" minimum:"0" doc:"1000 = 1 CPU"`
+	DeploysPerHour int64 `json:"deploys_per_hour" minimum:"1"`
+	DomainsPerApp  int64 `json:"domains_per_app" minimum:"0"`
+	VolumeMB       int64 `json:"volume_mb" minimum:"100" doc:"Storage in total"`
+}
+
+// ServerCapacity is the server's memory, CPU and disk; 0 when not known.
+type ServerCapacity struct {
+	MemoryMB  int64 `json:"memory_mb"`
+	CPUMillis int64 `json:"cpu_millis"`
+	DiskMB    int64 `json:"disk_mb"`
+}
+
+// UpdateServerSettingsInput is PATCH /admin/settings: what is left out stays.
+type UpdateServerSettingsInput struct {
+	Signups           *string          `json:"signups,omitempty" enum:"admin_invites,any_invite,open"`
+	ProjectInviteApps *bool            `json:"project_invite_apps,omitempty"`
+	NewAccountQuota   *NewAccountQuota `json:"new_account_quota,omitempty" doc:"Every number; replaces the limits for new accounts"`
+}
+
+// SignupRules is GET /signup-rules (no login): what the login, invite and
+// Members pages need to know about making accounts here.
+type SignupRules struct {
+	OpenSignup          bool `json:"open_signup" doc:"Anyone can make an account, on /invite/open"`
+	ProjectInviteSignup bool `json:"project_invite_signup" doc:"A project invite can also create an account; false: it only works for people who already have one"`
+}
+
+// AdminProjectInvite is an open project invite in the admin's list of all of them.
+type AdminProjectInvite struct {
+	ID        string     `json:"id"`
+	Project   ProjectRef `json:"project"`
+	InvitedBy *UserBrief `json:"invited_by" doc:"Who made the invite; null when that user is gone"`
+	Email     *string    `json:"email" doc:"The address the invite is locked to, or null"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
 }
 
 type ServerStats struct {

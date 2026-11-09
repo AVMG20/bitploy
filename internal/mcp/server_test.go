@@ -35,7 +35,7 @@ func newEnv(t *testing.T) *env {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		PublicURL: "https://bitploy.test", AppsDomain: "bitploy.test", AppsScheme: "https",
-		SecretKey: make([]byte, 32), DataDir: dir, Signup: "invite",
+		SecretKey: make([]byte, 32), DataDir: dir,
 	}
 	st, err := store.Open(filepath.Join(dir, "bitploy.db"))
 	if err != nil {

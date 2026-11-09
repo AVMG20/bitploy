@@ -43,7 +43,6 @@ type Config struct {
 	SecretKey         []byte // 32 bytes, AES-256-GCM
 	DataDir           string
 	ACMEEmail         string
-	Signup            string // invite | open
 	MaxParallelBuilds int
 	MaxApps           int    // server-wide app limit (all users together)
 	Listen            string // :8080
@@ -119,7 +118,6 @@ func Load() (*Config, error) {
 		ServerIPv6:        env("BITPLOY_SERVER_IPV6", ""),
 		DataDir:           env("BITPLOY_DATA_DIR", "/var/lib/bitploy"),
 		ACMEEmail:         env("BITPLOY_ACME_EMAIL", ""),
-		Signup:            env("BITPLOY_SIGNUP", "invite"),
 		Listen:            env("BITPLOY_LISTEN", ":8080"),
 		TraefikContainer:  env("BITPLOY_TRAEFIK_CONTAINER", "bitploy-traefik"),
 		TraefikInternal:   strings.TrimRight(env("BITPLOY_TRAEFIK_INTERNAL_URL", "http://bitploy-traefik:8081"), "/"),
@@ -150,9 +148,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("BITPLOY_MAX_APPS must be a positive number, got %q", v)
 		}
 		c.MaxApps = n
-	}
-	if c.Signup != "invite" && c.Signup != "open" {
-		return nil, fmt.Errorf("BITPLOY_SIGNUP must be invite or open, got %q", c.Signup)
 	}
 	if _, err := url.Parse(c.PublicURL); err != nil {
 		return nil, fmt.Errorf("BITPLOY_PUBLIC_URL is not a URL: %w", err)

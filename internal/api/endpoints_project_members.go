@@ -64,7 +64,7 @@ func (a *API) projectMemberRoutes() {
 		OperationID: "createProjectInvite", Method: http.MethodPost, Path: "/projects/{id}/invites", Tags: []string{"Projects"},
 		Summary: "Invite someone to a project",
 		Description: "Owner only, session only. A single-use link, valid 7 days, returned once as url (bitploy sends no email). " +
-			"With email only the account with that address, or a signup with it, can accept. The link also lets a new account sign up. " +
+			"With email only the account with that address, or a signup with it, can accept. The link also lets a new account sign up, unless Admin > Signups allows only admin invites to make accounts. " +
 			"403 project_invites_limit (20 open), project_members_limit (50), 429 project_invites_rate_limited (50 a day), 409 already_member.",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, act app.Actor, in *struct {
@@ -89,7 +89,7 @@ func (a *API) projectMemberRoutes() {
 	reg(a, public, huma.Operation{
 		OperationID: "getProjectInvite", Method: http.MethodGet, Path: "/project-invites/{code}", Tags: []string{"Auth"},
 		Summary:     "What a project invite link is for",
-		Description: "The project's name, who invited, and the address the invite is locked to. No login needed: the code is the credential. 404 or 410 invite_invalid.",
+		Description: "The project's name, who invited, the address the invite is locked to, and whether someone without an account can make one with it (signup). No login needed: the code is the credential. 404 or 410 invite_invalid.",
 	}, func(ctx context.Context, _ app.Actor, in *projectInviteCode) (*Out[app.ProjectInviteInfo], error) {
 		return okOrNil(a.svc.GetProjectInvite(ctx, in.Code))
 	})
@@ -104,7 +104,8 @@ func (a *API) projectMemberRoutes() {
 	reg(a, public, huma.Operation{
 		OperationID: "signupProjectInvite", Method: http.MethodPost, Path: "/project-invites/{code}/signup", Tags: []string{"Auth"},
 		Summary: "Sign up through a project invite",
-		Description: "Creates the account, adds it to the project and logs in, whatever BITPLOY_SIGNUP says (like a user invite). " +
+		Description: "Creates the account, adds it to the project and logs in, unless Admin > Signups allows only admin invites to make accounts (403 project_invite_signup_off; signup is false in GET /project-invites/{code}). " +
+			"The account gets the limits for new accounts, or no apps, memory or CPU of its own when the admin turned that off. " +
 			"At most 5 attempts per hour per IP, shared with POST /invites/{code}/accept. 409 email_taken: log in and accept instead.",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, _ app.Actor, in *struct {

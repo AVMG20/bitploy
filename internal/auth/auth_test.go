@@ -29,7 +29,7 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := &config.Config{PublicURL: publicURL, AppsDomain: "bitploy.test", AppsScheme: "https", DataDir: dir, Signup: "invite"}
+	cfg := &config.Config{PublicURL: publicURL, AppsDomain: "bitploy.test", AppsScheme: "https", DataDir: dir}
 	st, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)

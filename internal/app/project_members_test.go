@@ -469,8 +469,8 @@ func TestSignupThroughProjectInvite(t *testing.T) {
 	m := newMembersEnv(t)
 	ctx := context.Background()
 	s := m.s
-	if s.Cfg.Signup != "invite" {
-		t.Fatalf("signup = %q", s.Cfg.Signup)
+	if st, err := s.serverSettings(ctx, s.Q); err != nil || st.Signups != SignupAnyInvite {
+		t.Fatalf("signups = %q, %v", st.Signups, err)
 	}
 	locked := m.invite(t, "erin@example.com")
 	if _, _, err := s.SignupProjectInvite(ctx, locked, AcceptInviteInput{Name: "Erin", Email: "other@example.com", Password: "correct horse battery"}, "198.51.100.1", "ua"); depCode(err) != "invite_email_mismatch" {

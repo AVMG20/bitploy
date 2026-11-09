@@ -65,7 +65,7 @@ func newOpsEnv(t *testing.T) *opsEnv {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		PublicURL: "https://bitploy.test", AppsDomain: "bitploy.test", AppsScheme: "https", EdgeHost: "edge.bitploy.test",
-		ServerIPv4: "203.0.113.10", DataDir: dir, Signup: "invite",
+		ServerIPv4: "203.0.113.10", DataDir: dir,
 	}
 	st, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {

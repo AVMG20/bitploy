@@ -28,7 +28,7 @@ func acctTestSvc(t *testing.T) (*Service, *acctClock) {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		PublicURL: "https://bitploy.test", AppsDomain: "bitploy.test", AppsScheme: "https",
-		DataDir: dir, Signup: "invite", Dev: false,
+		DataDir: dir, Dev: false,
 	}
 	st, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -544,10 +544,10 @@ func TestOpenSignup(t *testing.T) {
 	s, _ := acctTestSvc(t)
 	ctx := context.Background()
 	in := AcceptInviteInput{Name: "Open", Email: "open@example.nl", Password: "password-1234"}
-	if _, _, err := s.AcceptInvite(ctx, "open", in, "1.1.1.1", "ua"); code(err) != "invite_invalid" {
+	if _, _, err := s.AcceptInvite(ctx, "open", in, "1.1.1.1", "ua"); code(err) != "signup_closed" {
 		t.Fatalf("open code in invite mode: %v", err)
 	}
-	s.Cfg.Signup = "open"
+	setSignups(t, s, SignupOpen)
 	_, info, err := s.AcceptInvite(ctx, "open", in, "1.1.1.1", "ua")
 	if err != nil || info.User.Role != "user" {
 		t.Fatalf("open signup: %+v %v", info, err)
@@ -752,7 +752,7 @@ func TestSuccessfulLoginsDoNotUseUpIPBudget(t *testing.T) {
 func TestSignupLimitPerIP(t *testing.T) {
 	s, clk := acctTestSvc(t)
 	ctx := context.Background()
-	s.Cfg.Signup = "open"
+	setSignups(t, s, SignupOpen)
 	for i := 0; i < 5; i++ {
 		in := AcceptInviteInput{Name: "N", Email: fmt.Sprintf("n%d@example.nl", i), Password: "password-1234"}
 		if _, _, err := s.AcceptInvite(ctx, "open", in, "198.51.100.5", "ua"); err != nil {
@@ -765,7 +765,7 @@ func TestSignupLimitPerIP(t *testing.T) {
 		t.Fatalf("6th signup: %v", err)
 	}
 	// Guessing invite codes counts too.
-	s.Cfg.Signup = "invite"
+	setSignups(t, s, SignupAnyInvite)
 	for i := 0; i < 5; i++ {
 		s.AcceptInvite(ctx, "nope", in, "198.51.100.6", "ua")
 	}
@@ -773,7 +773,7 @@ func TestSignupLimitPerIP(t *testing.T) {
 		t.Fatalf("invite guessing: %v", err)
 	}
 	clk.Advance(61 * time.Minute)
-	s.Cfg.Signup = "open"
+	setSignups(t, s, SignupOpen)
 	if _, _, err := s.AcceptInvite(ctx, "open", in, "198.51.100.5", "ua"); err != nil {
 		t.Fatalf("after the hour: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestOpenSignupDoesNotConfirmRegisteredEmail(t *testing.T) {
 	s, _ := acctTestSvc(t)
 	ctx := context.Background()
 	mustUser(t, s, "me@example.nl", false)
-	s.Cfg.Signup = "open"
+	setSignups(t, s, SignupOpen)
 	_, _, err := s.AcceptInvite(ctx, "open", AcceptInviteInput{Name: "N", Email: "me@example.nl", Password: "password-1234"}, "198.51.100.5", "ua")
 	if e := apperr.As(err); e.Code != "signup_failed" || e.HTTPStatus != 409 {
 		t.Fatalf("open signup with a registered email: %v", err)

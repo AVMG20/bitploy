@@ -35,7 +35,7 @@ func depTestSvc(t *testing.T) *depEnv {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		PublicURL: "https://bitploy.test", AppsDomain: "bitploy.test", AppsScheme: "https",
-		DataDir: dir, Signup: "invite", MaxParallelBuilds: 2,
+		DataDir: dir, MaxParallelBuilds: 2,
 		TraefikContainer: "bitploy-traefik", TraefikInternal: "http://127.0.0.1:1",
 	}
 	if err := cfg.EnsureDirs(); err != nil {

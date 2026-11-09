@@ -74,8 +74,16 @@ func (a *API) accountRoutes() {
 	})
 
 	reg(a, public, huma.Operation{
+		OperationID: "getSignupRules", Method: http.MethodGet, Path: "/signup-rules", Tags: []string{"Auth"},
+		Summary:     "Who can make an account here",
+		Description: "No login needed. open_signup: anyone can make one on /invite/open. project_invite_signup: a project invite can also create an account. An admin sets both in Admin > Signups.",
+	}, func(ctx context.Context, _ app.Actor, _ *struct{}) (*Out[app.SignupRules], error) {
+		return okOrNil(a.svc.GetSignupRules(ctx))
+	})
+
+	reg(a, public, huma.Operation{
 		OperationID: "acceptInvite", Method: http.MethodPost, Path: "/invites/{code}/accept", Tags: []string{"Auth"},
-		Summary: "Finish signup from an invite", Description: "Creates the account and logs in. With BITPLOY_SIGNUP=open the code `open` is accepted. At most 5 attempts per hour per IP. With open signup an address that is already registered gets the generic `signup_failed` (409).",
+		Summary: "Finish signup from an invite", Description: "Creates the account and logs in. The code `open` is open signup, accepted while Admin > Signups lets anyone make an account (else 403 signup_closed). At most 5 attempts per hour per IP. With open signup an address that is already registered gets the generic `signup_failed` (409).",
 		DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, _ app.Actor, in *struct {
 		Code string `path:"code"`

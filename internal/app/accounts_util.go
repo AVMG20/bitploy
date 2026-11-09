@@ -13,6 +13,12 @@ import (
 
 type acctNewUser struct {
 	Email, Name, Password, Role string
+	// Quota are the account's limits (newAccountQuota).
+	Quota NewAccountQuota
+	// JoinedVia, JoinedBy and JoinedProject record how the account was made
+	// (users.joined_via): setup, admin_invite, project_invite or open; who
+	// made the invite; the project of a project invite.
+	JoinedVia, JoinedBy, JoinedProject string
 }
 
 func acctItoa(n int64) string { return strconv.FormatInt(n, 10) }

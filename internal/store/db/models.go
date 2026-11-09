@@ -405,6 +405,19 @@ type PublicPort struct {
 	UpdatedAt int64
 }
 
+type ServerSetting struct {
+	ID                  int64
+	Signups             string
+	ProjectInviteApps   int64
+	QuotaApps           int64
+	QuotaMemoryMb       int64
+	QuotaCpuMillis      int64
+	QuotaDeploysPerHour int64
+	QuotaDomainsPerApp  int64
+	QuotaVolumeMb       int64
+	UpdatedAt           int64
+}
+
 type Session struct {
 	IDHash            string
 	UserID            string
@@ -532,6 +545,9 @@ type User struct {
 	CreatedAt           int64
 	UpdatedAt           int64
 	Overallocate        int64
+	JoinedVia           string
+	JoinedBy            string
+	JoinedProject       string
 }
 
 type UserAppDomain struct {

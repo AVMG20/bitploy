@@ -35,7 +35,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := &config.Config{PublicURL: pub, AppsDomain: "bitploy.test", AppsScheme: "https", DataDir: dir, Signup: "invite"}
+	cfg := &config.Config{PublicURL: pub, AppsDomain: "bitploy.test", AppsScheme: "https", DataDir: dir}
 	st, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)

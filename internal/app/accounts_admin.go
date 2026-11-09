@@ -28,7 +28,8 @@ func (s *Service) adminUser(ctx context.Context, u db.User) (AdminUser, error) {
 	if err != nil {
 		return AdminUser{}, apperr.Internal(err)
 	}
-	return AdminUser{User: acctUserFromRow(u), Quota: acctQuotaFromRow(u), Usage: usage, AppCount: n, AppDomainIDs: grants}, nil
+	return AdminUser{User: acctUserFromRow(u), Quota: acctQuotaFromRow(u), Usage: usage, AppCount: n, AppDomainIDs: grants,
+		Joined: s.accountOrigin(ctx, u)}, nil
 }
 
 func (s *Service) AdminListUsers(ctx context.Context, a Actor) ([]AdminUser, error) {

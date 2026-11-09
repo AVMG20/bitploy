@@ -458,7 +458,8 @@ func (s *Service) SignOutEverywhere(ctx context.Context, a Actor, cookie string)
 	return nil
 }
 
-// CreateUser is used by `bitploy admin create-user`.
+// CreateUser is used by `bitploy admin create-user`. The account gets the
+// limits for new accounts (server settings).
 func (s *Service) CreateUser(ctx context.Context, email, name, password string, admin bool) (User, error) {
 	email, err := acctValidEmail(email)
 	if err != nil {
@@ -475,7 +476,12 @@ func (s *Service) CreateUser(ctx context.Context, email, name, password string, 
 	if admin {
 		role = "admin"
 	}
-	u, err := s.insertUser(ctx, acctNewUser{Email: email, Name: name, Password: password, Role: role})
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return User{}, err
+	}
+	u, err := s.insertUser(ctx, acctNewUser{Email: email, Name: name, Password: password, Role: role,
+		Quota: newAccountQuota(st, joinedSetup), JoinedVia: joinedSetup})
 	if err != nil {
 		return User{}, err
 	}
@@ -496,7 +502,11 @@ func (s *Service) insertUserHashed(ctx context.Context, q *db.Queries, p acctNew
 	id := ids.New(ids.User)
 	now := s.now()
 	err := q.InsertUser(ctx, db.InsertUserParams{
-		ID: id, Email: p.Email, Name: p.Name, PasswordHash: hash, Role: p.Role, CreatedAt: now, UpdatedAt: now,
+		ID: id, Email: p.Email, Name: p.Name, PasswordHash: hash, Role: p.Role,
+		QuotaApps: p.Quota.Apps, QuotaMemoryMb: p.Quota.MemoryMB, QuotaCpuMillis: p.Quota.CPUMillis,
+		QuotaDeploysPerHour: p.Quota.DeploysPerHour, QuotaDomainsPerApp: p.Quota.DomainsPerApp, QuotaVolumeMb: p.Quota.VolumeMB,
+		JoinedVia: p.JoinedVia, JoinedBy: p.JoinedBy, JoinedProject: p.JoinedProject,
+		CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
 		if acctIsUnique(err) {

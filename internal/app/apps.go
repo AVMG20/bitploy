@@ -230,6 +230,9 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 					fmt.Sprintf("The owner of this project already has %d apps, which is the maximum for their account.", n),
 					"Apps in a shared project count against its owner's quota. Ask the owner to make room or to ask a bitploy admin for a higher quota.")
 			}
+			if user.QuotaApps == 0 && n == 0 {
+				return noOwnApps()
+			}
 			return appsQuotaErr(ctx, q, user.ID, n)
 		}
 		if s.Cfg.MaxApps > 0 {
@@ -1311,6 +1314,14 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	cmds := s.deployCommandsOf(ctx, r.ID)
 	v.BeforeDeployCommand, v.AfterDeployCommand = cmds.Before, cmds.After
 	return v
+}
+
+// noOwnApps is apps_quota_exceeded for an account whose app limit is 0, like
+// one made with a project invite while those may not deploy apps of their
+// own: it can still add apps to the projects shared with it.
+func noOwnApps() *apperr.Error {
+	return apperr.Forbidden("apps_quota_exceeded", "Your account can't create apps of its own.",
+		"Ask an admin to raise your limits. Apps in a project shared with you count against its owner: pass that project (list_projects shows them) to add one there.").WithNext("list_projects")
 }
 
 // maxQuotaApps is how many apps the apps_quota_exceeded message names.

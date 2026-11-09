@@ -37,7 +37,7 @@ const (
 	maxProjectMembers        = 50
 	maxPendingProjectInvites = 20
 	// maxProjectInvitesPerDay caps the invites one user makes in 24 hours:
-	// an invite also lets a new account sign up.
+	// an invite can also let a new account sign up (server settings).
 	maxProjectInvitesPerDay = 50
 )
 
@@ -91,6 +91,14 @@ func projectOwnerOnly() *apperr.Error {
 func projectOwnerSuspended() *apperr.Error {
 	return apperr.Forbidden("project_owner_suspended", "The owner of this project is suspended, so nothing can be added to it.",
 		"Ask a bitploy admin, or the project's owner.")
+}
+
+// projectInviteNoSignup refuses a signup through a project invite while only
+// admin invites make accounts.
+func projectInviteNoSignup() *apperr.Error {
+	return apperr.Forbidden("project_invite_signup_off",
+		"You need an account on this server first: this invite only works for people who already have one.",
+		"Log in if you have an account. Otherwise ask an admin of this server for an invite link, make your account, then open this link again.")
 }
 
 func projectInviteInvalid(status int, why string) *apperr.Error {
@@ -334,7 +342,12 @@ func (s *Service) GetProjectInvite(ctx context.Context, code string) (ProjectInv
 	if err != nil {
 		return ProjectInviteInfo{}, err
 	}
-	out := ProjectInviteInfo{ProjectName: p.Name, Email: strPtr(inv.Email), Role: inv.Role, ExpiresAt: ts(inv.ExpiresAt)}
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return ProjectInviteInfo{}, err
+	}
+	out := ProjectInviteInfo{ProjectName: p.Name, Email: strPtr(inv.Email), Role: inv.Role, ExpiresAt: ts(inv.ExpiresAt),
+		Signup: st.Signups != SignupAdminInvites}
 	if inv.CreatedBy.Valid {
 		if u, err := s.Q.GetUser(ctx, inv.CreatedBy.String); err == nil {
 			out.InvitedBy = u.Name
@@ -407,10 +420,11 @@ func (s *Service) AcceptProjectInvite(ctx context.Context, a Actor, code string)
 }
 
 // SignupProjectInvite creates an account from a project invite and adds it
-// to the project, in one go, then logs it in. A project invite lets a new
-// account sign up whatever BITPLOY_SIGNUP says, like a user invite; it
-// shares that invite's limit of 5 signups per hour per IP. The account is a
-// normal user with the default quotas.
+// to the project, in one go, then logs it in. It works unless the server
+// settings let only admin invites make accounts (signups admin_invites), and
+// shares the user invite's limit of 5 signups per hour per IP. The account
+// is a normal user with the limits for new accounts, or none of its own
+// when project_invite_apps is off.
 func (s *Service) SignupProjectInvite(ctx context.Context, code string, in AcceptInviteInput, ip, userAgent string) (string, ProjectSignup, error) {
 	lim := s.limiter()
 	sigKey := "signup|" + ip
@@ -424,7 +438,15 @@ func (s *Service) SignupProjectInvite(ctx context.Context, code string, in Accep
 		}
 		return "", ProjectSignup{}, err
 	}
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return "", ProjectSignup{}, err
+	}
+	if st.Signups == SignupAdminInvites {
+		return "", ProjectSignup{}, projectInviteNoSignup()
+	}
 	user, err := s.signup(ctx, signupReq{in: in, lockedEmail: inv.Email.String, role: "user", sigKey: sigKey,
+		via: joinedProjectInvite, by: inv.CreatedBy.String, project: p.ID,
 		inTx: func(q *db.Queries, u db.User) error { return s.addMember(ctx, q, inv, u.ID) }})
 	if err != nil {
 		return "", ProjectSignup{}, apperr.As(err)
