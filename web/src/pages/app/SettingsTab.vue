@@ -101,7 +101,11 @@ const rootAllowed = computed(
   () => !isPrivate.value && (!!domainChoice.value?.root_allowed || (!!app.data.value?.root && domain.value === app.data.value.domain)),
 )
 const isAdmin = computed(() => me.data.value?.user.role === 'admin' && me.data.value.scope === 'session')
-const rootRefusal = computed(() => (isAdmin.value && !isPrivate.value ? `${shownDomain.value} itself cannot be an app's address. Type a name.` : undefined))
+const rootRefusal = computed(() => {
+  if (!isAdmin.value || isPrivate.value) return undefined
+  const other = me.data.value?.app_domains?.some((d) => d.root_allowed && d.domain !== shownDomain.value)
+  return `${shownDomain.value} itself cannot be an app's address. ${other ? 'Pick another domain, or type a name.' : 'Type a name.'}`
+})
 const addressOf = (a: { slug: string; root: boolean }) => (a.root ? ROOT_ADDRESS : a.slug)
 
 const generalForm = useForm({
@@ -137,6 +141,10 @@ watch(
 )
 const domainChanged = computed(() => !!domain.value && !!app.data.value && domain.value !== app.data.value.domain)
 const typedRoot = computed(() => (generalForm.values.slug ?? '').trim() === ROOT_ADDRESS)
+// Whether @ is allowed depends on the domain: check the Address again when it changes.
+watch([rootAllowed, rootRefusal], () => {
+  if (typedRoot.value) void generalForm.validateField('slug')
+})
 // Another app has the domain itself now: the server refuses @ until it moves.
 const rootHolder = computed(() => {
   const holder = domainChoice.value?.root_app
@@ -207,7 +215,7 @@ const renameDescription = computed(() => {
       : `The app gets ${d} as its address. ${props.slug}.${d} keeps working too.`
   }
   if (app.data.value?.root && next === props.slug && !domainChanged.value) {
-    return `The app moves to ${next}.${d}. ${d} itself stops working, so links and bookmarks to it break.`
+    return `Its address becomes ${next}.${d}, where it already answers. ${d} itself stops working, so links and bookmarks to it break.`
   }
   return `The app moves to ${next}.${d} and is down for a few seconds. The old address stops working, so links and bookmarks to it break.`
 })
@@ -449,13 +457,13 @@ const deleteText = computed(() => {
                     </div>
                     <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
                     <template v-else-if="typedRoot && rootAllowed">
-                      <FormDescription v-if="rootHolder" class="text-warning" data-testid="root-holder">{{ shownDomain }} is the address of {{ rootHolder }} now. Give that app another address first.</FormDescription>
+                      <FormDescription v-if="rootHolder" class="text-warning" data-testid="root-holder">{{ shownDomain }} is the address of {{ rootHolder }}. Give that app another address first.</FormDescription>
                       <FormDescription v-else-if="domainChoice?.root_dns" data-testid="root-dns">{{ domainChoice.root_dns }}</FormDescription>
                       <FormDescription v-if="!rootHolder">The app answers on {{ shownDomain }} and on {{ props.slug }}.{{ shownDomain }}.</FormDescription>
                     </template>
                     <template v-else>
                       <FormDescription>Changing it moves the app to a new address. The old one stays reserved for you for 30 days.</FormDescription>
-                      <FormDescription v-if="isAdmin && domainChoice?.root_allowed" data-testid="root-hint">@ uses the domain itself: {{ shownDomain }}</FormDescription>
+                      <FormDescription v-if="isAdmin && domainChoice?.root_allowed" data-testid="root-hint">Type @ to make {{ shownDomain }} itself the address.</FormDescription>
                     </template>
                     <FormMessage />
                   </FormItem>
