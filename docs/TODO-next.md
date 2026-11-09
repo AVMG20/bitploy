@@ -15,6 +15,9 @@ and one audit round covering a code review, the MCP flows and a beginner UI pass
 - **`query_db` with a service alias** (`postgres`) instead of its slug gives a plain `app_not_found`.
 - **Dashboard leftovers from the UI audit**: the secret build variable help still says `RUN --mount=type=secret` (shown only for apps with their own Dockerfile); deploy progress on the Overview has no step for deploy commands; phone-light and desktop-dark were only spot-checked after the last fixes; mk-worker's overview showed blank once while the mock restarted (not reproduced).
 - **More audit rounds**: only one was run this time, by choice.
+- **Cloudflare IP ranges live in two places**: hardcoded in Go (`internal/auth/cloudflare.go`) and in the Traefik config (`deploy/traefik/traefik.yml`, refreshed by `deploy/update-cloudflare-ips.sh`). Updating them means a code change and a rebuild, which someone on the published image can't do. Read both from one file in the data dir instead.
+- **Disk-space alert to the admin**: the Server page warns below 20% free, but nobody is told. A notification once it drops below 20% would catch it before builds and backups are refused at 15%.
+- **Tagged releases**: `install.sh` installs the latest commit on `main`. The version is now on the Admin Server page; installing tags is optional.
 
 ## Decided against or postponed
 
