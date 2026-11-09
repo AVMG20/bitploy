@@ -99,7 +99,7 @@ test('browser names', () => {
 })
 
 test('emergency marks per channel type', () => {
-  assert.equal(emergencyMark('discord'), 'pings @everyone')
+  assert.equal(emergencyMark('discord'), 'pings @here')
   assert.equal(emergencyMark('browser'), 'stays on screen')
 })
 

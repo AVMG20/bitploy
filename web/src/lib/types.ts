@@ -1225,7 +1225,7 @@ export interface NotificationEvent {
   group: NotificationEventGroup
   label: string
   description?: string
-  /** Announced loudly: @everyone on Discord instead of @here. */
+  /** Announced loudly: @here on Discord, where other messages ping nobody. */
   emergency: boolean
   /** On for a new channel. */
   default: boolean

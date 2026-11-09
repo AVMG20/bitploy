@@ -22,7 +22,7 @@ func (a *API) notificationRoutes() {
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "getNotificationOptions", Method: http.MethodGet, Path: "/notifications/options", Tags: []string{"Notifications"},
 		Summary: "List the notification events and channel types",
-		Description: "Session only. Emergency events mention @everyone on Discord (the others @here) and stay on screen in a browser until clicked. " +
+		Description: "Session only. Emergency events mention @here on Discord (the others mention nobody) and stay on screen in a browser until clicked. " +
 			"vapid_public_key is the applicationServerKey for a browser's pushManager.subscribe.",
 	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.NotificationOptions], error) {
 		return okOrNil(a.svc.NotificationOptions(ctx, act))

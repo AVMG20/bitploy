@@ -158,19 +158,19 @@ type DiscordPayload struct {
 	Embeds []discordEmbed `json:"embeds"`
 }
 
-// DiscordMessage renders a message: @everyone for an emergency, @here for
-// the rest, then the title; the details go in one embed.
+// DiscordMessage renders a message: @here before the title of an emergency,
+// no mention for the rest; the details go in one embed.
 func DiscordMessage(m Message) DiscordPayload {
-	mention := "@here"
-	if m.Severity == Emergency {
-		mention = "@everyone"
-	}
 	var p DiscordPayload
-	p.Content = truncate(mention+" "+escapeMarkdown(m.Title), discordContentMax)
+	p.Content = truncate(escapeMarkdown(m.Title), discordContentMax)
 	p.Username = "bitploy"
-	// "everyone" lets both @everyone and @here ping; nothing else in the
-	// text (a commit message with <@id>) can.
-	p.AllowedMentions.Parse = []string{"everyone"}
+	// Nothing in the text (a commit message with <@id> or @everyone) pings;
+	// only an emergency allows "everyone", which covers the @here added here.
+	p.AllowedMentions.Parse = []string{}
+	if m.Severity == Emergency {
+		p.Content = truncate("@here "+escapeMarkdown(m.Title), discordContentMax)
+		p.AllowedMentions.Parse = []string{"everyone"}
+	}
 	e := discordEmbed{
 		Title: truncate(m.Title, discordTitleMax),
 		Color: discordColors[m.Tone],

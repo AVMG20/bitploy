@@ -237,7 +237,7 @@ func TestNotificationsReachTheAppsUsers(t *testing.T) {
 	}
 
 	// A deployment that a restart of bitploy stopped failed, but nothing
-	// broke: no @everyone.
+	// broke: no @here.
 	m.insertDep(t, m.app, "dep_int", 3, "failed")
 	m.exec(t, `UPDATE deployments SET error_code = 'interrupted', error_message = 'bitploy restarted' WHERE id = 'dep_int'`)
 	m.s.notifyDeployment(ctx, "dep_int", EventDeploymentFailed)

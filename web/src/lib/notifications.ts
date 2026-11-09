@@ -86,7 +86,7 @@ export function browserName(ua: string): string {
 
 /** How a channel type announces an emergency event, as a short mark next to it. */
 export function emergencyMark(type: NotificationChannelType): string {
-  return type === 'discord' ? 'pings @everyone' : 'stays on screen'
+  return type === 'discord' ? 'pings @here' : 'stays on screen'
 }
 
 /** Where a channel's messages go, when its name and type do not say it; else ''. */

@@ -121,7 +121,7 @@ func TestDiscordMessageShape(t *testing.T) {
 	b, _ := json.Marshal(DiscordMessage(m))
 	var got map[string]any
 	_ = json.Unmarshal(b, &got)
-	if got["content"] != "@everyone shop: deployment 12 failed" {
+	if got["content"] != "@here shop: deployment 12 failed" {
 		t.Errorf("content = %v", got["content"])
 	}
 	am := got["allowed_mentions"].(map[string]any)["parse"].([]any)
@@ -141,8 +141,11 @@ func TestDiscordMessageShape(t *testing.T) {
 
 	m.Severity, m.Tone = Normal, ToneSuccess
 	p := DiscordMessage(m)
-	if !strings.HasPrefix(p.Content, "@here ") || p.Embeds[0].Color != 0x22c55e {
+	if p.Content != "shop: deployment 12 failed" || len(p.AllowedMentions.Parse) != 0 || p.Embeds[0].Color != 0x22c55e {
 		t.Errorf("normal = %+v", p)
+	}
+	if b, _ := json.Marshal(p); !strings.Contains(string(b), `"allowed_mentions":{"parse":[]}`) {
+		t.Errorf("normal must send an empty parse list, got %s", b)
 	}
 	m.Tone = ToneProgress
 	if c := DiscordMessage(m).Embeds[0].Color; c != 0xf97316 {
@@ -219,7 +222,7 @@ func TestDiscordSendRetriesAfter429(t *testing.T) {
 	if f.paths[0] != "/api/webhooks/"+testID+"/"+testToken+"?wait=true" {
 		t.Errorf("path = %s", f.paths[0])
 	}
-	if !strings.Contains(f.bodies[1], `"content":"@here hi"`) {
+	if !strings.Contains(f.bodies[1], `"content":"hi"`) {
 		t.Errorf("body = %s", f.bodies[1])
 	}
 }
@@ -290,7 +293,7 @@ func TestSafeClientRefusesLoopback(t *testing.T) {
 
 func TestDiscordContentIsPlainText(t *testing.T) {
 	p := DiscordMessage(Message{Title: "[click](https://evil.test) @everyone *x*", Severity: Normal})
-	if !strings.HasPrefix(p.Content, "@here ") || strings.Contains(p.Content, "[click]") ||
+	if strings.HasPrefix(p.Content, "@here") || len(p.AllowedMentions.Parse) != 0 || strings.Contains(p.Content, "[click]") ||
 		strings.Contains(p.Content, " @everyone") || strings.Contains(p.Content, " *x*") {
 		t.Fatalf("content = %q", p.Content)
 	}

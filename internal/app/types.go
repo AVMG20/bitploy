@@ -891,7 +891,7 @@ type NotificationEvent struct {
 	Group       string `json:"group" enum:"deployments,backups,app"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
-	Emergency   bool   `json:"emergency" doc:"Announced loudly: @everyone on Discord instead of @here"`
+	Emergency   bool   `json:"emergency" doc:"Announced loudly: @here on Discord, where other messages ping nobody"`
 	Default     bool   `json:"default" doc:"On for a new channel when no events are given"`
 }
 

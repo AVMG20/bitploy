@@ -17,7 +17,7 @@ function set(type: string, on: boolean) {
 <template>
   <fieldset class="grid gap-4">
     <legend class="mb-2 text-sm font-medium">Events</legend>
-    <p v-if="type === 'discord'" class="-mt-2 text-sm text-muted-foreground">Each message pings @here. Emergencies ping @everyone.</p>
+    <p v-if="type === 'discord'" class="-mt-2 text-sm text-muted-foreground">Emergencies ping @here. Other messages ping nobody.</p>
     <div v-for="g in groups" :key="g.group" class="grid gap-1">
       <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">{{ g.label }}</p>
       <label

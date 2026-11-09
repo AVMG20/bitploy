@@ -15,7 +15,7 @@ import (
 )
 
 // Severity says how loudly a message is announced. What that means is up
-// to the sender (Discord: @here or @everyone).
+// to the sender (Discord: @here for an emergency, no mention otherwise).
 type Severity string
 
 const (
