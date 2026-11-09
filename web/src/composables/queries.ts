@@ -175,8 +175,9 @@ export function useServerMetrics(window: MaybeRefOrGetter<MetricWindow>) {
 }
 
 /** The backups of an app; refreshes every 2 seconds while one is being made or restored (and live events are not arriving). */
-export function useBackups(slug: MaybeRefOrGetter<string>) {
+export function useBackups(slug: MaybeRefOrGetter<string>, enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
+    enabled: () => toValue(enabled),
     queryKey: computed(() => keys.backups(toValue(slug))),
     queryFn: () => api.backups(toValue(slug)),
     refetchInterval: (q) => liveMs(q.state.data?.busy || q.state.data?.restore?.state === 'running' ? 2_000 : 15_000),

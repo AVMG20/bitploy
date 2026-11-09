@@ -773,7 +773,7 @@ function seedEnv(slug: string, vars: { name: string; value?: string; service?: s
 apps.push(
   makeApp({ slug: 'portfolio', name: 'Portfolio', project: 'prj_portfolio', alias: 'portfolio', port: 80, repo: 'ada/portfolio', static: true, memory: 32, cpu: 100, createdDaysAgo: 60, deploys: 5 }),
   makeApp({ slug: 'shop-web', name: 'web', project: 'prj_shop', alias: 'web', port: 3000, repo: 'ada/shop', memory: 512, cpu: 500, createdDaysAgo: 30, deploys: 4,
-    volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: 1024, used_mb: 24 }] }),
+    volumes: [{ name: 'data', service: 'app', mount_path: '/data', size_mb: 1024, used_mb: 880 }] }),
   makeApp({ slug: 'shop-api', name: 'api', project: 'prj_shop', alias: 'api', type: 'worker', port: 8080, repo: 'ada/api-go', memory: 256, cpu: 250, createdDaysAgo: 29, deploys: 3 }),
   makeApp({ slug: 'shop-postgres', name: 'postgres', project: 'prj_shop', alias: 'postgres', template: 'postgres', templateVersion: '18.4', type: 'worker', port: 5432, memory: 256, cpu: 250, createdDaysAgo: 28, deploys: 1,
     volumes: [{ name: 'pgdata', service: 'app', mount_path: '/var/lib/postgresql/data', size_mb: 2048, used_mb: 184 }] }),
@@ -1141,11 +1141,13 @@ function metricsOf(app: App, window: string, svc: string): Metrics {
   const r = seeded(`${app.slug}-${svc}-${window}`)
   const points: MetricPoint[] = []
   if (running) {
-    let m = mem * (0.3 + r() * 0.2)
-    let c = cpu * 0.04
+    // shop-web runs hot: above 75% of its memory and CPU, so the usage bars turn red.
+    const hot = app.slug === 'shop-web'
+    let m = mem * (hot ? 0.82 : 0.3 + r() * 0.2)
+    let c = cpu * (hot ? 0.08 : 0.04)
     for (let i = 59; i >= 0; i--) {
-      m = Math.max(mem * 0.1, Math.min(mem * 0.9, m + (r() - 0.48) * mem * 0.04))
-      c = Math.max(0.2, Math.min(cpu * 0.09, c + (r() - 0.5) * cpu * 0.02))
+      m = Math.max(mem * (hot ? 0.8 : 0.1), Math.min(mem * 0.9, m + (r() - 0.48) * mem * 0.04))
+      c = Math.max(hot ? cpu * 0.078 : 0.2, Math.min(cpu * 0.09, c + (r() - 0.5) * cpu * 0.02))
       points.push({ ts: ago(i * stepMin), cpu: Math.round(c * 10) / 10, memory_mb: Math.round(m), rx_bytes: Math.round(r() * 40000), tx_bytes: Math.round(r() * 90000) })
     }
   }

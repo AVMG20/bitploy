@@ -15,12 +15,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useApp, useAppMetrics, useAppVisitorsToday } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
-import { CPU_HINT, appStatusInfo, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCPU, formatCPUMillis, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
+import { CPU_HINT, appStatusInfo, commitUrl, cpuFromPercent, deployedVia, describeSource, formatCPU, formatDuration, formatMB, pct, shortSha, uptime, versionLabel } from '@/lib/format'
 import type { MetricWindow } from '@/lib/types'
 import DeployProgress from './DeployProgress.vue'
+import ConnectCard from './ConnectCard.vue'
 import FirstSteps from './FirstSteps.vue'
 import { plainHint } from '@/lib/errors'
 import UploadVersionButton from './UploadVersionButton.vue'
@@ -52,6 +52,14 @@ const cpuLimit = computed(() => (data.value?.cpu_millis ?? 0) / 1000) // in CPUs
 const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? data.value?.memory_mb ?? 0)
 // Where the saved files are: /data, or the folder a ready-made database keeps its data in.
 const mountPath = computed(() => data.value?.volumes?.[0]?.mount_path || '/data')
+// Memory and CPU stay green and orange; above 75% of the limit they turn red.
+const OVER = 75
+const RED = '[&>[data-slot=progress-indicator]]:bg-destructive'
+const memoryPct = computed(() => (live.value ? pct(live.value.memory_mb, data.value?.memory_mb ?? 0) : 0))
+const cpuPct = computed(() => (live.value ? pct(cpuFromPercent(live.value.cpu), cpuLimit.value) : 0))
+const volumePct = computed(() => pct(data.value?.volume_used_mb ?? 0, data.value?.volume_mb ?? 0))
+// The fourth number: visitors of a website, else the restarts, once there are any.
+const lastStat = computed<'visitors' | 'restarts' | null>(() => (isWeb.value ? 'visitors' : (data.value?.restart_count ?? 0) > 0 ? 'restarts' : null))
 // Going back to an earlier version starts its kept image: there is no build.
 const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
 </script>
@@ -74,7 +82,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
       <AlertDescription>{{ data.status_message }}</AlertDescription>
     </Alert>
 
-    <FirstSteps v-if="data.catalog_id" :app="data" />
+    <FirstSteps v-if="data.catalog_id && running" :app="data" />
 
     <DeployProgress v-if="!dep" :slug="slug" :app="data">
       <EmptyState
@@ -91,7 +99,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
 
     <template v-else>
       <!-- Live numbers: what the app uses right now, against its limits. -->
-      <div class="grid grid-cols-2 overflow-hidden rounded-xl border bg-card shadow-card lg:grid-cols-4">
+      <div class="grid grid-cols-2 overflow-hidden rounded-xl border bg-card shadow-card" :class="lastStat ? 'lg:grid-cols-4' : 'lg:grid-cols-3'">
         <div class="border-b p-4 lg:border-b-0">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Running for</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums"><template v-if="running">{{ uptime(data.started_at, nowMs) }}</template><span v-else class="text-muted-foreground">{{ appStatusInfo(data.status).label }}</span></p>
@@ -105,25 +113,25 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
             {{ live ? formatMB(live.memory_mb) : running ? '...' : '0 MB' }}
             <span class="text-sm whitespace-nowrap font-normal tracking-normal text-muted-foreground">of {{ formatMB(data.memory_mb) }}</span>
           </p>
-          <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :model-value="live ? pct(live.memory_mb, data.memory_mb) : 0" />
+          <Progress class="mt-2 [&>[data-slot=progress-indicator]]:bg-success" :class="memoryPct > OVER && RED" :model-value="memoryPct" />
         </div>
-        <div class="p-4 lg:border-l">
+        <div class="p-4 lg:border-l" :class="!lastStat && 'col-span-2 lg:col-span-1'">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">CPU now</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">
             {{ live ? formatCPU(cpuFromPercent(live.cpu)).replace(' CPU', '') : running ? '...' : '0' }}
             <span class="text-sm font-normal tracking-normal text-muted-foreground" :title="CPU_HINT">of {{ formatCPU(cpuLimit) }}</span>
           </p>
-          <Progress class="mt-2" :model-value="live ? pct(cpuFromPercent(live.cpu), cpuLimit) : 0" />
+          <Progress class="mt-2" :class="cpuPct > OVER && RED" :model-value="cpuPct" />
         </div>
         <RouterLink
-          v-if="isWeb"
+          v-if="lastStat === 'visitors'"
           :to="{ name: 'app-traffic', params: { slug } }"
           class="border-l p-4 transition-colors hover:bg-muted/40"
         >
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Visitors today</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums"><CompactCount v-if="traffic.data.value" :n="traffic.data.value.visitors_today" /><template v-else>-</template></p>
         </RouterLink>
-        <div v-else class="border-l p-4">
+        <div v-else-if="lastStat === 'restarts'" class="border-l p-4">
           <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Automatic restarts</p>
           <p class="mt-1 text-xl font-semibold tracking-tight tabular-nums">{{ data.restart_count }}</p>
         </div>
@@ -163,14 +171,15 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
         </CardContent>
       </Card>
 
-      <div class="grid gap-4 lg:grid-cols-2">
-        <Card>
+      <div class="grid items-start gap-4 lg:grid-cols-2">
+        <ConnectCard v-if="data.template" :app="data" />
+        <Card v-else>
           <CardHeader class="flex flex-row items-center justify-between gap-2">
             <CardTitle>{{ running ? 'Live version' : 'Current version' }}</CardTitle>
             <span class="text-xs text-muted-foreground">{{ versionLabel(dep.seq) }}</span>
           </CardHeader>
           <CardContent class="flex flex-1 flex-col">
-            <dl class="mb-5 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2.5 text-sm">
+            <dl class="mb-4 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2.5 text-sm">
               <dt class="text-muted-foreground">Source</dt>
               <dd class="min-w-0">{{ describeSource(dep, data) }}</dd>
               <template v-if="dep.commit_sha">
@@ -187,18 +196,6 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
                 <dt class="text-muted-foreground">Build took</dt>
                 <dd>{{ formatDuration(dep.duration_seconds) }}</dd>
               </template>
-              <dt class="text-muted-foreground">Type</dt>
-              <dd>
-                <Tooltip v-if="data.static">
-                  <TooltipTrigger as-child>
-                    <button type="button" class="cursor-help underline decoration-dotted underline-offset-4">Static site</button>
-                  </TooltipTrigger>
-                  <TooltipContent>Static sites do not count towards your memory and CPU allowance.</TooltipContent>
-                </Tooltip>
-                <template v-else>{{ data.type === 'worker' ? 'In the background, no web address' : 'Open to visitors' }}</template>
-              </dd>
-              <dt class="text-muted-foreground">Size</dt>
-              <dd>{{ formatMB(data.memory_mb) }} memory, {{ formatCPUMillis(data.cpu_millis) }}</dd>
             </dl>
             <div class="mt-auto flex items-center justify-end gap-3 border-t pt-3 text-xs text-muted-foreground">
               <RouterLink :to="{ name: 'app-deployments', params: { slug } }" class="inline-flex items-center gap-1 font-medium text-foreground hover:underline">
@@ -212,7 +209,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
           <CardHeader>
             <CardTitle>Storage</CardTitle>
           </CardHeader>
-          <CardContent class="flex flex-1 flex-col gap-4 pb-1 text-sm">
+          <CardContent class="flex flex-col gap-3 text-sm">
             <div class="flex items-baseline justify-between gap-4">
               <span class="text-muted-foreground">App files <span class="text-muted-foreground/70">(code, image, saved versions)</span></span>
               <span class="shrink-0 font-semibold tabular-nums">{{ data.files_mb !== null ? formatMB(data.files_mb) : 'Not measured yet' }}</span>
@@ -225,7 +222,7 @@ const rolledBack = computed(() => dep.value?.source_kind === 'rollback')
                   <template v-else><span class="font-normal text-muted-foreground">Limit</span> {{ formatMB(data.volume_mb) }}</template>
                 </span>
               </div>
-              <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :model-value="pct(data.volume_used_mb ?? 0, data.volume_mb)" />
+              <Progress class="[&>[data-slot=progress-indicator]]:bg-success" :class="volumePct > OVER && RED" :model-value="volumePct" />
             </div>
             <div v-else class="flex items-baseline justify-between gap-4">
               <span class="text-muted-foreground">Saved files <span class="font-mono text-xs text-muted-foreground/70">{{ mountPath }}</span></span>
