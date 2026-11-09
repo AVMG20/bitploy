@@ -71,12 +71,12 @@ const emit = defineEmits<{
             :aria-sort="orderBy === c ? (desc ? 'descending' : 'ascending') : undefined"
           >
             <button v-if="sortable && !redacted?.includes(c)" type="button" class="-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-foreground" :class="orderBy === c && 'text-foreground'" @click="emit('sort', c)">
-              <KeyRound v-if="keyColumns?.includes(c)" class="size-3 text-warning" aria-label="Primary key" />
+              <KeyRound v-if="keyColumns?.includes(c)" class="size-3 text-warning-text" aria-label="Primary key" />
               {{ c }}
               <component :is="desc ? ArrowDown : ArrowUp" v-if="orderBy === c" class="size-3" />
             </button>
             <span v-else class="inline-flex items-center gap-1">
-              <KeyRound v-if="keyColumns?.includes(c)" class="size-3 text-warning" aria-label="Primary key" />
+              <KeyRound v-if="keyColumns?.includes(c)" class="size-3 text-warning-text" aria-label="Primary key" />
               {{ c }}
             </span>
           </th>

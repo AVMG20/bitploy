@@ -90,7 +90,7 @@ watch(
           :aria-current="i === step ? 'step' : undefined"
         >
           <Check v-if="i < step || latest.state === 'running'" class="size-4 shrink-0 text-success" />
-          <LoaderCircle v-else-if="i === step" class="size-4 shrink-0 animate-spin text-primary" />
+          <LoaderCircle v-else-if="i === step" class="size-4 shrink-0 animate-spin text-primary-text" />
           <span v-else class="size-4 shrink-0 rounded-full border border-dashed" aria-hidden="true" />
           <span :class="i === step && 'font-medium'">{{ s.label }}</span>
         </li>

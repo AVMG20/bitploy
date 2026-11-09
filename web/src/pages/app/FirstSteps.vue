@@ -66,7 +66,7 @@ function setOpen(v: boolean) {
               <span class="min-w-0 break-words">
                 <template v-for="(part, j) in s" :key="j">
                   <span v-if="part.url" class="inline-flex max-w-full items-center gap-0.5 align-middle">
-                    <a :href="part.text" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] underline underline-offset-2 hover:text-primary">{{ part.text }}</a>
+                    <a :href="part.text" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[13px] underline underline-offset-2 hover:text-primary-text">{{ part.text }}</a>
                     <CopyButton :value="part.text" what="Link copied" label="Copy link" icon class="size-6 text-muted-foreground" />
                   </span>
                   <template v-else>{{ part.text }}</template>

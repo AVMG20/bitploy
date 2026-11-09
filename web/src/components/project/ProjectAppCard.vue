@@ -102,7 +102,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
       </a>
       <span
         v-else-if="openPort"
-        class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-medium text-primary"
+        class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-medium text-primary-text"
         :title="openPort.title"
         data-testid="public-port-badge"
       >

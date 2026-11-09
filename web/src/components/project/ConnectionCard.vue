@@ -117,7 +117,7 @@ const connect = useMutation({
         <ul class="divide-y rounded-md border bg-muted/30">
           <li v-for="v in vars" :key="v.name" class="flex flex-wrap items-center gap-x-1 gap-y-1 px-3 py-1.5 font-mono text-sm">
             <span class="font-medium">{{ v.name }}</span><span class="text-muted-foreground">=</span><span class="min-w-0 truncate text-muted-foreground">{{ referenceText(alias, v.name) }}</span>
-            <span v-if="v.main" class="ml-1 rounded bg-primary/10 px-1.5 py-0.5 font-sans text-[11px] text-primary">most apps need this one</span>
+            <span v-if="v.main" class="ml-1 rounded bg-primary/10 px-1.5 py-0.5 font-sans text-[11px] text-primary-text">most apps need this one</span>
             <CopyButton class="ml-auto font-sans" :value="referenceText(alias, v.name)" label="Copy value" :what="`Copied. In the other app, add ${v.name} and paste this as its value.`" />
           </li>
         </ul>

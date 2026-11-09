@@ -457,7 +457,7 @@ const deleteText = computed(() => {
                     </div>
                     <FormDescription v-if="isPrivate">It has no web address. The other apps reach it by its short name, below.</FormDescription>
                     <template v-else-if="typedRoot && rootAllowed">
-                      <FormDescription v-if="rootHolder" class="text-warning" data-testid="root-holder">{{ shownDomain }} is the address of {{ rootHolder }}. Give that app another address first.</FormDescription>
+                      <FormDescription v-if="rootHolder" class="text-warning-text" data-testid="root-holder">{{ shownDomain }} is the address of {{ rootHolder }}. Give that app another address first.</FormDescription>
                       <FormDescription v-else-if="domainChoice?.root_dns" data-testid="root-dns">{{ domainChoice.root_dns }}</FormDescription>
                       <FormDescription v-if="!rootHolder">The app answers on {{ shownDomain }} and on {{ props.slug }}.{{ shownDomain }}.</FormDescription>
                     </template>
@@ -537,7 +537,7 @@ const deleteText = computed(() => {
             <QueryError v-if="dockerfile.isError.value && !dockerfile.data.value" :error="dockerfile.error.value" @retry="dockerfile.refetch()" />
             <form v-else-if="dockerfile.data.value?.editable || dockerfile.data.value?.content" class="grid gap-4" novalidate @submit.prevent="saveDockerfile.mutate()">
               <DockerfileEditor v-model="dockerfileText" :readonly="!dockerfile.data.value?.editable" :disabled="saveDockerfile.isPending.value" />
-              <p v-if="dockerfileStale" class="text-xs text-warning">The saved Dockerfile changed since you started editing. Discard to see it, or save to replace it.</p>
+              <p v-if="dockerfileStale" class="text-xs text-warning-text">The saved Dockerfile changed since you started editing. Discard to see it, or save to replace it.</p>
               <div v-if="dockerfile.data.value?.editable" class="flex flex-wrap items-center gap-3">
                 <Button type="submit" :disabled="!dockerfileDirty || !dockerfileText.trim() || saveDockerfile.isPending.value">{{ saveDockerfile.isPending.value ? 'Saving...' : 'Save and deploy' }}</Button>
                 <Button v-if="dockerfileDirty" type="button" variant="ghost" :disabled="saveDockerfile.isPending.value" @click="discardDockerfile">Discard</Button>

@@ -130,7 +130,7 @@ const saveLabel = computed(() => {
             :class="cn('flex items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50', type === t.type && 'border-primary bg-primary/5')"
             @click="pickType(t.type)"
           >
-            <component :is="t.icon" class="mt-0.5 size-4 shrink-0" :class="type === t.type ? 'text-primary' : 'text-muted-foreground'" />
+            <component :is="t.icon" class="mt-0.5 size-4 shrink-0" :class="type === t.type ? 'text-primary-text' : 'text-muted-foreground'" />
             <span class="grid gap-0.5">
               <span class="text-sm font-medium">{{ t.label }}</span>
               <span class="text-xs text-muted-foreground">{{ t.blurb }}</span>

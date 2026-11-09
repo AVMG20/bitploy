@@ -154,7 +154,7 @@ const deleteOpen = ref(false)
           <button
             v-if="data.catalog_update"
             type="button"
-            class="inline-flex h-5.5 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+            class="inline-flex h-5.5 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary-text transition-colors hover:bg-primary/15"
             @click="updateOpen = true"
           >
             <ArrowUpCircle class="size-3.5" aria-hidden="true" /> Update to {{ data.catalog_update }}
@@ -168,7 +168,7 @@ const deleteOpen = ref(false)
               <Lock class="size-3.5" aria-hidden="true" /> Private
             </span>
           </span>
-          <span v-else-if="openPort" class="inline-flex items-center gap-1 font-medium text-primary" :title="openPort.title" data-testid="header-public-port">
+          <span v-else-if="openPort" class="inline-flex items-center gap-1 font-medium text-primary-text" :title="openPort.title" data-testid="header-public-port">
             <Globe class="size-3.5" aria-hidden="true" /> {{ openPort.text }}
           </span>
           <span v-else-if="internalHostOf(data)" class="inline-flex items-center gap-1" :title="`The other apps of the project reach it at ${internalHostOf(data)}. The internet cannot.`">
@@ -242,7 +242,7 @@ const deleteOpen = ref(false)
         role="status"
         class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm"
       >
-        <RotateCw class="size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" aria-hidden="true" />
+        <RotateCw class="size-4 shrink-0 text-warning-text" aria-hidden="true" />
         <p class="min-w-0 flex-1">
           <span class="font-medium">{{ pending.needsBuild.value ? 'Deploy again to apply your changes.' : 'Restart to apply your changes.' }}</span>
           <span class="text-muted-foreground">

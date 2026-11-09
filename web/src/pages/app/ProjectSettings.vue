@@ -55,7 +55,7 @@ const aliasFail = computed(() => (saveAlias.error.value ? friendlyError(saveAlia
           <Input id="app-alias" v-model="alias" class="max-w-xs font-mono" autocapitalize="off" autocomplete="off" spellcheck="false" :aria-invalid="!!aliasError || undefined" />
           <p v-if="aliasError" class="text-[0.8rem] text-destructive">{{ aliasError }}</p>
           <p v-else-if="aliasFail" class="text-[0.8rem] text-destructive">{{ aliasFail }}</p>
-          <p v-else-if="users.length && alias.trim() !== aliasOf(app)" class="text-[0.8rem] text-warning">
+          <p v-else-if="users.length && alias.trim() !== aliasOf(app)" class="text-[0.8rem] text-warning-text">
             {{ listWords(users.map((u) => u.name)) }} {{ users.length === 1 ? 'uses' : 'use' }} <span class="font-mono">{{ aliasOf(app) }}</span> in {{ users.length === 1 ? 'its' : 'their' }} variables. Change those too, or they lose the connection.
           </p>
         </div>

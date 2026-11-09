@@ -20,7 +20,7 @@ const mark = computed(() => (props.logo ? logoFor(props.logo) : null))
     :class="cn(
       'flex shrink-0 items-center justify-center rounded-lg border',
       size === 'sm' ? 'size-7' : 'size-9',
-      mark ? 'bg-muted/60 text-foreground' : role === 'website' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/60 text-muted-foreground',
+      mark ? 'bg-muted/60 text-foreground' : role === 'website' ? 'border-primary/30 bg-primary/10 text-primary-text' : 'bg-muted/60 text-muted-foreground',
     )"
     aria-hidden="true"
   >

@@ -51,7 +51,7 @@ const indexSql = computed(() =>
               </TableCell>
               <TableCell>
                 <span v-if="c.pk > 0" class="inline-flex items-center gap-1 text-[13px]">
-                  <KeyRound class="size-3.5 text-warning" /> Primary key<template v-if="table.columns.filter((x) => x.pk > 0).length > 1"> ({{ c.pk }})</template>
+                  <KeyRound class="size-3.5 text-warning-text" /> Primary key<template v-if="table.columns.filter((x) => x.pk > 0).length > 1"> ({{ c.pk }})</template>
                 </span>
                 <span v-if="references[c.name]" class="block font-mono text-xs text-muted-foreground" :class="c.pk > 0 && 'mt-0.5'" title="Foreign key">
                   &rarr; {{ references[c.name]!.table }}<template v-if="references[c.name]!.column">.{{ references[c.name]!.column }}</template>

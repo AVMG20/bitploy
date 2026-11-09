@@ -163,7 +163,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
               class="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs text-foreground"
               title="Visitors open this service at the app's address."
             >
-              <Globe class="size-3 shrink-0 text-primary" /> <span class="truncate font-mono">{{ address }}</span>
+              <Globe class="size-3 shrink-0 text-primary-text" /> <span class="truncate font-mono">{{ address }}</span>
             </span>
             <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground" :title="s.port ? `Only the other services reach it, at ${s.name}:${s.port}.` : 'It does not listen for requests.'">
               <Lock class="size-3 shrink-0" /> Private
@@ -214,7 +214,7 @@ const noPublic = computed(() => services.value.length > 0 && !services.value.som
         {{ quotaMessage || 'This does not fit in what is left of your allowance.' }} Deploy stays off until it fits: lower the limits in the file (mem_limit, cpus, volume size), delete another app, or ask your admin for more.
       </p>
 
-      <ul v-if="warnings.length" class="grid gap-1 text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">
+      <ul v-if="warnings.length" class="grid gap-1 text-xs text-warning-text">
         <li v-for="(w, i) in warnings" :key="i" class="flex items-start gap-1.5">
           <TriangleAlert class="mt-0.5 size-3 shrink-0" />
           <span>{{ w.code ? [composeIssueText(w).title, composeIssueText(w).detail].filter(Boolean).join(' ') : w.message }}</span>

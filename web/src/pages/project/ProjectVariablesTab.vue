@@ -81,7 +81,7 @@ const panel = (a: App) => appRoute(a)
                   :key="r.raw"
                   class="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-foreground/90"
                   :title="`The value of ${r.variable} in ${r.app}`"
-                ><Cable class="size-3 text-primary" /> {{ r.app }}.{{ r.variable }}</span>
+                ><Cable class="size-3 text-primary-text" /> {{ r.app }}.{{ r.variable }}</span>
               </template>
               <span v-else-if="v.value !== undefined" class="truncate font-mono text-xs text-muted-foreground" :title="v.value">{{ v.value }}</span>
               <span v-else class="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground" title="Hidden: the value is never shown again">{{ v.masked }}<Lock class="size-3" /></span>

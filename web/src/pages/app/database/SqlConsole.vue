@@ -186,7 +186,7 @@ const oneLine = (q: string) => q.replace(/\s+/g, ' ').trim()
         <span class="max-w-full min-w-0 truncate font-mono text-foreground/80" :title="r.sql">{{ results.length > 1 ? `${i + 1}. ` : '' }}<SqlText :sql="oneLine(r.sql)" /></span>
         <span class="text-muted-foreground tabular-nums">{{ outcome(r) }}</span>
       </div>
-      <p v-if="r.truncated" class="text-[0.8rem] text-warning">Only the first {{ formatCount(r.rows.length) }} rows are shown. Add a LIMIT or a WHERE to see the rest.</p>
+      <p v-if="r.truncated" class="text-[0.8rem] text-warning-text">Only the first {{ formatCount(r.rows.length) }} rows are shown. Add a LIMIT or a WHERE to see the rest.</p>
       <DataGrid v-if="r.columns.length" :columns="r.columns" :rows="r.rows" @view="(value, column) => (viewing = { value, column })" />
     </div>
     <p v-if="results.length > 1 && tookMs !== null" class="text-xs text-muted-foreground">{{ results.length }} statements, {{ tookMs }} ms.</p>

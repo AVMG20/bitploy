@@ -191,7 +191,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
           <li
             v-for="(w, i) in d.warnings"
             :key="i"
-            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]'"
+            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-warning-text'"
           >
             {{ w.message }}<template v-if="plainHint(w.code, w.hint)">&nbsp;{{ plainHint(w.code, w.hint) }}</template>
             <RouterLink

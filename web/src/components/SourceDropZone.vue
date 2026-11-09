@@ -332,7 +332,7 @@ onBeforeUnmount(() => abort?.abort())
       <div v-if="detected && !composeChosen" class="grid min-w-0 gap-2 rounded-lg border p-3 text-sm">
         <p class="flex items-start gap-2">
           <TriangleAlert v-if="detected.kind === 'none'" class="mt-0.5 size-4 shrink-0 text-destructive" />
-          <TriangleAlert v-else-if="detected.kind === 'template' && detected.unsure" class="mt-0.5 size-4 shrink-0 text-warning" />
+          <TriangleAlert v-else-if="detected.kind === 'template' && detected.unsure" class="mt-0.5 size-4 shrink-0 text-warning-text" />
           <CircleCheck v-else class="mt-0.5 size-4 shrink-0 text-success" />
           <span v-if="detected.kind === 'none'" class="font-medium">{{ detected.label }}</span>
           <span v-else-if="detected.kind === 'template' && detected.unsure" class="font-medium">This could be a website or a server app.</span>
@@ -354,7 +354,7 @@ onBeforeUnmount(() => abort?.abort())
         <p v-if="detected.kind === 'template' && detected.unsure" class="text-xs text-muted-foreground">
           Choose the type below.
         </p>
-        <p v-if="detected.kind === 'template' && detected.warn" class="text-xs text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]">{{ detected.warn }}</p>
+        <p v-if="detected.kind === 'template' && detected.warn" class="text-xs text-warning-text">{{ detected.warn }}</p>
         <div v-if="homeChoices" class="flex min-w-0 items-center gap-2">
           <span class="shrink-0 text-xs text-muted-foreground">Home page</span>
           <Select v-model="homePage">

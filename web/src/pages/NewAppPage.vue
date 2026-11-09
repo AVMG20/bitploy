@@ -613,7 +613,7 @@ const submit = form.handleSubmit(run)
                 <li
                   v-for="(f, i) in findings"
                   :key="i"
-                  :class="['flex items-start gap-2 rounded-lg border px-3 py-2 text-xs', f.severity === 'error' ? 'border-destructive/40 text-destructive' : 'border-warning/40 text-warning']"
+                  :class="['flex items-start gap-2 rounded-lg border px-3 py-2 text-xs', f.severity === 'error' ? 'border-destructive/40 text-destructive' : 'border-warning/40 text-warning-text']"
                 >
                   <TriangleAlert class="mt-0.5 size-3.5 shrink-0" />
                   <span class="min-w-0">
@@ -678,7 +678,7 @@ const submit = form.handleSubmit(run)
               <FormLabel>Name</FormLabel>
               <FormControl><Input :placeholder="intoProject ? 'api' : 'My website'" autocomplete="off" :disabled="busy" v-bind="componentField" /></FormControl>
               <FormDescription v-if="intoProject">Also its short name in {{ project?.name ?? 'the project' }}: the other apps reach it at this name.</FormDescription>
-              <p v-else-if="sameNameProject" class="text-[0.8rem] text-[color-mix(in_oklch,var(--warning)_75%,var(--foreground))]" data-testid="same-name-project">
+              <p v-else-if="sameNameProject" class="text-[0.8rem] text-warning-text" data-testid="same-name-project">
                 You already have a project called {{ sameNameProject.name }}. Deploying makes a second one; give this one another name to tell them apart.
               </p>
               <FormMessage />

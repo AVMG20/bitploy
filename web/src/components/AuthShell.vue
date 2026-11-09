@@ -23,7 +23,7 @@ const steps = [
         <p class="mt-3 text-muted-foreground">bitploy hosts websites and small apps on your own server.</p>
         <ol class="mt-10 grid gap-6">
           <li v-for="(step, i) in steps" :key="step.title" class="flex gap-4">
-            <span class="font-mono text-sm text-primary tabular-nums">0{{ i + 1 }}</span>
+            <span class="font-mono text-sm text-primary-text tabular-nums">0{{ i + 1 }}</span>
             <div>
               <p class="font-medium">{{ step.title }}</p>
               <p class="mt-0.5 text-sm text-muted-foreground">{{ step.text }}</p>

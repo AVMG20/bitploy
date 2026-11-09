@@ -176,7 +176,7 @@ watch(
               <CopyButton :value="data.url" what="Link copied" label="Copy link" icon class="size-7 text-muted-foreground" />
               <span v-if="data.protected" class="inline-flex items-center gap-1 text-xs text-muted-foreground"><Lock class="size-3.5" /> Private</span>
             </template>
-            <span v-else-if="openPort" class="inline-flex min-w-0 items-center gap-1.5 font-medium text-primary" :title="openPort.title" data-testid="panel-public-port">
+            <span v-else-if="openPort" class="inline-flex min-w-0 items-center gap-1.5 font-medium text-primary-text" :title="openPort.title" data-testid="panel-public-port">
               <Globe class="size-3.5 shrink-0" /> <span class="truncate">{{ openPort.text }}</span>
             </span>
             <span v-else-if="internalHostOf(data)" class="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
@@ -303,7 +303,7 @@ watch(
               <span class="ml-auto flex min-w-0 shrink items-center justify-end gap-1">
                 <template v-if="envReferences(v).length">
                   <span v-for="r in envReferences(v)" :key="r.raw" class="inline-flex items-center gap-1 truncate rounded border border-primary/25 bg-primary/10 px-1 font-mono text-[11px]">
-                    <Cable class="size-3 shrink-0 text-primary" /> {{ r.app }}.{{ r.variable }}
+                    <Cable class="size-3 shrink-0 text-primary-text" /> {{ r.app }}.{{ r.variable }}
                   </span>
                 </template>
                 <span v-else-if="v.value !== undefined" class="truncate font-mono text-muted-foreground" :title="v.value">{{ v.value }}</span>

@@ -135,7 +135,7 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
       <!-- This browser -->
       <div v-if="browserOffered" class="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4 shadow-card" data-testid="this-browser">
         <div class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
-          <BellRing class="size-4" :class="thisBrowser?.enabled ? 'text-primary' : 'text-muted-foreground'" />
+          <BellRing class="size-4" :class="thisBrowser?.enabled ? 'text-primary-text' : 'text-muted-foreground'" />
         </div>
         <div class="grid min-w-0 flex-1 gap-0.5">
           <p class="text-sm font-medium">This browser</p>
@@ -167,7 +167,7 @@ const eventCount = (c: NotificationChannel) => (c.events.length === 1 ? '1 event
               <div class="flex flex-wrap items-center gap-2">
                 <p class="truncate font-medium">{{ c.name }}</p>
                 <Badge variant="secondary">{{ typeLabel(c.type) }}</Badge>
-                <Badge v-if="thisBrowser?.id === c.id" variant="outline" class="border-primary/40 text-primary">This browser</Badge>
+                <Badge v-if="thisBrowser?.id === c.id" variant="outline" class="border-primary/40 text-primary-text">This browser</Badge>
               </div>
               <p class="text-sm text-muted-foreground">
                 {{ [channelTarget(c), c.events.length ? eventCount(c) : 'No events'].filter(Boolean).join(' · ') }}

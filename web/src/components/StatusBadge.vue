@@ -7,7 +7,7 @@ const props = defineProps<{ label: string; tone: Tone; pulse?: boolean }>()
 
 const toneClass: Record<Tone, string> = {
   success: 'border-success/25 bg-success/10 text-success',
-  warning: 'border-warning/30 bg-warning/10 text-warning',
+  warning: 'border-warning/30 bg-warning/10 text-warning-text',
   danger: 'border-destructive/25 bg-destructive/10 text-destructive',
   progress: 'border-border bg-muted text-foreground',
   muted: 'border-border bg-muted text-muted-foreground',

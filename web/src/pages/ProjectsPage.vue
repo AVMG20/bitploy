@@ -178,7 +178,7 @@ function sourceTo(key: string) {
           :to="sourceTo(s.key)"
           class="group grid justify-items-start gap-2 rounded-xl border bg-card p-4 text-left shadow-card transition-colors hover:border-foreground/25"
         >
-          <span :class="['flex size-9 items-center justify-center rounded-lg border', s.key === 'ai' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/60 text-muted-foreground group-hover:text-foreground']">
+          <span :class="['flex size-9 items-center justify-center rounded-lg border', s.key === 'ai' ? 'border-primary/30 bg-primary/10 text-primary-text' : 'bg-muted/60 text-muted-foreground group-hover:text-foreground']">
             <component :is="s.icon" class="size-4" />
           </span>
           <span class="text-sm font-medium">{{ s.title }}</span>
