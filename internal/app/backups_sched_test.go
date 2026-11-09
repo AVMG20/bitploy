@@ -28,6 +28,17 @@ func TestLatestSlot(t *testing.T) {
 		{"weekly", "2026-11-01 02:00", "2026-10-25 03:00"},
 		{"weekly", "2026-11-01 03:00", "2026-11-01 03:00"},
 		{"weekly", "2026-11-01 23:59", "2026-11-01 03:00"},
+		{"every_6h", "2026-10-29 12:00", "2026-10-29 09:00"},
+		{"every_6h", "2026-10-29 09:00", "2026-10-29 09:00"},
+		{"every_6h", "2026-10-29 02:59", "2026-10-28 21:00"},
+		{"every_6h", "2026-10-29 04:00", "2026-10-29 03:00"},
+		{"every_12h", "2026-10-29 12:00", "2026-10-29 03:00"},
+		{"every_12h", "2026-10-29 15:00", "2026-10-29 15:00"},
+		{"every_12h", "2026-11-01 01:00", "2026-10-31 15:00"},
+		{"monthly", "2026-10-29 12:00", "2026-10-01 03:00"},
+		{"monthly", "2026-10-01 02:59", "2026-09-01 03:00"},
+		{"monthly", "2026-11-01 03:00", "2026-11-01 03:00"},
+		{"monthly", "2027-01-01 00:00", "2026-12-01 03:00"},
 	}
 	for _, c := range cases {
 		if got := latestSlot(c.schedule, 180, at(c.now)); !got.Equal(at(c.want)) {
@@ -53,6 +64,11 @@ func TestBackupDue(t *testing.T) {
 		{"weekly, made last week", "weekly", at("2026-10-24 03:05").Unix(), true},
 		{"off", "off", 0, false},
 		{"unknown", "hourly", 0, false},
+		{"6h, made after 09:00", "every_6h", at("2026-10-29 09:05").Unix(), false},
+		{"6h, made before 09:00", "every_6h", at("2026-10-29 08:59").Unix(), true},
+		{"12h, made after 03:00", "every_12h", at("2026-10-29 03:01").Unix(), false},
+		{"monthly, made this month", "monthly", at("2026-10-01 03:05").Unix(), false},
+		{"monthly, made last month", "monthly", at("2026-09-30 03:05").Unix(), true},
 	}
 	for _, c := range cases {
 		if got := backupDue(c.schedule, 180, c.last, now); got != c.want {
@@ -71,6 +87,25 @@ func TestNextBackupAt(t *testing.T) {
 	}
 	if got := nextBackupAt("weekly", 180, at("2026-10-25 03:01").Unix(), now); !got.Equal(at("2026-11-01 03:00")) {
 		t.Errorf("weekly: %v", got)
+	}
+}
+
+func TestNextBackupAtSubDailyAndMonthly(t *testing.T) {
+	cases := []struct {
+		schedule, now, since, want string
+	}{
+		{"every_6h", "2026-10-29 12:00", "2026-10-29 09:01", "2026-10-29 15:00"},
+		{"every_6h", "2026-10-29 22:00", "2026-10-29 21:01", "2026-10-30 03:00"}, // over midnight
+		{"every_12h", "2026-10-29 16:00", "2026-10-29 15:01", "2026-10-30 03:00"},
+		{"every_12h", "2026-10-29 16:00", "2026-10-29 03:01", "2026-10-29 15:00"}, // missed one is due
+		{"monthly", "2026-10-31 12:00", "2026-10-01 03:01", "2026-11-01 03:00"}, // 31st to the 1st
+		{"monthly", "2026-12-15 12:00", "2026-12-01 03:01", "2027-01-01 03:00"}, // over the year
+		{"monthly", "2026-10-29 12:00", "2026-09-01 03:01", "2026-10-01 03:00"}, // missed one is due
+	}
+	for _, c := range cases {
+		if got := nextBackupAt(c.schedule, 180, at(c.since).Unix(), at(c.now)); !got.Equal(at(c.want)) {
+			t.Errorf("nextBackupAt(%s, now %s, since %s) = %v, want %s", c.schedule, c.now, c.since, got, c.want)
+		}
 	}
 }
 

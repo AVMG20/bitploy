@@ -2,8 +2,9 @@ package app
 
 // Automatic backups and their retention.
 //
-// Schedule: "daily" runs every day, "weekly" every Sunday, at the app's own
-// backup time: a minute between 02:00 and 06:00 UTC that follows from the
+// Schedule: "every_6h" and "every_12h" run at the app's own backup time and
+// every 6 or 12 hours after it, "daily" every day, "weekly" every Sunday and
+// "monthly" on the 1st, at the app's own backup time: a minute between 02:00 and 06:00 UTC that follows from the
 // app's id (backupMinute), so that the apps of a server do not all back up at
 // once. A backup is due when the newest automatic attempt of the app is older
 // than the latest such moment, so a missed one (bitploy was down, the setting
@@ -100,16 +101,47 @@ func (s *Service) defaultBackups(ctx context.Context, appID string) {
 	}
 }
 
+// backupIntervals is the time between two backups of the schedules that run
+// every so many hours.
+var backupIntervals = map[string]time.Duration{
+	"every_6h":  6 * time.Hour,
+	"every_12h": 12 * time.Hour,
+}
+
+// validSchedule says whether schedule is one of the schedules that make backups.
+func validSchedule(schedule string) bool {
+	switch schedule {
+	case "daily", "weekly", "monthly":
+		return true
+	}
+	_, ok := backupIntervals[schedule]
+	return ok
+}
+
 // latestSlot is the most recent moment at or before now at which a backup of
-// this schedule is due; minute is the time of day (backupMinute).
+// this schedule is due; minute is the time of day (backupMinute). The moments
+// of every_6h and every_12h are the app's time of day plus multiples of the
+// interval, so they stay apart from those of other apps.
 func latestSlot(schedule string, minute int, now time.Time) time.Time {
 	t := now.UTC()
 	slot := time.Date(t.Year(), t.Month(), t.Day(), 0, minute, 0, 0, time.UTC)
+	if iv, ok := backupIntervals[schedule]; ok {
+		n := t.Sub(slot) / iv // rounds toward zero
+		if slot.Add(n * iv).After(t) {
+			n--
+		}
+		return slot.Add(n * iv)
+	}
 	switch schedule {
 	case "weekly":
 		slot = slot.AddDate(0, 0, -int(slot.Weekday())) // back to Sunday
 		if slot.After(t) {
 			slot = slot.AddDate(0, 0, -7)
+		}
+	case "monthly":
+		slot = time.Date(t.Year(), t.Month(), 1, 0, minute, 0, 0, time.UTC)
+		if slot.After(t) {
+			slot = time.Date(t.Year(), t.Month()-1, 1, 0, minute, 0, 0, time.UTC)
 		}
 	default:
 		if slot.After(t) {
@@ -119,18 +151,25 @@ func latestSlot(schedule string, minute int, now time.Time) time.Time {
 	return slot
 }
 
-func slotPeriod(schedule string) int {
-	if schedule == "weekly" {
-		return 7
+// followingSlot is the moment of the schedule after slot, one of latestSlot.
+func followingSlot(schedule string, slot time.Time) time.Time {
+	if iv, ok := backupIntervals[schedule]; ok {
+		return slot.Add(iv)
 	}
-	return 1
+	switch schedule {
+	case "weekly":
+		return slot.AddDate(0, 0, 7)
+	case "monthly":
+		return time.Date(slot.Year(), slot.Month()+1, 1, slot.Hour(), slot.Minute(), 0, 0, time.UTC)
+	}
+	return slot.AddDate(0, 0, 1)
 }
 
 // backupDue reports whether an automatic backup is due: since is the unix time
 // of the newest automatic attempt (0 for none), or of the moment the default
 // was turned on when that is later (backupSince).
 func backupDue(schedule string, minute int, since int64, now time.Time) bool {
-	if schedule != "daily" && schedule != "weekly" {
+	if !validSchedule(schedule) {
 		return false
 	}
 	return since < latestSlot(schedule, minute, now).Unix()
@@ -143,7 +182,7 @@ func nextBackupAt(schedule string, minute int, since int64, now time.Time) time.
 	if since < slot.Unix() {
 		return slot
 	}
-	return slot.AddDate(0, 0, slotPeriod(schedule))
+	return followingSlot(schedule, slot)
 }
 
 type retainable struct {

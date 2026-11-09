@@ -347,8 +347,8 @@ func (s *Service) UpdateBackupSettings(ctx context.Context, a Actor, ref string,
 	schedule, mode, keep := row.BackupSchedule, row.BackupKeepMode, row.BackupKeep
 	if in.Schedule != nil {
 		schedule = strings.ToLower(strings.TrimSpace(*in.Schedule))
-		if schedule != "off" && schedule != "daily" && schedule != "weekly" {
-			return BackupSettings{}, apperr.BadRequest("backup_schedule_invalid", "The schedule "+quote(*in.Schedule)+" is not known.", "Use off, daily or weekly.")
+		if schedule != "off" && !validSchedule(schedule) {
+			return BackupSettings{}, apperr.BadRequest("backup_schedule_invalid", "The schedule "+quote(*in.Schedule)+" is not known.", "Use off, every_6h, every_12h, daily, weekly or monthly.")
 		}
 	}
 	if e := noBackupsErr(row); e != nil && schedule != "off" {

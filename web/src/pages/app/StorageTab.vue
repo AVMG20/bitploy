@@ -29,7 +29,7 @@ import { ApiError, api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
-import type { Backup, BackupKind } from '@/lib/types'
+import type { Backup, BackupKind, BackupSchedule } from '@/lib/types'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { isMulti, serviceRole } from '@/lib/services'
 import { isServerDb } from '@/lib/dbvalue'
@@ -197,7 +197,7 @@ const backupForm = useForm({
   validationSchema: toTypedSchema(
     z
       .object({
-        schedule: z.enum(['off', 'daily', 'weekly']),
+        schedule: z.enum(['off', 'every_6h', 'every_12h', 'daily', 'weekly', 'monthly']),
         keep_mode: z.enum(['last', 'days']),
         keep: z.coerce.number({ invalid_type_error: 'Enter a number.' }).int('Use a whole number.').min(1, 'At least 1.'),
       })
@@ -222,7 +222,7 @@ watch(
 )
 
 const saveSettings = useMutation({
-  mutationFn: (v: { schedule: 'off' | 'daily' | 'weekly'; keep_mode: 'last' | 'days'; keep: number }) => api.updateBackupSettings(props.slug, v),
+  mutationFn: (v: { schedule: BackupSchedule; keep_mode: 'last' | 'days'; keep: number }) => api.updateBackupSettings(props.slug, v),
   onSuccess: (s) => {
     toastOk('Saved')
     backupForm.resetForm({ values: { schedule: s.schedule, keep_mode: s.keep_mode, keep: s.keep } })
@@ -235,24 +235,42 @@ const submitSettings = backupForm.handleSubmit((v) => saveSettings.mutate(v))
 // Each app has its own backup time between 02:00 and 06:00 UTC. Backup times
 // in the list are in the browser's time, so the schedule is too, with the zone named.
 const backupTime = computed(() => list.value?.settings.time_utc ?? '03:00')
-function scheduleAt(weekly: boolean): string {
+function scheduleAt(schedule: BackupSchedule): string {
   const [h, m] = backupTime.value.split(':').map(Number)
   const d = new Date()
   d.setUTCHours(h ?? 3, m ?? 0, 0, 0)
-  if (weekly) d.setUTCDate(d.getUTCDate() - d.getUTCDay()) // a Sunday
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
-  if (!weekly) return `Every night at ${time}.`
-  return `Every ${d.toLocaleDateString(undefined, { weekday: 'long' })} at ${time}.`
+  const fmt = (x: Date, zone: boolean) =>
+    x.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', ...(zone ? { timeZoneName: 'short' as const } : {}) })
+  switch (schedule) {
+    case 'every_6h':
+    case 'every_12h': {
+      const step = schedule === 'every_6h' ? 6 : 12
+      const times = Array.from({ length: 24 / step }, (_, i) => new Date(d.getTime() + i * step * 3600_000))
+      times.sort((a, b) => (a.getHours() * 60 + a.getMinutes()) - (b.getHours() * 60 + b.getMinutes()))
+      const labels = times.map((x) => fmt(x, false))
+      const last = labels.pop()
+      const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value
+      return `Every ${step} hours, at ${labels.join(', ')} and ${last}${zone ? ` ${zone}` : ''}.`
+    }
+    case 'weekly': {
+      const sunday = new Date(d)
+      sunday.setUTCDate(sunday.getUTCDate() - sunday.getUTCDay()) // a Sunday
+      return `Every ${sunday.toLocaleDateString(undefined, { weekday: 'long' })} at ${fmt(sunday, true)}.`
+    }
+    case 'monthly': {
+      // The 1st at this time in UTC can fall on the last day of the month before in the user's zone.
+      const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, d.getUTCHours(), d.getUTCMinutes()))
+      return first.getDate() === 1
+        ? `On the 1st of every month at ${fmt(first, true)}.`
+        : `On the last day of every month at ${fmt(first, true)}.`
+    }
+    default:
+      return `Every night at ${fmt(d, true)}.`
+  }
 }
 const scheduleHint = computed(() => {
-  switch (backupForm.values.schedule) {
-    case 'daily':
-      return scheduleAt(false)
-    case 'weekly':
-      return scheduleAt(true)
-    default:
-      return 'Only when you press Back up now.'
-  }
+  const s = backupForm.values.schedule
+  return s && s !== 'off' ? scheduleAt(s) : 'Only when you press Back up now.'
 })
 const nextAt = computed(() => {
   const s = list.value?.settings
@@ -592,8 +610,11 @@ const restoreText = computed(() => {
                   <FormControl><SelectTrigger class="w-full"><SelectValue /></SelectTrigger></FormControl>
                   <SelectContent>
                     <SelectItem value="off">Off</SelectItem>
+                    <SelectItem value="every_6h">Every 6 hours</SelectItem>
+                    <SelectItem value="every_12h">Every 12 hours</SelectItem>
                     <SelectItem value="daily">Every night</SelectItem>
                     <SelectItem value="weekly">Every week</SelectItem>
+                    <SelectItem value="monthly">Every month</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormDescription>
