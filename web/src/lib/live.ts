@@ -30,6 +30,8 @@ export const keys = {
   adminDbSchema: ['db', 'admin', 'schema'] as const,
   adminDbRows: ['db', 'admin', 'rows'] as const,
   tokens: ['tokens'] as const,
+  notificationOptions: ['notifications', 'options'] as const,
+  notificationChannels: ['notifications', 'channels'] as const,
   sessions: ['sessions'] as const,
   github: ['github'] as const,
   githubRepos: (query: string) => ['github', 'repos', query] as const,

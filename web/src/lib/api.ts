@@ -40,6 +40,10 @@ import type {
   Me,
   Metrics,
   MetricWindow,
+  NotificationChannel,
+  NotificationOptions,
+  CreateNotificationChannelInput,
+  UpdateNotificationChannelInput,
   Traffic,
   TrafficListName,
   TrafficWindow,
@@ -95,6 +99,10 @@ export const paths = {
   sessionsRevokeOthers: `${V1}/sessions/revoke-others`,
   tokens: `${V1}/tokens`,
   tokenById: (id: string) => `${V1}/tokens/${enc(id)}`,
+  notificationOptions: `${V1}/notifications/options`,
+  notificationChannels: `${V1}/notification-channels`,
+  notificationChannel: (id: string) => `${V1}/notification-channels/${enc(id)}`,
+  notificationChannelTest: (id: string) => `${V1}/notification-channels/${enc(id)}/test`,
   apps: `${V1}/apps`,
   projects: `${V1}/projects`,
   project: (id: string) => `${V1}/projects/${enc(id)}`,
@@ -428,6 +436,19 @@ export const api = {
   },
   createToken: (input: CreateTokenInput) => request<TokenCreated>('POST', paths.tokens, { body: input }),
   revokeToken: (id: string) => request<void>('DELETE', paths.tokenById(id)),
+
+  // notification channels of the signed-in user
+  notificationOptions: () => request<NotificationOptions>('GET', paths.notificationOptions),
+  async notificationChannels(): Promise<NotificationChannel[]> {
+    return listAll<NotificationChannel>(paths.notificationChannels)
+  },
+  createNotificationChannel: (input: CreateNotificationChannelInput) =>
+    request<NotificationChannel>('POST', paths.notificationChannels, { body: input }),
+  updateNotificationChannel: (id: string, input: UpdateNotificationChannelInput) =>
+    request<NotificationChannel>('PATCH', paths.notificationChannel(id), { body: input }),
+  deleteNotificationChannel: (id: string) => request<void>('DELETE', paths.notificationChannel(id)),
+  /** Sends a test message now; rejects with the reason (422 notification_test_failed). */
+  testNotificationChannel: (id: string) => request<NotificationChannel>('POST', paths.notificationChannelTest(id)),
 
   // projects (phase 4b): spaces that hold apps
   /** null when this server has no projects yet (the endpoint is missing); the dashboard then makes one per app. */

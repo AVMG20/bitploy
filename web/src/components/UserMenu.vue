@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useSession } from '@/composables/useSession'
 import { api } from '@/lib/api'
+import { forgetThisBrowser } from '@/lib/push'
 import { queryClient } from '@/lib/queryClient'
 import { toastError } from '@/lib/notify'
 import { setTheme, theme, type ThemeChoice } from '@/lib/theme'
@@ -35,6 +36,7 @@ const initials = computed(() => {
 
 async function logout() {
   try {
+    await forgetThisBrowser()
     await api.logout()
   } catch (e) {
     toastError(e)

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SESSION_KEY } from '@/composables/useSession'
 import { api, ApiError } from '@/lib/api'
+import { forgetThisBrowser } from '@/lib/push'
 import { keys } from '@/lib/live'
 import { projectRoute } from '@/lib/appLinks'
 import { queryClient } from '@/lib/queryClient'
@@ -92,6 +93,7 @@ async function join() {
 }
 
 async function useOtherAccount() {
+  await forgetThisBrowser()
   await api.logout().catch(() => undefined)
   queryClient.setQueryData(SESSION_KEY, null)
   await router.push(loginTo.value)

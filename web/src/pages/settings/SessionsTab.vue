@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
+import { forgetThisBrowser } from '@/lib/push'
 import { toastError, toastOk } from '@/lib/notify'
 import { queryClient } from '@/lib/queryClient'
 
@@ -31,6 +32,7 @@ const everywhereOpen = ref(false)
 const everywhere = useMutation({
   mutationFn: async () => {
     await api.revokeOtherSessions()
+    await forgetThisBrowser()
     await api.logout()
   },
   onSuccess: async () => {

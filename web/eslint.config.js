@@ -28,4 +28,5 @@ export default tseslint.config(
     },
   },
   { files: ['vite.config.ts', 'vite.mock.config.ts', 'dev/**/*.ts', 'eslint.config.js'], languageOptions: { globals: { ...globals.node } } },
+  { files: ['public/sw.js'], languageOptions: { globals: { ...globals.serviceworker } } },
 )

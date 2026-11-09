@@ -1215,3 +1215,73 @@ export interface ComposeCheck {
   warnings: ComposeIssue[] | null
   errors: ComposeIssue[] | null
 }
+
+// ---- notifications (Settings, Notifications) ----
+
+export type NotificationEventGroup = 'deployments' | 'backups' | 'app'
+
+export interface NotificationEvent {
+  type: string
+  group: NotificationEventGroup
+  label: string
+  description?: string
+  /** Announced loudly: @everyone on Discord instead of @here. */
+  emergency: boolean
+  /** On for a new channel. */
+  default: boolean
+}
+
+export type NotificationChannelType = 'discord' | 'browser'
+
+export interface NotificationType {
+  type: NotificationChannelType
+  name: string
+}
+
+export interface NotificationOptions {
+  events: NotificationEvent[]
+  types: NotificationType[]
+  /** applicationServerKey for pushManager.subscribe; '' when browser notifications are unavailable. */
+  vapid_public_key: string
+}
+
+/**
+ * discord: { webhook_id, webhook_url_set }; browser: { push_service,
+ * endpoint_hash (hex SHA-256 of the endpoint) }. Secrets are never returned.
+ */
+export interface NotificationChannelConfig {
+  webhook_id?: string
+  webhook_url_set?: boolean
+  push_service?: string
+  endpoint_hash?: string
+}
+
+export interface NotificationChannel {
+  id: string
+  name: string
+  type: NotificationChannelType
+  enabled: boolean
+  events: string[]
+  config: NotificationChannelConfig
+  last_success_at: string | null
+  last_error: string
+  last_error_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateNotificationChannelInput {
+  type: NotificationChannelType
+  name: string
+  enabled?: boolean
+  events?: string[]
+  config: Record<string, unknown>
+}
+
+export interface UpdateNotificationChannelInput {
+  name?: string
+  enabled?: boolean
+  events?: string[]
+  /** Leave a secret out (or empty) to keep the stored one. */
+  config?: Record<string, unknown>
+}

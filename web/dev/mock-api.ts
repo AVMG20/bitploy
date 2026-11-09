@@ -8,7 +8,7 @@
 // fallback. MOCK_OVERALLOCATE=1 lets the user allocate memory and CPU without a
 // limit (the admin switch), to see the Projects usage cards for such a user.
 
-import { createHash } from 'node:crypto'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
@@ -37,6 +37,10 @@ import type {
   Me,
   MetricPoint,
   Metrics,
+  NotificationChannel,
+  NotificationChannelType,
+  NotificationEvent,
+  NotificationOptions,
   Project,
   ProjectInvite,
   ProjectInviteInfo,
@@ -56,6 +60,7 @@ import type {
   User,
   UserBrief,
 } from '../src/lib/types'
+import { discordWebhookProblem } from '../src/lib/notifications'
 
 // ---------------------------------------------------------------- helpers
 
@@ -1528,6 +1533,156 @@ function needApp(slug: string): App {
   return a
 }
 
+// ---------------------------------------------------------------- notifications
+// The same events as internal/app/notifications.go.
+const NOTIFICATION_EVENTS: NotificationEvent[] = [
+  { type: 'deployment.started', group: 'deployments', label: 'Deployment started', emergency: false, default: false },
+  { type: 'deployment.succeeded', group: 'deployments', label: 'Deployment is live', emergency: false, default: true },
+  { type: 'deployment.failed', group: 'deployments', label: 'Deployment failed', description: 'The build failed, the app did not start, or its health check failed.', emergency: true, default: true },
+  { type: 'deployment.cancelled', group: 'deployments', label: 'Deployment cancelled', emergency: false, default: false },
+  { type: 'deploy_command.failed', group: 'deployments', label: 'Deploy command failed', description: 'The before-deploy or after-deploy command of the app failed.', emergency: true, default: true },
+  { type: 'backup.succeeded', group: 'backups', label: 'Backup made', emergency: false, default: false },
+  { type: 'backup.failed', group: 'backups', label: 'Backup failed', emergency: true, default: true },
+  { type: 'app.crashed', group: 'app', label: 'App crashed', description: 'The app stopped 5 times within 5 minutes, so bitploy stopped it.', emergency: true, default: true },
+]
+// A real P-256 key, so pushManager.subscribe accepts it (nothing is ever pushed).
+const MOCK_VAPID = (() => {
+  const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const jwk = publicKey.export({ format: 'jwk' })
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x!, 'base64url'), Buffer.from(jwk.y!, 'base64url')])
+  return raw.toString('base64url')
+})()
+const PUSH_HOSTS = ['fcm.googleapis.com', '.push.services.mozilla.com', '.notify.windows.com', 'web.push.apple.com', '.push.apple.com']
+const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex')
+
+const notificationChannels: (NotificationChannel & { endpoint?: string })[] = [
+  {
+    id: 'nch_mock1', name: '#deploys', type: 'discord', enabled: true,
+    events: ['deployment.succeeded', 'deployment.failed', 'deploy_command.failed', 'backup.failed', 'app.crashed'],
+    config: { webhook_id: '1180742316283924510', webhook_url_set: true },
+    last_success_at: ago(42), last_error: '', last_error_at: null, created_at: ago(60 * 24 * 3), updated_at: ago(60 * 24 * 3),
+  },
+  {
+    id: 'nch_mock2', name: '#ops-alerts', type: 'discord', enabled: false,
+    events: ['deployment.failed', 'backup.failed', 'app.crashed'],
+    config: { webhook_id: '1093311552400719872', webhook_url_set: true },
+    last_success_at: ago(60 * 24 * 2), last_error: 'Turned off. Discord says this webhook does not exist (Unknown Webhook). It was deleted or its URL changed: make a new webhook and paste its URL.', last_error_at: ago(60 * 5),
+    created_at: ago(60 * 24 * 10), updated_at: ago(60 * 5),
+  },
+]
+
+function needChannel(id: string) {
+  const c = notificationChannels.find((x) => x.id === id)
+  if (!c) throw new HttpError(404, 'notification_channel_not_found', 'You have no notification channel with that id.', 'Open Settings, Notifications to see your channels.')
+  return c
+}
+
+function channelEvents(v: unknown): string[] {
+  if (!Array.isArray(v)) return NOTIFICATION_EVENTS.filter((e) => e.default).map((e) => e.type)
+  for (const e of v) {
+    if (!NOTIFICATION_EVENTS.some((x) => x.type === e)) throw new HttpError(400, 'notification_event_invalid', `There is no notification event "${e}".`, 'Use the event types from GET /api/v1/notifications/options.')
+  }
+  return NOTIFICATION_EVENTS.map((e) => e.type).filter((t) => v.includes(t))
+}
+
+function channelName(v: unknown): string {
+  const n = String(v ?? '').trim()
+  if (!n || n.length > 60) throw new HttpError(400, 'channel_name_invalid', 'Give the channel a name of 1 to 60 characters.', 'Name it after where the messages go, like "#deploys".')
+  return n
+}
+
+function discordConfig(cfg: Record<string, unknown>) {
+  const url = String(cfg.webhook_url ?? '')
+  const problem = discordWebhookProblem(url)
+  if (problem) throw new HttpError(400, url.trim() ? 'webhook_url_invalid' : 'webhook_url_required', problem, 'In Discord open Server settings, Integrations, Webhooks, New webhook, then Copy webhook URL.')
+  return { webhook_id: new URL(url.trim()).pathname.split('/')[3]!, webhook_url_set: true }
+}
+
+function pushConfig(cfg: Record<string, unknown>) {
+  const endpoint = String(cfg.endpoint ?? '')
+  let host = ''
+  try {
+    const u = new URL(endpoint)
+    if (u.protocol === 'https:') host = u.hostname
+  } catch {
+    // not a URL
+  }
+  if (!host || !PUSH_HOSTS.some((h) => (h.startsWith('.') ? host.endsWith(h) : host === h)))
+    throw new HttpError(400, 'push_subscription_invalid', `The browser's push subscription cannot be used: bitploy does not send to the push service at ${host || 'that address'}.`, 'Turn notifications on in this browser again from Settings, Notifications.')
+  const service = host.endsWith('googleapis.com') ? 'Google' : host.endsWith('mozilla.com') ? 'Mozilla' : host.endsWith('windows.com') ? 'Microsoft' : 'Apple'
+  return { endpoint, config: { push_service: service, endpoint_hash: sha256hex(endpoint) } }
+}
+
+const publicChannel = ({ endpoint: _e, ...c }: NotificationChannel & { endpoint?: string }): NotificationChannel => c
+
+function notificationRoutes(method: string, parts: string[], body: Record<string, unknown>, res: ServerResponse): boolean {
+  if (parts[0] === 'notifications' && parts[1] === 'options' && method === 'GET') {
+    send(res, 200, { events: NOTIFICATION_EVENTS, types: [{ type: 'discord', name: 'Discord' }, { type: 'browser', name: 'Browser' }], vapid_public_key: MOCK_VAPID } satisfies NotificationOptions)
+    return true
+  }
+  if (parts[0] !== 'notification-channels') return false
+  const cfg = (body.config && typeof body.config === 'object' ? body.config : {}) as Record<string, unknown>
+  if (!parts[1]) {
+    if (method === 'GET') {
+      send(res, 200, items(notificationChannels.map(publicChannel)))
+      return true
+    }
+    if (method !== 'POST') return false
+    const type = String(body.type ?? '') as NotificationChannelType
+    if (type !== 'discord' && type !== 'browser') throw new HttpError(400, 'notification_type_invalid', `bitploy cannot send notifications to "${type}".`, 'Use type discord or browser.')
+    const name = channelName(body.name)
+    const events = channelEvents(body.events)
+    const now = new Date().toISOString()
+    if (type === 'browser') {
+      const p = pushConfig(cfg)
+      const same = notificationChannels.find((c) => c.endpoint === p.endpoint)
+      if (same) {
+        Object.assign(same, { name, events, enabled: body.enabled !== false, config: p.config, last_error: '', last_error_at: null, updated_at: now })
+        send(res, 201, publicChannel(same))
+        return true
+      }
+      const c = { id: newId('nch'), name, type, enabled: body.enabled !== false, events, config: p.config, endpoint: p.endpoint, last_success_at: null, last_error: '', last_error_at: null, created_at: now, updated_at: now }
+      notificationChannels.push(c)
+      send(res, 201, publicChannel(c))
+      return true
+    }
+    if (notificationChannels.length >= 20) throw new HttpError(403, 'notification_channels_limit', 'You have 20 notification channels, the most bitploy allows.', 'Delete a channel you no longer use.')
+    const c = { id: newId('nch'), name, type, enabled: body.enabled !== false, events, config: discordConfig(cfg), last_success_at: null, last_error: '', last_error_at: null, created_at: now, updated_at: now }
+    notificationChannels.push(c)
+    send(res, 201, c)
+    return true
+  }
+  const c = needChannel(parts[1])
+  if (method === 'PATCH' && !parts[2]) {
+    if (body.name !== undefined) c.name = channelName(body.name)
+    if (typeof body.enabled === 'boolean') c.enabled = body.enabled
+    if (body.events !== undefined) c.events = channelEvents(body.events)
+    if (c.type === 'discord' && String(cfg.webhook_url ?? '').trim()) c.config = discordConfig(cfg)
+    c.updated_at = new Date().toISOString()
+    send(res, 200, publicChannel(c))
+    return true
+  }
+  if (method === 'DELETE' && !parts[2]) {
+    notificationChannels.splice(notificationChannels.indexOf(c), 1)
+    send(res, 204)
+    return true
+  }
+  if (method === 'POST' && parts[2] === 'test') {
+    // A webhook id starting with 1093 plays a deleted webhook.
+    if (c.type === 'discord' && String(c.config.webhook_id).startsWith('1093')) {
+      c.last_error = 'Discord says this webhook does not exist (Unknown Webhook). It was deleted or its URL changed: make a new webhook and paste its URL.'
+      c.last_error_at = new Date().toISOString()
+      throw new HttpError(422, 'notification_test_failed', c.last_error, "Check the channel's settings and send another test.")
+    }
+    c.last_success_at = new Date().toISOString()
+    c.last_error = ''
+    c.last_error_at = null
+    send(res, 200, publicChannel(c))
+    return true
+  }
+  return false
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boolean) {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const path = url.pathname.replace(/^\/api\/v1/, '').replace(/\/$/, '') || '/'
@@ -1549,6 +1704,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
   }
 
   if (memberRoutes(method, parts, body, res)) return
+  if (notificationRoutes(method, parts, body, res)) return
 
   // DELETE /admin/public-ports/{app}: the router only knows ids after apps, projects, catalog and deployments.
   if (method === 'DELETE' && parts[0] === 'admin' && parts[1] === 'public-ports' && parts[2]) {

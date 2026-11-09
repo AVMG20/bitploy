@@ -122,6 +122,7 @@ export const router = createRouter({
           children: [
             { path: '', name: 'settings', component: () => import('./pages/settings/AccountTab.vue'), meta: { title: 'Settings' } },
             { path: 'tokens', name: 'settings-tokens', component: () => import('./pages/settings/TokensTab.vue'), meta: { title: 'API tokens' } },
+            { path: 'notifications', name: 'settings-notifications', component: () => import('./pages/settings/NotificationsTab.vue'), meta: { title: 'Notifications' } },
             { path: 'github', name: 'settings-github', component: () => import('./pages/settings/GithubTab.vue'), meta: { title: 'GitHub' } },
             { path: 'sessions', name: 'settings-sessions', component: () => import('./pages/settings/SessionsTab.vue'), meta: { title: 'Sessions' } },
           ],
