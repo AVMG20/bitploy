@@ -17,9 +17,9 @@ type createProjectIn struct {
 
 type addServiceIn struct {
 	Project   string   `json:"project" jsonschema:"The project's id (prj_...) from list_projects or get_app (project.id), or its name."`
-	Template  string   `json:"template" jsonschema:"A template id from list_service_templates, like postgres, mysql, mariadb, valkey (Redis-compatible: use it when the code needs Redis) or meilisearch."`
+	Template  string   `json:"template" jsonschema:"A template id from list_service_templates, like postgres, mysql, mariadb, valkey (Redis-compatible: use it when the code needs Redis), meilisearch or typesense (search boxes; typesense for facets and large data sets), clickhouse (analytics: events, logs, metrics queried in bulk; not for ordinary app data), garage (S3-compatible file storage when the code needs S3 for uploads) or mailpit (a test inbox that catches outgoing email; its web inbox on port 8025 is private: open it with set_public_port while the user reads the mail)."`
 	Name      string   `json:"name,omitempty" jsonschema:"The service's short name in the project: its host name for the other apps and the name in ${{<name>.VAR}}. 1-40 characters of a-z, 0-9 and -. Leave out to use the template id (postgres, or postgres-2 when that is taken)."`
-	ConnectTo []string `json:"connect_to,omitempty" jsonschema:"Slugs of apps in the same project that should use the service, like [\"shop\"] (the slug, not the short name: list_projects shows both). Each gets the template's main variable (DATABASE_URL for postgres, REDIS_URL for valkey) as a reference and restarts once the service runs. Fails with connect_to_var_set when the app already has that variable."`
+	ConnectTo []string `json:"connect_to,omitempty" jsonschema:"Slugs of apps in the same project that should use the service, like [\"shop\"] (the slug, not the short name: list_projects shows both). Each gets the template's main variable (DATABASE_URL for postgres, REDIS_URL for valkey, S3_ENDPOINT for garage, SMTP_URL for mailpit) as a reference; set the template's other variables the same way with set_env, like S3_ACCESS_KEY_ID=${{garage.S3_ACCESS_KEY_ID}} and restarts once the service runs. Fails with connect_to_var_set when the app already has that variable."`
 	MemoryMB  *int64   `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB. Leave out for the template's (list_service_templates)."`
 	VolumeMB  *int64   `json:"volume_mb,omitempty" jsonschema:"Storage limit of the service's data in MB. Leave out for the template's."`
 }
@@ -196,7 +196,7 @@ func (s *srv) registerProjectTools() {
 		})
 
 	addTool(s, "list_service_templates", "List service templates",
-		"Databases, caches and search engines that add_service can put in a project: id, image with its pinned version, port, memory, storage and connection_vars (the variables other apps can reference, main_var first). Most apps need none: they keep their data as SQLite in /data. Use one only when the code needs PostgreSQL, MySQL, MariaDB, Redis (Valkey) or Meilisearch.",
+		"Databases, caches, search engines, S3 file storage and a test mail inbox that add_service can put in a project: id, image with its pinned version, port, memory, storage and connection_vars (the variables other apps can reference, main_var first). Most apps need none: they keep their data as SQLite in /data. Use one only when the code needs PostgreSQL, MySQL, MariaDB, ClickHouse, Redis (Valkey), Meilisearch, Typesense, S3 storage (Garage) or a test inbox for outgoing email (Mailpit).",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			ts := svc.ListServiceTemplates(ctx, a)

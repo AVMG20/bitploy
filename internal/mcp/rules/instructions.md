@@ -36,14 +36,17 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    for an existing app update_app volume=true, then restart_app. Keep a
    database as SQLite in /data inside the app's one container; never add a
    database server to the image. Only when the code needs a database server
-   (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
+   (PostgreSQL, MySQL, MariaDB, ClickHouse, Redis, Meilisearch or
+   Typesense) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
    reads DATABASE_URL (or REDIS_URL, ...) from its environment. Database
    migrations go in before_deploy_command (update_app), like
    php artisan migrate --force, not in the Dockerfile CMD.
    create_backup of a database service dumps its databases while it runs;
-   Redis and Meilisearch hold data that can be rebuilt and get no backups.
+   Redis, Meilisearch and Typesense hold data that can be rebuilt and get no
+   backups. For S3 file storage add Garage, for a test inbox that catches
+   outgoing email add Mailpit (both through add_service too).
    When the code already has a compose file (compose.yaml,
    docker-compose.yml) whose services it needs, deploy that file instead:
    validate_compose, then create_app build_mode=compose.

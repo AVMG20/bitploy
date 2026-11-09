@@ -195,9 +195,9 @@ type App struct {
 	DiskMeasuredAt *time.Time `json:"disk_measured_at,omitempty"`
 	BackupsMB      float64    `json:"backups_mb"` // what the app's backups take; counts towards the storage allowance
 	// BackupsSupported is false for template apps that keep a cache or a
-	// search index (valkey, redis, meilisearch): bitploy makes no backups
+	// search index or test email (valkey, redis, meilisearch, typesense, mailpit): bitploy makes no backups
 	// of them and refuses to (backups_not_needed).
-	BackupsSupported bool  `json:"backups_supported" doc:"False for a cache or search index (valkey, redis, meilisearch): bitploy makes no backups of it"`
+	BackupsSupported bool  `json:"backups_supported" doc:"False for a cache, search index or test inbox (valkey, redis, meilisearch, typesense, mailpit): bitploy makes no backups of it"`
 	MemoryMB         int64 `json:"memory_mb"`
 	CPUMillis        int64 `json:"cpu_millis"`
 	// Static is true while the live version is a static site: built from
@@ -363,7 +363,7 @@ type UpdateProjectInput struct {
 type ServiceTemplate struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
-	Category       string   `json:"category" doc:"database, cache or search"`
+	Category       string   `json:"category" doc:"database, cache, search, storage or email"`
 	Description    string   `json:"description"`
 	Image          string   `json:"image" doc:"The image with its pinned version, like postgres:18.6"`
 	Version        string   `json:"version"`

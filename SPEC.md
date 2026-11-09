@@ -185,6 +185,10 @@ Detection is conservative. `create_app` (MCP and REST) makes build mode `dockerf
 | `valkey` | `valkey/valkey:9.1.3` | 6379 | 128 MB, 512 MB | 999:999 | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `VALKEY_URL` |
 | `redis` (only by name) | `redis:8.8.4` | 6379 | 128 MB, 512 MB | 999:999 | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` |
 | `meilisearch` | `getmeili/meilisearch:v1.56.1` | 7700 | 512 MB, 2 GB | 10001:10001 | `MEILI_URL`, `MEILI_HOST`, `MEILI_MASTER_KEY` |
+| `typesense` | `typesense/typesense:30.2` | 8108 | 512 MB, 1 GB | 10001:10001 | `TYPESENSE_URL`, `TYPESENSE_HOST`, `TYPESENSE_PORT`, `TYPESENSE_PROTOCOL`, `TYPESENSE_API_KEY` |
+| `clickhouse` | `clickhouse/clickhouse-server:26.8.36.3` | 8123 (HTTP; native 9000) | 1 GB, 5 GB | 101:101 | `CLICKHOUSE_URL`, `CLICKHOUSE_NATIVE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_NATIVE_PORT`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DB` |
+| `garage` | `dxflrs/garage:v2.5.0` | 3900 (S3) | 256 MB, 4 GB | 10001:10001 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`, `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| `mailpit` | `axllent/mailpit:v1.33.1` | 8025 (web inbox; SMTP 1025) | 128 MB, 512 MB | 10001:10001 | `SMTP_URL`, `SMTP_HOST`, `SMTP_PORT`, `MAIL_HOST`, `MAIL_PORT`, `MAILPIT_API_URL` |
 
 **Pre-built images**: a Dockerfile that is only `FROM <image>:<tag>` (plus `USER`, `ENV` and the like) runs a published image. `EXPOSE` is optional there: after the build the pipeline reads the port from the image config and stores it on the deployment, so a rollback reuses it. The image's data must go under `/data`.
 
@@ -272,14 +276,17 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    for an existing app update_app volume=true, then restart_app. Keep a
    database as SQLite in /data inside the app's one container; never add a
    database server to the image. Only when the code needs a database server
-   (PostgreSQL, MySQL, MariaDB, Redis or Meilisearch) and cannot use SQLite,
+   (PostgreSQL, MySQL, MariaDB, ClickHouse, Redis, Meilisearch or
+   Typesense) and cannot use SQLite,
    add one next to the app: add_service with the app's project (get_app shows
    it) and connect_to=[<slug>], before the app's first deploy; the app then
    reads DATABASE_URL (or REDIS_URL, ...) from its environment. Database
    migrations go in before_deploy_command (update_app), like
    php artisan migrate --force, not in the Dockerfile CMD.
    create_backup of a database service dumps its databases while it runs;
-   Redis and Meilisearch hold data that can be rebuilt and get no backups.
+   Redis, Meilisearch and Typesense hold data that can be rebuilt and get no
+   backups. For S3 file storage add Garage, for a test inbox that catches
+   outgoing email add Mailpit (both through add_service too).
    When the code already has a compose file (compose.yaml,
    docker-compose.yml) whose services it needs, deploy that file instead:
    validate_compose, then create_app build_mode=compose.

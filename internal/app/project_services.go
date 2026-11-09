@@ -161,10 +161,9 @@ func (s *Service) AddService(ctx context.Context, a Actor, projectRef string, in
 	// public port give what an app or a person needs to log in.
 	set, hidden := map[string]string{}, map[string]bool{}
 	for _, e := range tpl.Env {
-		if e.Generate == "secret" {
-			set[e.Name], hidden[e.Name] = ids.Base62(32), true
-		} else {
-			set[e.Name] = e.Value
+		set[e.Name] = e.NewValue()
+		if e.Generate != "" {
+			hidden[e.Name] = true
 		}
 	}
 	if len(set) > 0 {

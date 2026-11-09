@@ -170,6 +170,10 @@ func TestWantsDefaultBackups(t *testing.T) {
 		{"postgres", db.App{VolumeEnabled: 1, Template: "postgres"}, true},
 		{"valkey", db.App{VolumeEnabled: 1, Template: "valkey"}, false},
 		{"meilisearch", db.App{VolumeEnabled: 1, Template: "meilisearch"}, false},
+		{"typesense", db.App{VolumeEnabled: 1, Template: "typesense"}, false},
+		{"mailpit", db.App{VolumeEnabled: 1, Template: "mailpit"}, false},
+		{"clickhouse", db.App{VolumeEnabled: 1, Template: "clickhouse"}, true},
+		{"garage", db.App{VolumeEnabled: 1, Template: "garage"}, true},
 	}
 	for _, c := range cases {
 		if got := wantsDefaultBackups(c.app); got != c.want {

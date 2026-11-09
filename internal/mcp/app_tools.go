@@ -160,7 +160,7 @@ func (s *srv) registerAppTools() {
 			"schedule off, every_6h, every_12h, daily, weekly (Sunday) or monthly (the 1st), at the app's own time between 02:00 and 06:00 UTC (time_utc); keep_mode last keeps the newest keep backups, days keeps them keep days. "+
 			"Retention applies to automatic and before-restore backups; manual ones (create_backup) stay until the user deletes them. Fields left out stay as they are. "+
 			"Only turn backups off when the user asks: once set here, bitploy never changes the schedule by itself. Backups count towards the storage allowance (whoami). "+
-			"Valkey, Redis and Meilisearch get no backups (backups_not_needed). list_backups shows the settings and next_at.",
+			"Valkey, Redis, Meilisearch, Typesense and Mailpit get no backups (backups_not_needed). list_backups shows the settings and next_at.",
 		idempotent(), true,
 		enums(map[string][]string{"schedule": {"off", "every_6h", "every_12h", "daily", "weekly", "monthly"}, "keep_mode": {"last", "days"}}),
 		func(ctx context.Context, a app.Actor, in backupScheduleIn) (*result, error) {

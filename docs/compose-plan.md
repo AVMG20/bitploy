@@ -437,6 +437,10 @@ for a project that already has a compose file.
 | valkey | valkey/valkey:9.1.3 | 6379 | 128 MB | 512 MB | 999:999 | REDIS_URL |
 | redis (hidden, by name only) | redis:8.8.4 | 6379 | 128 MB | 512 MB | 999:999 | REDIS_URL |
 | meilisearch | getmeili/meilisearch:v1.56.1 | 7700 | 512 MB | 2048 MB | 10001:10001 | MEILI_URL |
+| typesense | typesense/typesense:30.2 | 8108 | 512 MB | 1024 MB | 10001:10001 | TYPESENSE_URL |
+| clickhouse | clickhouse/clickhouse-server:26.8.36.3 | 8123 | 1024 MB | 5120 MB | 101:101 | CLICKHOUSE_URL |
+| garage | dxflrs/garage:v2.5.0 | 3900 | 256 MB | 4096 MB | 10001:10001 | S3_ENDPOINT |
+| mailpit | axllent/mailpit:v1.33.1 | 8025 | 128 MB | 512 MB | 10001:10001 | SMTP_URL |
 
 Each is built from a generated Dockerfile (`FROM <image>:<version>`, `USER`,
 the template's fixed env, data under `/data`, a `HEALTHCHECK`), runs as a
