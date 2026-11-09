@@ -161,7 +161,10 @@ func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, e
 		return ServerStats{}, err
 	}
 	const gb = 1 << 30
-	var st ServerStats
+	st := ServerStats{Version: s.Version, DiskMinFreePercent: metrics.MinFreeDiskFraction * 100}
+	if st.Version == "" {
+		st.Version = "dev"
+	}
 	if host, err := metrics.ReadHost(ctx); err == nil {
 		st.CPUPercent, st.Load1 = round1(host.CPUPercent), host.Load1
 		st.MemTotalMB, st.MemUsedMB = int64(host.MemTotal/mib), int64(host.MemUsed/mib)

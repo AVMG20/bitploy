@@ -896,6 +896,10 @@ export interface ServerStats {
   apps_running: number
   apps_total: number
   apps_max: number
+  /** The running bitploy build: a tag or commit, dev for a local build. */
+  version: string
+  /** Below this much free disk (%), builds, uploads and backups are refused. */
+  disk_min_free_percent: number
 }
 
 /** One point of the server's CPU and memory history (GET /admin/server/metrics). */

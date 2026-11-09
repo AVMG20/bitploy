@@ -1511,6 +1511,8 @@ function serverStats(): ServerStats {
     apps_running: apps.filter((a) => a.status === 'running').length,
     apps_total: apps.length,
     apps_max: 60,
+    version: 'v0.9.0-12-g590f8a6',
+    disk_min_free_percent: 15,
   }
 }
 

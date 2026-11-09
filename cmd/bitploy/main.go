@@ -126,7 +126,9 @@ func newService(ctx context.Context, log *slog.Logger, needDocker bool) (*app.Se
 	if cfg.Dev {
 		routes.EntryPoint, routes.TLS = "web", false
 	}
-	return app.New(cfg, st, crypto, dk, routes, log), nil
+	svc := app.New(cfg, st, crypto, dk, routes, log)
+	svc.Version = version
+	return svc, nil
 }
 
 func serve(log *slog.Logger) error {

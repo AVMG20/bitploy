@@ -66,6 +66,8 @@ type Service struct {
 	Routes *proxy.Writer
 	Log    *slog.Logger
 	Now    func() time.Time
+	// Version is the bitploy build (main.version), shown to admins.
+	Version string
 	wakeCh chan struct{} // nudges the deploy worker when a deployment is queued
 	hub    *hub          // deployment state change notifications for long-polls
 	events *Broker       // live events for the dashboard (events.go)

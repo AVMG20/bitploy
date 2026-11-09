@@ -748,6 +748,12 @@ type ServerStats struct {
 	AppsRunning     int64   `json:"apps_running"`
 	AppsTotal       int64   `json:"apps_total"`
 	AppsMax         int64   `json:"apps_max"` // BITPLOY_MAX_APPS
+	// Version is the running bitploy build: a tag, or a commit for a build
+	// from a checkout; dev for a local build.
+	Version string `json:"version"`
+	// DiskMinFreePercent is the free disk below which builds, uploads and
+	// backups are refused.
+	DiskMinFreePercent float64 `json:"disk_min_free_percent"`
 }
 
 // ServerMetricPoint is one point of the server's CPU and memory history.

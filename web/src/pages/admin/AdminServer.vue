@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/vue-query'
 import MetricChart from '@/components/MetricChart.vue'
 import QueryError from '@/components/QueryError.vue'
 import StatCard from '@/components/StatCard.vue'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -26,12 +27,34 @@ const windows: { value: MetricWindow; label: string }[] = [
 const history = useServerMetrics(windowSel)
 const points = computed(() => history.data.value?.points ?? [])
 const memTotalMB = computed(() => history.data.value?.mem_total_mb || s.value?.mem_total_mb || 0)
+
+// Free disk in %, and whether it is low enough to warn about (below 20%).
+const DISK_WARN_PERCENT = 20
+const diskFreeGB = computed(() => (s.value ? Math.max(0, s.value.disk_total_gb - s.value.disk_used_gb) : 0))
+const diskFreePercent = computed(() => (s.value && s.value.disk_total_gb > 0 ? (diskFreeGB.value / s.value.disk_total_gb) * 100 : 100))
+const diskLow = computed(() => diskFreePercent.value < DISK_WARN_PERCENT)
+const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.disk_min_free_percent)
 </script>
 
 <template>
   <div>
     <QueryError v-if="server.isError.value" :error="server.error.value" @retry="server.refetch()" />
-    <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <Alert v-if="s && diskLow" variant="destructive" class="mb-4" data-testid="disk-low">
+      <AlertTitle>{{ diskFull ? 'The server disk is full' : 'The server disk is almost full' }}</AlertTitle>
+      <AlertDescription>
+        <p>
+          Only {{ formatGB(diskFreeGB) }} ({{ Math.floor(diskFreePercent) }}%) is free.
+          <template v-if="diskFull">
+            Below {{ s.disk_min_free_percent }}% free, bitploy refuses new builds, uploads and backups, and skips automatic backups. Apps that run keep running.
+          </template>
+          <template v-else>
+            Below {{ s.disk_min_free_percent }}% free, bitploy stops accepting new builds, uploads and backups, and skips automatic backups.
+          </template>
+        </p>
+        <p>Make room: delete apps or old backups nobody needs, lower storage limits, or give the server a bigger disk.</p>
+      </AlertDescription>
+    </Alert>
+    <div v-if="!server.isError.value" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard title="CPU" :loading="!s" :value="s ? formatPercent(s.cpu_percent) : ''" suffix="of the whole server" :sub="s ? `Load ${s.load1.toFixed(2)}` : ''" :progress="s?.cpu_percent" />
       <StatCard
         title="Memory"
@@ -98,5 +121,9 @@ const memTotalMB = computed(() => history.data.value?.mem_total_mb || s.value?.m
     </Card>
 
     <AdminPublicPorts class="mt-6" />
+
+    <p v-if="s" class="mt-6 text-xs text-muted-foreground" data-testid="bitploy-version">
+      bitploy version <span class="font-mono">{{ s.version }}</span>
+    </p>
   </div>
 </template>
