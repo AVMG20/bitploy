@@ -47,3 +47,14 @@ DELETE FROM user_app_domains WHERE user_id = ? AND domain_id = ?;
 -- name: CustomDomainsUnder :many
 -- Custom domains (per-app hostnames) equal to or below a domain.
 SELECT hostname FROM domains WHERE hostname = sqlc.arg(domain) OR hostname LIKE '%.' || sqlc.arg(domain);
+
+-- name: SetAppRoot :exec
+-- Whether the app answers on its domain itself (address @).
+UPDATE apps SET on_root = ?, updated_at = ? WHERE id = ?;
+
+-- name: GetRootApp :one
+-- The app that holds the root of an extra app domain.
+SELECT * FROM apps WHERE on_root = 1 AND base_domain = ?;
+
+-- name: ListRootApps :many
+SELECT * FROM apps WHERE on_root = 1 ORDER BY base_domain;

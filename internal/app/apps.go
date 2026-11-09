@@ -638,9 +638,40 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		changed["domain"], changed["old_domain"] = s.appDomainOf(db.App{BaseDomain: nd}), s.appDomainOf(row)
 	}
 
+	// The domain itself (slug @): the slug stays and the address becomes
+	// https://<domain>. Any other slug, or a move to another domain without @,
+	// takes the app off it, which frees it at once: only admins claim roots,
+	// so there is nothing to reserve.
+	held := row.OnRoot != 0
+	wantRoot := held && !moved
+	slugIn := in.Slug
+	atSign := slugIn != nil && strings.TrimSpace(*slugIn) == "@"
+	if slugIn != nil {
+		wantRoot = atSign
+	}
+	if atSign {
+		slugIn = nil
+	}
+	if wantRoot && p.Type != "web" {
+		if atSign {
+			return App{}, rootNoAddress()
+		}
+		wantRoot = false // turned into a worker: it has no address left
+	}
+	claim := wantRoot && (!held || moved)
+	if claim {
+		if err := s.checkRootClaim(ctx, a, row, p.BaseDomain); err != nil {
+			return App{}, err
+		}
+	}
+	rootChanged := wantRoot != held || claim
+	if rootChanged {
+		changed["root"] = wantRoot
+	}
+
 	renamed := false
-	if in.Slug != nil {
-		ns := strings.ToLower(strings.TrimSpace(*in.Slug))
+	if slugIn != nil {
+		ns := strings.ToLower(strings.TrimSpace(*slugIn))
 		if ns != row.Slug {
 			if err := s.checkSlugFree(ctx, ns, row.UserID, p.BaseDomain); err != nil {
 				return App{}, err
@@ -660,13 +691,29 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 		if err := s.renameApp(ctx, row, p); err != nil {
 			return App{}, err
 		}
-	} else if moved {
+	} else if moved || rootChanged {
 		err := s.Store.Tx(ctx, func(q *db.Queries) error {
 			if err := checkDomainStillThere(ctx, q, p.BaseDomain); err != nil {
 				return err
 			}
+			// Off the old root first, so the unique index sees only the new claim.
+			if held {
+				if err := q.SetAppRoot(ctx, db.SetAppRootParams{OnRoot: 0, UpdatedAt: p.UpdatedAt, ID: row.ID}); err != nil {
+					return err
+				}
+			}
 			if err := q.UpdateAppSettings(ctx, p); err != nil {
 				return err
+			}
+			if wantRoot {
+				if err := q.SetAppRoot(ctx, db.SetAppRootParams{OnRoot: 1, UpdatedAt: p.UpdatedAt, ID: row.ID}); err != nil {
+					if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+						if holder, herr := q.GetRootApp(ctx, p.BaseDomain); herr == nil {
+							return rootTaken(p.BaseDomain, holder)
+						}
+					}
+					return err
+				}
 			}
 			return syncSingleLayout(ctx, q, row.ID)
 		})
@@ -717,7 +764,7 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 	}
 	// Port and health path changes apply to the route at once, and so does a
 	// new domain (the route file is named after the slug, only its Host changes).
-	if !renamed && (in.Port != nil || in.Type != nil || moved) {
+	if !renamed && (in.Port != nil || in.Type != nil || moved || rootChanged) {
 		_ = s.SyncRoute(ctx, row.ID)
 	}
 	if in.Volume != nil && *in.Volume {
@@ -771,6 +818,12 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 	err := s.Store.Tx(ctx, func(q *db.Queries) error {
 		if p.BaseDomain != row.BaseDomain {
 			if err := checkDomainStillThere(ctx, q, p.BaseDomain); err != nil {
+				return err
+			}
+		}
+		// A new name takes the app off the domain itself (slug @ keeps the name).
+		if row.OnRoot != 0 {
+			if err := q.SetAppRoot(ctx, db.SetAppRootParams{OnRoot: 0, UpdatedAt: p.UpdatedAt, ID: row.ID}); err != nil {
 				return err
 			}
 		}
@@ -1215,6 +1268,10 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 // someone else. Slugs are unique across all app domains; baseDomain (empty
 // for the default) is the domain the app's address will be on.
 func (s *Service) checkSlugFree(ctx context.Context, slug, userID, baseDomain string) error {
+	if slug == "@" { // UpdateApp handles @ before this; a new app needs a name
+		return apperr.BadRequest("slug_invalid", "A new app needs a name for its address.",
+			"Create it with a name. An admin can then set its address to @ in its Settings.")
+	}
 	if e := deploy.ValidateSlug(slug); e != nil {
 		return e
 	}
@@ -1274,7 +1331,7 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 	}
 	v.BackupsSupported = noBackupsErr(r) == nil
 	if r.Type == "web" {
-		v.URL = s.appURL(r)
+		v.URL, v.Root = s.appURL(r), appRoot(r) != ""
 		if r.ProtectEnabled != 0 {
 			v.Protected, v.ProtectedUsername = true, r.ProtectUsername
 		}

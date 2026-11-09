@@ -206,6 +206,16 @@ func (c *Config) AppURLOn(slug, domain string) string {
 	return c.AppsScheme + "://" + host
 }
 
+// AppRootURL is the public URL of the domain itself, for the app that holds
+// the root of an app domain (address @).
+func (c *Config) AppRootURL(domain string) string {
+	host := domain
+	if c.AppsPort != "" {
+		host += ":" + c.AppsPort
+	}
+	return c.AppsScheme + "://" + host
+}
+
 // AppHost is the Host header value Traefik routes for an app on the default domain.
 func (c *Config) AppHost(slug string) string { return c.AppHostOn(slug, "") }
 

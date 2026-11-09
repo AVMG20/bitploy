@@ -137,6 +137,70 @@ func (q *Queries) GetAppDomainByName(ctx context.Context, domain string) (AppDom
 	return i, err
 }
 
+const getRootApp = `-- name: GetRootApp :one
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root FROM apps WHERE on_root = 1 AND base_domain = ?
+`
+
+// The app that holds the root of an extra app domain.
+func (q *Queries) GetRootApp(ctx context.Context, baseDomain string) (App, error) {
+	row := q.db.QueryRowContext(ctx, getRootApp, baseDomain)
+	var i App
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Slug,
+		&i.Name,
+		&i.Type,
+		&i.Port,
+		&i.HealthPath,
+		&i.DockerfilePath,
+		&i.ContextDir,
+		&i.VolumeEnabled,
+		&i.MemoryMb,
+		&i.CpuMillis,
+		&i.GitRepoUrl,
+		&i.GitBranch,
+		&i.GitSubdir,
+		&i.DesiredState,
+		&i.Status,
+		&i.StatusMessage,
+		&i.CurrentDeploymentID,
+		&i.DeploySeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VolumeMb,
+		&i.VolumeName,
+		&i.BackupSchedule,
+		&i.BackupKeepMode,
+		&i.BackupKeep,
+		&i.RestoreBackupID,
+		&i.RestoreSafeID,
+		&i.RestoreResume,
+		&i.GitAutoDeploy,
+		&i.GitLastPushAt,
+		&i.ProtectEnabled,
+		&i.ProtectUsername,
+		&i.ProtectHash,
+		&i.BuildMode,
+		&i.HomePage,
+		&i.OutputDir,
+		&i.CatalogID,
+		&i.CatalogVersion,
+		&i.BaseDomain,
+		&i.ServiceLayout,
+		&i.ComposePath,
+		&i.ProjectID,
+		&i.Alias,
+		&i.Template,
+		&i.TemplateVersion,
+		&i.BackupScheduleSet,
+		&i.BackupDefaultAt,
+		&i.CreatedBy,
+		&i.OnRoot,
+	)
+	return i, err
+}
+
 const grantUserAppDomain = `-- name: GrantUserAppDomain :exec
 INSERT INTO user_app_domains (user_id, domain_id, created_at) VALUES (?, ?, ?)
 ON CONFLICT(user_id, domain_id) DO NOTHING
@@ -246,6 +310,85 @@ func (q *Queries) ListAppDomains(ctx context.Context) ([]AppDomain, error) {
 	return items, nil
 }
 
+const listRootApps = `-- name: ListRootApps :many
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root FROM apps WHERE on_root = 1 ORDER BY base_domain
+`
+
+func (q *Queries) ListRootApps(ctx context.Context) ([]App, error) {
+	rows, err := q.db.QueryContext(ctx, listRootApps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []App{}
+	for rows.Next() {
+		var i App
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Slug,
+			&i.Name,
+			&i.Type,
+			&i.Port,
+			&i.HealthPath,
+			&i.DockerfilePath,
+			&i.ContextDir,
+			&i.VolumeEnabled,
+			&i.MemoryMb,
+			&i.CpuMillis,
+			&i.GitRepoUrl,
+			&i.GitBranch,
+			&i.GitSubdir,
+			&i.DesiredState,
+			&i.Status,
+			&i.StatusMessage,
+			&i.CurrentDeploymentID,
+			&i.DeploySeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VolumeMb,
+			&i.VolumeName,
+			&i.BackupSchedule,
+			&i.BackupKeepMode,
+			&i.BackupKeep,
+			&i.RestoreBackupID,
+			&i.RestoreSafeID,
+			&i.RestoreResume,
+			&i.GitAutoDeploy,
+			&i.GitLastPushAt,
+			&i.ProtectEnabled,
+			&i.ProtectUsername,
+			&i.ProtectHash,
+			&i.BuildMode,
+			&i.HomePage,
+			&i.OutputDir,
+			&i.CatalogID,
+			&i.CatalogVersion,
+			&i.BaseDomain,
+			&i.ServiceLayout,
+			&i.ComposePath,
+			&i.ProjectID,
+			&i.Alias,
+			&i.Template,
+			&i.TemplateVersion,
+			&i.BackupScheduleSet,
+			&i.BackupDefaultAt,
+			&i.CreatedBy,
+			&i.OnRoot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserAppDomainIDs = `-- name: ListUserAppDomainIDs :many
 SELECT domain_id FROM user_app_domains WHERE user_id = ? ORDER BY domain_id
 `
@@ -333,5 +476,21 @@ func (q *Queries) SetAppDomainCert(ctx context.Context, arg SetAppDomainCertPara
 		arg.CertNotAfter,
 		arg.ID,
 	)
+	return err
+}
+
+const setAppRoot = `-- name: SetAppRoot :exec
+UPDATE apps SET on_root = ?, updated_at = ? WHERE id = ?
+`
+
+type SetAppRootParams struct {
+	OnRoot    int64
+	UpdatedAt int64
+	ID        string
+}
+
+// Whether the app answers on its domain itself (address @).
+func (q *Queries) SetAppRoot(ctx context.Context, arg SetAppRootParams) error {
+	_, err := q.db.ExecContext(ctx, setAppRoot, arg.OnRoot, arg.UpdatedAt, arg.ID)
 	return err
 }

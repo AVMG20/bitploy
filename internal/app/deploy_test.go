@@ -1295,7 +1295,7 @@ func TestDeploymentViewShapes(t *testing.T) {
 		"queued": "get_deployment", "building": "get_deployment", "running": "link", "failed": "after 3 failures",
 		"superseded": "newer deployment", "cancelled": "get_app",
 	} {
-		d := e.s.deploymentBase(dbDep(state), "my-app", "web", "")
+		d := e.s.deploymentBase(dbDep(state), db.App{Slug: "my-app", Type: "web"})
 		if len(d.NextSteps) == 0 || !strings.Contains(strings.ToLower(strings.Join(d.NextSteps, " ")), wantStep) {
 			t.Errorf("%s: next_steps %v", state, d.NextSteps)
 		}
@@ -1306,7 +1306,7 @@ func TestDeploymentViewShapes(t *testing.T) {
 			t.Errorf("url %q", d.URL)
 		}
 	}
-	if d := e.s.deploymentBase(dbDep("running"), "w", "worker", ""); d.URL != "" {
+	if d := e.s.deploymentBase(dbDep("running"), db.App{Slug: "w", Type: "worker"}); d.URL != "" {
 		t.Errorf("worker deployment url %q", d.URL)
 	}
 }

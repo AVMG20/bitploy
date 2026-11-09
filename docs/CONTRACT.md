@@ -106,6 +106,28 @@ rename or remove anything, and mention it in your final summary.
   `PUT /admin/users/{id}/app-domains {domain_ids}`. The key is never returned.
   Certificates are written as `<RoutesDir>/certs/<domain>.crt|.key` (0600) and
   `_certs.yml` (`tls.certificates`, paths under `/dynamic`).
+- **An app on the domain itself** (migration `00390`, `apps.on_root` plus the
+  partial unique index `apps_root_domain` on `base_domain WHERE on_root = 1`):
+  an admin with a dashboard session sends `UpdateAppInput.slug = "@"` (with or
+  without `domain`) to give an app the root of an extra app domain
+  (`https://<domain>`). The slug does not change. Refusals: 403
+  `root_admin_only` (not an admin, or an API/MCP token), 422
+  `root_default_domain` (the default domain, or no domain), 422
+  `root_reserved` (the apex is the public URL's host or `BITPLOY_EDGE_HOST`),
+  409 `root_custom_domain` (the apex is a custom domain of an app), 409
+  `root_taken` (another app holds it; the message names it), 400
+  `root_no_address` (a worker), 400 `slug_invalid` (`@` on create). Any other
+  slug, or a `domain` move without `@`, frees the root at once (no 30-day
+  reservation); a rename frees it too. A root app's address is
+  `cfg.AppRootURL(domain)` everywhere `AppURLOn` is used (`App.url`, deployment
+  `url`, `Live:`, `BITPLOY_URL`, notifications, MCP); `App.root` is `true` and
+  `App.domain` stays the domain. `<slug>.<domain>` keeps routing. The route
+  file `app-<slug>.yml` gets a second router `app-<slug>_root` with
+  `Host(<domain>)`: `tls: {}` when the domain's stored certificate covers the
+  apex (its SANs), else `tls.certResolver: letsencrypt`. `Me.app_domains[]`
+  gets `root_allowed`, `root_app` (slug) and `root_dns` (one DNS line) for
+  admins on extra domains whose root may be claimed; `GET /admin/app-domains`
+  items get `root_app {slug, name}` or `null`.
 - **Local dev**: `BITPLOY_DEV=1 BITPLOY_APPS_DOMAIN=localhost BITPLOY_APPS_SCHEME=http
   BITPLOY_APPS_PORT=8000 BITPLOY_PUBLIC_URL=http://localhost:5173
   BITPLOY_TRAEFIK_INTERNAL_URL=http://localhost:8081

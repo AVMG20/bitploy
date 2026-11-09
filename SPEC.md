@@ -524,6 +524,7 @@ Every app gets `https://<slug>.bitploy.nl` the moment it is created, through Clo
 - One level only. `api.myapp.bitploy.nl` is not allowed: Universal SSL covers the apex and first-level subdomains only.
 - Reserved: `www app api mcp admin dashboard docs status mail edge custom cdn static assets auth login bitploy traefik builder`, and anything starting with `bp-` (`builder` because its network would be `bp-builder`, the build network).
 - Unknown subdomains and stopped apps hit a low-priority catch-all router that shows a friendly bitploy page ("No app here" or "This app is stopped") instead of a Traefik 404.
+- An admin can add extra app domains (Admin → Domains) and choose who may put apps on them; an app then lives at `<slug>.<domain>`. An admin can also give one app the domain itself (`https://example.com`) by typing `@` as its address in Settings. The slug stays, `<slug>.<domain>` keeps working, and the domain itself becomes the address shown everywhere. Only extra domains offer this, one app per domain, and not when the domain is bitploy's own host or a custom domain of an app. Admin → Domains shows which app has it. Its route uses the domain's stored certificate when that covers the domain itself, and Let's Encrypt otherwise. Another address frees it at once, without the 30-day reservation.
 
 **Cloudflare setup** (done once by the operator; put it in the README):
 

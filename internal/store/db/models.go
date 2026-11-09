@@ -73,6 +73,7 @@ type App struct {
 	BackupScheduleSet   int64
 	BackupDefaultAt     int64
 	CreatedBy           string
+	OnRoot              int64
 }
 
 type AppBackup struct {

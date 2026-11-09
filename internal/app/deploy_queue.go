@@ -738,10 +738,9 @@ func deployAgainIn(mins int64) string {
 
 // ---- read side ----
 
-// deploymentView builds the public Deployment. baseDomain is the app's
-// apps.base_domain (empty for the default domain), for its URL.
+// deploymentView builds the public Deployment.
 func (s *Service) deploymentView(ctx context.Context, d db.Deployment, app db.App) Deployment {
-	v := s.deploymentBase(d, app.Slug, app.Type, app.BaseDomain)
+	v := s.deploymentBase(d, app)
 	if isMulti(app) || d.ServicesSpec != "" {
 		if rows, err := s.Q.ListDeploymentServices(ctx, d.ID); err == nil {
 			v.Services = deploymentServices(v, rows, app, d.Seq)
@@ -771,18 +770,19 @@ func deploymentServices(v Deployment, rows []db.DeploymentService, app db.App, s
 	return out
 }
 
-// deploymentBase is the Deployment without its per-service rows.
-func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain string) Deployment {
+// deploymentBase is the Deployment without its per-service rows. The URL is
+// the app's address now (its domain, or the domain itself).
+func (s *Service) deploymentBase(d db.Deployment, app db.App) Deployment {
 	v := Deployment{
-		ID: d.ID, AppID: d.AppID, AppSlug: slug, Seq: d.Seq, State: d.State,
+		ID: d.ID, AppID: d.AppID, AppSlug: app.Slug, Seq: d.Seq, State: d.State,
 		SourceKind: d.SourceKind, SourceRef: d.SourceRef, Channel: d.Channel,
 		Warnings: []deploy.Finding{}, QueuedAt: ts(d.QueuedAt), AfterDeploy: d.AfterDeploy,
 		BuildReads: decodeBuildReads(d.BuildReads),
 		StartedAt:  tsPtr(d.StartedAt), FinishedAt: tsPtr(d.FinishedAt),
 		CommitSHA: strPtr(d.CommitSha), CommitMessage: strPtr(d.CommitMessage), Image: strPtr(d.Image),
 	}
-	if appType != "worker" {
-		v.URL = s.Cfg.AppURLOn(slug, baseDomain)
+	if app.Type != "worker" {
+		v.URL = s.appURL(app)
 	}
 	if d.StartedAt.Valid && d.FinishedAt.Valid {
 		sec := float64(d.FinishedAt.Int64 - d.StartedAt.Int64)
@@ -802,7 +802,7 @@ func (s *Service) deploymentBase(d db.Deployment, slug, appType, baseDomain stri
 	} else if d.State != "queued" && d.State != "cancelled" {
 		v.LogTail = tailFile(s.Cfg.BuildLog(d.ID), maxStoredLogTail)
 	}
-	v.NextSteps = s.nextSteps(v, appType)
+	v.NextSteps = s.nextSteps(v, app.Type)
 	return v
 }
 

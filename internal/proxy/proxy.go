@@ -23,8 +23,16 @@ type Route struct {
 	// It is exposed only on the internal entrypoint under CandidateHost(slug),
 	// so bitploy can probe it through Traefik before the swap.
 	Candidate string
+	// Root is the app domain itself (example.com) when the app holds its root
+	// (address @). It gets its own router next to Host, which keeps working.
+	Root string
+	// RootOwnCert says the stored certificate of the app domain covers Root:
+	// the router then uses it like the subdomains do (Traefik picks it by
+	// SNI). Without one Traefik gets a Let's Encrypt certificate, like for a
+	// custom domain.
+	RootOwnCert bool
 	// Auth, when set, puts a basic-auth login in front of every public router
-	// of the app (its own hostname and each custom hostname). The candidate and
+	// of the app (its own hostname, its root and each custom hostname). The candidate and
 	// live routers on the internal entrypoint never get it: bitploy's health
 	// checks and swap checks send no credentials.
 	Auth *BasicAuth
@@ -83,6 +91,10 @@ const AuthRealm = "Private app"
 // RouterName is the Traefik router of an app's own hostname. It is what the
 // access log shows (with an "@file" suffix), so traffic stats can find the app.
 func RouterName(slug string) string { return routerName(slug) }
+
+// RootRouterName is the Traefik router of the app domain itself, for the app
+// that holds its root. "root" has no "_", so it cannot clash with a hostname suffix.
+func RootRouterName(slug string) string { return "app-" + slug + "_root" }
 
 // HostRouterName is the Traefik router of one of an app's custom hostnames.
 func HostRouterName(slug, host string) string { return hostRouterName(slug, host) }
@@ -178,6 +190,16 @@ func (w *Writer) Render(r Route) ([]byte, error) {
 	lname := name + "_live"
 	f.HTTP.Middlewares[lname] = headerMiddleware(UpstreamHeader, r.Upstream)
 	f.HTTP.Routers[lname] = router{Rule: fmt.Sprintf("Host(`%s`)", LiveHost(r.Slug)), EntryPoints: []string{w.internal()}, Service: name, Middlewares: []string{lname}}
+	if r.Root != "" {
+		rr := router{Rule: fmt.Sprintf("Host(`%s`)", r.Root), EntryPoints: []string{w.entry()}, Service: name, Middlewares: public}
+		if w.TLS {
+			rr.TLS = &tlsConf{}
+			if !r.RootOwnCert {
+				rr.TLS.CertResolver = "letsencrypt"
+			}
+		}
+		f.HTTP.Routers[RootRouterName(r.Slug)] = rr
+	}
 	custom := append([]string(nil), r.Custom...)
 	sort.Strings(custom)
 	for _, h := range custom {

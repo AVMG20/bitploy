@@ -297,6 +297,9 @@ func (s *Service) desiredRoute(ctx context.Context, app db.App) proxy.Route {
 		if hs, err := s.ActiveHostnames(ctx, app.ID); err == nil {
 			r.Custom = hs
 		}
+		if root := appRoot(app); root != "" {
+			r.Root, r.RootOwnCert = root, s.apexHasCert(root)
+		}
 		if app.DesiredState == "running" && app.CurrentDeploymentID.Valid {
 			if d, err := s.Q.GetDeployment(ctx, app.CurrentDeploymentID.String); err == nil {
 				r.Upstream = s.publicUpstream(ctx, app, d)

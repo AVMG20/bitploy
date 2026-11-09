@@ -152,8 +152,12 @@ type App struct {
 	Name string `json:"name"`
 	Type string `json:"type"` // web | worker
 	URL  string `json:"url"`
-	// Domain is the domain the app's address is on: <slug>.<domain>.
-	Domain        string `json:"domain"`
+	// Domain is the domain the app's address is on: <slug>.<domain>, or the
+	// domain itself when Root is set.
+	Domain string `json:"domain"`
+	// Root: the app's address is the domain itself (https://<domain>), given
+	// by an admin with the address @. <slug>.<domain> keeps working too.
+	Root          bool   `json:"root" doc:"The address is the domain itself (url is https://<domain>); set by an admin with slug @ in the dashboard. <slug>.<domain> keeps working too."`
 	OwnerID       string `json:"owner_id"`
 	Status        string `json:"status"` // new | deploying | running | stopped | failed | crashed
 	StatusMessage string `json:"status_message,omitempty"`
@@ -832,8 +836,8 @@ type CreateAppInput struct {
 // UpdateAppInput: nil fields are left unchanged.
 type UpdateAppInput struct {
 	Name           *string `json:"name,omitempty"`
-	Slug           *string `json:"slug,omitempty"`
-	Domain         *string `json:"domain,omitempty" doc:"Move the address to another domain (one of app_domains in whoami). Applies at once; the old address stops working."`
+	Slug           *string `json:"slug,omitempty" doc:"A new subdomain (the app's name in bitploy). @ (admins with a dashboard session, extra app domains only): the address becomes the domain itself and the slug stays. Any other value takes the app off the domain itself again."`
+	Domain         *string `json:"domain,omitempty" doc:"Move the address to another domain (one of app_domains in whoami). Applies at once; the old address stops working. An app on the domain itself leaves it unless slug is @."`
 	Type           *string `json:"type,omitempty"`
 	Port           *int64  `json:"port,omitempty"` // 0 clears it (use EXPOSE)
 	HealthPath     *string `json:"health_path,omitempty"`

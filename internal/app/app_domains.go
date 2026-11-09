@@ -10,12 +10,18 @@ package app
 // certificate for <domain> and *.<domain>); bitploy writes it for Traefik,
 // which picks it by SNI. The private key is stored encrypted, like env vars,
 // and is never returned.
+//
+// An admin may give one app per extra domain the domain itself (address @,
+// apps.on_root): it then answers on https://<domain> as well, and that is its
+// address everywhere. The slug still names everything, and <slug>.<domain>
+// keeps working.
 
 import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"sort"
@@ -45,7 +51,14 @@ type AppDomain struct {
 	CertExpiresAt *time.Time `json:"cert_expires_at"`
 	AppCount      int64      `json:"app_count" doc:"Apps whose address is on this domain"`
 	UserCount     int64      `json:"user_count" doc:"People (admins aside) allowed to use it; 0 for the default domain, which everyone may use"`
+	RootApp       *RootApp   `json:"root_app" doc:"The app on the domain itself (address @); null for none"`
 	CreatedAt     *time.Time `json:"created_at"`
+}
+
+// RootApp is the app that holds the root of an app domain.
+type RootApp struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // AppDomainList is the admin's list of domains plus what DNS needs.
@@ -73,6 +86,10 @@ type AppDomainChoice struct {
 	Domain      string `json:"domain"`
 	Default     bool   `json:"default"`
 	URLTemplate string `json:"url_template" doc:"An app's address on this domain with {slug} in place of its name"`
+	// The domain itself (address @): only for admins with a dashboard session.
+	RootAllowed bool   `json:"root_allowed,omitempty" doc:"Admins: an app can get the domain itself as its address (@ in place of the name)"`
+	RootApp     string `json:"root_app,omitempty" doc:"Admins: the slug of the app on the domain itself"`
+	RootDNS     string `json:"root_dns,omitempty" doc:"Admins: the DNS record the domain itself needs for that"`
 }
 
 // appDomainCache holds the names of the extra domains, for the hot paths
@@ -82,6 +99,9 @@ type appDomainCache struct {
 	mu     sync.RWMutex
 	loaded bool
 	extra  []string
+	// apexCert: the stored certificate of the domain also covers the domain
+	// itself, not only *.domain.
+	apexCert map[string]bool
 }
 
 func (s *Service) defaultAppDomain() string { return strings.ToLower(s.Cfg.AppsDomain) }
@@ -111,14 +131,36 @@ func (s *Service) reloadAppDomains(ctx context.Context) error {
 		return err
 	}
 	names := make([]string, 0, len(rows))
+	apex := map[string]bool{}
 	for _, r := range rows {
-		names = append(names, strings.ToLower(r.Domain))
+		d := strings.ToLower(r.Domain)
+		names = append(names, d)
+		apex[d] = certCovers(r.CertPem, d)
 	}
 	sort.Strings(names)
 	s.appDomains.mu.Lock()
-	s.appDomains.extra, s.appDomains.loaded = names, true
+	s.appDomains.extra, s.appDomains.apexCert, s.appDomains.loaded = names, apex, true
 	s.appDomains.mu.Unlock()
 	return nil
+}
+
+// certCovers reports whether the first certificate in certPEM is valid for host.
+func certCovers(certPEM, host string) bool {
+	b, _ := pem.Decode([]byte(certPEM))
+	if b == nil || b.Type != "CERTIFICATE" {
+		return false
+	}
+	c, err := x509.ParseCertificate(b.Bytes)
+	return err == nil && c.VerifyHostname(host) == nil
+}
+
+// apexHasCert says the stored certificate of an extra domain covers the
+// domain itself, so its root route can use it.
+func (s *Service) apexHasCert(domain string) bool {
+	s.extraAppDomains() // loads the cache
+	s.appDomains.mu.RLock()
+	defer s.appDomains.mu.RUnlock()
+	return s.appDomains.apexCert[strings.ToLower(domain)]
 }
 
 // AllAppDomains is the default domain followed by the extra ones.
@@ -151,8 +193,22 @@ func (s *Service) appDomainOf(r db.App) string {
 	return r.BaseDomain
 }
 
-// appURL is the public address of an app on its own domain.
-func (s *Service) appURL(r db.App) string { return s.Cfg.AppURLOn(r.Slug, r.BaseDomain) }
+// appURL is the public address of an app on its own domain: the domain
+// itself for the app that holds its root.
+func (s *Service) appURL(r db.App) string {
+	if root := appRoot(r); root != "" {
+		return s.Cfg.AppRootURL(root)
+	}
+	return s.Cfg.AppURLOn(r.Slug, r.BaseDomain)
+}
+
+// appRoot is the domain whose root the app holds, or "".
+func appRoot(r db.App) string {
+	if r.OnRoot != 0 && r.BaseDomain != "" {
+		return r.BaseDomain
+	}
+	return ""
+}
 
 // userExtraDomains lists the extra domains a user may put apps on. Admins may
 // use every domain.
@@ -170,17 +226,116 @@ func (s *Service) userExtraDomains(ctx context.Context, u db.User) ([]string, er
 	return names, nil
 }
 
-// appDomainChoices is the whoami list: the default domain first.
-func (s *Service) appDomainChoices(ctx context.Context, u db.User) []AppDomainChoice {
+// appDomainChoices is the whoami list: the default domain first. Admins with
+// a dashboard session also see whether each extra domain can be an app's
+// address itself, which app has it, and the DNS record it needs.
+func (s *Service) appDomainChoices(ctx context.Context, a Actor, u db.User) []AppDomainChoice {
 	out := []AppDomainChoice{{Domain: s.Cfg.AppsDomain, Default: true, URLTemplate: s.Cfg.AppURL("{slug}")}}
 	extra, err := s.userExtraDomains(ctx, u)
 	if err != nil {
 		s.Log.Warn("listing the user's app domains failed", "user", u.ID, "err", err)
 	}
+	roots := map[string]string{}
+	if mayClaimRoot(a) {
+		if rows, err := s.Q.ListRootApps(ctx); err == nil {
+			for _, r := range rows {
+				roots[strings.ToLower(r.BaseDomain)] = r.Slug
+			}
+		}
+	}
 	for _, d := range extra {
-		out = append(out, AppDomainChoice{Domain: d, URLTemplate: s.Cfg.AppURLOn("{slug}", d)})
+		c := AppDomainChoice{Domain: d, URLTemplate: s.Cfg.AppURLOn("{slug}", d)}
+		if mayClaimRoot(a) && s.rootBlocked(ctx, d) == nil {
+			c.RootAllowed, c.RootApp, c.RootDNS = true, roots[d], s.rootDNS(d)
+		}
+		out = append(out, c)
 	}
 	return out
+}
+
+// mayClaimRoot: only admins, signed in to the dashboard, give an app the root
+// of a domain. Everyone else uses a name (or adds their own custom domain).
+func mayClaimRoot(a Actor) bool { return a.IsAdmin() && a.Scope == ScopeSession }
+
+// rootBlocked refuses the root of a domain that is bitploy's own or already
+// someone's custom domain. The default domain never has a root app: it is
+// usually the dashboard's own host, and its certificate comes from the install.
+func (s *Service) rootBlocked(ctx context.Context, domain string) error {
+	if domain == "" || domain == s.defaultAppDomain() {
+		return apperr.Unprocessable("root_default_domain",
+			"The address @ works on the extra app domains only, not on "+s.Cfg.AppsDomain+".",
+			"Pick another domain next to the address, or type a name.")
+	}
+	rules := s.domainRules()
+	if domain == rules.PublicHost || (rules.EdgeHost != "" && domain == rules.EdgeHost) {
+		return apperr.Unprocessable("root_reserved", domain+" is used by bitploy itself.", "Pick another domain, or type a name.")
+	}
+	if d, err := s.Q.OpsGetDomainByHostname(ctx, domain); err == nil {
+		holder := "another app"
+		if r, err := s.Q.GetApp(ctx, d.AppID); err == nil {
+			holder = r.Slug
+		}
+		return apperr.Conflict("root_custom_domain", domain+" is a custom domain of "+holder+".",
+			"Remove it from that app's Domains tab first.")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+// checkRootClaim runs before an app gets the root of domain (address @).
+func (s *Service) checkRootClaim(ctx context.Context, a Actor, row db.App, domain string) error {
+	if !mayClaimRoot(a) {
+		return apperr.Forbidden("root_admin_only",
+			"Only a bitploy admin can give an app the domain itself as its address.",
+			"Type a name for the address instead, like "+row.Slug+".")
+	}
+	if err := s.rootBlocked(ctx, domain); err != nil {
+		return err
+	}
+	holder, err := s.Q.GetRootApp(ctx, domain)
+	if err == nil && holder.ID != row.ID {
+		return rootTaken(domain, holder)
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return apperr.Internal(err)
+	}
+	return nil
+}
+
+func rootNoAddress() error {
+	return apperr.BadRequest("root_no_address", "This app has no web address, so it cannot use the domain itself.",
+		"Only an app with a web address can have the domain itself as its address.")
+}
+
+func rootTaken(domain string, holder db.App) error {
+	return apperr.Conflict("root_taken",
+		domain+" is already the address of "+holder.Name+" ("+holder.Slug+").",
+		"Give that app another address in its Settings first.")
+}
+
+// rootDNS is the one line of DNS the domain itself needs. With a stored
+// certificate that covers it, Cloudflare's proxy can stay on, like for the
+// subdomains; without one the server gets a Let's Encrypt certificate, which
+// needs the record to point straight at it.
+func (s *Service) rootDNS(domain string) string {
+	v4, v6 := s.Cfg.ServerIPv4, s.Cfg.ServerIPv6
+	var target string
+	switch {
+	case v4 != "" && v6 != "":
+		target = "an A record to " + v4 + " and an AAAA record to " + v6
+	case v4 != "":
+		target = "an A record to " + v4
+	case v6 != "":
+		target = "an AAAA record to " + v6
+	case s.Cfg.EdgeHost != "":
+		target = "a CNAME to " + s.Cfg.EdgeHost + " (CNAME flattening)"
+	default:
+		target = "an A record to this server's IP address"
+	}
+	if s.apexHasCert(domain) {
+		return "DNS: " + domain + " needs " + target + ", proxied in Cloudflare like the subdomains."
+	}
+	return "DNS: " + domain + " needs " + target + ", DNS only (grey cloud in Cloudflare)."
 }
 
 // pickAppDomain checks that the user may put an app on the requested domain
@@ -274,7 +429,21 @@ func (s *Service) ApplyAppDomains(ctx context.Context) error {
 		}
 		certs = append(certs, proxy.Cert{Domain: strings.ToLower(r.Domain), Cert: r.CertPem, Key: string(key)})
 	}
-	return s.Routes.WriteCerts(certs)
+	if err := s.Routes.WriteCerts(certs); err != nil {
+		return err
+	}
+	// A new certificate may cover the domain itself or no longer do so: the
+	// route of the app on it picks the stored certificate or Let's Encrypt.
+	roots, err := s.Q.ListRootApps(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range roots {
+		if err := s.SyncRoute(ctx, r.ID); err != nil {
+			s.Log.Warn("rewriting the route of a root app failed", "app", r.Slug, "err", err)
+		}
+	}
+	return nil
 }
 
 func appDomainKeyAAD(id string) string { return "app-domain-key\x00" + id }
@@ -365,13 +534,21 @@ func (s *Service) AdminListAppDomains(ctx context.Context, a Actor) (AppDomainLi
 	for _, g := range grants {
 		users[g.DomainID]++
 	}
+	roots, err := s.Q.ListRootApps(ctx)
+	if err != nil {
+		return AppDomainList{}, apperr.Internal(err)
+	}
+	rootOf := map[string]*RootApp{}
+	for _, r := range roots {
+		rootOf[strings.ToLower(r.BaseDomain)] = &RootApp{Slug: r.Slug, Name: r.Name}
+	}
 	out := AppDomainList{
 		Items:      []AppDomain{{ID: DefaultAppDomainID, Domain: s.Cfg.AppsDomain, Default: true, Certificate: "install", AppCount: apps[""] + apps[s.defaultAppDomain()]}},
 		ServerIPv4: s.Cfg.ServerIPv4, ServerIPv6: s.Cfg.ServerIPv6,
 	}
 	for _, r := range rows {
 		v := s.appDomainView(r)
-		v.AppCount, v.UserCount = apps[strings.ToLower(r.Domain)], users[r.ID]
+		v.AppCount, v.UserCount, v.RootApp = apps[strings.ToLower(r.Domain)], users[r.ID], rootOf[strings.ToLower(r.Domain)]
 		out.Items = append(out.Items, v)
 	}
 	return out, nil

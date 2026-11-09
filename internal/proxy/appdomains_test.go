@@ -114,3 +114,61 @@ func TestWriteCerts(t *testing.T) {
 		t.Fatalf("_certs.yml after removing all:\n%s", b)
 	}
 }
+
+func TestRootRoute(t *testing.T) {
+	render := func(w *Writer, r Route) file {
+		t.Helper()
+		b, err := w.Render(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f file
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	w := &Writer{Dir: t.TempDir(), EntryPoint: "websecure", TLS: true}
+	base := Route{Slug: "shop", Host: "shop.example.com", Upstream: "http://bp-shop-1:8080", Root: "example.com",
+		Auth: &BasicAuth{User: "u", Hash: "h"}}
+
+	// A stored certificate covers the apex: the router uses it like the subdomain.
+	own := base
+	own.RootOwnCert = true
+	f := render(w, own)
+	rr, ok := f.HTTP.Routers[RootRouterName("shop")]
+	if !ok || rr.Rule != "Host(`example.com`)" || rr.Service != "app-shop" || rr.TLS == nil || rr.TLS.CertResolver != "" {
+		t.Fatalf("root router with own cert = %+v", rr)
+	}
+	if len(rr.Middlewares) != 1 || rr.Middlewares[0] != AuthMiddlewareName("shop") {
+		t.Fatalf("root router middlewares = %v", rr.Middlewares)
+	}
+	// The subdomain keeps its router.
+	if sub := f.HTTP.Routers["app-shop"]; sub.Rule != "Host(`shop.example.com`)" {
+		t.Fatalf("subdomain router = %+v", sub)
+	}
+
+	// No certificate for the apex: Let's Encrypt.
+	f = render(w, base)
+	if rr := f.HTTP.Routers[RootRouterName("shop")]; rr.TLS == nil || rr.TLS.CertResolver != "letsencrypt" {
+		t.Fatalf("root router without cert = %+v", rr)
+	}
+
+	// Local dev: no TLS at all.
+	f = render(&Writer{Dir: t.TempDir(), EntryPoint: "web"}, base)
+	if rr := f.HTTP.Routers[RootRouterName("shop")]; rr.TLS != nil || rr.EntryPoints[0] != "web" {
+		t.Fatalf("root router in dev = %+v", rr)
+	}
+
+	// Without a root, or without a running container, there is no root router.
+	plain := base
+	plain.Root = ""
+	if _, ok := render(w, plain).HTTP.Routers[RootRouterName("shop")]; ok {
+		t.Fatal("root router without a root")
+	}
+	stopped := base
+	stopped.Upstream, stopped.Candidate = "", "http://bp-shop-2:8080"
+	if _, ok := render(w, stopped).HTTP.Routers[RootRouterName("shop")]; ok {
+		t.Fatal("root router without an upstream")
+	}
+}

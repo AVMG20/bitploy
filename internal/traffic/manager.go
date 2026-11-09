@@ -186,6 +186,7 @@ func (m *Manager) loadRoutes(ctx context.Context) {
 	slugs := make(map[string]string, len(apps))
 	for _, a := range apps {
 		routes[proxy.RouterName(a.Slug)] = a.ID
+		routes[proxy.RootRouterName(a.Slug)] = a.ID // the domain itself, for an app that holds its root
 		slugs[a.ID] = a.Slug
 	}
 	for _, d := range doms {
