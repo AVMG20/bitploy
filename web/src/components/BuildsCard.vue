@@ -104,11 +104,11 @@ function link(b: ActiveBuild) {
           <Clock class="size-2.5" />+{{ queued.length }} in line
         </span>
       </header>
-      <ul class="grid gap-0.5">
-        <li v-for="b in rows" :key="b.id">
+      <ul class="grid grid-cols-[minmax(0,1fr)] gap-0.5">
+        <li v-for="b in rows" :key="b.id" class="min-w-0">
           <RouterLink
             :to="link(b)"
-            class="-mx-1 flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            class="-mx-1 flex min-w-0 items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
             :title="hint(b)"
             @click="setOpenMobile(false)"
           >
