@@ -145,14 +145,11 @@ section { padding: 120px 0 0; }
 .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--orange-hi); text-transform: uppercase; }
 h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08; letter-spacing: -0.035em; font-weight: 600; text-wrap: balance; }
 .sub { margin-top: 16px; max-width: 580px; color: var(--muted); font-size: 1.05rem; text-wrap: pretty; }
+.head.center .sub { text-wrap: balance; }
 .head.center { text-align: center; }
 .head.center .sub { margin-left: auto; margin-right: auto; }
 
 /* numbers */
-.stats { margin-top: 76px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
-.stat { background: var(--bg); padding: 30px 12px 28px; text-align: center; }
-.stat b { display: block; font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 600; letter-spacing: -0.045em; line-height: 1; font-variant-numeric: tabular-nums; }
-.stat span { display: block; margin-top: 10px; font-size: 13.5px; color: var(--muted); }
 
 /* faq */
 .faq { margin: 48px auto 0; max-width: 780px; border-top: 1px solid var(--line); }
@@ -267,6 +264,35 @@ h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08;
 .dnote b { color: oklch(0.8 0.14 25); font-weight: 500; }
 .logbar { display: flex; gap: 10px; align-items: center; }
 .logbar .search { flex: 1; height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: flex; align-items: center; color: var(--dim); font-size: 13px; background: var(--bg); }
+.dbhead { display: flex; align-items: center; gap: 10px; min-height: 30px; min-width: 0; }
+.dbhead svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.dbhead .nm { font: 600 14.5px var(--mono); letter-spacing: -0.01em; }
+.dbhead .meta { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dbhead .allow { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.dbhead .allow svg { width: 12px; height: 12px; color: var(--dim); }
+.dbhead .sw { width: 26px; height: 15px; border-radius: 99px; background: oklch(0.28 0 0); position: relative; flex: none; }
+.dbhead .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: oklch(0.7 0 0); }
+.dbgrid { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 14px; flex: 1; min-height: 0; }
+.dbside { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 8px; display: flex; flex-direction: column; gap: 2px; align-self: start; }
+.dbside .find { height: 28px; display: flex; align-items: center; padding: 0 9px; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--dim); font-size: 12.5px; }
+.dbside span { display: flex; align-items: center; height: 28px; padding: 0 9px; border-radius: 7px; font: 12.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dbside span.on { background: oklch(1 0 0 / 0.06); color: var(--fg); }
+.dbmain { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.dbtabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 500; color: var(--muted); }
+.dbtabs span { padding: 6px 10px 8px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.dbtabs span.on { color: var(--fg); border-bottom-color: var(--fg); }
+.dbtabs em { margin-left: auto; font: normal 400 12px var(--mono); color: var(--dim); padding-right: 2px; }
+.dbtable { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; font: 12px var(--mono); font-variant-ligatures: none; font-variant-numeric: tabular-nums; }
+.dbrow { display: grid; grid-template-columns: 62px minmax(0, 1.7fr) minmax(0, 0.7fr) minmax(0, 0.9fr) minmax(0, 1.4fr); align-items: center; min-height: 32px; }
+.dbrow + .dbrow { border-top: 1px solid var(--line); }
+.dbrow > span { padding: 0 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: oklch(0.86 0 0); }
+.dbrow > span + span { border-left: 1px solid var(--line); line-height: 32px; }
+.dbrow.head { background: var(--card); }
+.dbrow.head > span { color: var(--muted); font-weight: 500; }
+.dbrow.head > span b { color: var(--orange-pale); font-weight: 500; margin-left: 6px; font-size: 10.5px; }
+.dbrow .null { color: var(--dim); font-style: italic; }
+.dbrow .num { color: var(--orange-pale); }
+.dbfoot { display: flex; justify-content: space-between; align-items: center; color: var(--dim); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .logview { flex: none; height: 328px; font: 12px/1.9 var(--mono); font-variant-ligatures: none; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
 .logview div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); flex: none; }
 .logview time { color: oklch(0.45 0 0); margin-right: 12px; }
@@ -278,7 +304,7 @@ h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08;
 .frow { display: flex; align-items: baseline; gap: 8px; }
 .frow b { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
 .frow span { color: var(--muted); font-size: 13px; }
-.dash-note { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--dim); }
+.dash-note { margin: 18px auto 0; max-width: 760px; text-wrap: balance; text-align: center; font-size: 13.5px; color: var(--dim); }
 
 /* steps */
 .steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--raised); overflow: hidden; }
@@ -348,7 +374,7 @@ h2 { margin-top: 14px; font-size: clamp(1.9rem, 4.2vw, 3rem); line-height: 1.08;
 .marquee:hover .track { animation-play-state: paused; }
 @keyframes slide { to { transform: translateX(calc(-50% - 6px)); } }
 .appchip { display: inline-flex; align-items: center; gap: 10px; height: 46px; padding: 0 16px 0 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 14.5px; font-weight: 500; white-space: nowrap; }
-.appchip .tile { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: oklch(0.22 0 0); display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--muted); }
+.appchip .ico { flex: none; padding: 0; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: oklch(0.22 0 0); display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--muted); }
 .appchip img { width: 16px; height: 16px; }
 
 /* install */
@@ -408,7 +434,6 @@ footer nav a:hover { color: var(--fg); }
   .dash { grid-template-columns: minmax(0, 1fr); }
   .dash-side { display: none; }
   .dash-main { margin: 8px; }
-  .stats { grid-template-columns: repeat(2, 1fr); }
   section { padding-top: 96px; }
 }
 @media (max-width: 640px) {
@@ -431,8 +456,12 @@ footer nav a:hover { color: var(--fg); }
   .dlist.flat .drow .meta { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .dlist.flat .drow .dbtn { flex: none; }
   .dash-pane { min-height: 0; }
+  .dbgrid { grid-template-columns: minmax(0, 1fr); }
+  .dbside, .dbhead .meta { display: none; }
+  .dbrow { grid-template-columns: 54px minmax(0, 1.2fr) minmax(0, 0.85fr) minmax(0, 1.05fr); }
+  .dbrow > span:nth-child(5) { display: none; }
+  .dbrow > span { padding: 0 9px; }
   .logview { height: 250px; }
-  .stats { margin-top: 56px; }
   .bento { grid-template-columns: 1fr; }
   .cell, .cell.w3, .cell.w4 { grid-column: span 1; }
   .cell.split { flex-direction: column; gap: 0; }
@@ -536,12 +565,6 @@ footer nav a:hover { color: var(--fg); }
         </div>
       </div>
 
-      <div class="stats reveal">
-        <div class="stat"><b>51</b><span>MCP tools for your assistant</span></div>
-        <div class="stat"><b>31</b><span>ready-made apps</span></div>
-        <div class="stat"><b>10</b><span>databases and services</span></div>
-        <div class="stat"><b>1</b><span>server runs all of it</span></div>
-      </div>
     </div>
   </div>
 
@@ -560,7 +583,7 @@ footer nav a:hover { color: var(--fg); }
           <ul>
             <li><svg aria-hidden="true"><use href="#check"/></svg>One sentence starts a deploy, and you get a link back.</li>
             <li><svg aria-hidden="true"><use href="#check"/></svg>The dashboard says what is happening in plain words.</li>
-            <li><svg aria-hidden="true"><use href="#check"/></svg>31 apps start without any code: a password manager, a blog, notes.</li>
+            <li><svg aria-hidden="true"><use href="#check"/></svg>30+ apps start without any code: a password manager, a blog, notes.</li>
             <li><svg aria-hidden="true"><use href="#check"/></svg>Someone installs bitploy once. After that a login is all you need.</li>
           </ul>
           <div class="who-foot"><em>&gt;</em> Put this folder online and send me the link.</div>
@@ -648,6 +671,7 @@ footer nav a:hover { color: var(--fg); }
               <button type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
               <button type="button" role="tab" aria-selected="false" data-tab="traffic">Traffic</button>
               <button type="button" role="tab" aria-selected="false" data-tab="storage">Storage</button>
+              <button type="button" role="tab" aria-selected="false" data-tab="database">Database</button>
             </div>
 
             <div class="dash-pane on" data-pane="overview" role="tabpanel">
@@ -723,7 +747,7 @@ footer nav a:hover { color: var(--fg); }
                   <div class="frow"><b>412 MB</b><span>of 5 GB</span></div>
                   <div class="bar mem" style="margin:8px 0 14px"><i style="width:8%"></i></div>
                   <div class="dlist flat">
-                    <div class="drow"><span class="msg mono">app.db</span><span class="meta">38 MB</span><span class="dbtn">Open</span></div>
+                    <div class="drow"><span class="msg mono">app.db</span><span class="meta">38 MB</span><span class="dbtn" data-goto="database" style="cursor:pointer">Open</span></div>
                     <div class="drow"><span class="msg mono">uploads/</span><span class="meta">374 MB</span></div>
                   </div>
                 </div>
@@ -737,11 +761,38 @@ footer nav a:hover { color: var(--fg); }
                 </div>
               </div>
             </div>
+            <div class="dash-pane" data-pane="database" role="tabpanel">
+              <div class="dbhead">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v6.5c0 1.66 3.58 3 8 3s8-1.34 8-3V5.5M4 12v6.5c0 1.66 3.58 3 8 3s8-1.34 8-3V12"/></svg>
+                <span class="nm">app.db</span>
+                <span class="meta">SQLite file in /data · 38 MB</span>
+                <span class="allow"><svg aria-hidden="true"><use href="#lock"/></svg>Allow changes<i class="sw"></i></span>
+              </div>
+              <div class="dbgrid">
+                <div class="dbside">
+                  <div class="find">Search tables</div>
+                  <span>customers</span><span>discount_codes</span><span>order_items</span><span class="on">orders</span><span>products</span><span>sessions</span>
+                </div>
+                <div class="dbmain">
+                  <div class="dbtabs"><span class="on">Data</span><span>Structure</span><span>SQL</span><em>orders</em></div>
+                  <div class="dbtable">
+                    <div class="dbrow head"><span>id<b>key</b></span><span>customer</span><span>total</span><span>status</span><span>created_at</span></div>
+                    <div class="dbrow"><span class="num">1087</span><span>mara@example.com</span><span>64.90</span><span>paid</span><span>2026-11-09 14:02</span></div>
+                    <div class="dbrow"><span class="num">1086</span><span>joris@example.com</span><span>129.00</span><span>paid</span><span>2026-11-09 13:47</span></div>
+                    <div class="dbrow"><span class="num">1085</span><span>lena@example.com</span><span>18.50</span><span>refunded</span><span>2026-11-09 12:10</span></div>
+                    <div class="dbrow"><span class="num">1084</span><span class="null">NULL</span><span>42.00</span><span>paid</span><span>2026-11-09 11:31</span></div>
+                    <div class="dbrow"><span class="num">1083</span><span>sam@example.com</span><span>75.25</span><span>pending</span><span>2026-11-09 10:58</span></div>
+                    <div class="dbrow"><span class="num">1082</span><span>noor@example.com</span><span>231.40</span><span>paid</span><span>2026-11-09 09:14</span></div>
+                  </div>
+                  <div class="dbfoot"><span>50 per page</span><span>1-50 of 1,087</span></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
       </div>
-      <p class="dash-note reveal">A preview with example data. Click the tabs. The real dashboard also has a terminal, variables, domains and settings for every app.</p>
+      <p class="dash-note reveal">A preview with example data. Click the tabs. The database viewer opens SQLite files and PostgreSQL, MySQL and MariaDB databases. The real dashboard also has a terminal, variables, domains and settings for every app.</p>
     </div>
   </section>
 
@@ -827,7 +878,7 @@ footer nav a:hover { color: var(--fg); }
           <div class="txt">
             <div class="icon"><svg aria-hidden="true"><use href="#i-pulse"/></svg></div>
             <h3>See what is running</h3>
-            <p>A dashboard with logs, CPU and memory, traffic, a terminal, a file browser and a SQLite viewer for every app. Your assistant reads the same numbers.</p>
+            <p>A dashboard with logs, CPU and memory, traffic, a terminal, a file browser and a database viewer for SQLite, PostgreSQL, MySQL and MariaDB. Your assistant reads the same numbers.</p>
           </div>
           <div class="art">
             <div class="chart">
@@ -861,8 +912,8 @@ footer nav a:hover { color: var(--fg); }
     <div class="wrap">
       <div class="head center reveal">
         <div class="eyebrow">Catalog</div>
-        <h2>31 self-hosted apps, ready to run</h2>
-        <p class="sub">A password manager, an uptime monitor, analytics, a blog. Each one has a pinned version and tells you when a newer one is out.</p>
+        <h2>30+ self-hosted apps, ready to run</h2>
+        <p class="sub">A password manager, an uptime monitor, analytics, a blog. Each one has a pinned version and tells you when a newer one is out. More are coming.</p>
       </div>
     </div>
     <div class="marquee reveal" aria-label="Apps in the catalog">
@@ -935,7 +986,7 @@ footer nav a:hover { color: var(--fg); }
         </details>
         <details>
           <summary>How is it different from Coolify, Vercel or Fly.io?</summary>
-          <p>bitploy starts from the AI assistant instead of the dashboard: 51 MCP tools, deploy rules the assistant reads before it begins, and errors that say how to fix them. The dashboard is for watching and stepping in. Like Coolify, it runs on a server you own.</p>
+          <p>bitploy starts from the AI assistant instead of the dashboard: the assistant gets its own tools for every step, deploy rules it reads before it begins, and errors that say how to fix them. The dashboard is for watching and stepping in. Like Coolify, it runs on a server you own.</p>
         </details>
         <details>
           <summary>Which AI assistants work with it?</summary>
@@ -1030,7 +1081,7 @@ footer nav a:hover { color: var(--fg); }
     var chip = document.createElement('span');
     chip.className = 'appchip';
     var tile = document.createElement('span');
-    tile.className = 'tile';
+    tile.className = 'ico';
     if (a[1]) {
       var img = icon(a[1], 16);
       img.onerror = function () { tile.textContent = a[0].charAt(0).toUpperCase(); };
@@ -1092,6 +1143,12 @@ footer nav a:hover { color: var(--fg); }
   }
   tabs.forEach(function (t, i) {
     t.addEventListener('click', function () { touched = true; show(i); });
+  });
+  dash.querySelectorAll('[data-goto]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      touched = true;
+      tabs.forEach(function (t, i) { if (t.dataset.tab === b.dataset.goto) show(i); });
+    });
   });
   var logview = document.getElementById('logview');
   var logPool = [
