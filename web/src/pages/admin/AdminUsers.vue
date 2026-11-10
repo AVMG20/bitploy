@@ -20,6 +20,7 @@ import { keys } from '@/composables/queries'
 import { useSession } from '@/composables/useSession'
 import { api } from '@/lib/api'
 import { formatMB } from '@/lib/format'
+import { gbToMB, mbToGB } from '@/lib/quota'
 import { toastError, toastOk } from '@/lib/notify'
 import { joinedText } from '@/lib/signups'
 import type { AdminUser } from '@/lib/types'
@@ -38,8 +39,6 @@ interface QuotaForm {
   volume_gb: number
   overallocate: boolean
 }
-const toGB = (mb: number) => Math.round((mb / 1024) * 100) / 100
-const toMB = (gb: number) => Math.round(gb * 1024)
 
 const qc = useQueryClient()
 const users = useQuery({ queryKey: keys.adminUsers, queryFn: api.adminUsers, refetchInterval: 15_000 })
@@ -84,26 +83,27 @@ function edit(u: AdminUser) {
   form.resetForm({
     values: {
       apps: u.quota.apps,
-      memory_gb: toGB(u.quota.memory_mb),
+      memory_gb: mbToGB(u.quota.memory_mb),
       cpus: u.quota.cpu_millis / 1000,
       deploys_per_hour: u.quota.deploys_per_hour,
       domains_per_app: u.quota.domains_per_app,
-      volume_gb: toGB(u.quota.volume_mb),
+      volume_gb: mbToGB(u.quota.volume_mb),
       overallocate: !!u.quota.overallocate,
     },
   })
 }
 
 const saveQuota = useMutation({
-  mutationFn: (v: { id: string; values: QuotaForm }) =>
-    api.updateUser(v.id, {
+  // The server replaces every value. Memory and storage left as the form showed them keep their exact MB.
+  mutationFn: (v: { user: AdminUser; values: QuotaForm }) =>
+    api.updateUser(v.user.id, {
       quota: {
         apps: v.values.apps,
-        memory_mb: toMB(v.values.memory_gb),
+        memory_mb: gbToMB(v.values.memory_gb, v.user.quota.memory_mb),
         cpu_millis: Math.round(v.values.cpus * 1000),
         deploys_per_hour: v.values.deploys_per_hour,
         domains_per_app: v.values.domains_per_app,
-        volume_mb: toMB(v.values.volume_gb),
+        volume_mb: gbToMB(v.values.volume_gb, v.user.quota.volume_mb),
         overallocate: v.values.overallocate,
       },
     }),
@@ -115,7 +115,7 @@ const saveQuota = useMutation({
   onError: (e) => toastError(e),
 })
 const submit = form.handleSubmit((values) => {
-  if (editing.value && !saveQuota.isPending.value) saveQuota.mutate({ id: editing.value.id, values })
+  if (editing.value && !saveQuota.isPending.value) saveQuota.mutate({ user: editing.value, values })
 })
 
 const toggling = ref<AdminUser | null>(null)

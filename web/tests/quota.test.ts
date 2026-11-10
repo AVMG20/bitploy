@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { appsFull, composeFit, fitAllowance } from '../src/lib/quota.ts'
+import { appsFull, composeFit, fitAllowance, gbToMB, mbToGB } from '../src/lib/quota.ts'
 import type { ComposeCheck, Quota, Usage } from '../src/lib/types.ts'
 
 function me(quota: Partial<Quota> = {}, usage: Partial<Usage> = {}) {
@@ -60,4 +60,11 @@ test('without a server answer a compose file is compared with the account', () =
   const c = { ...check(true), quota: undefined }
   assert.equal(composeFit(c, me()).fits, false)
   assert.equal(composeFit(c, me({ overallocate: true })).fits, true)
+})
+
+test('a limit left as the form showed it keeps its exact MB', () => {
+  for (const mb of [640, 1000, 1500, 2048, 0, 25600, 1]) assert.equal(gbToMB(mbToGB(mb), mb), mb)
+  // An edited value is converted.
+  assert.equal(gbToMB(0.75, 640), 768)
+  assert.equal(gbToMB(1, 1000), 1024)
 })

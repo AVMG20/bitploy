@@ -41,16 +41,19 @@ const crumbs = computed(() => {
   const parts = path.value ? path.value.split('/') : []
   return parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join('/') }))
 })
-const child = (name: string) => (path.value ? `${path.value}/${name}` : name)
 
 const files = useQuery({
   queryKey: computed(() => ['files', props.slug, path.value, ...(props.volume ? [props.volume] : [])] as const),
-  queryFn: () => api.files(props.slug, path.value, vol.value),
+  // The list keeps the folder it was asked for: while the next folder loads, the rows shown are still this one's.
+  queryFn: async ({ queryKey }) => ({ ...(await api.files(props.slug, queryKey[2], vol.value)), folder: queryKey[2] }),
   placeholderData: keepPreviousData,
   retry: false,
 })
 const list = computed(() => files.data.value)
 const loadingFolder = computed(() => files.isPlaceholderData.value)
+// The folder of the rows on the page, not the one being opened: every row action builds its path from it.
+const shownFolder = computed(() => list.value?.folder ?? '')
+const child = (name: string) => (shownFolder.value ? `${shownFolder.value}/${name}` : name)
 const notCreatedYet = computed(() => files.error.value instanceof ApiError && files.error.value.code === 'volume_not_ready')
 
 // The open folder was deleted or is a file now: go back to the top.
@@ -107,7 +110,7 @@ async function uploadAll(chosen: File[]) {
   if (busy.value || !chosen.length) return
   // The folder and its items as they were when the upload started: the list
   // may show another folder by the time a later file is sent.
-  const folder = path.value
+  const folder = shownFolder.value
   const max = list.value?.upload_max_bytes
   const items = list.value?.items ?? []
   let done = 0
@@ -188,8 +191,10 @@ function onDrop(e: DragEvent) {
 // ---------------------------------------------------------------- new folder
 const folderOpen = ref(false)
 const folderName = ref('')
+// The folder shown when the dialog opened.
+const folderIn = ref('')
 const makeFolder = useMutation({
-  mutationFn: (name: string) => api.makeFolder(props.slug, path.value, name, vol.value),
+  mutationFn: (name: string) => api.makeFolder(props.slug, folderIn.value, name, vol.value),
   onSuccess: () => {
     folderOpen.value = false
     refresh()
@@ -198,6 +203,7 @@ const makeFolder = useMutation({
 })
 function openFolderDialog() {
   folderName.value = ''
+  folderIn.value = shownFolder.value
   folderOpen.value = true
 }
 function submitFolder() {
@@ -206,7 +212,8 @@ function submitFolder() {
 }
 
 // ---------------------------------------------------------------- delete
-const toDelete = ref<DataFile | null>(null)
+// The row and its path as it was clicked.
+const toDelete = ref<(DataFile & { path: string }) | null>(null)
 const deleteOpen = computed({
   get: () => toDelete.value !== null,
   set: (v) => {
@@ -214,7 +221,7 @@ const deleteOpen = computed({
   },
 })
 const remove = useMutation({
-  mutationFn: (f: DataFile) => api.deleteDataFile(props.slug, child(f.name), vol.value),
+  mutationFn: (f: DataFile & { path: string }) => api.deleteDataFile(props.slug, f.path, vol.value),
   onSuccess: (_, f) => {
     toastOk(f.type === 'dir' ? 'Folder deleted' : 'File deleted')
     toDelete.value = null
@@ -243,8 +250,8 @@ const remove = useMutation({
       </div>
       <div v-if="list" class="flex flex-wrap gap-2">
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick" />
-        <Button variant="outline" :disabled="busy" @click="openFolderDialog"><FolderPlus /> New folder</Button>
-        <Button :disabled="busy" @click="fileInput?.click()">
+        <Button variant="outline" :disabled="busy || loadingFolder" @click="openFolderDialog"><FolderPlus /> New folder</Button>
+        <Button :disabled="busy || loadingFolder" @click="fileInput?.click()">
           <Loader2 v-if="uploading" class="animate-spin" /><Upload v-else />
           {{ uploading ? `Uploading ${Math.round(progress * 100)}%` : 'Upload' }}
         </Button>
@@ -314,7 +321,7 @@ const remove = useMutation({
                     <component :is="icon(f)" class="size-4 shrink-0 text-muted-foreground" />
                     <span class="min-w-0 break-all">{{ f.name }}</span>
                   </button>
-                  <RouterLink v-else-if="isDatabase(f)" :to="viewerTo(f)" class="flex items-center gap-2 font-medium hover:underline" title="Open as a database">
+                  <RouterLink v-else-if="isDatabase(f) && !loadingFolder" :to="viewerTo(f)" class="flex items-center gap-2 font-medium hover:underline" title="Open as a database">
                     <Database class="size-4 shrink-0 text-muted-foreground" />
                     <span class="min-w-0 break-all">{{ f.name }}</span>
                   </RouterLink>
@@ -331,20 +338,27 @@ const remove = useMutation({
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex justify-end gap-1">
-                    <Button v-if="isDatabase(f)" as-child size="sm" variant="outline" title="Browse this database">
-                      <RouterLink :to="viewerTo(f)"><Database /> Open</RouterLink>
-                    </Button>
-                    <Button v-if="f.type === 'file'" as-child size="icon-sm" variant="ghost" title="Download">
-                      <a :href="api.dataFileDownloadUrl(slug, child(f.name), vol)" download aria-label="Download this file"><Download /></a>
-                    </Button>
+                    <!-- While another folder loads, the links are plain disabled buttons: nothing to click. -->
+                    <template v-if="isDatabase(f)">
+                      <Button v-if="loadingFolder" size="sm" variant="outline" disabled><Database /> Open</Button>
+                      <Button v-else as-child size="sm" variant="outline" title="Browse this database">
+                        <RouterLink :to="viewerTo(f)"><Database /> Open</RouterLink>
+                      </Button>
+                    </template>
+                    <template v-if="f.type === 'file'">
+                      <Button v-if="loadingFolder" size="icon-sm" variant="ghost" disabled aria-label="Download this file"><Download /></Button>
+                      <Button v-else as-child size="icon-sm" variant="ghost" title="Download">
+                        <a :href="api.dataFileDownloadUrl(slug, child(f.name), vol)" download aria-label="Download this file"><Download /></a>
+                      </Button>
+                    </template>
                     <Button
                       size="icon-sm"
                       variant="ghost"
                       class="text-muted-foreground hover:text-destructive"
-                      :disabled="busy"
+                      :disabled="busy || loadingFolder"
                       title="Delete"
                       aria-label="Delete"
-                      @click="toDelete = f"
+                      @click="toDelete = { ...f, path: child(f.name) }"
                     >
                       <Trash2 />
                     </Button>
@@ -364,7 +378,7 @@ const remove = useMutation({
     </CardContent>
 
     <div v-if="dragging" class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-background/80 text-sm font-medium">
-      Drop to upload to {{ root }}{{ path ? '/' + path : '' }}
+      Drop to upload to {{ root }}{{ shownFolder ? '/' + shownFolder : '' }}
     </div>
   </Card>
 
@@ -373,7 +387,7 @@ const remove = useMutation({
       <form class="grid gap-4" @submit.prevent="submitFolder">
         <DialogHeader>
           <DialogTitle>New folder</DialogTitle>
-          <DialogDescription>In <span class="font-mono">{{ root }}{{ path ? '/' + path : '' }}</span>.</DialogDescription>
+          <DialogDescription>In <span class="font-mono">{{ root }}{{ folderIn ? '/' + folderIn : '' }}</span>.</DialogDescription>
         </DialogHeader>
         <Input v-model="folderName" aria-label="Folder name" placeholder="Folder name" autocomplete="off" autocapitalize="off" spellcheck="false" />
         <DialogFooter>

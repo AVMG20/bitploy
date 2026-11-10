@@ -274,7 +274,10 @@ const deleteOpen = ref(false)
         </div>
       </Tabs>
 
-      <RouterView />
+      <!-- Keyed on the app: switching apps recreates the tab, so no edit or open form carries over to the other app. -->
+      <RouterView v-slot="{ Component }">
+        <component :is="Component" :key="slug" />
+      </RouterView>
     </template>
 
     <ConfirmDialog

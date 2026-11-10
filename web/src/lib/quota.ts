@@ -94,3 +94,14 @@ export function composeFit(check: ComposeCheck, me: MeLike): Fit & { message: st
   const storageOver = storageLeft !== null && (need.volume_mb ?? 0) > storageLeft
   return { memoryLeft, cpuLeft, storageLeft, memoryOver, cpuOver, storageOver, fits: q.fits, message: q.fits ? '' : q.message }
 }
+
+/** MB as GB with two decimals: how the admin's limits forms show memory and storage. */
+export const mbToGB = (mb: number) => Math.round((mb / 1024) * 100) / 100
+
+/**
+ * MB for a limit entered in GB. A value left as the form showed it keeps its
+ * exact MB: 640 MB shows as 0.63 GB, which would come back as 645 MB.
+ */
+export function gbToMB(gb: number, wasMB: number): number {
+  return gb === mbToGB(wasMB) ? wasMB : Math.round(gb * 1024)
+}
