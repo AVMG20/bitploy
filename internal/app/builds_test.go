@@ -51,7 +51,9 @@ func TestMaxParallelBuildsSetting(t *testing.T) {
 
 func TestBuildSlotLimit(t *testing.T) {
 	e := depTestSvc(t)
-	if !e.s.tryBuildSlot(2) || !e.s.tryBuildSlot(2) {
+	first := e.s.tryBuildSlot(2)
+	second := e.s.tryBuildSlot(2)
+	if !first || !second {
 		t.Fatal("two slots of two not taken")
 	}
 	if e.s.tryBuildSlot(2) {
@@ -102,5 +104,44 @@ func TestListBuilds(t *testing.T) {
 	other.UserID = "usr_other"
 	if b, err := e.s.ListBuilds(ctx, other); err != nil || len(b.Running)+len(b.Queued) != 0 || b.Slots.Queued != 2 {
 		t.Errorf("someone else sees %+v, %v", b, err)
+	}
+}
+
+// Someone else sees only their own build, at its place behind every build
+// that waits for a slot, whoever's it is.
+func TestListBuildsPlaceAcrossAccounts(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	mine := e.mustApp(t, CreateAppInput{Name: "Mine"})
+	busy := e.mustApp(t, CreateAppInput{Name: "Busy"})
+	e.insertDep(t, mine, "dep_a", 1, "queued")
+	e.insertDep(t, mine, "dep_b", 2, "queued")
+	e.insertDep(t, busy, "dep_busy", 1, "queued")
+	e.insertDep(t, mine, "dep_back", 3, "queued")
+	e.exec(t, `UPDATE deployments SET source_kind = 'rollback' WHERE id = 'dep_back'`)
+	if !e.s.tryBusy(busy.ID, "dep_busy_run", func() {}) {
+		t.Fatal("busy app taken")
+	}
+	defer e.s.clearBusy(busy.ID, "dep_busy_run")
+
+	other := e.addUser(t, "usr_bob", "bob@example.nl", "user")
+	e.user = other
+	theirs := e.mustApp(t, CreateAppInput{Name: "Theirs"})
+	e.insertDep(t, theirs, "dep_theirs", 1, "queued")
+	e.exec(t, `UPDATE deployments SET queued_at = queued_at + 5 WHERE id = 'dep_theirs'`)
+
+	b, err := e.s.ListBuilds(ctx, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Running) != 0 || len(b.Queued) != 1 || b.Queued[0].ID != "dep_theirs" {
+		t.Fatalf("bob sees %+v", b)
+	}
+	// dep_a and dep_b wait for a slot; dep_busy waits for its app, the rollback takes none.
+	if b.Queued[0].Position != 3 {
+		t.Errorf("bob's place = %d, want 3", b.Queued[0].Position)
+	}
+	if b.Slots.Queued != 5 {
+		t.Errorf("server queue = %d", b.Slots.Queued)
 	}
 }

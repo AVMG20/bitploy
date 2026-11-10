@@ -36,7 +36,8 @@ type ActiveBuild struct {
 	QueuedAt      time.Time  `json:"queued_at"`
 	StartedAt     *time.Time `json:"started_at"`
 	// Position is the place in the server's line (1: next); 0 while it runs.
-	Position int `json:"position,omitempty" doc:"Queued: the place in the server's line, 1 is next"`
+	// Builds of other accounts count, though only the caller's are listed.
+	Position int `json:"position,omitempty" doc:"Queued: the place in the server's line, 1 is next; position-1 builds of any account wait before it"`
 }
 
 // BuildApp names the app of an ActiveBuild.
@@ -57,9 +58,17 @@ func (s *Service) ListBuilds(ctx context.Context, a Actor) (Builds, error) {
 	if err != nil {
 		return Builds{}, apperr.Internal(err)
 	}
+	// The place in the line counts the builds before it that wait for a
+	// build slot, of every account: a rollback takes no slot, and a
+	// deployment whose app still deploys is passed over by the worker
+	// until that is done, so neither holds anyone up.
 	place := make(map[string]int, len(queued))
-	for i, d := range queued {
-		place[d.ID] = i + 1
+	ahead := 0
+	for _, d := range queued {
+		place[d.ID] = ahead + 1
+		if d.SourceKind != "rollback" && !s.appBusy(d.AppID) {
+			ahead++
+		}
 	}
 	out := Builds{
 		Running: []ActiveBuild{}, Queued: []ActiveBuild{},

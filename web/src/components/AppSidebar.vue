@@ -224,7 +224,7 @@ function subApps(p: (typeof list.value)[number]) {
                       <span class="truncate font-mono text-xs">{{ aliasOf(a) }}</span>
                       <template v-if="buildOf(a.id)">
                         <Clock v-if="buildOf(a.id)!.state === 'queued'" class="ml-auto size-3! shrink-0 text-muted-foreground" aria-label="A new version waits to build" />
-                        <LoaderCircle v-else class="ml-auto size-3! shrink-0 animate-spin text-primary-text motion-reduce:animate-none" aria-label="Building a new version" />
+                        <LoaderCircle v-else class="ml-auto size-3! shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-label="Building a new version" />
                       </template>
                     </RouterLink>
                   </SidebarMenuSubButton>

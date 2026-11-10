@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The builds that wait or run, above the account menu in the sidebar
 // (desktop only). Hidden while nothing builds; each row opens the app's
-// Deployments tab. The slot meter is the whole server's: other people's
-// builds take slots too, which is why yours can wait.
+// Deployments tab. Only your own builds (and those of projects shared with
+// you) show; a build that waits says how many of the server's builds, of
+// anyone, go before it.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Clock, Hammer } from 'lucide-vue-next'
+import { Clock, Hammer, LoaderCircle } from 'lucide-vue-next'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useBuilds } from '@/composables/queries'
 import { deploymentStateInfo } from '@/lib/format'
@@ -32,11 +33,6 @@ const summary = computed(() => {
   if (queued.value.length) parts.push(`${queued.value.length} waiting`)
   return parts.join(' · ')
 })
-
-// The slot meter: one segment per slot, up to 8 (more read as a number only).
-const slots = computed(() => data.value?.slots ?? { used: 0, max: 0, queued: 0 })
-const segments = computed(() => (slots.value.max <= 8 ? slots.value.max : 0))
-const slotTitle = computed(() => `${slots.value.used} of ${slots.value.max} build slots in use on this server${slots.value.queued ? `, ${slots.value.queued} waiting` : ''}`)
 
 // A clock of its own, every second, only while the card shows.
 const now = ref(Date.now())
@@ -66,8 +62,18 @@ function elapsed(b: ActiveBuild): string {
 }
 
 function label(b: ActiveBuild): string {
-  if (b.state === 'queued') return b.position ? `#${b.position} in line` : 'Waiting'
-  return deploymentStateInfo(b.state).label
+  if (b.state !== 'queued') return deploymentStateInfo(b.state).label
+  // Behind the app's own build: it starts when that one is done.
+  if (running.value.some((r) => r.app.id === b.app.id)) return 'Up after this'
+  if (!b.position) return 'Waiting'
+  return b.position === 1 ? 'Next up' : `${b.position - 1} ahead`
+}
+
+function hint(b: ActiveBuild): string {
+  const what = b.commit_message?.split('\n')[0] || `${b.app.name}: version ${b.seq}`
+  if (b.state !== 'queued' || !b.position || running.value.some((r) => r.app.id === b.app.id)) return what
+  const ahead = b.position - 1
+  return `${what}\n${ahead ? `${ahead} ${ahead === 1 ? 'build waits' : 'builds wait'} before this one on the server` : 'Starts as soon as a build on the server finishes'}`
 }
 
 function link(b: ActiveBuild) {
@@ -84,17 +90,18 @@ function link(b: ActiveBuild) {
   >
     <section v-if="visible" aria-label="Builds" class="rounded-lg border bg-card p-2.5 text-xs shadow-card" data-testid="builds-card">
       <header class="mb-2 flex items-center gap-2">
-        <span :class="cn('grid size-5 shrink-0 place-items-center rounded-md', running.length ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')">
+        <span :class="cn('grid size-5 shrink-0 place-items-center rounded-md', running.length ? 'bg-foreground/10 text-foreground' : 'bg-muted text-muted-foreground')">
           <Hammer :class="cn('size-3', running.length && 'builds-swing')" aria-hidden="true" />
         </span>
         <span class="min-w-0 flex-1 truncate font-medium text-foreground">Builds</span>
         <span class="sr-only">{{ summary }}</span>
-        <span class="flex shrink-0 items-center gap-1 text-muted-foreground tabular-nums" :title="slotTitle">
-          <span v-if="segments" class="flex gap-0.5" aria-hidden="true">
-            <span v-for="i in segments" :key="i" :class="cn('h-2.5 w-1 rounded-full transition-colors', i <= slots.used ? 'bg-primary' : 'bg-muted-foreground/25')" />
-          </span>
-          <span>{{ slots.used }}/{{ slots.max }}</span>
-          <span class="sr-only">{{ slotTitle }}</span>
+        <span v-if="running.length" class="shrink-0 text-muted-foreground tabular-nums" aria-hidden="true">{{ running.length }}</span>
+        <span
+          v-if="queued.length"
+          class="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed px-1.5 py-px text-[11px] text-muted-foreground tabular-nums"
+          aria-hidden="true"
+        >
+          <Clock class="size-2.5" />+{{ queued.length }} in line
         </span>
       </header>
       <ul class="grid gap-0.5">
@@ -102,11 +109,11 @@ function link(b: ActiveBuild) {
           <RouterLink
             :to="link(b)"
             class="-mx-1 flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-            :title="b.commit_message?.split('\n')[0] || `${b.app.name}: version ${b.seq}`"
+            :title="hint(b)"
             @click="setOpenMobile(false)"
           >
-            <span v-if="b.state === 'queued'" class="grid size-2 shrink-0 place-items-center text-muted-foreground"><Clock class="size-2.5" aria-hidden="true" /></span>
-            <span v-else class="inline-flex size-2 shrink-0 rounded-full bg-primary status-pulse" aria-hidden="true" />
+            <Clock v-if="b.state === 'queued'" class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <LoaderCircle v-else class="size-3 shrink-0 animate-spin text-foreground/70 [animation-duration:1.4s] motion-reduce:animate-none" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate font-medium text-sidebar-accent-foreground">{{ b.app.name }}</span>
             <span :class="cn('max-w-[45%] truncate', b.state === 'queued' ? 'text-muted-foreground' : 'text-foreground/80')">{{ label(b) }}</span>
             <span class="min-w-8 shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">{{ elapsed(b) }}</span>
