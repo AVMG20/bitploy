@@ -10,6 +10,7 @@ import StatusDot from '@/components/StatusDot.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useActiveBuilds } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
 import { appRoute } from '@/lib/appLinks'
@@ -22,6 +23,7 @@ const props = defineProps<{ projectId: string }>()
 const route = useRoute()
 const { list, project, fallback, apps, links, roleOf } = useProjectData(() => props.projectId)
 const health = computed(() => projectHealth(apps.value))
+const { phaseOf } = useActiveBuilds()
 const usage = computed(() => projectUsage(apps.value))
 const main = computed(() => (project.value ? mainApp(project.value) : undefined))
 
@@ -75,7 +77,7 @@ const projectForAi = computed(() => {
       <PageHeader :title="project.name">
         <template v-if="health.total || project.shared" #badges>
           <span v-if="health.total" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
-            <StatusDot :status="health.status === 'empty' ? 'new' : health.status" aria-hidden="true" />
+            <StatusDot :status="health.status === 'empty' ? 'new' : health.status" :building="phaseOf(apps)" aria-hidden="true" />
             {{ projectHealthText(apps) }}
           </span>
           <span v-if="project.shared" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground" :title="`${ownerName(project)} shared this project with you`">

@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { ArrowUpCircle, ExternalLink, GitBranch, Globe, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
+import BuildingBadge from '@/components/BuildingBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyButton from '@/components/CopyButton.vue'
 import DeleteAppDialog from '@/components/DeleteAppDialog.vue'
@@ -150,6 +151,7 @@ const deleteOpen = ref(false)
         <template #badges>
           <span v-if="role" class="text-sm text-muted-foreground">{{ roleTitle(role) }}</span>
           <AppStatusBadge :status="shownStatus" />
+          <BuildingBadge :app-id="data.id" />
           <span v-if="templateUpdate(data)" class="text-xs text-muted-foreground" :title="templateUpdate(data)!.title" data-testid="template-update">{{ templateUpdate(data)!.text }}</span>
           <button
             v-if="data.catalog_update"

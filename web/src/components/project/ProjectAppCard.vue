@@ -5,7 +5,7 @@ import { ArrowUpRight, Cable, Eye, Globe, HardDrive, Lock } from 'lucide-vue-nex
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
-import { useAppMetrics } from '@/composables/queries'
+import { useActiveBuilds, useAppMetrics } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
@@ -32,6 +32,7 @@ const props = defineProps<{
   /** Its panel is open. */
   selected?: boolean
 }>()
+const { phaseOf } = useActiveBuilds()
 const emit = defineEmits<{ hover: [id: string | null] }>()
 
 const running = computed(() => props.app.status === 'running')
@@ -81,7 +82,7 @@ const panelOf = (a: App) => projectRoute(projectIdOf(a), { app: a.slug })
         <p class="truncate text-xs text-muted-foreground">{{ app.template ? role.label : roleTitle(role) }}</p>
       </div>
       <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <StatusDot :status="app.status" /> <span aria-hidden="true">{{ status.label }}</span>
+        <StatusDot :status="app.status" :building="phaseOf([app])" /> <span aria-hidden="true">{{ status.label }}</span>
         <RouterLink
           :to="panelOf(app)"
           :aria-current="selected ? 'true' : undefined"

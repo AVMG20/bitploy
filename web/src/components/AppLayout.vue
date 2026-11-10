@@ -6,7 +6,7 @@ import StatusDot from '@/components/StatusDot.vue'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
-import { useApp, useProject, useServiceTemplates } from '@/composables/queries'
+import { useActiveBuilds, useApp, useProject, useServiceTemplates } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { aliasOf, sortProjectApps } from '@/lib/projects'
@@ -31,6 +31,7 @@ const projectId = computed(() => (typeof route.params.projectId === 'string' ? r
 const app = useApp(slug, () => !!slug.value)
 const { list: projectList, project } = useProject(projectId)
 const templates = useServiceTemplates()
+const { phaseOf } = useActiveBuilds()
 const crumbs = computed(() => {
   const appName = app.data.value?.slug === slug.value ? app.data.value.name : slug.value
   if (projectId.value) {
@@ -95,7 +96,7 @@ watch(
                 <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">{{ project?.name }}</DropdownMenuLabel>
                 <DropdownMenuItem v-for="a in siblings" :key="a.id" as-child>
                   <RouterLink :to="sameTab(a)">
-                    <StatusDot :status="a.status" />
+                    <StatusDot :status="a.status" :building="phaseOf([a])" />
                     <span class="min-w-0 flex-1 truncate">{{ a.name }}</span>
                     <span v-if="aliasOf(a) !== a.name" class="truncate font-mono text-xs text-muted-foreground">{{ aliasOf(a) }}</span>
                     <Check v-if="a.slug === slug" class="size-3.5" />

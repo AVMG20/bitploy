@@ -5,7 +5,7 @@ import { ApiError, api } from '@/lib/api'
 import { keys } from '@/lib/live'
 import type { DbSource } from '@/lib/dbSource'
 import { projectsFromApps } from '@/lib/projects'
-import type { App, DbRowsQuery, EnvVar, MetricWindow, Project, TrafficWindow } from '@/lib/types'
+import type { ActiveBuild, App, DbRowsQuery, EnvVar, MetricWindow, Project, TrafficWindow } from '@/lib/types'
 import { eventsConnected } from './useEvents'
 
 export const REFRESH_MS = 5_000
@@ -52,6 +52,36 @@ export function useBuilds(enabled: MaybeRefOrGetter<boolean> = true) {
     queryFn: api.builds,
     refetchInterval: (q) => (q.state.data && q.state.data.running.length + q.state.data.queued.length > 0 ? REFRESH_MS : liveMs(REFRESH_MS)),
   })
+}
+
+export type BuildPhase = 'running' | 'queued'
+
+/**
+ * The deployment in progress of each app, by app id (one that runs wins over
+ * one in line), from the same request as the sidebar's builds card.
+ */
+export function useActiveBuilds() {
+  const builds = useBuilds()
+  const byApp = computed(() => {
+    const m = new Map<string, ActiveBuild>()
+    const d = builds.data.value
+    for (const b of [...(d?.running ?? []), ...(d?.queued ?? [])]) if (!m.has(b.app.id)) m.set(b.app.id, b)
+    return m
+  })
+  /** The build of an app, or null. */
+  const buildOf = (appId: string): ActiveBuild | null => byApp.value.get(appId) ?? null
+  /** running while one of the apps builds, queued while one only waits, else undefined. */
+  function phaseOf(apps: readonly Pick<App, 'id'>[]): BuildPhase | undefined {
+    let phase: BuildPhase | undefined
+    for (const a of apps) {
+      const b = byApp.value.get(a.id)
+      if (!b) continue
+      if (b.state !== 'queued') return 'running'
+      phase = 'queued'
+    }
+    return phase
+  }
+  return { builds, byApp, buildOf, phaseOf }
 }
 
 export interface ProjectList {

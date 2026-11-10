@@ -2,7 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
-import { Box, Boxes, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
+import { Box, Boxes, Clock, LoaderCircle, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import BuildsCard from './BuildsCard.vue'
 import StatusDot from './StatusDot.vue'
@@ -25,7 +25,7 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { keys, useProjects, useServiceTemplates } from '@/composables/queries'
+import { keys, useActiveBuilds, useProjects, useServiceTemplates } from '@/composables/queries'
 import type { ProjectList } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { useSession } from '@/composables/useSession'
@@ -38,6 +38,7 @@ const { isAdmin } = useSession()
 const { setOpenMobile } = useSidebar()
 const projects = useProjects()
 const templates = useServiceTemplates()
+const { buildOf, phaseOf } = useActiveBuilds()
 
 const items = computed(() => {
   const list = [
@@ -207,7 +208,7 @@ function subApps(p: (typeof list.value)[number]) {
                   @keydown.alt.up.prevent="moveBy(p.id, -1)"
                   @keydown.alt.down.prevent="moveBy(p.id, 1)"
                 >
-                  <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" class="mx-1" />
+                  <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" :building="phaseOf(p.apps)" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
                   <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->
                   <small v-if="p.shared || (p.apps.length > 1 && !expanded(p))" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
@@ -221,6 +222,10 @@ function subApps(p: (typeof list.value)[number]) {
                   <SidebarMenuSubButton as-child :is-active="a.slug === currentSlug">
                     <RouterLink :to="appRoute(a)" @click="setOpenMobile(false)">
                       <span class="truncate font-mono text-xs">{{ aliasOf(a) }}</span>
+                      <template v-if="buildOf(a.id)">
+                        <Clock v-if="buildOf(a.id)!.state === 'queued'" class="ml-auto size-3! shrink-0 text-muted-foreground" aria-label="A new version waits to build" />
+                        <LoaderCircle v-else class="ml-auto size-3! shrink-0 animate-spin text-primary-text motion-reduce:animate-none" aria-label="Building a new version" />
+                      </template>
                     </RouterLink>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>

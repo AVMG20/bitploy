@@ -6,6 +6,7 @@ import RelativeTime from '@/components/RelativeTime.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useActiveBuilds } from '@/composables/queries'
 import { useTapTooltips } from '@/composables/useTapTooltips'
 import { projectRoute } from '@/lib/appLinks'
 import { formatCPUMillis, formatMB, hostOf } from '@/lib/format'
@@ -19,6 +20,7 @@ const props = defineProps<{ project: Project; templates: readonly ServiceTemplat
 const apps = computed(() => sortProjectApps(props.project.apps, props.templates))
 const main = computed(() => mainApp(props.project))
 const health = computed(() => projectHealth(props.project.apps))
+const { phaseOf } = useActiveBuilds()
 const usage = computed(() => projectUsage(props.project.apps))
 const MAX_CHIPS = 6
 const lastAt = computed(() => {
@@ -59,7 +61,7 @@ const tips = useTapTooltips()
         <p v-else class="mt-0.5 text-xs text-muted-foreground">{{ apps.length ? 'No web address' : 'No apps yet' }}</p>
       </div>
       <span class="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <StatusDot :status="health.status === 'empty' ? 'new' : health.status" aria-hidden="true" />
+        <StatusDot :status="health.status === 'empty' ? 'new' : health.status" :building="phaseOf(project.apps)" aria-hidden="true" />
         <span>{{ healthText }}</span>
       </span>
     </div>
@@ -74,7 +76,7 @@ const tips = useTapTooltips()
       >
         <ServiceIcon :role="appRole(a, templates).key" size="sm" class="size-5 rounded [&>svg]:size-3" />
         <span class="truncate font-mono">{{ aliasOf(a) }}</span>
-        <StatusDot :status="a.status" />
+        <StatusDot :status="a.status" :building="phaseOf([a])" />
       </span>
       <span v-if="apps.length > MAX_CHIPS" class="px-1 text-xs text-muted-foreground">and {{ apps.length - MAX_CHIPS }} more</span>
       <span v-if="!apps.length" class="w-full text-center text-xs text-muted-foreground">Open it to add an app or a database.</span>
