@@ -1094,6 +1094,40 @@ func TestRollbackRules(t *testing.T) {
 	}
 }
 
+// A rollback is the way back after failed deploys used up the hourly limit,
+// and it builds nothing: neither the rate limit nor a full disk refuses it.
+func TestRollbackIgnoresDeployRateAndFullDisk(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 3 WHERE id = ?`, e.user.UserID)
+	app := e.mustApp(t, CreateAppInput{})
+	d1 := e.seedRunning(t, app, 1) // counts as one of the 3
+	for i := 0; i < 2; i++ {
+		if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); depCode(err) != "deploy_rate_limited" {
+		t.Fatalf("deploy over the limit: %v", err)
+	}
+	d, err := e.s.Rollback(ctx, e.user, app.Slug, d1)
+	if err != nil {
+		t.Fatalf("rollback over the deploy limit: %v", err)
+	}
+	if d.SourceKind != "rollback" || d.SourceRef != d1 {
+		t.Errorf("%+v", d)
+	}
+	e.s.ops.diskHasRoom = func() (bool, error) { return false, nil }
+	if _, err := e.s.Rollback(ctx, e.user, app.Slug, d1); err != nil {
+		t.Fatalf("rollback with a full disk: %v", err)
+	}
+	var queued int
+	_ = e.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'deployment.queue'`).Scan(&queued)
+	if queued != 4 {
+		t.Errorf("%d deployment.queue audit rows, want 4", queued)
+	}
+}
+
 func TestDeleteApp(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()

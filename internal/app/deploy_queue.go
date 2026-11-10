@@ -569,8 +569,9 @@ func portOf(p int) sql.NullInt64 {
 	return sql.NullInt64{Int64: int64(p), Valid: true}
 }
 
-// checkDiskRoom refuses new deployments (and rollbacks) while the server's
-// disk is almost full, before anything is stored or counted.
+// checkDiskRoom refuses new deployments while the server's disk is almost
+// full, before anything is stored or counted. A rollback is not refused: it
+// writes no source and builds no image.
 func (s *Service) checkDiskRoom() error {
 	if ok, err := s.DiskHasRoom(); err == nil && !ok {
 		return apperr.Unavailable("server_disk_full",
@@ -581,17 +582,23 @@ func (s *Service) checkDiskRoom() error {
 }
 
 func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs queueSpec) (Deployment, error) {
-	if err := s.checkDiskRoom(); err != nil {
-		return Deployment{}, err
+	// A rollback reuses an image that is already on the server and counted,
+	// and it is the way back after a run of failed deploys used up the hourly
+	// limit: the disk, rate and storage checks do not refuse it.
+	rollback := qs.kind == "rollback"
+	if !rollback {
+		if err := s.checkDiskRoom(); err != nil {
+			return Deployment{}, err
+		}
 	}
 	user, err := s.activeUser(ctx, app.UserID)
 	if err != nil {
 		return Deployment{}, err
 	}
-	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
-		return Deployment{}, err
-	}
-	if qs.kind != "rollback" { // a rollback reuses an image that is already counted
+	if !rollback {
+		if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
+			return Deployment{}, err
+		}
 		if err := s.checkStorageRoom(ctx, user); err != nil {
 			return Deployment{}, err
 		}
@@ -629,8 +636,10 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
 		// Checked again inside the transaction: parallel deploy calls would
 		// otherwise all pass the check above before any of them is stored.
-		if err := s.checkDeployRate(ctx, q, user); err != nil {
-			return err
+		if !rollback {
+			if err := s.checkDeployRate(ctx, q, user); err != nil {
+				return err
+			}
 		}
 		if qs.inTx != nil {
 			if err := qs.inTx(q); err != nil {

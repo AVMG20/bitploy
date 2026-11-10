@@ -24,6 +24,13 @@ const (
 	crashMaxRestarts = 5
 	crashWindow      = 5 * time.Minute
 	logTailLines     = 20
+
+	// stopMarkTTL bounds how long a container marked with ExpectStop stays
+	// marked when its die event never comes (the stop takes at most 10 s).
+	stopMarkTTL = time.Minute
+	// unhealthyNotifyEvery is the least time between two Unhealthy calls for
+	// one app, so a HEALTHCHECK that flips back and forth is told once.
+	unhealthyNotifyEvery = 30 * time.Minute
 )
 
 // crashTracker counts container deaths inside a sliding window.
@@ -104,12 +111,17 @@ func (m *Manager) HandleEvent(ctx context.Context, ev dockerx.Event) {
 	switch ev.Action {
 	case "start":
 		m.Track(ctx, dockerx.Managed{ID: ev.ID, Name: ev.Name, AppID: ev.AppID, Slug: ev.Slug, State: "running"})
+		m.ClearStop(ev.Name) // started again: a later die is a real one
 	case "destroy":
 		m.Untrack(ev.ID)
 		m.crashes.Forget(ev.Name)
+		m.ClearStop(ev.Name)
 		return
 	case "die":
 		m.Untrack(ev.ID)
+		if m.takeStop(ev.Name) {
+			return // bitploy stopped it on purpose
+		}
 	}
 
 	app, err := q.GetApp(ctx, ev.AppID)
@@ -181,6 +193,66 @@ func (m *Manager) recentOOM(name string) bool {
 	defer m.oomMu.Unlock()
 	t, ok := m.oomAt[name]
 	return ok && m.now().Sub(t) < 15*time.Second
+}
+
+// ExpectStop marks a container that bitploy is about to stop on purpose
+// while it is still the app's current one (a deploy that recreates a
+// container with a volume, a restart). Its next die event is then not taken
+// for a crash: no status change, no audit row, no crash count. The mark ends
+// with that die event, when the container starts or is removed, with
+// ClearStop, or after stopMarkTTL.
+func (m *Manager) ExpectStop(name string) {
+	if name == "" {
+		return
+	}
+	m.markMu.Lock()
+	defer m.markMu.Unlock()
+	now := m.now()
+	for n, at := range m.stopping {
+		if now.Sub(at) >= stopMarkTTL {
+			delete(m.stopping, n)
+		}
+	}
+	m.stopping[name] = now
+}
+
+// ClearStop removes the mark ExpectStop set.
+func (m *Manager) ClearStop(name string) {
+	m.markMu.Lock()
+	delete(m.stopping, name)
+	m.markMu.Unlock()
+}
+
+// takeStop reports whether a container was marked with ExpectStop (and not
+// longer than stopMarkTTL ago), and removes the mark.
+func (m *Manager) takeStop(name string) bool {
+	m.markMu.Lock()
+	defer m.markMu.Unlock()
+	at, ok := m.stopping[name]
+	if !ok {
+		return false
+	}
+	delete(m.stopping, name)
+	return m.now().Sub(at) < stopMarkTTL
+}
+
+// unhealthyNotifyDue reports whether an app's users may be told again that
+// its HEALTHCHECK fails, and if so records that they are told now. Apps told
+// longer than unhealthyNotifyEvery ago are forgotten, so the map stays small.
+func (m *Manager) unhealthyNotifyDue(appID string) bool {
+	m.markMu.Lock()
+	defer m.markMu.Unlock()
+	now := m.now()
+	for id, at := range m.unhealthyAt {
+		if now.Sub(at) >= unhealthyNotifyEvery {
+			delete(m.unhealthyAt, id)
+		}
+	}
+	if _, ok := m.unhealthyAt[appID]; ok {
+		return false
+	}
+	m.unhealthyAt[appID] = now
+	return true
 }
 
 func (m *Manager) onDie(ctx context.Context, app db.App, ev dockerx.Event) {
@@ -305,7 +377,7 @@ func (m *Manager) onHealth(ctx context.Context, app db.App, ev dockerx.Event) {
 		}
 		m.setStatus(ctx, app, "failed", msgUnhealthy+detail)
 		m.audit(ctx, "app.unhealthy", "app", app.ID, map[string]any{"container": ev.Name})
-		if m.Unhealthy != nil {
+		if m.Unhealthy != nil && m.unhealthyNotifyDue(app.ID) {
 			m.Unhealthy(ctx, app.ID, msgUnhealthy+detail)
 		}
 	case "healthy":

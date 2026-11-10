@@ -33,8 +33,33 @@ func (s *Service) pruneApp(ctx context.Context, appID string) {
 		}
 	}
 
+	// Images: per service, the newest 3 that ran, the current one and anything
+	// in flight stay. Worked out from the deployment rows, so the source rule
+	// below holds without Docker too.
+	imgs := s.deploymentImages(ctx, app, appErr == nil, deps)
+	keep := map[string]bool{}
+	ran := map[string]int{}
+	rollbackable := map[string]bool{} // deployments whose image is kept as a rollback target
+	for _, e := range imgs {
+		switch e.State {
+		case "running", "superseded":
+			if !keep[e.Image.String] && ran[e.Service] < keepImages {
+				keep[e.Image.String] = true
+				ran[e.Service]++
+				rollbackable[e.DeploymentID] = true
+			}
+		case "queued", "fetching", "validating", "building", "starting", "health_check", "swapping":
+			keep[e.Image.String] = true
+		}
+		if appErr == nil && app.CurrentDeploymentID.Valid && e.DeploymentID == app.CurrentDeploymentID.String {
+			keep[e.Image.String] = true
+		}
+	}
+
 	// Source snapshots: keep the live version's (for a rollback, the snapshot of
-	// the version it rolled back to) and the newest files/upload one.
+	// the version it rolled back to), the newest files/upload one, and the one
+	// of every version whose image is kept, so what can be rolled back to can
+	// also be rebuilt (redeploy after a rollback).
 	keepSrc := map[string]bool{}
 	if appErr == nil && app.CurrentDeploymentID.Valid {
 		keepSrc[app.CurrentDeploymentID.String] = true
@@ -48,33 +73,19 @@ func (s *Service) pruneApp(ctx context.Context, appID string) {
 			break
 		}
 	}
+	for id := range rollbackable {
+		if src := sourceDeployment(deps, id); src != nil {
+			keepSrc[src.ID] = true
+		}
+	}
 	for _, d := range deps {
 		if !keepSrc[d.ID] {
 			_ = os.Remove(s.sourceZip(d.ID))
 		}
 	}
 
-	// Images: per service, the newest 3 that ran, the current one and anything
-	// in flight stay.
 	if s.Docker == nil {
 		return
-	}
-	imgs := s.deploymentImages(ctx, app, appErr == nil, deps)
-	keep := map[string]bool{}
-	ran := map[string]int{}
-	for _, e := range imgs {
-		switch e.State {
-		case "running", "superseded":
-			if !keep[e.Image.String] && ran[e.Service] < keepImages {
-				keep[e.Image.String] = true
-				ran[e.Service]++
-			}
-		case "queued", "fetching", "validating", "building", "starting", "health_check", "swapping":
-			keep[e.Image.String] = true
-		}
-		if appErr == nil && app.CurrentDeploymentID.Valid && e.DeploymentID == app.CurrentDeploymentID.String {
-			keep[e.Image.String] = true
-		}
 	}
 	tried := map[string]bool{}
 	for _, e := range imgs {

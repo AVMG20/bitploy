@@ -113,6 +113,61 @@ func TestRedeployAfterRollbackUsesTheVersionRolledBackTo(t *testing.T) {
 	}
 }
 
+// Every version whose image is kept for a rollback keeps its source too, so
+// a redeploy after rolling back to it can rebuild it.
+func TestPruneKeepsTheSourceOfEveryRollbackTarget(t *testing.T) {
+	e := depTestSvc(t)
+	ctx := context.Background()
+	app := e.mustApp(t, CreateAppInput{})
+
+	var ids []string
+	for i := 1; i <= 4; i++ {
+		d, err := e.s.DeployFiles(ctx, e.user, app.Slug, filesWith("v"+itoa(i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.exec(t, `UPDATE deployments SET state = 'superseded', image = ? WHERE id = ?`, "bitploy/"+app.Slug+":"+itoa(i), d.ID)
+		ids = append(ids, d.ID)
+	}
+	e.exec(t, `UPDATE deployments SET state = 'running' WHERE id = ?`, ids[3])
+	e.exec(t, `UPDATE apps SET current_deployment_id = ?, status = 'running' WHERE id = ?`, ids[3], app.ID)
+
+	// Images of #4, #3 and #2 stay, so their sources stay; #1 goes.
+	e.s.pruneApp(ctx, app.ID)
+	for i, id := range ids {
+		_, err := os.Stat(e.s.sourceZip(id))
+		if (i > 0) != (err == nil) {
+			t.Errorf("source of #%d: exists=%v", i+1, err == nil)
+		}
+	}
+
+	// Roll back to #2, then redeploy and retry: both rebuild #2.
+	rb, err := e.s.Rollback(ctx, e.user, app.Slug, ids[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `UPDATE deployments SET state = 'superseded' WHERE id = ?`, ids[3])
+	e.exec(t, `UPDATE deployments SET state = 'running' WHERE id = ?`, rb.ID)
+	e.exec(t, `UPDATE apps SET current_deployment_id = ? WHERE id = ?`, rb.ID, app.ID)
+	e.s.pruneApp(ctx, app.ID)
+
+	r, err := e.s.Redeploy(ctx, e.user, app.Slug)
+	if err != nil {
+		t.Fatalf("redeploy after a rollback: %v", err)
+	}
+	if !sameSource(t, e, r.ID, ids[1]) {
+		t.Error("Redeploy after a rollback did not rebuild #2")
+	}
+	e.exec(t, `UPDATE deployments SET state = 'cancelled' WHERE id = ?`, r.ID)
+	r, err = e.s.RetryLatest(ctx, e.user, app.Slug)
+	if err != nil {
+		t.Fatalf("retry after a rollback: %v", err)
+	}
+	if !sameSource(t, e, r.ID, ids[1]) {
+		t.Error("RetryLatest after a rollback did not rebuild #2")
+	}
+}
+
 func TestFailedDeployNeverLeavesTheAppDeploying(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()

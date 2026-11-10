@@ -445,6 +445,7 @@ func (s *Service) startCurrentLocked(ctx context.Context, app db.App, only ...st
 			// A container kept from an older deployment: replaced by one named after this one.
 			_ = s.Docker.RemoveContainer(ctx, r.ContainerName.String)
 		}
+		s.metricsMgr().ExpectStop(name) // a restart, not a crash
 		_ = s.Docker.StopContainerGrace(ctx, name, 10)
 		if ae := s.startContainer(ctx, plan); ae != nil {
 			ae.Message = "Service " + sp.Name + ": " + ae.Message
@@ -480,6 +481,7 @@ func (s *Service) startCurrentSingle(ctx context.Context, app db.App, d db.Deplo
 		port = d.Port.Int64
 	}
 	name := dockerx.ContainerName(app.Slug, d.Seq)
+	s.metricsMgr().ExpectStop(name) // a restart, not a crash
 	_ = s.Docker.StopContainerGrace(ctx, name, 10)
 	if ae := s.startContainer(ctx, startPlan{App: app, DepID: d.ID, Seq: d.Seq, Image: d.Image.String, Port: port}); ae != nil {
 		return ae

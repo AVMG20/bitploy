@@ -68,6 +68,13 @@ type Manager struct {
 	oomAt   map[string]time.Time
 	oomMu   sync.Mutex
 
+	markMu sync.Mutex
+	// stopping holds the containers bitploy stops on purpose (ExpectStop), by
+	// name, with the time they were marked.
+	stopping map[string]time.Time
+	// unhealthyAt is when an app's users were last told its HEALTHCHECK fails.
+	unhealthyAt map[string]time.Time
+
 	measureReq chan struct{} // MeasureSoon -> runVolumeQuota
 }
 
@@ -85,6 +92,8 @@ func New(st *store.Store, dk Docker, log *slog.Logger) *Manager {
 		crashes:             newCrashTracker(5, 5*time.Minute),
 		measureReq:          make(chan struct{}, 1),
 		oomAt:               map[string]time.Time{},
+		stopping:            map[string]time.Time{},
+		unhealthyAt:         map[string]time.Time{},
 	}
 }
 

@@ -849,7 +849,11 @@ func (p *pipeline) startRuns(ctx context.Context) *apperr.Error {
 				} else {
 					p.logf("Saved files (/data) are on: stopping the old container before starting the new one.")
 				}
+				// The old container is still the current one: its die event must
+				// not be reported as a crash.
+				s.metricsMgr().ExpectStop(r.prevName)
 				if err := s.Docker.StopContainerGrace(ctx, r.prevName, 10); err != nil {
+					s.metricsMgr().ClearStop(r.prevName)
 					return p.serviceErr(r, startFailed("The old container could not be stopped: "+dockerx.DescribeError(err), "Try again in a minute."))
 				}
 				// A failed deploy restarts it only if it was running: a stopped or
@@ -1302,6 +1306,9 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 		keep[r.name] = true
 	}
 	for _, r := range p.runs {
+		if r.prevName != "" {
+			s.metricsMgr().ClearStop(r.prevName) // no longer current: its events are ignored anyway
+		}
 		if r.prevName != "" && !keep[r.prevName] {
 			delay := oldStopDelay
 			if p.app.Type == "worker" || r.oldStopped {
@@ -1455,14 +1462,22 @@ func (p *pipeline) cleanupFailed(ctx context.Context) {
 		}
 		restarted := false
 		for _, r := range p.runs {
-			if !r.oldStopped || r.prevName == "" {
+			if r.prevName == "" {
+				continue
+			}
+			if !r.oldStopped {
+				// Not running before the stop, so no die event comes for it.
+				s.metricsMgr().ClearStop(r.prevName)
 				continue
 			}
 			if !restarted {
 				p.logf("Restarting the previous version.")
 				restarted = true
 			}
+			// Its start event clears the stop mark, after the die event it
+			// was set for.
 			if err := dk.StartContainer(ctx, r.prevName); err != nil {
+				s.metricsMgr().ClearStop(r.prevName)
 				s.Log.Error("restart previous container after failed recreate", "container", r.prevName, "err", err)
 			}
 		}

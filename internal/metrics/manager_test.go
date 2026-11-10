@@ -535,6 +535,70 @@ func TestEventsIgnoredWhenNotTheCurrentRunningContainer(t *testing.T) {
 	}
 }
 
+// A redeploy with /data stops the live container before the new one starts,
+// while the app stays running: that die is not a crash. A real crash of the
+// live container is still reported.
+func TestEventDieOfAnExpectedStopIsNotACrash(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addApp(t, "app_1", "bp-a-1", "running")
+	start := dockerx.Event{Action: "start", ID: "id-bp-a-1", Name: "bp-a-1", AppID: "app_1", Time: t0}
+
+	e.m.ExpectStop("bp-a-1")
+	e.m.HandleEvent(ctx, die("bp-a-1", "app_1", "0", t0))
+	if st, msg, _ := e.app(t, "app_1"); st != "running" || msg != "" {
+		t.Fatalf("stopped on purpose: %s / %q", st, msg)
+	}
+	if len(e.audits) != 0 {
+		t.Fatalf("audit rows for a stop on purpose: %v", e.audits)
+	}
+	if n, _ := e.m.crashes.Add("bp-a-1", t0); n != 1 {
+		t.Errorf("the stop on purpose was counted as a death (%d)", n)
+	}
+	e.m.crashes.Forget("bp-a-1")
+
+	// The mark is used up: the next die is a crash.
+	e.m.HandleEvent(ctx, die("bp-a-1", "app_1", "1", t0))
+	if st, _, _ := e.app(t, "app_1"); st != "failed" {
+		t.Errorf("crash after the stop: %s", st)
+	}
+	e.m.HandleEvent(ctx, start)
+
+	// A container that starts again (a failed deploy restarts the old one)
+	// loses its mark.
+	e.m.ExpectStop("bp-a-1")
+	e.m.HandleEvent(ctx, start)
+	e.m.HandleEvent(ctx, die("bp-a-1", "app_1", "1", t0))
+	if st, _, _ := e.app(t, "app_1"); st != "failed" {
+		t.Errorf("crash after a restart: %s", st)
+	}
+	e.m.HandleEvent(ctx, start)
+
+	// A mark whose die never came runs out.
+	e.m.ExpectStop("bp-a-1")
+	e.now = t0.Add(2 * time.Minute)
+	e.m.HandleEvent(ctx, die("bp-a-1", "app_1", "1", e.now))
+	if st, _, _ := e.app(t, "app_1"); st != "failed" {
+		t.Errorf("crash after an old mark: %s", st)
+	}
+	e.m.HandleEvent(ctx, start)
+
+	// Cleared by hand (after the swap), and by removal.
+	e.m.ExpectStop("bp-a-1")
+	e.m.ClearStop("bp-a-1")
+	e.m.ExpectStop("bp-x-1")
+	e.m.HandleEvent(ctx, dockerx.Event{Action: "destroy", ID: "id-bp-x-1", Name: "bp-x-1", AppID: "app_1", Time: e.now})
+	e.m.markMu.Lock()
+	left := len(e.m.stopping)
+	e.m.markMu.Unlock()
+	if left != 0 {
+		t.Errorf("%d stop marks left", left)
+	}
+	if got := e.actions(); len(got) != 3 {
+		t.Errorf("audit actions = %v", got)
+	}
+}
+
 func TestEventUnhealthyAndHealthy(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -562,6 +626,57 @@ func TestEventUnhealthyAndHealthy(t *testing.T) {
 	e.m.HandleEvent(ctx, ev("healthy"))
 	if st, msg, _ := e.app(t, "app_1"); st != "failed" || msg != "Build failed" {
 		t.Errorf("deploy failure was overwritten: %s / %q", st, msg)
+	}
+}
+
+// A HEALTHCHECK that flips between healthy and unhealthy updates the status
+// every time, but tells the users at most once per 30 minutes.
+func TestEventFlappingHealthNotifiesOncePerHalfHour(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addApp(t, "app_1", "bp-a-1", "running")
+	e.addApp(t, "app_2", "bp-b-1", "running")
+	ev := func(name, app, h string) dockerx.Event {
+		return dockerx.Event{Action: "health_status", Health: h, ID: "c", Name: name, AppID: app, Time: e.now}
+	}
+	var told []string
+	e.m.Unhealthy = func(_ context.Context, appID, _ string) { told = append(told, appID) }
+
+	for i := 0; i < 3; i++ {
+		e.now = t0.Add(time.Duration(i) * 10 * time.Minute)
+		e.m.HandleEvent(ctx, ev("bp-a-1", "app_1", "unhealthy"))
+		if st, _, _ := e.app(t, "app_1"); st != "failed" {
+			t.Fatalf("flip %d: status %s", i, st)
+		}
+		e.m.HandleEvent(ctx, ev("bp-a-1", "app_1", "healthy"))
+		if st, _, _ := e.app(t, "app_1"); st != "running" {
+			t.Fatalf("flip %d back: status %s", i, st)
+		}
+	}
+	if len(told) != 1 {
+		t.Errorf("told %d times in 20 minutes: %v", len(told), told)
+	}
+	if n := strings.Count(strings.Join(e.actions(), " "), "app.unhealthy"); n != 3 {
+		t.Errorf("%d app.unhealthy audit rows, want 3", n)
+	}
+
+	// Another app is told on its own; 30 minutes after the first message the
+	// first app is told again.
+	e.m.HandleEvent(ctx, ev("bp-b-1", "app_2", "unhealthy"))
+	e.now = t0.Add(30 * time.Minute)
+	e.m.HandleEvent(ctx, ev("bp-a-1", "app_1", "unhealthy"))
+	if strings.Join(told, ",") != "app_1,app_2,app_1" {
+		t.Errorf("told = %v", told)
+	}
+	// Apps told long ago are forgotten.
+	e.now = t0.Add(2 * time.Hour)
+	e.m.HandleEvent(ctx, ev("bp-a-1", "app_1", "healthy"))
+	e.m.HandleEvent(ctx, ev("bp-a-1", "app_1", "unhealthy"))
+	e.m.markMu.Lock()
+	left := len(e.m.unhealthyAt)
+	e.m.markMu.Unlock()
+	if left != 1 {
+		t.Errorf("%d apps remembered, want 1", left)
 	}
 }
 
