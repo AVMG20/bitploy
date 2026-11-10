@@ -11,14 +11,17 @@
 // an account made with a project invite while those may not deploy.
 // MOCK_LOGGED_OUT=1 starts logged out (GET /session answers 401 until a login);
 // Log out does the same, to see the login, join and signup pages.
+// MOCK_BUILDS=1 adds two running builds and one waiting, for the sidebar's builds card.
 
 import { createHash, generateKeyPairSync } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
 import type {
+  ActiveBuild,
   AdminProjectInvite,
   App,
+  Builds,
   AppService,
   AdminUser,
   ServerSettings,
@@ -503,6 +506,8 @@ const settings: ServerSettings = {
   signups: 'any_invite',
   project_invite_apps: true,
   new_account_quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
+  max_parallel_builds: 2,
+  default_max_parallel_builds: 2,
   updated_at: null,
   server: { memory_mb: 16384, cpu_millis: 8000, disk_mb: 409600 },
 }
@@ -510,7 +515,12 @@ const signupRules = (): SignupRules => ({ open_signup: settings.signups === 'ope
 
 function updateSettings(body: Record<string, unknown>): ServerSettings {
   const bad = (code: string, msg: string, hint = '') => new HttpError(422, code, msg, hint)
-  if (body.signups === undefined && body.project_invite_apps === undefined && body.new_account_quota === undefined)
+  if (body.max_parallel_builds !== undefined) {
+    const n = Number(body.max_parallel_builds)
+    if (!Number.isInteger(n) || n < 1 || n > 16) throw bad('invalid_max_parallel_builds', 'Builds at the same time must be 1 to 16.')
+    settings.max_parallel_builds = n
+  }
+  if (body.signups === undefined && body.project_invite_apps === undefined && body.new_account_quota === undefined && body.max_parallel_builds === undefined)
     throw new HttpError(400, 'nothing_to_change', 'Send signups, project_invite_apps and/or new_account_quota.')
   if (body.signups !== undefined && !['admin_invites', 'any_invite', 'open'].includes(String(body.signups)))
     throw bad('invalid_signups', 'signups must be admin_invites, any_invite or open.')
@@ -529,6 +539,27 @@ function updateSettings(body: Record<string, unknown>): ServerSettings {
   if (typeof body.project_invite_apps === 'boolean') settings.project_invite_apps = body.project_invite_apps
   settings.updated_at = new Date().toISOString()
   return settings
+}
+
+/** GET /builds: every deployment that waits or runs. MOCK_BUILDS=1 adds a few, to see the sidebar card. */
+function mockBuilds(): Builds {
+  const toBuild = (d: Deployment, position?: number): ActiveBuild => {
+    const a = apps.find((x) => x.id === d.app_id)
+    return {
+      id: d.id, app: { id: d.app_id, slug: d.app_slug, name: a?.name ?? d.app_slug, project_id: a?.project?.id ?? '' }, seq: d.seq, state: d.state,
+      source_kind: d.source_kind, commit_message: d.commit_message ?? null, queued_at: d.queued_at, started_at: d.state === 'queued' ? null : d.started_at, position,
+    }
+  }
+  const active = Object.values(deployments).flat().filter((d) => !['running', 'failed', 'superseded', 'cancelled'].includes(d.state))
+  const running = active.filter((d) => d.state !== 'queued').map((d) => toBuild(d))
+  const queued = active.filter((d) => d.state === 'queued').map((d, i) => toBuild(d, i + 1))
+  if (process.env.MOCK_BUILDS === '1') {
+    const [a, b, c] = apps
+    if (a) running.push(toBuild(deployment(a, 90, 'building', 1.4)))
+    if (b) running.push(toBuild(deployment(b, 91, 'health_check', 2.2)))
+    if (c) queued.push(toBuild(deployment(c, 92, 'queued', 0.5), queued.length + 1))
+  }
+  return { running, queued, slots: { used: Math.min(running.length, settings.max_parallel_builds), max: settings.max_parallel_builds, queued: queued.length } }
 }
 
 /** Every open project invite, for Admin > Invites. */
@@ -1933,6 +1964,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       return send(res, 200, items(invites))
     case 'GET /admin/project-invites':
       return send(res, 200, items(allProjectInvites()))
+    case 'GET /builds':
+      return send(res, 200, mockBuilds())
     case 'GET /admin/settings':
       return send(res, 200, settings)
     case 'PATCH /admin/settings':

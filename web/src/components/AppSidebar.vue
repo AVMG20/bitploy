@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
 import { Box, Boxes, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
+import BuildsCard from './BuildsCard.vue'
 import StatusDot from './StatusDot.vue'
 import UserMenu from './UserMenu.vue'
 import {
@@ -240,6 +241,7 @@ function subApps(p: (typeof list.value)[number]) {
       </SidebarGroup>
     </SidebarContent>
     <SidebarFooter>
+      <BuildsCard />
       <UserMenu />
     </SidebarFooter>
     <SidebarRail />

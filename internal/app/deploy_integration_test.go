@@ -755,7 +755,7 @@ func TestIntegrationCancelMidBuild(t *testing.T) {
 		t.Error("the docker build process is still running")
 	}
 	waitFor(t, 30*time.Second, "BuildKit to stop the step", func() bool { return !builderRuns() })
-	if len(e.s.buildSlots()) != 0 || e.s.appBusy(app.ID) {
+	if e.s.buildSlotsUsed() != 0 || e.s.appBusy(app.ID) {
 		t.Error("slot or busy flag left")
 	}
 	if _, err := os.Stat(e.s.Cfg.BuildDir(d.ID)); !os.IsNotExist(err) {

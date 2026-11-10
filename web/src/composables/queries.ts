@@ -40,6 +40,20 @@ export function useApps() {
   return useQuery({ queryKey: keys.apps, queryFn: api.apps, refetchInterval: livePoll(REFRESH_MS) })
 }
 
+/**
+ * What waits and runs of the apps you can see. Live events refresh it when one
+ * of yours changes; while anything is in line it also polls, as the place in
+ * the line moves with other people's builds too.
+ */
+export function useBuilds(enabled: MaybeRefOrGetter<boolean> = true) {
+  return useQuery({
+    enabled: () => toValue(enabled),
+    queryKey: keys.builds,
+    queryFn: api.builds,
+    refetchInterval: (q) => (q.state.data && q.state.data.running.length + q.state.data.queued.length > 0 ? REFRESH_MS : liveMs(REFRESH_MS)),
+  })
+}
+
 export interface ProjectList {
   projects: Project[]
   /** The server has no projects yet: each app is shown as a project of its own, and nothing can be added to one. */

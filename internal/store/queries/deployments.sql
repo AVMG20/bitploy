@@ -17,6 +17,17 @@ SELECT * FROM deployments WHERE app_id = ? ORDER BY seq DESC;
 -- name: ListQueuedDeployments :many
 SELECT * FROM deployments WHERE state = 'queued' ORDER BY queued_at, seq;
 
+-- name: ListActiveDeploymentsForUser :many
+-- Deployments that wait or run, of the user's apps and the apps of the
+-- projects shared with them (the builds widget), oldest first.
+SELECT d.id, d.app_id, d.seq, d.state, d.source_kind, d.commit_message, d.queued_at, d.started_at,
+    a.slug AS app_slug, a.name AS app_name, a.project_id AS app_project_id
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.state IN ('queued', 'fetching', 'validating', 'building', 'starting', 'health_check', 'swapping')
+  AND (a.user_id = sqlc.arg(user_id)
+    OR (a.project_id != '' AND a.project_id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = sqlc.arg(user_id))))
+ORDER BY d.queued_at, d.seq;
+
 -- name: ClaimDeployment :execrows
 UPDATE deployments SET state = 'fetching', started_at = ? WHERE id = ? AND state = 'queued';
 

@@ -165,7 +165,7 @@ func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) 
 func (p *pipeline) releaseSlot() {
 	p.slotOnce.Do(func() {
 		if p.slotHeld {
-			<-p.s.buildSlots()
+			p.s.releaseBuildSlot()
 		}
 	})
 }

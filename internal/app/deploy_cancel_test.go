@@ -23,8 +23,8 @@ func (e *depEnv) insertDep(t *testing.T, app App, id string, seq int64, state st
 // like the real one (finish with errCancelled), then frees both.
 func (e *depEnv) fakePipeline(t *testing.T, appID, depID string, holdSlot bool) (done chan struct{}) {
 	t.Helper()
-	if holdSlot {
-		e.s.buildSlots() <- struct{}{}
+	if holdSlot && !e.s.tryBuildSlot(1) {
+		t.Fatal("a build slot is taken already")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if !e.s.tryBusy(appID, depID, cancel) {
@@ -212,7 +212,7 @@ func TestCancelDuringBuild(t *testing.T) {
 			e.insertDep(t, app, "dep_later", 2, "running") // not live: only the shape of history
 			e.exec(t, `UPDATE deployments SET state = 'failed' WHERE id = 'dep_later'`)
 			done := e.fakePipeline(t, app.ID, "dep_b", true)
-			if len(e.s.buildSlots()) != 1 || !e.s.appBusy(app.ID) {
+			if e.s.buildSlotsUsed() != 1 || !e.s.appBusy(app.ID) {
 				t.Fatal("the fake pipeline does not hold the app")
 			}
 
@@ -226,7 +226,7 @@ func TestCancelDuringBuild(t *testing.T) {
 			if d.State != "cancelled" || d.Error == nil || d.Error.Code != "cancelled" || d.Error.Message != "Cancelled through MCP (an AI agent)." {
 				t.Errorf("answer = %s %+v", d.State, d.Error)
 			}
-			if len(e.s.buildSlots()) != 0 {
+			if e.s.buildSlotsUsed() != 0 {
 				t.Error("the build slot was not freed")
 			}
 			if e.s.appBusy(app.ID) || e.s.activeDeployment("dep_b") {
@@ -385,7 +385,7 @@ func TestCancelConcurrent(t *testing.T) {
 	if a := e.auditCancels(t); len(a) != 1 {
 		t.Errorf("audit rows = %d", len(a))
 	}
-	if len(e.s.buildSlots()) != 0 || e.s.appBusy(app.ID) {
+	if e.s.buildSlotsUsed() != 0 || e.s.appBusy(app.ID) {
 		t.Error("slot or busy flag left")
 	}
 }

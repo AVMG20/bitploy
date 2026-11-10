@@ -425,6 +425,7 @@ type ServerSetting struct {
 	QuotaDomainsPerApp  int64
 	QuotaVolumeMb       int64
 	UpdatedAt           int64
+	MaxParallelBuilds   int64
 }
 
 type Session struct {

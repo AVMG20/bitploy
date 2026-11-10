@@ -867,6 +867,10 @@ export interface ServerSettings {
   project_invite_apps: boolean
   /** The limits every account made from now on gets; existing accounts keep theirs. */
   new_account_quota: NewAccountQuota
+  /** How many builds may run at the same time on the whole server; more wait in line. */
+  max_parallel_builds: number
+  /** The default of max_parallel_builds (BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set). */
+  default_max_parallel_builds: number
   updated_at: string | null
   /** What the server has, the most a limit may be; 0 when not known. */
   server: { memory_mb: number; cpu_millis: number; disk_mb: number }
@@ -1358,4 +1362,33 @@ export interface UpdateNotificationChannelInput {
   events?: string[]
   /** Leave a secret out (or empty) to keep the stored one. */
   config?: Record<string, unknown>
+}
+
+/** GET /builds: what waits and runs of the apps you can see, with the server's build slots. */
+export interface Builds {
+  /** Fetching to swapping, oldest first. */
+  running: ActiveBuild[]
+  /** Waiting for a build slot or for the app's running deployment, next first. */
+  queued: ActiveBuild[]
+  slots: {
+    /** Builds that hold a slot now (fetch, check and build), of every account. */
+    used: number
+    /** Builds that may run at the same time (Admin > Server). */
+    max: number
+    /** Deployments waiting on the whole server, of every account. */
+    queued: number
+  }
+}
+
+export interface ActiveBuild {
+  id: string
+  app: { id: string; slug: string; name: string; project_id: string }
+  seq: number
+  state: DeploymentState
+  source_kind: Deployment['source_kind']
+  commit_message: string | null
+  queued_at: string
+  started_at: string | null
+  /** Queued: the place in the server's line, 1 is next. */
+  position?: number
 }

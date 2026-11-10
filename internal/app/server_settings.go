@@ -72,12 +72,44 @@ func (s *Service) serverCapacity() ServerCapacity {
 	return c
 }
 
-func settingsView(st db.ServerSetting, c ServerCapacity) ServerSettings {
+// MaxParallelBuildsLimit is the most build slots an admin can set.
+const MaxParallelBuildsLimit = 16
+
+// defaultParallelBuilds is the build slots when no admin set them:
+// BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set.
+func (s *Service) defaultParallelBuilds() int {
+	if n := s.Cfg.MaxParallelBuilds; n > 0 {
+		return n
+	}
+	return 2
+}
+
+// parallelBuilds is the build slots of the settings row st.
+func (s *Service) parallelBuilds(st db.ServerSetting) int {
+	if st.MaxParallelBuilds > 0 {
+		return int(st.MaxParallelBuilds)
+	}
+	return s.defaultParallelBuilds()
+}
+
+// maxParallelBuilds is how many builds may run at once now; the default
+// when the settings cannot be read.
+func (s *Service) maxParallelBuilds(ctx context.Context) int {
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return s.defaultParallelBuilds()
+	}
+	return s.parallelBuilds(st)
+}
+
+func (s *Service) settingsView(st db.ServerSetting, c ServerCapacity) ServerSettings {
 	out := ServerSettings{
-		Signups:           st.Signups,
-		ProjectInviteApps: st.ProjectInviteApps != 0,
-		NewAccountQuota:   newAccountQuota(st, ""),
-		Server:            c,
+		Signups:                  st.Signups,
+		ProjectInviteApps:        st.ProjectInviteApps != 0,
+		NewAccountQuota:          newAccountQuota(st, ""),
+		MaxParallelBuilds:        s.parallelBuilds(st),
+		DefaultMaxParallelBuilds: s.defaultParallelBuilds(),
+		Server:                   c,
 	}
 	if st.UpdatedAt > 0 {
 		t := ts(st.UpdatedAt)
@@ -95,7 +127,7 @@ func (s *Service) GetServerSettings(ctx context.Context, a Actor) (ServerSetting
 	if err != nil {
 		return ServerSettings{}, err
 	}
-	return settingsView(st, s.serverCapacity()), nil
+	return s.settingsView(st, s.serverCapacity()), nil
 }
 
 func validSignups(v string) error {
@@ -141,8 +173,8 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 	if err := RequireAdmin(a); err != nil {
 		return ServerSettings{}, err
 	}
-	if in.Signups == nil && in.ProjectInviteApps == nil && in.NewAccountQuota == nil {
-		return ServerSettings{}, apperr.BadRequest("nothing_to_change", "Send signups, project_invite_apps and/or new_account_quota.",
+	if in.Signups == nil && in.ProjectInviteApps == nil && in.NewAccountQuota == nil && in.MaxParallelBuilds == nil {
+		return ServerSettings{}, apperr.BadRequest("nothing_to_change", "Send signups, project_invite_apps, new_account_quota and/or max_parallel_builds.",
 			"Example: {\"signups\": \"admin_invites\"}.")
 	}
 	cur, err := s.serverSettings(ctx, s.Q)
@@ -180,20 +212,35 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 		next.QuotaApps, next.QuotaMemoryMb, next.QuotaCpuMillis = q.Apps, q.MemoryMB, q.CPUMillis
 		next.QuotaDeploysPerHour, next.QuotaDomainsPerApp, next.QuotaVolumeMb = q.DeploysPerHour, q.DomainsPerApp, q.VolumeMB
 	}
+	if in.MaxParallelBuilds != nil {
+		v := *in.MaxParallelBuilds
+		if v < 1 || v > MaxParallelBuildsLimit {
+			return ServerSettings{}, apperr.BadRequest("invalid_max_parallel_builds",
+				fmt.Sprintf("Builds at the same time must be 1 to %d.", MaxParallelBuildsLimit),
+				"Each build uses the builder's CPU and memory; 2 suits most servers.")
+		}
+		if old := s.parallelBuilds(cur); v != old {
+			changes["max_parallel_builds"] = map[string]any{"from": old, "to": v}
+		}
+		next.MaxParallelBuilds = int64(v)
+	}
 	if len(changes) == 0 {
-		return settingsView(cur, capacity), nil
+		return s.settingsView(cur, capacity), nil
 	}
 	next.UpdatedAt = s.now()
 	if err := s.Q.UpdateServerSettings(ctx, db.UpdateServerSettingsParams{
 		Signups: next.Signups, ProjectInviteApps: next.ProjectInviteApps,
 		QuotaApps: next.QuotaApps, QuotaMemoryMb: next.QuotaMemoryMb, QuotaCpuMillis: next.QuotaCpuMillis,
 		QuotaDeploysPerHour: next.QuotaDeploysPerHour, QuotaDomainsPerApp: next.QuotaDomainsPerApp, QuotaVolumeMb: next.QuotaVolumeMb,
-		UpdatedAt: next.UpdatedAt,
+		MaxParallelBuilds: next.MaxParallelBuilds, UpdatedAt: next.UpdatedAt,
 	}); err != nil {
 		return ServerSettings{}, apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "admin.settings_update", "server", "settings", changes)
-	return settingsView(next, capacity), nil
+	if _, ok := changes["max_parallel_builds"]; ok {
+		s.Wake() // more slots: start what waits now
+	}
+	return s.settingsView(next, capacity), nil
 }
 
 // GetSignupRules says what the login, invite and Members pages need to know

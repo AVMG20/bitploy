@@ -189,6 +189,13 @@ func (a *API) appRoutes() {
 		return okOrNil(a.svc.ListDeployments(ctx, act, in.App, pageLimit(in.Limit), in.Cursor))
 	})
 	reg(a, anyAuth, huma.Operation{
+		OperationID: "listBuilds", Method: http.MethodGet, Path: "/builds", Tags: []string{"Deployments"},
+		Summary: "Builds that wait or run",
+		Description: "Of your apps and the apps of projects shared with you, with the server's build slots (used, max, queued on the whole server). A queued deployment has its place in the server's line.",
+	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.Builds], error) {
+		return okOrNil(a.svc.ListBuilds(ctx, act))
+	})
+	reg(a, anyAuth, huma.Operation{
 		OperationID: "deploy", Method: http.MethodPost, Path: "/apps/{app}/deployments", Tags: []string{"Deployments"},
 		Summary: "Queue a deployment", Description: "From an upload (upload_id) or the app's git source. Returns at once; poll GET /deployments/{id}?wait=30. Accepts an Idempotency-Key header.",
 		DefaultStatus: http.StatusAccepted,

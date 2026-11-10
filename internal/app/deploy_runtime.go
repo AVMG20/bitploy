@@ -27,8 +27,7 @@ type deployRuntime struct {
 	foreignLogged bool
 	builderOnce   sync.Once
 	builder       *deploy.Builder
-	slotsOnce     sync.Once
-	slots         chan struct{} // build slots (fetch, validate, build)
+	slotsUsed     int // build slots taken (fetch, validate, build); the limit is maxParallelBuilds
 	wg            sync.WaitGroup
 }
 
@@ -69,16 +68,35 @@ func (s *Service) buildBuilder() *deploy.Builder {
 	return r.builder
 }
 
-func (s *Service) buildSlots() chan struct{} {
+// tryBuildSlot takes a build slot when fewer than limit are taken. The limit
+// is read on every dispatch pass, so lowering it lets the builds that run
+// finish and starts no new one until a slot is free.
+func (s *Service) tryBuildSlot(limit int) bool {
 	r := &s.deployRT
-	r.slotsOnce.Do(func() {
-		n := s.Cfg.MaxParallelBuilds
-		if n < 1 {
-			n = 2
-		}
-		r.slots = make(chan struct{}, n)
-	})
-	return r.slots
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.slotsUsed >= limit {
+		return false
+	}
+	r.slotsUsed++
+	return true
+}
+
+func (s *Service) releaseBuildSlot() {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.slotsUsed > 0 {
+		r.slotsUsed--
+	}
+}
+
+// buildSlotsUsed is how many builds hold a slot right now.
+func (s *Service) buildSlotsUsed() int {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.slotsUsed
 }
 
 // tryBusy marks an app as running a pipeline; false when one already runs.

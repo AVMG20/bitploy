@@ -755,7 +755,7 @@ In the Hetzner Cloud Firewall, allow 22 from the admin's IP only, and 80 and 443
 | `BITPLOY_SECRET_KEY` | 32 random bytes, base64 | Encrypts env vars and the GitHub App's credentials |
 | `BITPLOY_DATA_DIR` | `/var/lib/bitploy` | Database, uploads, logs, route files |
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account |
-| `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots |
+| `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots until an admin sets them in Admin → Server |
 | `BITPLOY_PUBLIC_PORTS` | `30000-30099` | Ports users may open to connect to a database for debugging (Public ports); at most 1000, 1024 and up, not 8080 or 8081. Empty or `off`: none. firewall.sh reads it too |
 | `BITPLOY_PUBLIC_PORTS_PER_USER` | `3` | Open public ports per user; 0: nobody can open one |
 | `BITPLOY_PUBLIC_PORTS_HOST` | `203.0.113.10` | The address shown for public ports; default `BITPLOY_SERVER_IPV4`, else `BITPLOY_EDGE_HOST`. Not the apps domain: that goes through Cloudflare, which carries HTTP only |

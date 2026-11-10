@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import AdminBuildSlots from './AdminBuildSlots.vue'
 import AdminPublicPorts from './AdminPublicPorts.vue'
 import { keys, REFRESH_MS, useServerMetrics } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
@@ -119,6 +120,8 @@ const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.dis
         </div>
       </CardContent>
     </Card>
+
+    <AdminBuildSlots class="mt-6" />
 
     <AdminPublicPorts class="mt-6" />
 

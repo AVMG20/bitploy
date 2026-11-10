@@ -690,7 +690,10 @@ type ServerSettings struct {
 	ProjectInviteApps bool `json:"project_invite_apps" doc:"Accounts made with a project invite can deploy apps of their own (they get new_account_quota). False: 0 apps, memory and CPU of their own; they still work in the projects they were invited to"`
 	// NewAccountQuota are the limits of every account made from now on.
 	NewAccountQuota NewAccountQuota `json:"new_account_quota" doc:"The limits every account made from now on gets; existing accounts keep theirs"`
-	UpdatedAt       *time.Time      `json:"updated_at" doc:"When an admin last changed these; null: never"`
+	// MaxParallelBuilds is how many builds may run at the same time.
+	MaxParallelBuilds        int        `json:"max_parallel_builds" doc:"How many builds (fetch, check and build) may run at the same time on the whole server; more wait in line"`
+	DefaultMaxParallelBuilds int        `json:"default_max_parallel_builds" doc:"The default of max_parallel_builds: BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set"`
+	UpdatedAt                *time.Time `json:"updated_at" doc:"When an admin last changed these; null: never"`
 	// Server is what this server has: the most a limit may be.
 	Server ServerCapacity `json:"server" doc:"What the server has, the most new_account_quota may be; 0 when not known"`
 }
@@ -717,6 +720,7 @@ type UpdateServerSettingsInput struct {
 	Signups           *string          `json:"signups,omitempty" enum:"admin_invites,any_invite,open"`
 	ProjectInviteApps *bool            `json:"project_invite_apps,omitempty"`
 	NewAccountQuota   *NewAccountQuota `json:"new_account_quota,omitempty" doc:"Every number; replaces the limits for new accounts"`
+	MaxParallelBuilds *int             `json:"max_parallel_builds,omitempty" minimum:"1" maximum:"16" doc:"How many builds may run at the same time, 1 to 16"`
 }
 
 // SignupRules is GET /signup-rules (no login): what the login, invite and

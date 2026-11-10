@@ -7,7 +7,7 @@ SELECT * FROM server_settings WHERE id = 1;
 -- name: UpdateServerSettings :exec
 UPDATE server_settings SET signups = ?, project_invite_apps = ?,
     quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?, quota_deploys_per_hour = ?,
-    quota_domains_per_app = ?, quota_volume_mb = ?, updated_at = ?
+    quota_domains_per_app = ?, quota_volume_mb = ?, max_parallel_builds = ?, updated_at = ?
 WHERE id = 1;
 
 -- name: ListAllPendingProjectInvites :many

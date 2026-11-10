@@ -1,5 +1,6 @@
 import type {
   AddServiceInput,
+  Builds,
   AdminProjectInvite,
   AdminUser,
   NewAccountQuota,
@@ -166,6 +167,7 @@ export const paths = {
   appDbUpdateMany: (slug: string) => `${V1}/apps/${enc(slug)}/db/update-many`,
   appDbDelete: (slug: string) => `${V1}/apps/${enc(slug)}/db/delete`,
   appDbSql: (slug: string) => `${V1}/apps/${enc(slug)}/db/sql`,
+  builds: `${V1}/builds`,
   deploymentCancel: (id: string) => `${V1}/deployments/${enc(id)}/cancel`,
   deploymentLog: (id: string) => `${V1}/deployments/${enc(id)}/log`,
   adminUsers: `${V1}/admin/users`,
@@ -670,8 +672,10 @@ export const api = {
     return listAll<AdminProjectInvite>(paths.adminProjectInvites)
   },
   revokeAdminProjectInvite: (id: string) => request<void>('DELETE', paths.adminProjectInvite(id)),
+  /** What waits and runs of the apps you can see (the sidebar's builds card). */
+  builds: () => request<Builds>('GET', paths.builds),
   adminSettings: () => request<ServerSettings>('GET', paths.adminSettings),
-  updateAdminSettings: (input: { signups?: SignupMode; project_invite_apps?: boolean; new_account_quota?: NewAccountQuota }) =>
+  updateAdminSettings: (input: { signups?: SignupMode; project_invite_apps?: boolean; new_account_quota?: NewAccountQuota; max_parallel_builds?: number }) =>
     request<ServerSettings>('PATCH', paths.adminSettings, { body: input }),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
   adminServerMetrics: (window: MetricWindow) => request<ServerMetrics>('GET', paths.adminServerMetrics, { query: { window } }),

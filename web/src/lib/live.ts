@@ -9,6 +9,8 @@ export const keys = {
   apps: ['apps'] as const,
   /** Below apps on purpose: whatever refreshes the apps refreshes the projects that hold them. */
   projects: ['apps', 'projects'] as const,
+  /** Below apps too: every deployment event refreshes what builds. */
+  builds: ['apps', 'builds'] as const,
   serviceTemplates: ['service-templates'] as const,
   /** Below projects: whatever refreshes the projects refreshes who is in them. */
   projectMembers: (id: string) => ['apps', 'projects', id, 'members'] as const,

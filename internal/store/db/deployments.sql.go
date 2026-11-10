@@ -298,6 +298,67 @@ func (q *Queries) InterruptDeployment(ctx context.Context, arg InterruptDeployme
 	return result.RowsAffected()
 }
 
+const listActiveDeploymentsForUser = `-- name: ListActiveDeploymentsForUser :many
+SELECT d.id, d.app_id, d.seq, d.state, d.source_kind, d.commit_message, d.queued_at, d.started_at,
+    a.slug AS app_slug, a.name AS app_name, a.project_id AS app_project_id
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.state IN ('queued', 'fetching', 'validating', 'building', 'starting', 'health_check', 'swapping')
+  AND (a.user_id = ?1
+    OR (a.project_id != '' AND a.project_id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = ?1)))
+ORDER BY d.queued_at, d.seq
+`
+
+type ListActiveDeploymentsForUserRow struct {
+	ID            string
+	AppID         string
+	Seq           int64
+	State         string
+	SourceKind    string
+	CommitMessage sql.NullString
+	QueuedAt      int64
+	StartedAt     sql.NullInt64
+	AppSlug       string
+	AppName       string
+	AppProjectID  string
+}
+
+// Deployments that wait or run, of the user's apps and the apps of the
+// projects shared with them (the builds widget), oldest first.
+func (q *Queries) ListActiveDeploymentsForUser(ctx context.Context, userID string) ([]ListActiveDeploymentsForUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveDeploymentsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveDeploymentsForUserRow{}
+	for rows.Next() {
+		var i ListActiveDeploymentsForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AppID,
+			&i.Seq,
+			&i.State,
+			&i.SourceKind,
+			&i.CommitMessage,
+			&i.QueuedAt,
+			&i.StartedAt,
+			&i.AppSlug,
+			&i.AppName,
+			&i.AppProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllDeploymentsByApp = `-- name: ListAllDeploymentsByApp :many
 SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service, after_deploy, build_reads FROM deployments WHERE app_id = ? ORDER BY seq DESC
 `

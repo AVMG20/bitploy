@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// RunWorker runs the deploy queue until ctx ends (max parallel builds from config).
+// RunWorker runs the deploy queue until ctx ends (max parallel builds from
+// the server settings, see maxParallelBuilds).
 //
 // Queued deployments live in SQLite. Every pass takes the oldest queued
 // deployment of each idle app, as long as a build slot is free (rollbacks
@@ -46,7 +47,7 @@ func (s *Service) dispatch(ctx context.Context) {
 		}
 		return
 	}
-	slots := s.buildSlots()
+	limit := s.maxParallelBuilds(ctx)
 	for _, d := range rows {
 		if ctx.Err() != nil {
 			return
@@ -55,18 +56,14 @@ func (s *Service) dispatch(ctx context.Context) {
 		if s.appBusy(d.AppID) {
 			continue
 		}
-		if needSlot {
-			select {
-			case slots <- struct{}{}:
-			default:
-				continue // all build slots taken; it stays queued
-			}
+		if needSlot && !s.tryBuildSlot(limit) {
+			continue // all build slots taken; it stays queued
 		}
 		pctx, cancel := context.WithCancel(ctx)
 		if !s.tryBusy(d.AppID, d.ID, cancel) {
 			cancel()
 			if needSlot {
-				<-slots
+				s.releaseBuildSlot()
 			}
 			continue
 		}
