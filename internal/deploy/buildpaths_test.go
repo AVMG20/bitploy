@@ -133,3 +133,18 @@ func TestResolveBuildPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildEntryOwner(t *testing.T) {
+	for name, want := range map[string]string{
+		"dep_abc":                "dep_abc",
+		"dep_abc-clone-123":      "dep_abc",
+		"dep_abc-web.Dockerfile": "dep_abc",
+		"dep_abc-image-web":      "dep_abc",
+		".bp-clone-123":          ".bp",
+		"":                       "",
+	} {
+		if got := BuildEntryOwner(name); got != want {
+			t.Errorf("BuildEntryOwner(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

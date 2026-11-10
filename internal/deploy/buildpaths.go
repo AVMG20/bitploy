@@ -59,3 +59,14 @@ func ResolveBuildPaths(srcRoot, contextDir, dockerfilePath string) (ctxDir, dock
 	}
 	return ctxDir, dockerfile, nil
 }
+
+// BuildEntryOwner names the deployment an entry of the builds folder belongs
+// to. Everything a deployment writes there is called <deployment ID> or
+// <deployment ID>-<suffix>: its build context, the context's clone while it
+// downloads (Clone), Dockerfile copies and per-service image contexts.
+// Deployment IDs contain no "-", so the part before the first one is the ID.
+// The reconciler removes entries whose owner is not running.
+func BuildEntryOwner(name string) string {
+	id, _, _ := strings.Cut(name, "-")
+	return id
+}

@@ -392,7 +392,9 @@ func Clone(ctx context.Context, src GitSource, dest string, maxBytes int64) (res
 	if err := os.MkdirAll(parent, 0o750); err != nil {
 		return CloneResult{}, apperr.Internal(err)
 	}
-	tmp, err := os.MkdirTemp(parent, ".bp-clone-")
+	// Named after dest so the builds folder cleanup sees it belongs to the
+	// running deployment (BuildEntryOwner) and leaves it alone mid-download.
+	tmp, err := os.MkdirTemp(parent, filepath.Base(filepath.Clean(dest))+"-clone-")
 	if err != nil {
 		return CloneResult{}, apperr.Internal(err)
 	}

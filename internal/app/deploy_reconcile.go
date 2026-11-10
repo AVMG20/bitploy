@@ -10,7 +10,6 @@ import (
 	"context"
 	"database/sql"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -407,10 +406,10 @@ func (s *Service) reconcileRoutes(ctx context.Context) {
 	}
 }
 
-// cleanBuildDirs removes build contexts nobody is using. A build also writes
-// next to its folder: <id>-<service>.Dockerfile (applyBuildVars) and
-// <id>-image-<service> (buildService). Deployment IDs have no "-", so the
-// part before the first one names the deployment an entry belongs to.
+// cleanBuildDirs removes build contexts nobody is using. Besides its folder a
+// build writes <id>-clone-* (Clone, while it downloads), <id>-<service>.Dockerfile
+// (applyBuildVars) and <id>-image-<service> (buildService); deploy.BuildEntryOwner
+// maps each entry to its deployment.
 func (s *Service) cleanBuildDirs() {
 	entries, err := os.ReadDir(s.Cfg.BuildsDir())
 	if err != nil {
@@ -418,7 +417,7 @@ func (s *Service) cleanBuildDirs() {
 	}
 	active := s.activeDeploymentIDs()
 	for _, e := range entries {
-		if id, _, _ := strings.Cut(e.Name(), "-"); !active[id] {
+		if !active[deploy.BuildEntryOwner(e.Name())] {
 			_ = os.RemoveAll(s.Cfg.BuildDir(e.Name()))
 		}
 	}

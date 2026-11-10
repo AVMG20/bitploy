@@ -189,6 +189,15 @@ type gitServer struct {
 	mu       sync.Mutex
 	auths    []string
 	required string // when set, requests must carry this basic auth password
+	// onFetch, when set, runs before the server sends a pack (the clone's
+	// download), while the client's clone folder already exists.
+	onFetch func()
+}
+
+func (g *gitServer) setOnFetch(f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.onFetch = f
 }
 
 func (g *gitServer) seenAuth() []string {
@@ -256,6 +265,14 @@ func newGitServer(t *testing.T, files map[string]string, symlinks map[string]str
 			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
 			http.Error(w, "auth", http.StatusUnauthorized)
 			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-upload-pack") {
+			gs.mu.Lock()
+			f := gs.onFetch
+			gs.mu.Unlock()
+			if f != nil {
+				f()
+			}
 		}
 		h.ServeHTTP(w, r)
 	}))
@@ -345,9 +362,39 @@ func TestCloneEndToEnd(t *testing.T) {
 			}
 			return nil
 		})
-		leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(dest), ".bp-clone-*"))
+		leftovers, _ := filepath.Glob(dest + "-clone-*")
 		if len(leftovers) > 0 {
 			t.Errorf("temp dirs left: %v", leftovers)
+		}
+	})
+	// The reconciler empties the builds folder of entries no running deployment
+	// owns, every minute and so possibly mid-clone. Deleting the clone's folder
+	// while the pack downloads fails the deploy, so the clone must sit in an
+	// entry its deployment owns.
+	t.Run("builds cleanup during clone", func(t *testing.T) {
+		builds := filepath.Join(t.TempDir(), "builds")
+		dest := filepath.Join(builds, "dep2")
+		os.MkdirAll(filepath.Join(builds, "depold"), 0o750)
+		var removed []string
+		gs.setOnFetch(func() {
+			entries, _ := os.ReadDir(builds)
+			for _, e := range entries {
+				if BuildEntryOwner(e.Name()) != "dep2" {
+					removed = append(removed, e.Name())
+					os.RemoveAll(filepath.Join(builds, e.Name()))
+				}
+			}
+		})
+		t.Cleanup(func() { gs.setOnFetch(nil) })
+
+		if _, err := Clone(ctx, GitSource{URL: gs.URL, Branch: "main", Token: gs.required}, dest, 0); err != nil {
+			t.Fatal(err)
+		}
+		if len(removed) != 1 || removed[0] != "depold" {
+			t.Fatalf("the cleanup removed %v mid-clone; only depold is unowned", removed)
+		}
+		if b, _ := os.ReadFile(filepath.Join(dest, "index.html")); string(b) != "<h1>hi</h1>" {
+			t.Errorf("index.html = %q", b)
 		}
 	})
 	t.Run("clone subdir", func(t *testing.T) {
