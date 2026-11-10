@@ -230,7 +230,18 @@ func (a *API) appRoutes() {
 		if wait > 50 {
 			wait = 50
 		}
-		return okOrNil(a.svc.GetDeployment(ctx, act, in.ID, time.Duration(wait)*time.Second))
+		if wait <= 0 {
+			return okOrNil(a.svc.GetDeployment(ctx, act, in.ID, 0))
+		}
+		// The long-poll ends when bitploy stops; it then answers with the
+		// state as it is.
+		wctx, cancel := a.untilStopping(ctx)
+		defer cancel()
+		d, err := a.svc.GetDeployment(wctx, act, in.ID, time.Duration(wait)*time.Second)
+		if err != nil && wctx.Err() != nil && ctx.Err() == nil {
+			return okOrNil(a.svc.GetDeployment(ctx, act, in.ID, 0))
+		}
+		return okOrNil(d, err)
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "rollback", Method: http.MethodPost, Path: "/apps/{app}/rollback", Tags: []string{"Lifecycle"},

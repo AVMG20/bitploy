@@ -26,6 +26,11 @@ DELETE FROM app_backups WHERE app_id = ?;
 SELECT CAST(COALESCE(SUM(b.size_bytes), 0) AS INTEGER) FROM app_backups b
 JOIN apps a ON a.id = b.app_id WHERE a.user_id = ?;
 
+-- name: SumScheduledBackupBytesByUser :one
+-- Automatic backups only: they do not block a build (checkStorageRoom).
+SELECT CAST(COALESCE(SUM(b.size_bytes), 0) AS INTEGER) FROM app_backups b
+JOIN apps a ON a.id = b.app_id WHERE a.user_id = ? AND b.kind = 'scheduled';
+
 -- name: SumBackupBytesByApp :one
 SELECT CAST(COALESCE(SUM(size_bytes), 0) AS INTEGER) FROM app_backups WHERE app_id = ?;
 

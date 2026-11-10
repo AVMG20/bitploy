@@ -8,11 +8,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/github"
+	"github.com/AVMG20/bitploy/internal/notify"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
 
@@ -231,15 +233,29 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, event, delivery, sign
 	if err != nil {
 		return "", apperr.Internal(err)
 	}
+	redelivery := false
 	if n == 0 {
-		return "duplicate delivery, already handled", nil
+		// A push that could not queue every app it matched is handled again
+		// when GitHub redelivers it (once per redelivery).
+		retry, err := s.Q.ClaimGitHubDeliveryRetry(ctx, delivery)
+		if err != nil {
+			return "", apperr.Internal(err)
+		}
+		if retry == 0 {
+			return "duplicate delivery, already handled", nil
+		}
+		redelivery = true
 	}
 	var msg string
 	switch event {
 	case "ping":
 		msg = "pong"
 	case "push":
-		msg, err = s.githubPush(ctx, body)
+		var refused bool
+		msg, refused, err = s.githubPush(ctx, body, redelivery)
+		if err == nil && refused {
+			_ = s.Q.MarkGitHubDeliveryRetry(ctx, delivery)
+		}
 	case "installation":
 		msg, err = s.githubInstallationEvent(ctx, body)
 	case "installation_repositories":
@@ -255,38 +271,52 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, event, delivery, sign
 	return msg, nil
 }
 
-func (s *Service) githubPush(ctx context.Context, body []byte) (string, error) {
+// githubPush queues a deployment for every app the push may start. refused
+// says that at least one of them could not be queued (deploy limit, disk,
+// storage): its users are told, and GitHub's "Redeliver" of this delivery is
+// handled again. On such a redelivery, an app whose newest deployment already
+// is this commit is not queued a second time.
+func (s *Service) githubPush(ctx context.Context, body []byte, redelivery bool) (msg string, refused bool, err error) {
 	var ev github.PushEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
-		return "", apperr.BadRequest("github_payload_invalid", "The push event could not be read.", "")
+		return "", false, apperr.BadRequest("github_payload_invalid", "The push event could not be read.", "")
 	}
 	branch, ok := ev.Branch()
 	if !ok {
-		return "ignored: not a push to a branch, or the branch was deleted", nil
+		return "ignored: not a push to a branch, or the branch was deleted", false, nil
 	}
 	key, ok := github.RepoKey(ev.Repository.FullName)
 	if !ok || ev.Installation.ID == 0 {
-		return "ignored: no repository or installation in the event", nil
+		return "ignored: no repository or installation in the event", false, nil
 	}
 	rows, err := s.Q.ListAppsWithGitHubSource(ctx)
 	if err != nil {
-		return "", apperr.Internal(err)
+		return "", false, apperr.Internal(err)
 	}
 	sha, message := ev.After, ""
 	if ev.HeadCommit != nil {
 		sha, message = ev.HeadCommit.ID, firstLine(ev.HeadCommit.Message)
 	}
+	repoID := ev.Repository.ID
 	var matched, queued int
 	for _, row := range rows {
-		if rk, ok := github.RepoKey(row.GitRepoUrl.String); !ok || rk != key || row.GitBranch.String != branch {
+		rk, ok := github.RepoKey(row.GitRepoUrl.String)
+		if !ok || row.GitBranch.String != branch {
+			continue
+		}
+		// An app that knows its repository's id follows it through a rename or
+		// a transfer; the others match by name until their first push.
+		byID := repoID != 0 && row.GithubRepoID.Valid
+		if (byID && row.GithubRepoID.Int64 != repoID) || (!byID && rk != key) {
 			continue
 		}
 		// Tenant isolation: only an installation that the app's owner linked
-		// (and proved with GitHub) may act on the owner's apps.
+		// (and proved with GitHub) may act on the owner's apps. The checks
+		// below use the repository's current name (key).
 		link, err := s.Q.GetGitHubInstallationLink(ctx, db.GetGitHubInstallationLinkParams{UserID: row.UserID, InstallationID: ev.Installation.ID})
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				return "", apperr.Internal(err)
+				return "", false, apperr.Internal(err)
 			}
 			continue
 		}
@@ -300,23 +330,65 @@ func (s *Service) githubPush(ctx context.Context, body []byte) (string, error) {
 			continue
 		}
 		matched++
+		actor := Actor{UserID: row.UserID, Role: "user", Channel: ChannelGitHub, Scope: ScopeDeploy}
+		switch {
+		case byID && rk != key:
+			// Renamed or transferred on GitHub: keep the app's link up to date.
+			newURL := "https://github.com/" + ev.Repository.FullName
+			if err := s.Q.RenameAppGitHubRepo(ctx, db.RenameAppGitHubRepoParams{GitRepoUrl: sql.NullString{String: newURL, Valid: true}, UpdatedAt: s.now(), ID: row.ID}); err != nil {
+				return "", false, apperr.Internal(err)
+			}
+			s.Audit(ctx, actor, "app.git_repo_renamed", "app", row.ID, map[string]any{"from": row.GitRepoUrl.String, "to": newURL, "github_repo_id": repoID})
+			row.GitRepoUrl.String = newURL
+		case !row.GithubRepoID.Valid && repoID != 0:
+			if err := s.Q.SetAppGitHubRepoID(ctx, db.SetAppGitHubRepoIDParams{GithubRepoID: sql.NullInt64{Int64: repoID, Valid: true}, ID: row.ID}); err != nil {
+				return "", false, apperr.Internal(err)
+			}
+		}
 		if err := s.Q.SetAppGitLastPush(ctx, db.SetAppGitLastPushParams{GitLastPushAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: row.ID}); err != nil {
-			return "", apperr.Internal(err)
+			return "", false, apperr.Internal(err)
 		}
 		if row.GitAutoDeploy == 0 || row.Status == "stopped" {
 			continue
 		}
-		actor := Actor{UserID: row.UserID, Role: "user", Channel: ChannelGitHub, Scope: ScopeDeploy}
+		if redelivery && sha != "" {
+			if last, err := s.Q.NewestDeploymentCommit(ctx, row.ID); err == nil && last == sha {
+				continue // queued when this push came in first
+			}
+		}
 		_, err = s.queueDeployment(ctx, actor, row, queueSpec{kind: "git", ref: branch, commitSHA: sha, commitMessage: message})
 		if err != nil {
 			ae := apperr.As(err)
 			s.Log.Warn("github: push did not start a deploy", "app", row.Slug, "code", ae.Code)
 			s.Audit(ctx, actor, "github.push_not_deployed", "app", row.ID, map[string]any{"code": ae.Code, "commit": sha})
+			s.notifyPushNotDeployed(ctx, row, branch, sha, message, ae)
+			refused = true
 			continue
 		}
 		queued++
 	}
-	return "push handled: " + itoa64(int64(matched)) + " app(s) matched, " + itoa64(int64(queued)) + " deployment(s) queued", nil
+	return "push handled: " + itoa64(int64(matched)) + " app(s) matched, " + itoa64(int64(queued)) + " deployment(s) queued", refused, nil
+}
+
+// notifyPushNotDeployed tells the app's users that a push could not be
+// queued. It goes to the channels of deployment.failed: either way the commit
+// did not go live.
+func (s *Service) notifyPushNotDeployed(ctx context.Context, app db.App, branch, sha, message string, ae *apperr.Error) {
+	src := "Git, branch " + branch + ", commit " + shortSHA(sha)
+	if message != "" {
+		src += ": " + message
+	}
+	hint := "Then deploy the app by hand, push again, or press Redeliver on this delivery in the GitHub App's settings."
+	if ae.Hint != "" {
+		hint = ae.Hint + " " + hint
+	}
+	m := notify.Message{
+		Event: EventDeploymentFailed, Severity: notify.Emergency, Tone: notify.ToneFailure, Time: s.Now(), Tag: app.ID,
+		Title: fmt.Sprintf("A push to %s did not deploy %s", branch, app.Name),
+		Body:  apperr.Redact(ae.Message), Hint: apperr.Redact(hint), URL: s.appPage(app, "deployments"),
+		Fields: append(s.appFields(ctx, app), notify.Field{Name: "Source", Value: src}),
+	}
+	s.notifyApp(ctx, app, m, EventDeploymentFailed)
 }
 
 func (s *Service) githubInstallationEvent(ctx context.Context, body []byte) (string, error) {

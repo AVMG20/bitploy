@@ -3,6 +3,9 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 
@@ -21,6 +24,16 @@ const maxAPIBody = 32 << 20
 // New returns bitploy's root handler: /healthz, /api/v1, /mcp (mcpHandler),
 // /u/{id} uploads, /docs/api, the catch-all app pages and the embedded SPA.
 func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
+	h, _ := NewWithStop(svc, mcpHandler, web)
+	return h
+}
+
+// NewWithStop is New plus stop, which ends the long-lived requests at once:
+// the live event streams, the log streams and the get_deployment long-polls
+// (REST and MCP). Every other request runs to its end. Call stop when bitploy
+// shuts down, before http.Server.Shutdown: that waits for all open requests
+// and never cancels them.
+func NewWithStop(svc *app.Service, mcpHandler http.Handler, web fs.FS) (http.Handler, func()) {
 	a := &API{svc: svc, cfg: svc.Cfg}
 	apiMux := http.NewServeMux()
 	a.h = newHuma(apiMux, svc.Cfg)
@@ -76,7 +89,7 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 	if mcpHandler != nil {
 		// /mcp takes bearer tokens only (never cookies). The actor is in the
 		// context for the MCP handler (auth.ActorFrom) with channel mcp.
-		var m http.Handler = mcpHandler
+		var m http.Handler = a.mcpLongPolls(mcpHandler)
 		m = annotate(m)
 		m = limiter.middleware(m)
 		m = auth.Middleware(svc, auth.Options{Channel: app.ChannelMCP})(m)
@@ -97,7 +110,62 @@ func New(svc *app.Service, mcpHandler http.Handler, web fs.FS) http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
-	return logRequests(svc.Log, svc.Cfg, securityHeaders(svc.Cfg, root))
+	return logRequests(svc.Log, svc.Cfg, securityHeaders(svc.Cfg, root)), a.stop.stop
+}
+
+// mcpLongPolls gives a get_deployment call with wait_seconds on /mcp a
+// context that also ends when bitploy stops, so it does not hold up the
+// shutdown. Every other MCP request keeps the request's own context.
+func (a *API) mcpLongPolls(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.Body != nil {
+			body, err := io.ReadAll(r.Body)
+			var rest io.Reader = bytes.NewReader(body)
+			if err != nil {
+				rest = io.MultiReader(rest, errReader{err}) // the MCP handler sees the same error
+			}
+			r.Body = io.NopCloser(rest)
+			if err == nil && isLongPoll(body) {
+				ctx, cancel := a.untilStopping(r.Context())
+				defer cancel()
+				r = r.WithContext(ctx)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// isLongPoll reports whether a JSON-RPC body (one message or a batch) calls
+// get_deployment with wait_seconds.
+func isLongPoll(body []byte) bool {
+	type call struct {
+		Method string `json:"method"`
+		Params struct {
+			Name      string `json:"name"`
+			Arguments struct {
+				WaitSeconds float64 `json:"wait_seconds"`
+			} `json:"arguments"`
+		} `json:"params"`
+	}
+	var calls []call
+	if b := bytes.TrimSpace(body); len(b) > 0 && b[0] == '[' {
+		_ = json.Unmarshal(b, &calls)
+	} else {
+		var c call
+		if json.Unmarshal(b, &c) == nil {
+			calls = append(calls, c)
+		}
+	}
+	for _, c := range calls {
+		if c.Method == "tools/call" && c.Params.Name == "get_deployment" && c.Params.Arguments.WaitSeconds > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func notFoundJSON(w http.ResponseWriter) {

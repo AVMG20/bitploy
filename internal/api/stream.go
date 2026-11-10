@@ -46,6 +46,48 @@ func (c *streamCounter) acquire(user string) (release func(), ok bool) {
 	}, true
 }
 
+// stopSignal tells the long-lived requests (event and log streams, long-polls)
+// that bitploy shuts down. http.Server.Shutdown waits for every open request
+// and does not cancel them, so these end by themselves on it. The zero value
+// is ready to use.
+type stopSignal struct {
+	init, close sync.Once
+	ch          chan struct{}
+}
+
+// done is closed once stop was called.
+func (s *stopSignal) done() <-chan struct{} {
+	s.init.Do(func() { s.ch = make(chan struct{}) })
+	return s.ch
+}
+
+func (s *stopSignal) stop() {
+	s.done()
+	s.close.Do(func() { close(s.ch) })
+}
+
+func (s *stopSignal) stopped() bool {
+	select {
+	case <-s.done():
+		return true
+	default:
+		return false
+	}
+}
+
+// untilStopping is ctx, also cancelled when bitploy shuts down.
+func (a *API) untilStopping(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-a.stop.done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
 func tooManyStreams() *apperr.Error {
 	return apperr.TooMany("too_many_streams",
 		"You already have 10 live log streams open, which is the limit.",
@@ -170,6 +212,9 @@ func (a *API) sse(w http.ResponseWriter, r *http.Request, precheck func(context.
 			select {
 			case <-ctx.Done():
 				return
+			case <-a.stop.done():
+				cancel()
+				return
 			case <-t.C:
 				// Access is checked again with every heartbeat: a member removed
 				// from the app's project stops getting lines within 15 s.
@@ -188,6 +233,11 @@ func (a *API) sse(w http.ResponseWriter, r *http.Request, precheck func(context.
 	})
 	cancel()
 	<-done
+	if a.stop.stopped() {
+		// bitploy stops: hang up without "end" or "error", so the browser
+		// reconnects to the restarted server by itself.
+		return
+	}
 	if err != nil && r.Context().Err() == nil {
 		e := apperr.As(err)
 		b, _ := json.Marshal(map[string]any{"error": errBody{Code: e.Code, Message: apperr.Redact(e.Message), Hint: apperr.Redact(e.Hint), Next: e.Next}})

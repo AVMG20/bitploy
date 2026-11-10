@@ -100,3 +100,21 @@ SELECT repo FROM github_user_repos WHERE user_id = ? AND installation_id = ?;
 
 -- name: CountGitHubUserRepos :one
 SELECT COUNT(*) FROM github_user_repos WHERE user_id = ? AND installation_id = ?;
+
+-- name: SetAppGitHubRepoID :exec
+-- GitHub's id of the linked repository, learnt from a push (githubPush).
+UPDATE apps SET github_repo_id = ? WHERE id = ?;
+
+-- name: RenameAppGitHubRepo :exec
+-- The linked repository was renamed or moved on GitHub; its id stays.
+UPDATE apps SET git_repo_url = ?, updated_at = ? WHERE id = ?;
+
+-- name: MarkGitHubDeliveryRetry :exec
+UPDATE github_deliveries SET retry = 1 WHERE delivery_id = ?;
+
+-- name: ClaimGitHubDeliveryRetry :execrows
+-- A redelivery of a push that could not queue every app: handled once more.
+UPDATE github_deliveries SET retry = 0 WHERE delivery_id = ? AND retry = 1;
+
+-- name: NewestDeploymentCommit :one
+SELECT CAST(COALESCE((SELECT commit_sha FROM deployments WHERE app_id = ? ORDER BY seq DESC LIMIT 1), '') AS TEXT);

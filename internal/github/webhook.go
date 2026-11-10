@@ -46,6 +46,7 @@ type PushEvent struct {
 	After      string `json:"after"`
 	Deleted    bool   `json:"deleted"`
 	Repository struct {
+		ID       int64  `json:"id"` // stays the same through a rename or transfer
 		FullName string `json:"full_name"`
 		HTMLURL  string `json:"html_url"`
 	} `json:"repository"`

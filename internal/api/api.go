@@ -24,6 +24,7 @@ type API struct {
 
 	streams      streamCounter // open ?follow=1 streams per user
 	eventStreams streamCounter // open /events streams per user
+	stop         stopSignal    // bitploy shuts down (NewWithStop)
 }
 
 // access says who may call an operation (the service layer still checks scope and ownership).

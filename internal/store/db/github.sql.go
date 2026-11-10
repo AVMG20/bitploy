@@ -39,6 +39,19 @@ func (q *Queries) AddGitHubUserRepo(ctx context.Context, arg AddGitHubUserRepoPa
 	return err
 }
 
+const claimGitHubDeliveryRetry = `-- name: ClaimGitHubDeliveryRetry :execrows
+UPDATE github_deliveries SET retry = 0 WHERE delivery_id = ? AND retry = 1
+`
+
+// A redelivery of a push that could not queue every app: handled once more.
+func (q *Queries) ClaimGitHubDeliveryRetry(ctx context.Context, deliveryID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimGitHubDeliveryRetry, deliveryID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearGitHubInstallationRepos = `-- name: ClearGitHubInstallationRepos :exec
 DELETE FROM github_installation_repos WHERE installation_id = ?
 `
@@ -370,6 +383,26 @@ func (q *Queries) ListGitHubUserRepos(ctx context.Context, arg ListGitHubUserRep
 	return items, nil
 }
 
+const markGitHubDeliveryRetry = `-- name: MarkGitHubDeliveryRetry :exec
+UPDATE github_deliveries SET retry = 1 WHERE delivery_id = ?
+`
+
+func (q *Queries) MarkGitHubDeliveryRetry(ctx context.Context, deliveryID string) error {
+	_, err := q.db.ExecContext(ctx, markGitHubDeliveryRetry, deliveryID)
+	return err
+}
+
+const newestDeploymentCommit = `-- name: NewestDeploymentCommit :one
+SELECT CAST(COALESCE((SELECT commit_sha FROM deployments WHERE app_id = ? ORDER BY seq DESC LIMIT 1), '') AS TEXT)
+`
+
+func (q *Queries) NewestDeploymentCommit(ctx context.Context, appID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, newestDeploymentCommit, appID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const pruneGitHubDeliveries = `-- name: PruneGitHubDeliveries :exec
 DELETE FROM github_deliveries WHERE received_at < ?
 `
@@ -390,6 +423,37 @@ type RemoveGitHubInstallationRepoParams struct {
 
 func (q *Queries) RemoveGitHubInstallationRepo(ctx context.Context, arg RemoveGitHubInstallationRepoParams) error {
 	_, err := q.db.ExecContext(ctx, removeGitHubInstallationRepo, arg.InstallationID, arg.Repo)
+	return err
+}
+
+const renameAppGitHubRepo = `-- name: RenameAppGitHubRepo :exec
+UPDATE apps SET git_repo_url = ?, updated_at = ? WHERE id = ?
+`
+
+type RenameAppGitHubRepoParams struct {
+	GitRepoUrl sql.NullString
+	UpdatedAt  int64
+	ID         string
+}
+
+// The linked repository was renamed or moved on GitHub; its id stays.
+func (q *Queries) RenameAppGitHubRepo(ctx context.Context, arg RenameAppGitHubRepoParams) error {
+	_, err := q.db.ExecContext(ctx, renameAppGitHubRepo, arg.GitRepoUrl, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const setAppGitHubRepoID = `-- name: SetAppGitHubRepoID :exec
+UPDATE apps SET github_repo_id = ? WHERE id = ?
+`
+
+type SetAppGitHubRepoIDParams struct {
+	GithubRepoID sql.NullInt64
+	ID           string
+}
+
+// GitHub's id of the linked repository, learnt from a push (githubPush).
+func (q *Queries) SetAppGitHubRepoID(ctx context.Context, arg SetAppGitHubRepoIDParams) error {
+	_, err := q.db.ExecContext(ctx, setAppGitHubRepoID, arg.GithubRepoID, arg.ID)
 	return err
 }
 

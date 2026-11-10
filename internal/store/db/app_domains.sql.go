@@ -138,7 +138,7 @@ func (q *Queries) GetAppDomainByName(ctx context.Context, domain string) (AppDom
 }
 
 const getRootApp = `-- name: GetRootApp :one
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root FROM apps WHERE on_root = 1 AND base_domain = ?
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root, github_repo_id FROM apps WHERE on_root = 1 AND base_domain = ?
 `
 
 // The app that holds the root of an extra app domain.
@@ -197,6 +197,7 @@ func (q *Queries) GetRootApp(ctx context.Context, baseDomain string) (App, error
 		&i.BackupDefaultAt,
 		&i.CreatedBy,
 		&i.OnRoot,
+		&i.GithubRepoID,
 	)
 	return i, err
 }
@@ -311,7 +312,7 @@ func (q *Queries) ListAppDomains(ctx context.Context) ([]AppDomain, error) {
 }
 
 const listRootApps = `-- name: ListRootApps :many
-SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root FROM apps WHERE on_root = 1 ORDER BY base_domain
+SELECT id, user_id, slug, name, type, port, health_path, dockerfile_path, context_dir, volume_enabled, memory_mb, cpu_millis, git_repo_url, git_branch, git_subdir, desired_state, status, status_message, current_deployment_id, deploy_seq, created_at, updated_at, volume_mb, volume_name, backup_schedule, backup_keep_mode, backup_keep, restore_backup_id, restore_safe_id, restore_resume, git_auto_deploy, git_last_push_at, protect_enabled, protect_username, protect_hash, build_mode, home_page, output_dir, catalog_id, catalog_version, base_domain, service_layout, compose_path, project_id, alias, template, template_version, backup_schedule_set, backup_default_at, created_by, on_root, github_repo_id FROM apps WHERE on_root = 1 ORDER BY base_domain
 `
 
 func (q *Queries) ListRootApps(ctx context.Context) ([]App, error) {
@@ -375,6 +376,7 @@ func (q *Queries) ListRootApps(ctx context.Context) ([]App, error) {
 			&i.BackupDefaultAt,
 			&i.CreatedBy,
 			&i.OnRoot,
+			&i.GithubRepoID,
 		); err != nil {
 			return nil, err
 		}

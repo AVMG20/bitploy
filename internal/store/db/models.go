@@ -74,6 +74,7 @@ type App struct {
 	BackupDefaultAt     int64
 	CreatedBy           string
 	OnRoot              int64
+	GithubRepoID        sql.NullInt64
 }
 
 type AppBackup struct {
@@ -257,6 +258,7 @@ type GithubApp struct {
 type GithubDelivery struct {
 	DeliveryID string
 	ReceivedAt int64
+	Retry      int64
 }
 
 type GithubInstallation struct {

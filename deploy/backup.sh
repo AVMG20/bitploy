@@ -22,6 +22,12 @@
 # What is in the repository: the SQLite database (a consistent VACUUM INTO copy),
 # the Let's Encrypt state, one tar per app volume. NOT in it: /etc/bitploy/bitploy.env.
 # BITPLOY_SECRET_KEY must be backed up separately; see README.
+#
+# A volume that fails (tar exit 2 or more, or restic fails) is logged and skipped;
+# the other volumes, the prune and the weekly check still run. The script then
+# exits non-zero and does not ping BITPLOY_HEALTHCHECK_URL. tar exit 1 (a file
+# changed or vanished while it was read, normal for a live database) only logs a
+# warning: that backup counts.
 set -euo pipefail
 
 CONF="${BITPLOY_BACKUP_ENV:-/etc/bitploy/backup.env}"
@@ -68,13 +74,25 @@ copy_database() {
 
 backup_volumes() {
   command -v docker >/dev/null || { log "docker not found; skipping volumes"; return; }
-  local v mp count=0
+  local v mp count=0 tar_st restic_st
   while IFS= read -r v; do
     [ -n "$v" ] || continue
-    mp="$(docker volume inspect -f '{{.Mountpoint}}' "$v")"
+    mp="$(docker volume inspect -f '{{.Mountpoint}}' "$v" 2>/dev/null)" || { log "volume $v is gone; skipping"; continue; }
     [ -d "$mp" ] || { log "volume $v has no mountpoint on this host; skipping"; continue; }
-    # A tar stream per volume. pipefail turns a failing tar into a failing backup.
+    # A tar stream per volume. set -e is off for the pipeline so one bad volume
+    # does not stop the loop; PIPESTATUS gives tar's and restic's status apart.
+    # GNU tar exits 1 when a file changed or vanished while it was read (a live
+    # database does that): the backup is still made, so that is only a warning.
+    set +e
     tar -C "$mp" -cf - . | restic backup --quiet --stdin --stdin-filename "volumes/$v.tar" --tag volume --tag "vol:$v"
+    tar_st=${PIPESTATUS[0]} restic_st=${PIPESTATUS[1]}
+    set -e
+    if [ "$tar_st" -gt 1 ] || [ "$restic_st" -ne 0 ]; then
+      log "ERROR: volume $v was not backed up (tar exit $tar_st, restic exit $restic_st)"
+      FAILED=$((FAILED + 1))
+      continue
+    fi
+    [ "$tar_st" -eq 0 ] || log "WARNING: volume $v changed while it was read; the backup was made but may hold a half-written file"
     count=$((count + 1))
   done < <(docker volume ls -q --filter label=nl.bitploy.managed=1)
   log "backed up $count app volume(s)"
@@ -87,6 +105,7 @@ do_backup() {
   restic backup --quiet --tag db "$STAGE/bitploy.db"
   rm -rf "$STAGE"
   if [ -d "$DATA_DIR/acme" ]; then restic backup --quiet --tag acme "$DATA_DIR/acme"; fi
+  FAILED=0
   backup_volumes
   log "pruning: keep 7 daily and 4 weekly snapshots"
   restic forget --quiet --group-by host,tags --keep-daily 7 --keep-weekly 4 --prune
@@ -94,6 +113,7 @@ do_backup() {
     log "weekly check of the repository"
     restic check --quiet --read-data-subset=2%
   fi
+  [ "$FAILED" -eq 0 ] || die "$FAILED volume(s) failed; see the ERROR lines above"
   if [ -n "${BITPLOY_HEALTHCHECK_URL:-}" ]; then curl -fsS --max-time 10 -o /dev/null "$BITPLOY_HEALTHCHECK_URL" || true; fi
   log "done"
 }

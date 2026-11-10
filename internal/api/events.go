@@ -80,6 +80,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-a.stop.done():
+			// bitploy stops: hang up. The browser reconnects by itself (retry
+			// above), and the dashboard retries with backoff while it is down.
+			return
 		case <-t.C:
 			if write(": ping\n\n") != nil {
 				return

@@ -1,10 +1,10 @@
 -- Templates, Dockerfile checks and git sources. OWNER: MCP agent.
 
 -- name: SetAppGitSource :exec
-UPDATE apps SET git_repo_url = ?, git_branch = ?, git_subdir = ?, git_auto_deploy = ?, updated_at = ? WHERE id = ?;
+UPDATE apps SET git_repo_url = ?, git_branch = ?, git_subdir = ?, git_auto_deploy = ?, github_repo_id = NULL, updated_at = ? WHERE id = ?;
 
 -- name: ClearAppGitSource :exec
-UPDATE apps SET git_repo_url = NULL, git_branch = NULL, git_subdir = NULL, git_auto_deploy = 1, git_last_push_at = NULL, updated_at = ? WHERE id = ?;
+UPDATE apps SET git_repo_url = NULL, git_branch = NULL, git_subdir = NULL, git_auto_deploy = 1, git_last_push_at = NULL, github_repo_id = NULL, updated_at = ? WHERE id = ?;
 
 -- name: SetAppGitAutoDeploy :exec
 UPDATE apps SET git_auto_deploy = ?, updated_at = ? WHERE id = ?;

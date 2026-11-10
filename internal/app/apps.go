@@ -1070,6 +1070,12 @@ func appVolumeName(a db.App) string {
 // the measured app files (kept images and stored source) of all apps and
 // their /data backups.
 func (s *Service) storageTaken(ctx context.Context, userID, excludeID string) (int64, error) {
+	return s.storageTakenBy(ctx, userID, excludeID, true)
+}
+
+// storageTakenBy is storageTaken; without scheduled it leaves the automatic
+// backups out.
+func (s *Service) storageTakenBy(ctx context.Context, userID, excludeID string, scheduled bool) (int64, error) {
 	reserved, err := s.Q.SumVolumeMBByUser(ctx, db.SumVolumeMBByUserParams{UserID: userID, ID: excludeID})
 	if err != nil {
 		return 0, err
@@ -1081,6 +1087,13 @@ func (s *Service) storageTaken(ctx context.Context, userID, excludeID string) (i
 	backups, err := s.Q.SumBackupBytesByUser(ctx, userID)
 	if err != nil {
 		return 0, err
+	}
+	if !scheduled {
+		auto, err := s.Q.SumScheduledBackupBytesByUser(ctx, userID)
+		if err != nil {
+			return 0, err
+		}
+		backups -= auto
 	}
 	return reserved + (files+backups+mib-1)/mib, nil
 }
@@ -1106,18 +1119,20 @@ func (s *Service) checkVolumeQuota(ctx context.Context, u db.User, excludeID str
 
 // checkStorageRoom refuses a new build while the user's storage allowance is
 // full. Usage is measured after each deploy, so one build can go a little
-// over; the next one is refused.
+// over; the next one is refused. Automatic backups do not count here: bitploy
+// made them by itself and deletes the oldest when it needs the room
+// (makeBackupRoom), so they never stop a deploy.
 func (s *Service) checkStorageRoom(ctx context.Context, u db.User) error {
 	if u.QuotaVolumeMb <= 0 {
 		return nil
 	}
-	taken, err := s.storageTaken(ctx, u.ID, "")
+	taken, err := s.storageTakenBy(ctx, u.ID, "", false)
 	if err != nil {
 		return apperr.Internal(err)
 	}
 	if taken >= u.QuotaVolumeMb {
 		return apperr.Forbidden("storage_full",
-			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files, backups and the space kept for /data), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
+			fmt.Sprintf("Your apps already take %d MB of your %d MB storage (app files, manual and uploaded backups and the space kept for /data; automatic backups are not counted), so no new version can be built. Nothing was queued.", taken, u.QuotaVolumeMb),
 			"Make room: delete old backups or an app you no longer need, lower the /data limit (volume_mb) of an app, or slim the image (smaller base image, no big files in the source). Or ask a bitploy admin for more storage.").WithNext("get_storage")
 	}
 	return nil

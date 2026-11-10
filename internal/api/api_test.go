@@ -30,6 +30,7 @@ type env struct {
 	h      http.Handler
 	cookie *http.Cookie
 	csrf   string
+	stop   func() // bitploy shuts down (NewWithStop)
 }
 
 func newEnv(t *testing.T) *env {
@@ -52,7 +53,8 @@ func newEnv(t *testing.T) *env {
 		"sw.js":           {Data: []byte("self.addEventListener('push', () => {})")},
 	}
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("mcp ok")) })
-	return &env{t: t, svc: svc, h: New(svc, mcp, web)}
+	h, stop := NewWithStop(svc, mcp, web)
+	return &env{t: t, svc: svc, h: h, stop: stop}
 }
 
 func (e *env) req(method, path string, body any, hdr map[string]string) *httptest.ResponseRecorder {

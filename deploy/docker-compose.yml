@@ -44,6 +44,9 @@ services:
     image: ${BITPLOY_IMAGE:-ghcr.io/avmg20/bitploy:latest}
     container_name: bitploy
     restart: unless-stopped
+    # A stop waits for running requests (up to 15 s), then terminals,
+    # notifications and background jobs (up to 5 s each): more than Docker's 10 s default.
+    stop_grace_period: 30s
     env_file: /etc/bitploy/bitploy.env
     environment:
       BITPLOY_DATA_DIR: /var/lib/bitploy

@@ -920,6 +920,73 @@ func TestScheduledBackupsSkipAndReport(t *testing.T) {
 	}
 }
 
+// A scheduled backup without room deletes the app's oldest automatic backups
+// first, but never the newest one, nor manual backups.
+func TestScheduledBackupMakesRoom(t *testing.T) {
+	e := newBkEnv(t)
+	ctx := context.Background()
+	e.exec(t, `UPDATE apps SET backup_schedule = 'daily' WHERE id = ?`, e.app.ID)
+	var auto []string
+	for i := 3; i >= 1; i-- { // 3, 2 and 1 days old, 1 MB each
+		b := e.makeBackup(t)
+		e.exec(t, `UPDATE app_backups SET kind = 'scheduled', size_bytes = ?, created_at = ? WHERE id = ?`, 1<<20, e.clock.Unix()-int64(i)*86400, b.ID)
+		auto = append(auto, b.ID)
+	}
+	manual := e.makeBackup(t)
+	e.exec(t, `UPDATE app_backups SET size_bytes = ?, created_at = ? WHERE id = ?`, 1<<20, e.clock.Unix()-10*86400, manual.ID)
+	// 100 MB reserved for /data + 4 MB of backups: no room left.
+	e.exec(t, `UPDATE users SET quota_volume_mb = 104 WHERE id = ?`, e.user.UserID)
+
+	e.runDue(ctx)
+	got := e.backupsOfKind(t, "scheduled")
+	if len(got) != 3 || got[0].Status != "ready" {
+		t.Fatalf("scheduled after the run: %+v", got)
+	}
+	left := map[string]bool{}
+	for _, it := range got {
+		left[it.ID] = true
+	}
+	if left[auto[0]] || !left[auto[1]] || !left[auto[2]] {
+		t.Errorf("deleted the wrong ones: %v (made %v)", left, auto)
+	}
+	if m := e.backupsOfKind(t, "manual"); len(m) != 1 {
+		t.Errorf("manual backups = %+v", m)
+	}
+
+	// Only manual backups and the newest automatic one left: skipped, nothing deleted.
+	e.exec(t, `DELETE FROM app_backups WHERE id IN (?, ?)`, got[1].ID, got[2].ID)
+	e.exec(t, `UPDATE app_backups SET size_bytes = ? WHERE id = ?`, 4<<20, manual.ID)
+	e.clock = e.clock.Add(24 * time.Hour)
+	e.runDue(ctx)
+	got = e.backupsOfKind(t, "scheduled")
+	if len(got) != 2 || got[0].Status != "failed" || !strings.Contains(got[0].Error, "no storage left") || got[1].Status != "ready" {
+		t.Fatalf("no room even after pruning: %+v", got)
+	}
+}
+
+// Automatic backups do not stop a build; manual ones do.
+func TestStorageRoomIgnoresScheduledBackups(t *testing.T) {
+	e := newBkEnv(t)
+	ctx := context.Background()
+	b := e.makeBackup(t)
+	e.exec(t, `UPDATE app_backups SET kind = 'scheduled', size_bytes = ? WHERE id = ?`, 5<<20, b.ID)
+	e.exec(t, `UPDATE users SET quota_volume_mb = 103 WHERE id = ?`, e.user.UserID)
+	u, err := e.s.Q.GetUser(ctx, e.user.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.checkStorageRoom(ctx, u); err != nil {
+		t.Errorf("automatic backups blocked a build: %v", err)
+	}
+	if taken, _ := e.s.storageTaken(ctx, e.user.UserID, ""); taken != 105 {
+		t.Errorf("storageTaken = %d, want the automatic backup counted for backups", taken)
+	}
+	e.exec(t, `UPDATE app_backups SET kind = 'manual' WHERE id = ?`, b.ID)
+	if err := e.s.checkStorageRoom(ctx, u); depCode(err) != "storage_full" {
+		t.Errorf("manual backups: %v", err)
+	}
+}
+
 func TestRetentionByDays(t *testing.T) {
 	e := newBkEnv(t)
 	ctx := context.Background()

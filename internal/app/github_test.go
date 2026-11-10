@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -1120,6 +1121,117 @@ func TestWebhookTenantIsolation(t *testing.T) {
 	}
 	if len(g.deployments(t, aliceApp)) != 1 || len(g.deployments(t, bobApp)) != 0 {
 		t.Fatalf("alice: %v bob: %v", g.deployments(t, aliceApp), g.deployments(t, bobApp))
+	}
+}
+
+// pushBodyID is pushBody with GitHub's repository id.
+func pushBodyID(repo string, repoID int64, after string, inst int64) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"ref": "refs/heads/main", "after": after,
+		"repository":   map[string]any{"full_name": repo, "id": repoID},
+		"installation": map[string]any{"id": inst},
+		"head_commit":  map[string]any{"id": after, "message": "Fix the footer"},
+	})
+	return b
+}
+
+func TestWebhookPushFollowsARenamedRepository(t *testing.T) {
+	g := ghTestEnv(t)
+	ctx := context.Background()
+	app := g.mustApp(t, CreateAppInput{Slug: "site"})
+	g.f.repos[101] = []string{"alice/site", "alice/new-site"}
+	if _, err := g.connect(t, g.user, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"}); err != nil {
+		t.Fatal(err)
+	}
+	g.linkApp(t, app, "https://github.com/alice/site", "main", true)
+	repoURL := func() (string, sql.NullInt64) {
+		var u string
+		var id sql.NullInt64
+		g.s.Store.DB.QueryRow(`SELECT git_repo_url, github_repo_id FROM apps WHERE id = ?`, app.ID).Scan(&u, &id)
+		return u, id
+	}
+
+	// The first push matches by name and stores the id.
+	if _, err := g.deliver("push", "r1", pushBodyID("alice/site", 555, sha1a, 101)); err != nil {
+		t.Fatal(err)
+	}
+	if u, id := repoURL(); len(g.deployments(t, app)) != 1 || id.Int64 != 555 || u != "https://github.com/alice/site" {
+		t.Fatalf("first push: %v %s %v", g.deployments(t, app), u, id)
+	}
+	// Renamed on GitHub: the id still matches, the link follows and it deploys.
+	if _, err := g.deliver("push", "r2", pushBodyID("alice/new-site", 555, sha1b, 101)); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := repoURL(); len(g.deployments(t, app)) != 2 || u != "https://github.com/alice/new-site" {
+		t.Fatalf("after the rename: %v %s", g.deployments(t, app), u)
+	}
+	var audited int
+	g.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'app.git_repo_renamed' AND target_id = ?`, app.ID).Scan(&audited)
+	if audited != 1 {
+		t.Errorf("rename audit rows = %d", audited)
+	}
+	if got, _ := g.s.GetApp(ctx, g.user, "site"); got.GitSource.PushStatus != "ready" {
+		t.Errorf("push status after the rename: %+v", got.GitSource)
+	}
+	// A new repository under the old name is another repository.
+	if _, err := g.deliver("push", "r3", pushBodyID("alice/site", 777, sha1a, 101)); err != nil {
+		t.Fatal(err)
+	}
+	// Moved to an account the installation does not belong to: the checks use
+	// the new name, so nothing happens.
+	if _, err := g.deliver("push", "r4", pushBodyID("mallory/new-site", 555, sha1a, 101)); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := repoURL(); len(g.deployments(t, app)) != 2 || u != "https://github.com/alice/new-site" {
+		t.Fatalf("other repository or account: %v %s", g.deployments(t, app), u)
+	}
+}
+
+func TestWebhookRefusedPushNotifiesAndCanBeRedelivered(t *testing.T) {
+	g := ghTestEnv(t)
+	ctx := context.Background()
+	withRecorder(g.s)
+	if _, err := g.s.CreateNotificationChannel(ctx, sessionOf(g.user), CreateNotificationChannelInput{Type: "discord", Name: "ops", Config: map[string]any{"webhook_url": testHookURL}}); err != nil {
+		t.Fatal(err)
+	}
+	g.f.repos[101] = []string{"alice/site"}
+	if _, err := g.connect(t, g.user, 101, fakeInst{ID: 101, Login: "alice", Type: "User", Selection: "selected"}); err != nil {
+		t.Fatal(err)
+	}
+	one := g.mustApp(t, CreateAppInput{Slug: "one"})
+	two := g.mustApp(t, CreateAppInput{Slug: "two"})
+	g.linkApp(t, one, "https://github.com/alice/site", "main", true)
+	g.linkApp(t, two, "https://github.com/alice/site", "main", true)
+	queued(g.s) // whatever creating the apps sent
+
+	// One deploy an hour: the first app is queued, the second refused.
+	g.exec(t, `UPDATE users SET quota_deploys_per_hour = 1 WHERE id = ?`, g.user.UserID)
+	msg, err := g.deliver("push", "q1", pushBody("alice/site", "refs/heads/main", sha1a, 101))
+	if err != nil || !strings.Contains(msg, "1 deployment(s) queued") {
+		t.Fatalf("first delivery: %q %v", msg, err)
+	}
+	sent := queued(g.s)
+	if len(sent) != 1 {
+		t.Fatalf("notifications = %+v", sent)
+	}
+	for _, m := range sent {
+		if m.Event != EventDeploymentFailed || !strings.Contains(m.Title, "did not deploy") || m.Body == "" || !strings.Contains(fmt.Sprint(m.Fields), shortSHA(sha1a)) {
+			t.Errorf("notification = %+v", m)
+		}
+	}
+
+	// Redeliver: the refused app deploys now, the other one is not queued twice.
+	g.exec(t, `UPDATE users SET quota_deploys_per_hour = 100 WHERE id = ?`, g.user.UserID)
+	msg, err = g.deliver("push", "q1", pushBody("alice/site", "refs/heads/main", sha1a, 101))
+	if err != nil || !strings.Contains(msg, "1 deployment(s) queued") {
+		t.Fatalf("redelivery: %q %v", msg, err)
+	}
+	if a, b := g.deployments(t, one), g.deployments(t, two); len(a) != 1 || len(b) != 1 {
+		t.Fatalf("after the redelivery: one %v, two %v", a, b)
+	}
+	// Everything was queued: a further redelivery is a duplicate again.
+	if msg, err := g.deliver("push", "q1", pushBody("alice/site", "refs/heads/main", sha1a, 101)); err != nil || !strings.Contains(msg, "duplicate") {
+		t.Fatalf("third delivery: %q %v", msg, err)
 	}
 }
 

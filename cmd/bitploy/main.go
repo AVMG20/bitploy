@@ -160,9 +160,10 @@ func serve(log *slog.Logger) error {
 		svc.RunNotifications(ctx)
 	}()
 
+	handler, stopStreams := api.NewWithStop(svc, mcp.Handler(svc), web.Dist())
 	srv := &http.Server{
 		Addr:              svc.Cfg.Listen,
-		Handler:           api.New(svc, mcp.Handler(svc), web.Dist()),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    64 << 10,
@@ -192,6 +193,10 @@ func serve(log *slog.Logger) error {
 		svc.CloseTerminals()
 		close(termsDone)
 	}()
+	// Shutdown also waits for the dashboard's live event streams, log streams
+	// and long-polls, which would hold it up to its timeout: end them first.
+	// Ordinary requests still finish.
+	stopStreams()
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	select {
 	case <-termsDone:

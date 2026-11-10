@@ -19,6 +19,8 @@ package app
 // Retention: either keep the newest N, or keep N days. It applies to automatic
 // and before-restore backups, each kind on its own, and the newest one of a kind
 // is always kept. Manual and uploaded backups stay until the user deletes them.
+// When the storage allowance has too little room for an automatic backup, the
+// app's oldest ready automatic backups go first (makeBackupRoom).
 
 import (
 	"context"
@@ -395,6 +397,9 @@ func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.Us
 		return false
 	}
 	room, err := s.backupRoom(ctx, owner)
+	if err == nil {
+		room, err = s.makeBackupRoom(ctx, app, owner, volume, room)
+	}
 	if err != nil {
 		fail("A server error stopped this backup. If it repeats, tell the bitploy admin.")
 		return false
@@ -412,6 +417,45 @@ func (s *Service) scheduledBackupOf(ctx context.Context, app db.App, owner db.Us
 		return false
 	}
 	return true
+}
+
+// makeBackupRoom makes room for the automatic backup of volume when room (from
+// backupRoom) is less than the newest ready backup of that volume took, or 0:
+// it deletes the app's oldest ready automatic backups, one at a time, until
+// that fits. The newest ready automatic backup of each volume is always kept,
+// and manual, uploaded and before-restore backups are never touched. It returns
+// the room after that; the caller holds the backup lock.
+func (s *Service) makeBackupRoom(ctx context.Context, app db.App, owner db.User, volume string, room int64) (int64, error) {
+	if room < 0 {
+		return room, nil
+	}
+	rows, err := s.Q.ListBackupsByApp(ctx, app.ID)
+	if err != nil {
+		return 0, err
+	}
+	need := int64(1)
+	newest := map[string]bool{} // volume -> its newest ready automatic backup was seen
+	var old []retainable
+	for _, r := range rows { // newest first
+		if r.Status != backupReady || r.Kind != BackupScheduled {
+			continue
+		}
+		if !newest[r.Volume] {
+			newest[r.Volume] = true
+			if r.Volume == volume && r.SizeBytes > need {
+				need = r.SizeBytes
+			}
+			continue
+		}
+		old = append(old, retainable{ID: r.ID, CreatedAt: r.CreatedAt})
+	}
+	for i := len(old) - 1; i >= 0 && room < need; i-- {
+		s.dropBackup(ctx, app, old[i].ID)
+		if room, err = s.backupRoom(ctx, owner); err != nil {
+			return 0, err
+		}
+	}
+	return room, nil
 }
 
 // runBackups is the background loop of automatic backups. It also repairs what
