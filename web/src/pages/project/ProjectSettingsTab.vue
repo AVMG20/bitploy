@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { toast } from 'vue-sonner'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import DangerRow from '@/components/DangerRow.vue'
 import DangerZone from '@/components/DangerZone.vue'
@@ -10,7 +11,8 @@ import SettingsSection from '@/components/SettingsSection.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { keys } from '@/composables/queries'
+import { deletingProjects, keys } from '@/composables/queries'
+import type { ProjectList } from '@/composables/queries'
 import { useProjectData } from '@/composables/useProjectData'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
@@ -42,16 +44,30 @@ const renameError = computed(() => (rename.error.value ? friendlyError(rename.er
 const unchanged = computed(() => name.value.trim() === (project.value?.name ?? ''))
 
 const deleteOpen = ref(false)
-const remove = useMutation({
-  mutationFn: () => api.deleteProject(props.projectId, project.value?.name ?? '', apps.value.length > 0),
-  onSuccess: () => {
-    toastOk(`Deleted ${project.value?.name ?? 'the project'}`)
-    deleteOpen.value = false
+// Deleting stops and removes every app, which takes a while: the dialog
+// closes and the project leaves the sidebar at once, a toast follows the
+// delete. Not a mutation of this page, which is gone before it ends.
+async function deleteProject() {
+  const id = props.projectId
+  const name = project.value?.name ?? ''
+  const label = name || 'the project'
+  const withApps = apps.value.length > 0
+  deleteOpen.value = false
+  const t = toast.loading(`Deleting ${label}...`)
+  deletingProjects.add(id)
+  await qc.cancelQueries({ queryKey: keys.projects })
+  qc.setQueryData<ProjectList>(keys.projects, (old) => (old ? { ...old, projects: old.projects.filter((p) => p.id !== id) } : old))
+  void router.push('/')
+  try {
+    await api.deleteProject(id, name, withApps)
+    toast.success(`Deleted ${label}`, { id: t })
+  } catch (e) {
+    toastError(e, undefined, t)
+  } finally {
+    deletingProjects.delete(id)
     void qc.invalidateQueries({ queryKey: keys.apps })
-    void router.push('/')
-  },
-  onError: (e) => toastError(e),
-})
+  }
+}
 const leaveOpen = ref(false)
 const leave = useMutation({
   mutationFn: () => api.removeProjectMember(props.projectId, 'me'),
@@ -112,8 +128,7 @@ const deleteText = computed(() => {
       :description="deleteText"
       confirm-label="Delete project"
       :type-to-confirm="apps.length ? project.name : undefined"
-      :loading="remove.isPending.value"
-      @confirm="remove.mutate()"
+      @confirm="deleteProject"
     />
     <ConfirmDialog
       v-model:open="leaveOpen"

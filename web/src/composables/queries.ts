@@ -91,6 +91,12 @@ export interface ProjectList {
 }
 
 /**
+ * Projects being deleted: left out of the list while the server still removes
+ * their apps, so a refresh in between does not bring them back.
+ */
+export const deletingProjects = new Set<string>()
+
+/**
  * The projects with their apps. A server without the projects endpoint gets one
  * project per app, made from /apps, so the dashboard works on both.
  */
@@ -99,7 +105,7 @@ export function useProjects() {
     queryKey: keys.projects,
     queryFn: async (): Promise<ProjectList> => {
       const list = await api.projects()
-      if (list) return { projects: list, fallback: false }
+      if (list) return { projects: list.filter((p) => !deletingProjects.has(p.id)), fallback: false }
       return { projects: projectsFromApps(await api.apps()), fallback: true }
     },
     refetchInterval: livePoll(REFRESH_MS),

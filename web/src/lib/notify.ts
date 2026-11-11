@@ -1,15 +1,18 @@
 import { toast } from 'vue-sonner'
 import { ApiError } from './api'
 
-/** Show an error toast with the message and the hint (if any). */
-export function toastError(e: unknown, fallback = 'Something went wrong.') {
+/**
+ * Show an error toast with the message and the hint (if any). With an id it
+ * replaces that toast (a loading one).
+ */
+export function toastError(e: unknown, fallback = 'Something went wrong.', id?: string | number) {
   if (e instanceof ApiError) {
-    toast.error(e.message, { description: e.hint || undefined })
+    toast.error(e.message, { description: e.hint || undefined, id })
   } else if (e instanceof Error) {
     const hint = 'hint' in e && typeof e.hint === 'string' ? e.hint : undefined
-    toast.error(e.message || fallback, { description: hint })
+    toast.error(e.message || fallback, { description: hint, id })
   } else {
-    toast.error(fallback)
+    toast.error(fallback, { id })
   }
 }
 
