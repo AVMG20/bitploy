@@ -172,7 +172,7 @@ func (s *Service) ReceiveUpload(ctx context.Context, uploadID string, body io.Re
 		return nil, apperr.New(410, "upload_expired", "This upload URL has expired (they last 15 minutes).", "Call create_upload to get a new one.").WithNext("create_upload")
 	}
 	// An upload is the first step of a deployment: with the disk almost full
-	// (the same 15% rule) refuse it before anything is written, otherwise a
+	// (the same minimum free space) refuse it before anything is written, otherwise a
 	// stream of 95 MB uploads could fill the disk that every app depends on.
 	if err := s.checkDiskRoom(); err != nil {
 		return nil, err
@@ -461,7 +461,43 @@ func (s *Service) ListDeployments(ctx context.Context, a Actor, ref string, limi
 		}
 		page.Items = append(page.Items, s.deploymentView(ctx, d, row))
 	}
+	s.markRemovedImages(ctx, page.Items)
 	return page, nil
+}
+
+// markRemovedImages sets ImageRemoved on the superseded deployments whose
+// image, or a service's, is no longer on the server. Without Docker, or
+// when Docker does not answer, nothing is marked.
+func (s *Service) markRemovedImages(ctx context.Context, items []Deployment) {
+	if s.Docker == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	exists := map[string]bool{}
+	gone := func(ref *string) bool {
+		if ref == nil || *ref == "" {
+			return false
+		}
+		ok, seen := exists[*ref]
+		if !seen {
+			_, err := s.Docker.InspectImage(ctx, *ref)
+			ok = !dockerx.IsNotFound(err)
+			exists[*ref] = ok
+		}
+		return !ok
+	}
+	for i := range items {
+		d := &items[i]
+		if d.State != "superseded" {
+			continue
+		}
+		removed := gone(d.Image)
+		for _, sv := range d.Services {
+			removed = removed || gone(sv.Image)
+		}
+		d.ImageRemoved = removed
+	}
 }
 
 // Rollback reruns a previous deployment's image from `starting`.

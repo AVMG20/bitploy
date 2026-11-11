@@ -441,6 +441,9 @@ type ServerSetting struct {
 	MaxParallelBuilds         int64
 	DiskAutoCleanup           int64
 	DiskCleanupMinFreePercent int64
+	DiskBuildsMinFreePercent  int64
+	DiskAutoOtherImages       int64
+	DiskBuildCacheDays        int64
 }
 
 type Session struct {

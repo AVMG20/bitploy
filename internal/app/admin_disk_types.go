@@ -105,10 +105,15 @@ type DiskCleanupOption struct {
 
 // DiskAutoCleanup is the automatic cleanup's settings and its last runs.
 type DiskAutoCleanup struct {
-	Enabled        bool             `json:"enabled"`
-	MinFreePercent int              `json:"min_free_percent"`
-	Dev            bool             `json:"dev" doc:"Dev mode: the automatic cleanup does not run"`
-	Runs           []DiskCleanupRun `json:"runs" doc:"Newest first, at most 5"`
+	Enabled        bool `json:"enabled"`
+	MinFreePercent int  `json:"min_free_percent"`
+	// BuildsMinFreePercent: below this much free, builds, uploads and
+	// backups are refused, and the steps that only cost a slower next build run.
+	BuildsMinFreePercent int              `json:"builds_min_free_percent"`
+	OtherImages          bool             `json:"other_images" doc:"The automatic cleanup may delete unused images that are not bitploy's (its last step)"`
+	BuildCacheDays       int              `json:"build_cache_days" doc:"Build cache no build used for this many days is deleted (checked every hour); 0: never"`
+	Dev                  bool             `json:"dev" doc:"Dev mode: the automatic cleanup does not run"`
+	Runs                 []DiskCleanupRun `json:"runs" doc:"Newest first, at most 5"`
 }
 
 type DiskCleanupRun struct {
@@ -125,6 +130,11 @@ type DiskCleanupRun struct {
 type UpdateDiskCleanupInput struct {
 	Enabled        *bool `json:"enabled,omitempty"`
 	MinFreePercent *int  `json:"min_free_percent,omitempty" minimum:"2" maximum:"50"`
+	// BuildsMinFreePercent: builds, uploads and backups are refused below it.
+	BuildsMinFreePercent *int  `json:"builds_min_free_percent,omitempty" minimum:"1" maximum:"50"`
+	OtherImages          *bool `json:"other_images,omitempty"`
+	// BuildCacheDays: build cache unused for this many days is deleted; 0 never.
+	BuildCacheDays *int `json:"build_cache_days,omitempty" minimum:"0" maximum:"90"`
 }
 
 type DiskCleanupInput struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -315,5 +316,28 @@ func TestStepOrder(t *testing.T) {
 	sort.Strings(safe)
 	if !reflect.DeepEqual(safe, []string{BuildCache, UnusedImages}) {
 		t.Errorf("SafeSteps = %v", SafeSteps)
+	}
+}
+
+// Oldest first, and every app's newest rollback version after all else.
+func TestRemovalOrder(t *testing.T) {
+	at := func(h int) time.Time { return time.Date(2026, 1, 1, h, 0, 0, 0, time.UTC) }
+	im := func(id, app, cat string, h int) Image {
+		return Image{InvImage: dockerx.InvImage{ID: id, Created: at(h)}, AppID: app, Category: cat}
+	}
+	got := RemovalOrder([]Image{
+		im("a3", "a", ImageRollback, 3),
+		im("a1", "a", ImageRollback, 1),
+		im("b2", "b", ImageRollback, 2),
+		im("a2", "a", ImageRollback, 2),
+		im("u0", "", ImageUnused, 0),
+	})
+	var ids []string
+	for _, g := range got {
+		ids = append(ids, g.ID)
+	}
+	want := []string{"u0", "a1", "a2", "b2", "a3"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("order %v, want %v", ids, want)
 	}
 }

@@ -444,26 +444,29 @@ type DeploymentService struct {
 }
 
 type Deployment struct {
-	ID            string           `json:"id"`
-	AppID         string           `json:"app_id"`
-	AppSlug       string           `json:"app_slug"`
-	Seq           int64            `json:"seq"`
-	State         string           `json:"state"`
-	SourceKind    string           `json:"source_kind"` // files | upload | git | rollback
-	SourceRef     string           `json:"source_ref,omitempty"`
-	CommitSHA     *string          `json:"commit_sha,omitempty"`
-	CommitMessage *string          `json:"commit_message,omitempty"`
-	Channel       string           `json:"channel"`
-	Image         *string          `json:"image,omitempty"`
-	Error         *DeployError     `json:"error"`
-	Warnings      []deploy.Finding `json:"warnings"`
-	LogTail       []string         `json:"log_tail,omitempty"` // last 50 lines (build or runtime)
-	QueuedAt      time.Time        `json:"queued_at"`
-	StartedAt     *time.Time       `json:"started_at"`
-	FinishedAt    *time.Time       `json:"finished_at"`
-	DurationSec   *float64         `json:"duration_seconds"`
-	URL           string           `json:"url"`
-	NextSteps     []string         `json:"next_steps,omitempty"`
+	ID            string  `json:"id"`
+	AppID         string  `json:"app_id"`
+	AppSlug       string  `json:"app_slug"`
+	Seq           int64   `json:"seq"`
+	State         string  `json:"state"`
+	SourceKind    string  `json:"source_kind"` // files | upload | git | rollback
+	SourceRef     string  `json:"source_ref,omitempty"`
+	CommitSHA     *string `json:"commit_sha,omitempty"`
+	CommitMessage *string `json:"commit_message,omitempty"`
+	Channel       string  `json:"channel"`
+	Image         *string `json:"image,omitempty"`
+	// ImageRemoved: a superseded version whose image (or a service's) is no
+	// longer on the server, so it cannot be rolled back to. Only in lists.
+	ImageRemoved bool             `json:"image_removed,omitempty" doc:"The image of this superseded version was deleted (retention or a disk cleanup): rollback is not possible"`
+	Error        *DeployError     `json:"error"`
+	Warnings     []deploy.Finding `json:"warnings"`
+	LogTail      []string         `json:"log_tail,omitempty"` // last 50 lines (build or runtime)
+	QueuedAt     time.Time        `json:"queued_at"`
+	StartedAt    *time.Time       `json:"started_at"`
+	FinishedAt   *time.Time       `json:"finished_at"`
+	DurationSec  *float64         `json:"duration_seconds"`
+	URL          string           `json:"url"`
+	NextSteps    []string         `json:"next_steps,omitempty"`
 	// Services is set for a deployment of an app with several services.
 	Services []DeploymentService `json:"services,omitempty" doc:"Per service, for an app with several services"`
 

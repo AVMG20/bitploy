@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,6 +222,16 @@ func (c *Client) PruneDanglingImages(ctx context.Context) (uint64, error) {
 		return 0, err
 	}
 	res, err := c.API.ImagePrune(ctx, client.ImagePruneOptions{Filters: f.Add("dangling", "true")})
+	if err != nil {
+		return 0, err
+	}
+	return res.Report.SpaceReclaimed, nil
+}
+
+// PruneBuildCacheUnused deletes the daemon's build cache that no build used
+// in the last unusedFor.
+func (c *Client) PruneBuildCacheUnused(ctx context.Context, unusedFor time.Duration) (uint64, error) {
+	res, err := c.API.BuildCachePrune(ctx, client.BuildCachePruneOptions{All: true, Filters: client.Filters{}.Add("until", strconv.Itoa(int(unusedFor.Hours()))+"h")})
 	if err != nil {
 		return 0, err
 	}

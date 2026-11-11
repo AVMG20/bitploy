@@ -8,8 +8,8 @@ package app
 // minute. Below the admin's threshold (10% free unless changed) it runs
 // diskuse.AutoSteps in order and stops as soon as free space is back above
 // the threshold plus diskuse.Margin. When a build, upload or backup is refused
-// for disk space (below metrics.MinFreeDiskFraction) it runs the steps that
-// only make the next build slower (diskuse.SafeSteps). It never deletes
+// for disk space (below the admin's builds threshold, 15% unless changed) it
+// runs the steps that only make the next build slower (diskuse.SafeSteps). It never deletes
 // volumes and never touches running containers, and does nothing in dev mode.
 
 import (
@@ -42,9 +42,13 @@ const (
 	diskReportTTL = 2 * time.Minute
 	// diskWatchEvery is how often the automatic cleanup checks free space.
 	diskWatchEvery = time.Minute
-	// Limits of the admin's threshold, in percent.
+	// Limits of the admin's thresholds, in percent.
 	minDiskThreshold, maxDiskThreshold = 2, 50
+	minBuildsThreshold                 = 1
 	diskTopItems                       = 100
+	maxBuildCacheDays                  = 90
+	// staleCacheEvery is how often build cache unused for the admin's days is deleted.
+	staleCacheEvery = time.Hour
 )
 
 // Triggers of an automatic cleanup (disk_cleanups.trigger).
@@ -68,6 +72,10 @@ type diskState struct {
 	low      diskuse.Watch // the threshold
 	refused  diskuse.Watch // builds refused for disk
 	measured bool          // the watches were seeded from the last recorded run
+	// lowAlerted and refusedAlerted: admins were told the disk stays low, and
+	// free space has not come back above that watch's threshold since. Later
+	// runs that free nothing are then neither recorded nor announced.
+	lowAlerted, refusedAlerted bool
 
 	// space replaces the statfs of the data directory in tests.
 	space func() (diskuse.Space, error)
@@ -102,12 +110,54 @@ func (s *Service) kickDiskCleanup() {
 
 // ---- settings ----
 
-func diskAutoView(st db.ServerSetting) (enabled bool, percent int) {
-	percent = int(st.DiskCleanupMinFreePercent)
-	if percent < minDiskThreshold || percent > maxDiskThreshold {
-		percent = 10
+// diskSettings are the disk page's settings, with defaults for values out
+// of range.
+type diskSettings struct {
+	enabled     bool
+	percent     int // the automatic cleanup starts below this much free
+	builds      int // builds, uploads and backups are refused below this much free
+	otherImages bool
+	cacheDays   int // build cache unused this many days is deleted; 0 never
+}
+
+func diskSettingsOf(st db.ServerSetting) diskSettings {
+	d := diskSettings{
+		enabled: st.DiskAutoCleanup != 0, percent: int(st.DiskCleanupMinFreePercent),
+		builds: int(st.DiskBuildsMinFreePercent), otherImages: st.DiskAutoOtherImages != 0,
+		cacheDays: int(st.DiskBuildCacheDays),
 	}
-	return st.DiskAutoCleanup != 0, percent
+	if d.cacheDays < 0 || d.cacheDays > maxBuildCacheDays {
+		d.cacheDays = 7
+	}
+	if d.percent < minDiskThreshold || d.percent > maxDiskThreshold {
+		d.percent = 10
+	}
+	if d.builds < minBuildsThreshold || d.builds > maxDiskThreshold {
+		d.builds = int(metrics.MinFreeDiskFraction * 100)
+	}
+	return d
+}
+
+// buildsMinFree is the free fraction below which builds, uploads and
+// backups are refused.
+func (s *Service) buildsMinFree(ctx context.Context) float64 {
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return metrics.MinFreeDiskFraction
+	}
+	return float64(diskSettingsOf(st).builds) / 100
+}
+
+// autoSteps are the automatic cleanup's steps under the admin's settings.
+func (d diskSettings) autoSteps() []string {
+	out := make([]string, 0, len(diskuse.AutoSteps))
+	for _, k := range diskuse.AutoSteps {
+		if k == diskuse.OtherImages && !d.otherImages {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 func (s *Service) diskAuto(ctx context.Context) (DiskAutoCleanup, error) {
@@ -115,8 +165,11 @@ func (s *Service) diskAuto(ctx context.Context) (DiskAutoCleanup, error) {
 	if err != nil {
 		return DiskAutoCleanup{}, err
 	}
-	out := DiskAutoCleanup{Runs: []DiskCleanupRun{}, Dev: s.Cfg.Dev}
-	out.Enabled, out.MinFreePercent = diskAutoView(st)
+	d := diskSettingsOf(st)
+	out := DiskAutoCleanup{
+		Enabled: d.enabled, MinFreePercent: d.percent, BuildsMinFreePercent: d.builds, OtherImages: d.otherImages, BuildCacheDays: d.cacheDays,
+		Runs: []DiskCleanupRun{}, Dev: s.Cfg.Dev,
+	}
 	rows, err := s.Q.ListDiskCleanups(ctx, 5)
 	if err != nil {
 		return DiskAutoCleanup{}, apperr.Internal(err)
@@ -149,33 +202,58 @@ func (s *Service) AdminUpdateDiskCleanup(ctx context.Context, a Actor, in Update
 	if err := RequireAdmin(a); err != nil {
 		return DiskAutoCleanup{}, err
 	}
-	if in.Enabled == nil && in.MinFreePercent == nil {
-		return DiskAutoCleanup{}, apperr.BadRequest("nothing_to_change", "Send enabled and/or min_free_percent.", "Example: {\"min_free_percent\": 10}.")
+	if in.Enabled == nil && in.MinFreePercent == nil && in.BuildsMinFreePercent == nil && in.OtherImages == nil && in.BuildCacheDays == nil {
+		return DiskAutoCleanup{}, apperr.BadRequest("nothing_to_change", "Send enabled, min_free_percent, builds_min_free_percent, other_images and/or build_cache_days.", "Example: {\"min_free_percent\": 10}.")
 	}
 	st, err := s.serverSettings(ctx, s.Q)
 	if err != nil {
 		return DiskAutoCleanup{}, err
 	}
-	enabled, percent := diskAutoView(st)
+	d := diskSettingsOf(st)
 	changes := map[string]any{}
-	if in.Enabled != nil && *in.Enabled != enabled {
-		changes["enabled"] = map[string]any{"from": enabled, "to": *in.Enabled}
-		enabled = *in.Enabled
-	}
-	if in.MinFreePercent != nil {
-		v := *in.MinFreePercent
-		if v < minDiskThreshold || v > maxDiskThreshold {
-			return DiskAutoCleanup{}, apperr.BadRequest("invalid_min_free_percent",
-				fmt.Sprintf("The threshold must be %d to %d percent.", minDiskThreshold, maxDiskThreshold), "10 suits most servers.")
+	setBool := func(name string, in *bool, cur *bool) {
+		if in != nil && *in != *cur {
+			changes[name] = map[string]any{"from": *cur, "to": *in}
+			*cur = *in
 		}
-		if v != percent {
-			changes["min_free_percent"] = map[string]any{"from": percent, "to": v}
-			percent = v
+	}
+	setBool("enabled", in.Enabled, &d.enabled)
+	setBool("other_images", in.OtherImages, &d.otherImages)
+	if v := in.MinFreePercent; v != nil {
+		if *v < minDiskThreshold || *v > maxDiskThreshold {
+			return DiskAutoCleanup{}, apperr.BadRequest("invalid_min_free_percent",
+				fmt.Sprintf("The cleanup threshold must be %d to %d percent.", minDiskThreshold, maxDiskThreshold), "10 suits most servers.")
+		}
+		if *v != d.percent {
+			changes["min_free_percent"] = map[string]any{"from": d.percent, "to": *v}
+			d.percent = *v
+		}
+	}
+	if v := in.BuildsMinFreePercent; v != nil {
+		if *v < minBuildsThreshold || *v > maxDiskThreshold {
+			return DiskAutoCleanup{}, apperr.BadRequest("invalid_builds_min_free_percent",
+				fmt.Sprintf("The builds threshold must be %d to %d percent.", minBuildsThreshold, maxDiskThreshold), "15 suits most servers; a large disk can go lower.")
+		}
+		if *v != d.builds {
+			changes["builds_min_free_percent"] = map[string]any{"from": d.builds, "to": *v}
+			d.builds = *v
+		}
+	}
+	if v := in.BuildCacheDays; v != nil {
+		if *v < 0 || *v > maxBuildCacheDays {
+			return DiskAutoCleanup{}, apperr.BadRequest("invalid_build_cache_days",
+				fmt.Sprintf("Build cache days must be 0 to %d.", maxBuildCacheDays), "7 suits most servers; 0 keeps build cache until the disk runs low.")
+		}
+		if *v != d.cacheDays {
+			changes["build_cache_days"] = map[string]any{"from": d.cacheDays, "to": *v}
+			d.cacheDays = *v
 		}
 	}
 	if len(changes) > 0 {
 		if err := s.Q.UpdateDiskCleanupSettings(ctx, db.UpdateDiskCleanupSettingsParams{
-			DiskAutoCleanup: b2i(enabled), DiskCleanupMinFreePercent: int64(percent), UpdatedAt: s.now(),
+			DiskAutoCleanup: b2i(d.enabled), DiskCleanupMinFreePercent: int64(d.percent),
+			DiskBuildsMinFreePercent: int64(d.builds), DiskAutoOtherImages: b2i(d.otherImages),
+			DiskBuildCacheDays: int64(d.cacheDays), UpdatedAt: s.now(),
 		}); err != nil {
 			return DiskAutoCleanup{}, apperr.Internal(err)
 		}
@@ -206,6 +284,9 @@ func (s *Service) diskFacts(ctx context.Context) (diskuse.Facts, map[string]db.A
 		f.Apps[a.ID] = diskuse.App{ID: a.ID, Slug: a.Slug, Name: a.Name}
 		f.AppVolumes[appVolumeName(a)] = a.ID
 	}
+	// bitploy's own helper image: deleting it only means pulling it again
+	// for the next volume, backup or file browser, which fails offline.
+	f.Protected[diskuse.NormalizeRef(dockerx.VolumeInitImage)] = true
 	refs, err := s.Q.ListDeploymentImageRefs(ctx)
 	if err != nil {
 		return f, nil, err
@@ -367,6 +448,7 @@ func (s *Service) AdminDiskReport(ctx context.Context, a Actor, refresh bool) (D
 	}
 	out := *d.report
 	out.Auto = auto
+	out.BuildsPausedPercent = float64(auto.BuildsMinFreePercent)
 	return out, nil
 }
 
@@ -379,8 +461,8 @@ func (s *Service) forgetDiskReport() {
 
 func (s *Service) measureDisk(ctx context.Context) (DiskReport, error) {
 	out := DiskReport{
-		MeasuredAt: s.Now().UTC(), BuildsPausedPercent: metrics.MinFreeDiskFraction * 100,
-		Segments: []DiskSegment{}, ImageGroups: []DiskGroup{}, Images: []DiskImageItem{},
+		MeasuredAt: s.Now().UTC(),
+		Segments:   []DiskSegment{}, ImageGroups: []DiskGroup{}, Images: []DiskImageItem{},
 		Containers: []DiskContainerItem{}, Volumes: []DiskVolumeItem{}, Cleanups: []DiskCleanupOption{},
 	}
 	if sp, err := s.diskSpace(); err == nil {
@@ -505,8 +587,8 @@ func orEmptySlice(v []string) []string {
 
 // diskStep runs one cleanup kind. volumes are the orphan volumes to remove
 // (OrphanVolumes only). auto: the automatic cleanup, which never removes
-// volumes.
-func (s *Service) diskStep(ctx context.Context, kind string, volumes []string, auto bool) (reported int64, removed int, err error) {
+// volumes. enough, when set, stops removing images once it says so.
+func (s *Service) diskStep(ctx context.Context, kind string, volumes []string, auto bool, enough func() bool) (reported int64, removed int, err error) {
 	if s.Docker == nil {
 		return 0, 0, errors.New("docker is not available")
 	}
@@ -525,7 +607,7 @@ func (s *Service) diskStep(ctx context.Context, kind string, volumes []string, a
 		if err != nil {
 			return 0, 0, err
 		}
-		n, err := s.removeImages(ctx, rep, kind)
+		n, err := s.removeImages(ctx, rep, kind, enough)
 		return 0, n, err
 	case diskuse.StoppedContainers:
 		rep, _, err := s.diskInventory(ctx, false)
@@ -556,13 +638,18 @@ func (s *Service) diskStep(ctx context.Context, kind string, volumes []string, a
 	return 0, 0, fmt.Errorf("unknown cleanup %q", kind)
 }
 
-// removeImages removes the images a cleanup of kind picks: by tag (Docker
-// deletes the image with its last tag), or by id when it has none. Docker
-// refuses an image a container uses; that one is skipped.
-func (s *Service) removeImages(ctx context.Context, rep diskuse.Report, kind string) (int, error) {
+// removeImages removes the images a cleanup of kind picks, in
+// diskuse.RemovalOrder (oldest first, every app's newest rollback version
+// last): by tag (Docker deletes the image with its last tag), or by id when
+// it has none. Docker refuses an image a container uses; that one is
+// skipped. enough (may be nil) is asked before each image; true stops.
+func (s *Service) removeImages(ctx context.Context, rep diskuse.Report, kind string, enough func() bool) (int, error) {
 	removed := 0
 	var errs []error
-	for _, im := range rep.RemovableImages(kind) {
+	for _, im := range diskuse.RemovalOrder(rep.RemovableImages(kind)) {
+		if enough != nil && enough() {
+			break
+		}
 		refs := im.Tags
 		if len(refs) == 0 {
 			refs = []string{im.ID}
@@ -665,7 +752,7 @@ func (s *Service) AdminDiskCleanup(ctx context.Context, a Actor, in DiskCleanupI
 	defer cancel()
 
 	before, berr := s.diskSpace()
-	reported, removed, runErr := s.diskStep(ctx, kind, in.Volumes, false)
+	reported, removed, runErr := s.diskStep(ctx, kind, in.Volumes, false, nil)
 	after, aerr := s.diskSpace()
 	freed := reported
 	if berr == nil && aerr == nil {
@@ -700,12 +787,16 @@ func (s *Service) runDiskWatch(ctx context.Context) {
 	s.diskInit()
 	t := time.NewTicker(diskWatchEvery)
 	defer t.Stop()
+	stale := time.NewTicker(staleCacheEvery)
+	defer stale.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			s.diskWatchOnce(ctx, triggerLowDisk)
+		case <-stale.C:
+			s.pruneStaleBuildCache(ctx)
 		case <-s.disk.kick:
 			s.diskWatchOnce(ctx, triggerBuildRefused)
 		}
@@ -713,7 +804,12 @@ func (s *Service) runDiskWatch(ctx context.Context) {
 }
 
 // diskWatchOnce runs the automatic cleanup when it is due; it returns what
-// it recorded, or nil when nothing ran.
+// it recorded, or nil when nothing was recorded.
+//
+// Admins hear once that the disk stays low: a later run that frees nothing
+// while it is still low is neither recorded nor announced, and one that
+// frees something is recorded but not announced. Once free space is back
+// above the threshold, the next low disk is news again.
 func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanupRun {
 	if s.Cfg.Dev || s.Docker == nil {
 		return nil
@@ -722,22 +818,29 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 	if err != nil {
 		return nil
 	}
-	enabled, percent := diskAutoView(st)
-	if !enabled {
+	set := diskSettingsOf(st)
+	if !set.enabled {
 		return nil
 	}
 	sp, err := s.diskSpace()
 	if err != nil || sp.Total == 0 {
 		return nil
 	}
-	threshold, steps, w := float64(percent)/100, diskuse.AutoSteps, &s.disk.low
+	lowAt, buildsAt := float64(set.percent)/100, float64(set.builds)/100
+	threshold, steps, w, alerted := lowAt, set.autoSteps(), &s.disk.low, &s.disk.lowAlerted
 	if trigger == triggerBuildRefused {
-		threshold, steps, w = metrics.MinFreeDiskFraction, diskuse.SafeSteps, &s.disk.refused
+		threshold, steps, w, alerted = buildsAt, diskuse.SafeSteps, &s.disk.refused, &s.disk.refusedAlerted
 	}
-	now := s.Now()
+	now, free := s.Now(), sp.FreeFraction()
 	s.disk.watchMu.Lock()
 	s.seedDiskWatch(ctx)
-	due := w.Due(now, sp.FreeFraction(), threshold)
+	if free >= lowAt {
+		s.disk.lowAlerted = false
+	}
+	if free >= buildsAt {
+		s.disk.refusedAlerted = false
+	}
+	due := w.Due(now, free, threshold)
 	s.disk.watchMu.Unlock()
 	if !due {
 		return nil
@@ -747,26 +850,24 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 	}
 	defer s.disk.run.Unlock()
 
-	s.Log.Warn("disk almost full, cleaning up", "trigger", trigger, "free_percent", round1(sp.FreeFraction()*100), "threshold_percent", threshold*100)
+	s.Log.Warn("disk almost full, cleaning up", "trigger", trigger, "free_percent", round1(free*100), "threshold_percent", threshold*100)
+	target := threshold + diskuse.Margin
+	enough := func() bool {
+		sp, err := s.diskSpace()
+		return err == nil && sp.FreeFraction() >= target
+	}
 	runs := make([]diskuse.Step, 0, len(steps))
 	for _, k := range steps {
 		runs = append(runs, diskuse.Step{Kind: k, Run: func(ctx context.Context) (int64, int, error) {
-			return s.diskStep(ctx, k, nil, true)
+			return s.diskStep(ctx, k, nil, true, enough)
 		}})
 	}
-	results, reached := diskuse.Escalate(ctx, runs, s.diskSpace, threshold+diskuse.Margin)
+	results, reached := diskuse.Escalate(ctx, runs, s.diskSpace, target)
 	after, err := s.diskSpace()
 	if err != nil {
 		after = sp
 	}
 	end := s.Now()
-	s.disk.watchMu.Lock()
-	w.Ran(end, after.FreeFraction())
-	s.disk.watchMu.Unlock()
-	s.forgetDiskReport()
-	if len(results) == 0 {
-		return nil // space came back before the first step
-	}
 
 	var freed int64
 	failed := len(results) > 0
@@ -781,6 +882,20 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 	case failed:
 		result = "failed"
 	}
+	s.disk.watchMu.Lock()
+	w.Ran(end, after.FreeFraction())
+	record, announce, nowAlerted := diskRunNews(result, freed, *alerted)
+	*alerted = nowAlerted
+	s.disk.watchMu.Unlock()
+	s.forgetDiskReport()
+	if len(results) == 0 {
+		return nil // space came back before the first step
+	}
+	if !record {
+		s.Log.Warn("disk still almost full; nothing left to clean up", "trigger", trigger, "free_percent", round1(after.FreeFraction()*100))
+		return nil
+	}
+
 	stepsJSON, _ := json.Marshal(results)
 	row := db.DiskCleanup{
 		Trigger: trigger, StartedAt: now.Unix(), FinishedAt: end.Unix(), TotalBytes: int64(sp.Total),
@@ -800,12 +915,69 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 	})
 	s.Log.Info("disk cleanup finished", "trigger", trigger, "result", result, "freed_bytes", freed, "free_percent", round1(after.FreeFraction()*100))
 	run := diskRunView(row)
-	s.notifyDiskCleanup(bg, run, percent)
+	if announce {
+		s.notifyDiskCleanup(bg, run, set)
+	}
 	return &run
 }
 
+// diskRunNews decides what an automatic run is worth, given whether admins
+// were already told the disk stays low (alerted): a recovery is always
+// recorded and announced; the first run that leaves the disk low too; later
+// ones that still leave it low are only recorded when they freed something,
+// and never announced.
+func diskRunNews(result string, freed int64, alerted bool) (record, announce, alertedAfter bool) {
+	if result == "recovered" {
+		return true, true, false
+	}
+	if !alerted {
+		return true, true, true
+	}
+	return freed > 0, false, true
+}
+
+// pruneStaleBuildCache deletes build cache that no build used in the
+// admin's number of days (7 unless changed; 0 turns it off): the layers of
+// an app that has not been built for that long. It returns what Docker and
+// buildx said they freed. Nothing in dev mode.
+func (s *Service) pruneStaleBuildCache(ctx context.Context) int64 {
+	if s.Cfg.Dev || s.Docker == nil {
+		return 0
+	}
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return 0
+	}
+	days := diskSettingsOf(st).cacheDays
+	if days == 0 {
+		return 0
+	}
+	if !s.disk.run.TryLock() {
+		return 0 // a cleanup runs; the next hour will do
+	}
+	defer s.disk.run.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	unused := time.Duration(days) * 24 * time.Hour
+	freed, err := s.buildBuilder().PruneUnused(ctx, unused)
+	if err != nil {
+		s.Log.Warn("deleting old build cache failed", "err", err)
+	}
+	n, derr := s.Docker.PruneBuildCacheUnused(ctx, unused)
+	if derr != nil {
+		s.Log.Warn("deleting old Docker build cache failed", "err", derr)
+	}
+	freed += int64(n)
+	if freed > 0 {
+		s.forgetDiskReport()
+		s.Log.Info("deleted old build cache", "unused_days", days, "freed_bytes", freed)
+	}
+	return freed
+}
+
 // seedDiskWatch starts the watches from the last recorded run, so a restart
-// of bitploy does not clean up again right away. Call with watchMu held.
+// of bitploy neither cleans up nor alerts again right away. Call with
+// watchMu held.
 func (s *Service) seedDiskWatch(ctx context.Context) {
 	if s.disk.measured {
 		return
@@ -821,11 +993,12 @@ func (s *Service) seedDiskWatch(ctx context.Context) {
 			continue
 		}
 		seen[r.Trigger] = true
-		w := &s.disk.low
+		w, alerted := &s.disk.low, &s.disk.lowAlerted
 		if r.Trigger == triggerBuildRefused {
-			w = &s.disk.refused
+			w, alerted = &s.disk.refused, &s.disk.refusedAlerted
 		}
 		w.Ran(ts(r.FinishedAt), float64(r.FreeAfter)/float64(r.TotalBytes))
+		*alerted = r.Result != "recovered"
 	}
 }
 
@@ -855,7 +1028,7 @@ var diskStepNames = map[string]string{
 
 // notifyDiskCleanup tells every admin who subscribed to server.disk_low
 // what the automatic cleanup did.
-func (s *Service) notifyDiskCleanup(ctx context.Context, run DiskCleanupRun, percent int) {
+func (s *Service) notifyDiskCleanup(ctx context.Context, run DiskCleanupRun, set diskSettings) {
 	var did []string
 	for _, st := range run.Steps {
 		if st.FreedBytes > 0 || st.Removed > 0 {
@@ -880,9 +1053,9 @@ func (s *Service) notifyDiskCleanup(ctx context.Context, run DiskCleanupRun, per
 			m.Title = "The server disk is almost full: builds are paused"
 		}
 		m.Tone, m.Severity = notify.ToneFailure, notify.Emergency
-		m.Hint = fmt.Sprintf("Open the disk page to see what takes the space. Below %d%% free bitploy cleans up again in 30 minutes, or sooner when free space drops further.", percent)
+		m.Hint = fmt.Sprintf("Open the disk page to see what takes the space. bitploy keeps trying below %d%% free, without repeating this message until free space has come back.", set.percent)
 		if run.Trigger == triggerBuildRefused {
-			m.Hint = fmt.Sprintf("Builds, uploads and backups start again above %.0f%% free. Open the disk page to see what takes the space.", metrics.MinFreeDiskFraction*100)
+			m.Hint = fmt.Sprintf("Builds, uploads and backups start again above %d%% free. Open the disk page to see what takes the space.", set.builds)
 		}
 	}
 	s.notifyAdmins(ctx, m, EventDiskLow)

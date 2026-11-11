@@ -219,6 +219,24 @@ func (b *Builder) Prune(ctx context.Context, keepBytes int64) (int64, error) {
 	return PruneTotal(out), nil
 }
 
+// PruneUnused deletes the builder's cache that no build used in the last
+// unusedFor (BuildKit's last-used time): the layers of an app that has not
+// been built for a week go, those of apps that build often stay. It returns
+// the bytes buildx reports as freed.
+func (b *Builder) PruneUnused(ctx context.Context, unusedFor time.Duration) (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, err := b.run(ctx, "buildx", "inspect", BuilderName); err != nil {
+		return 0, nil
+	}
+	out, err := b.run(ctx, "buildx", "prune", "--builder", BuilderName, "--all", "--force",
+		"--filter", fmt.Sprintf("until=%dh", int(unusedFor.Hours())))
+	if err != nil {
+		return 0, fmt.Errorf("docker buildx prune: %s", lastLine(out))
+	}
+	return PruneTotal(out), nil
+}
+
 // PruneTotal reads the "Total: 1.2GB" line that `docker buildx prune` ends
 // with; 0 when there is none.
 func PruneTotal(out string) int64 {

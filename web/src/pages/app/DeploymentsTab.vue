@@ -77,7 +77,7 @@ const emptyText = computed(() => {
 
 function canRollback(d: Deployment): boolean {
   const built = !!d.image || !!d.services?.some((s) => !!s.image)
-  return d.state === 'superseded' && built && d.id !== app.data.value?.current_deployment?.id
+  return d.state === 'superseded' && built && !d.image_removed && d.id !== app.data.value?.current_deployment?.id
 }
 
 // ---------------------------------------------------------------- the services of one deployment (projects with several)
@@ -147,6 +147,9 @@ function serviceState(d: Deployment, s: DeploymentService) {
             <Button v-if="canRollback(d)" size="sm" variant="outline" @click="target = d">
               <Undo2 /> Go back to this version
             </Button>
+            <span v-else-if="d.state === 'superseded' && d.image_removed" class="inline-flex h-8 items-center text-xs text-muted-foreground">
+              Its image was deleted, so it cannot be restored
+            </span>
           </div>
         </div>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">

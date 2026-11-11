@@ -14,6 +14,7 @@
 package diskuse
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -366,6 +367,30 @@ func (r Report) RemovableImages(kind string) []Image {
 			out = append(out, im)
 		}
 	}
+	return out
+}
+
+// RemovalOrder sorts images for removal, so a cleanup that stops as soon as
+// enough is free takes the least valuable first: oldest first, and the
+// newest rollback version of every app after everything else, so every app
+// keeps a version to roll back to as long as possible.
+func RemovalOrder(ims []Image) []Image {
+	out := slices.Clone(ims)
+	newest := map[string]time.Time{}
+	for _, im := range out {
+		if im.Category == ImageRollback && im.AppID != "" && im.Created.After(newest[im.AppID]) {
+			newest[im.AppID] = im.Created
+		}
+	}
+	last := func(im Image) bool {
+		return im.Category == ImageRollback && im.AppID != "" && im.Created.Equal(newest[im.AppID])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if li, lj := last(out[i]), last(out[j]); li != lj {
+			return lj
+		}
+		return out[i].Created.Before(out[j].Created)
+	})
 	return out
 }
 

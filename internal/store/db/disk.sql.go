@@ -167,18 +167,29 @@ func (q *Queries) ListDiskCleanups(ctx context.Context, limit int64) ([]DiskClea
 
 const updateDiskCleanupSettings = `-- name: UpdateDiskCleanupSettings :exec
 
-UPDATE server_settings SET disk_auto_cleanup = ?, disk_cleanup_min_free_percent = ?, updated_at = ?
+UPDATE server_settings SET disk_auto_cleanup = ?, disk_cleanup_min_free_percent = ?,
+    disk_builds_min_free_percent = ?, disk_auto_other_images = ?, disk_build_cache_days = ?, updated_at = ?
 WHERE id = 1
 `
 
 type UpdateDiskCleanupSettingsParams struct {
 	DiskAutoCleanup           int64
 	DiskCleanupMinFreePercent int64
+	DiskBuildsMinFreePercent  int64
+	DiskAutoOtherImages       int64
+	DiskBuildCacheDays        int64
 	UpdatedAt                 int64
 }
 
 // The disk page and the automatic disk cleanup (migration 00430).
 func (q *Queries) UpdateDiskCleanupSettings(ctx context.Context, arg UpdateDiskCleanupSettingsParams) error {
-	_, err := q.db.ExecContext(ctx, updateDiskCleanupSettings, arg.DiskAutoCleanup, arg.DiskCleanupMinFreePercent, arg.UpdatedAt)
+	_, err := q.db.ExecContext(ctx, updateDiskCleanupSettings,
+		arg.DiskAutoCleanup,
+		arg.DiskCleanupMinFreePercent,
+		arg.DiskBuildsMinFreePercent,
+		arg.DiskAutoOtherImages,
+		arg.DiskBuildCacheDays,
+		arg.UpdatedAt,
+	)
 	return err
 }

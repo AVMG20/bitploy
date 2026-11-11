@@ -36,6 +36,7 @@ func (s *Service) serverSettings(ctx context.Context, q *db.Queries) (db.ServerS
 		return db.ServerSetting{
 			ID: 1, Signups: SignupAnyInvite, ProjectInviteApps: 1, QuotaApps: 10, QuotaMemoryMb: 2048,
 			QuotaCpuMillis: 2000, QuotaDeploysPerHour: 20, QuotaDomainsPerApp: 5, QuotaVolumeMb: 25600,
+			DiskAutoCleanup: 1, DiskCleanupMinFreePercent: 10, DiskBuildsMinFreePercent: 15, DiskAutoOtherImages: 1,
 		}, nil
 	}
 	if err != nil {

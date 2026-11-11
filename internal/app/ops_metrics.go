@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/diskuse"
 	"github.com/AVMG20/bitploy/internal/metrics"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
@@ -161,7 +162,7 @@ func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, e
 		return ServerStats{}, err
 	}
 	const gb = 1 << 30
-	st := ServerStats{Version: s.Version, DiskMinFreePercent: metrics.MinFreeDiskFraction * 100}
+	st := ServerStats{Version: s.Version, DiskMinFreePercent: s.buildsMinFree(ctx) * 100}
 	if st.Version == "" {
 		st.Version = "dev"
 	}
@@ -244,16 +245,21 @@ func (s *Service) ServerHasRoom(ctx context.Context, extraMB int64) (bool, error
 	return s.metricsMgr().ServerHasRoom(ctx, extraMB)
 }
 
-// DiskHasRoom reports whether the disk has at least 15% free (else builds
-// are refused). When it has not, the automatic disk cleanup is asked to
-// delete build cache and unused images, so a later try can pass.
+// DiskHasRoom reports whether the disk has the admin's minimum free space
+// (15% unless changed on the disk page; else builds are refused). When it has
+// not, the automatic disk cleanup is asked to delete build cache and unused
+// images, so a later try can pass.
 func (s *Service) DiskHasRoom() (bool, error) {
 	var ok bool
 	var err error
 	if s.ops.diskHasRoom != nil {
 		ok, err = s.ops.diskHasRoom()
 	} else {
-		ok, err = s.metricsMgr().DiskHasRoom()
+		var sp diskuse.Space
+		if sp, err = s.diskSpace(); err != nil || sp.Total == 0 {
+			return true, err
+		}
+		ok = sp.FreeFraction() >= s.buildsMinFree(context.Background())
 	}
 	if err == nil && !ok {
 		s.kickDiskCleanup()

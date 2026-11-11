@@ -264,6 +264,8 @@ export interface Deployment {
   commit_message?: string | null
   channel: string
   image?: string | null
+  /** A superseded version whose image was deleted: no rollback. */
+  image_removed?: boolean
   error: DeployError | null
   warnings: Finding[] | null
   log_tail?: string[]
@@ -1018,6 +1020,12 @@ export interface DiskCleanupOption {
 export interface DiskAutoCleanup {
   enabled: boolean
   min_free_percent: number
+  /** Below this much free, builds, uploads and backups are refused. */
+  builds_min_free_percent: number
+  /** The automatic cleanup may delete unused images that are not bitploy's. */
+  other_images: boolean
+  /** Build cache no build used for this many days is deleted (hourly); 0: never. */
+  build_cache_days: number
   /** Dev mode: the automatic cleanup does not run. */
   dev: boolean
   /** Newest first, at most 5. */
