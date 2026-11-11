@@ -60,9 +60,9 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
             </TableHeader>
             <TableBody>
               <TableRow v-for="im in cut(report.images)" :key="im.id">
-                <TableCell class="max-w-72">
+                <TableCell class="max-w-36 sm:max-w-72">
                   <p class="truncate font-mono text-xs" :title="im.tags.join('\n')">{{ im.tags[0] ?? 'untagged' }}</p>
-                  <p class="font-mono text-[11px] text-muted-foreground">{{ im.id }}<template v-if="im.tags.length > 1"> · +{{ im.tags.length - 1 }} tags</template></p>
+                  <p class="truncate font-mono text-[11px] text-muted-foreground">{{ im.id }}<template v-if="im.tags.length > 1"> · +{{ im.tags.length - 1 }} tags</template></p>
                 </TableCell>
                 <TableCell class="hidden sm:table-cell">
                   <RouterLink v-if="im.app" :to="appPath(im.app.slug)" class="hover:underline">{{ im.app.name || im.app.slug }}</RouterLink>
@@ -70,7 +70,7 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
                 </TableCell>
                 <TableCell><Badge :variant="badge(im.category)">{{ IMAGE_CATEGORIES[im.category] }}</Badge></TableCell>
                 <TableCell class="hidden text-muted-foreground md:table-cell"><RelativeTime :date="im.created_at" /></TableCell>
-                <TableCell class="text-right tabular-nums" :title="`${formatBytes(im.size_bytes)} with layers shared with other images`">{{ formatBytes(im.unique_bytes) }}</TableCell>
+                <TableCell class="text-right whitespace-nowrap tabular-nums" :title="`${formatBytes(im.size_bytes)} including layers shared with other images`">{{ formatBytes(im.unique_bytes) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -89,7 +89,7 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
             </TableHeader>
             <TableBody>
               <TableRow v-for="c in cut(report.containers)" :key="c.name">
-                <TableCell class="max-w-72">
+                <TableCell class="max-w-36 sm:max-w-72">
                   <p class="truncate font-mono text-xs">{{ c.name }}</p>
                   <p class="text-[11px] text-muted-foreground">{{ c.state }}</p>
                 </TableCell>
@@ -98,7 +98,7 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
                   <span v-else class="text-muted-foreground">-</span>
                 </TableCell>
                 <TableCell><Badge :variant="badge(c.category)">{{ CONTAINER_CATEGORIES[c.category] }}</Badge></TableCell>
-                <TableCell class="text-right tabular-nums">{{ formatBytes(c.bytes) }}</TableCell>
+                <TableCell class="text-right whitespace-nowrap tabular-nums">{{ formatBytes(c.bytes) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -117,7 +117,7 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
             </TableHeader>
             <TableBody>
               <TableRow v-for="v in cut(report.volumes)" :key="v.name">
-                <TableCell class="max-w-72">
+                <TableCell class="max-w-36 sm:max-w-72">
                   <p class="truncate font-mono text-xs" :title="v.name">{{ v.name }}</p>
                   <p class="text-[11px] text-muted-foreground">{{ v.in_use ? 'Mounted' : 'Not mounted' }}</p>
                 </TableCell>
@@ -126,7 +126,7 @@ function badge(category: string): 'default' | 'secondary' | 'outline' | 'destruc
                   <span v-else class="text-muted-foreground">-</span>
                 </TableCell>
                 <TableCell><Badge :variant="badge(v.category)">{{ VOLUME_CATEGORIES[v.category] }}</Badge></TableCell>
-                <TableCell class="text-right tabular-nums">{{ v.bytes < 0 ? '-' : formatBytes(v.bytes) }}</TableCell>
+                <TableCell class="text-right whitespace-nowrap tabular-nums">{{ v.bytes < 0 ? '-' : formatBytes(v.bytes) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>

@@ -341,3 +341,17 @@ func TestRemovalOrder(t *testing.T) {
 		t.Fatalf("order %v, want %v", ids, want)
 	}
 }
+
+// Other software's images stay while anything deploys: a just-pulled image
+// is not linked to its app yet.
+func TestOtherImagesStayDuringDeploys(t *testing.T) {
+	im := dockerx.InvImage{ID: "sha256:x", Tags: []string{"redis:7"}, Created: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)}
+	f := Facts{Now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if got := f.ClassifyImage(im, nil); got.Category != ImageOther || !got.Removable {
+		t.Fatalf("idle: %+v", got)
+	}
+	f.ActiveDeployments = map[string]bool{"dep_1": true}
+	if got := f.ClassifyImage(im, nil); got.Removable {
+		t.Fatal("removable while a deploy runs")
+	}
+}

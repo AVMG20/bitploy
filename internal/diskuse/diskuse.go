@@ -236,6 +236,12 @@ func (f Facts) ClassifyImage(im dockerx.InvImage, usedIDs map[string]bool) Image
 	default:
 		out.Category = ImageUnused
 	}
+	// While anything deploys, other software's images stay: an image a
+	// deploy just pulled is not linked to its app yet, and its Created is
+	// the upstream build date, so neither guard above would catch it.
+	if out.Category == ImageOther && (len(f.ActiveDeployments) > 0 || len(f.BusyApps) > 0) {
+		protected = true
+	}
 	out.Removable = !protected && out.Category != ImageInUse
 	return out
 }

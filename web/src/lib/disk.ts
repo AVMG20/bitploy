@@ -20,21 +20,21 @@ export const IMAGE_CATEGORIES: Record<DiskImageCategory, string> = {
   in_use: 'In use',
   rollback: 'Rollback',
   unused: 'Unused',
-  other: 'Not bitploy’s',
+  other: 'Not from bitploy',
 }
 
 export const CONTAINER_CATEGORIES: Record<DiskContainerItem['category'], string> = {
   running: 'Running',
   stopped: 'Stopped app',
   leftover: 'Leftover',
-  other: 'Not bitploy’s',
+  other: 'Not from bitploy',
 }
 
 export const VOLUME_CATEGORIES: Record<DiskVolumeItem['category'], string> = {
   app: 'App data',
   builder: 'Build cache',
   orphan: 'Deleted app',
-  other: 'Not bitploy’s',
+  other: 'Not from bitploy',
 }
 
 export const FILES: Record<DiskFilesKey, string> = {
@@ -65,15 +65,15 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export const CLEANUPS: Record<DiskCleanupKind, CleanupInfo> = {
   build_cache: {
     title: 'Build cache',
-    description: 'Layers saved to speed up builds. The next build of each app starts from scratch.',
-    confirm: (size) => `Deletes about ${size} of build cache, from bitploy’s builder and from Docker. The next build of each app takes longer. Apps that run are not affected.`,
+    description: 'Layers kept from earlier builds. Without them the next build of each app is slower.',
+    confirm: (size) => `Deletes about ${size} of build cache, from bitploy’s builder and from Docker. The next build of each app takes longer. Running apps are not affected.`,
     confirmLabel: 'Delete build cache',
     destructive: false,
     unit: () => '',
   },
   unused_images: {
     title: 'Unused images',
-    description: 'bitploy images no app version uses: failed builds and images of deleted apps.',
+    description: 'Images of failed builds and deleted apps.',
     confirm: (size, n) => `Deletes ${plural(n, 'image', 'images')} (about ${size}) that no app version uses. Apps and their rollback versions keep their images.`,
     confirmLabel: 'Delete unused images',
     destructive: false,
@@ -81,15 +81,15 @@ export const CLEANUPS: Record<DiskCleanupKind, CleanupInfo> = {
   },
   stopped_containers: {
     title: 'Leftover containers',
-    description: 'Stopped containers of replaced versions and deleted apps. Stopped apps keep theirs.',
+    description: 'Stopped containers of replaced versions and deleted apps.',
     confirm: (size, n) => `Deletes ${plural(n, 'stopped container', 'stopped containers')} (about ${size}) that no app runs or can start again. Their volumes stay.`,
-    confirmLabel: 'Delete containers',
+    confirmLabel: 'Delete leftover containers',
     destructive: false,
     unit: (n) => plural(n, 'container', 'containers'),
   },
   rollback_images: {
     title: 'Rollback versions',
-    description: 'Images of older app versions. Each app keeps the version it runs.',
+    description: 'Images of older app versions, kept to roll back to.',
     confirm: (size, n) =>
       `Deletes ${plural(n, 'image', 'images')} of older app versions (about ${size}). After this, apps cannot roll back to those versions. Each app keeps the version it runs.`,
     confirmLabel: 'Delete rollback versions',
@@ -97,7 +97,7 @@ export const CLEANUPS: Record<DiskCleanupKind, CleanupInfo> = {
     unit: (n) => plural(n, 'image', 'images'),
   },
   other_images: {
-    title: 'Images not from bitploy',
+    title: 'Unused images not from bitploy',
     description: 'Unused images other software on this server pulled or built.',
     confirm: (size, n) =>
       `Deletes ${plural(n, 'image', 'images')} (about ${size}) that bitploy did not make and no container uses. Software that needs one pulls or builds it again.`,
@@ -107,7 +107,7 @@ export const CLEANUPS: Record<DiskCleanupKind, CleanupInfo> = {
   },
   orphan_volumes: {
     title: 'Volumes of deleted apps',
-    description: 'Saved files and database data of apps that no longer exist.',
+    description: 'Files and database data of deleted apps.',
     confirm: (size, n) => `Deletes ${plural(n, 'volume', 'volumes')} (about ${size}) with the saved files and database data of deleted apps. This cannot be undone.`,
     confirmLabel: 'Delete volumes',
     destructive: true,
@@ -121,7 +121,7 @@ export const STEP_NAMES: Record<DiskCleanupKind, string> = {
   unused_images: 'unused images',
   stopped_containers: 'leftover containers',
   rollback_images: 'rollback versions',
-  other_images: 'images not from bitploy',
+  other_images: 'unused images not from bitploy',
   orphan_volumes: 'volumes of deleted apps',
 }
 

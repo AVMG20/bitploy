@@ -26,7 +26,7 @@ const PARTS = [
 function detail(a: DiskAppUsage): string {
   const out: string[] = []
   if (a.volume_bytes > 0) out.push(`volumes ${formatBytes(a.volume_bytes)}`)
-  if (a.rollback_count > 0) out.push(`${a.rollback_count} older ${a.rollback_count === 1 ? 'version' : 'versions'} ${formatBytes(a.rollback_bytes)}`)
+  if (a.rollback_count > 0) out.push(`${a.rollback_count} rollback ${a.rollback_count === 1 ? 'version' : 'versions'} ${formatBytes(a.rollback_bytes)}`)
   if (a.container_bytes > 0) out.push(`container files ${formatBytes(a.container_bytes)}`)
   return out.join(' · ')
 }
@@ -36,10 +36,10 @@ function detail(a: DiskAppUsage): string {
   <Card>
     <CardHeader>
       <CardTitle>By app</CardTitle>
-      <CardDescription>Layers apps share with other images are not counted.</CardDescription>
+      <CardDescription>Layers shared with other images are not counted.</CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4">
-      <p v-if="apps.length === 0" class="py-6 text-center text-sm text-muted-foreground">No app takes measurable space yet.</p>
+      <p v-if="apps.length === 0" class="py-6 text-center text-sm text-muted-foreground">No app uses disk space yet.</p>
       <ul v-else class="grid gap-3.5">
         <li v-for="a in rows" :key="a.app.id" class="grid gap-1.5" :data-testid="`disk-app-${a.app.slug}`">
           <div class="flex items-baseline gap-3">

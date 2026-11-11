@@ -56,7 +56,9 @@ function reset() {
   for (const f of FIELDS) form[f.key] = props.auto[f.key]
 }
 reset()
-watch(() => FIELDS.map((f) => props.auto[f.key]), reset)
+// Compared by value: another card saving (or a refetch) hands over a new
+// auto object, which must not wipe what is being typed here.
+watch(() => FIELDS.map((f) => props.auto[f.key]).join(','), reset)
 
 const inRange = (k: Key) => {
   const f = FIELDS.find((x) => x.key === k)!
@@ -73,7 +75,7 @@ const save = useMutation({
   onSuccess: (auto) => {
     qc.setQueryData<DiskReport>(keys.adminDisk, (old) => (old ? { ...old, auto, builds_paused_percent: auto.builds_min_free_percent } : old))
     void qc.invalidateQueries({ queryKey: keys.adminServer })
-    toastOk('Disk settings saved')
+    toastOk('Limits saved')
   },
   onError: (e) => toastError(e),
 })
@@ -105,7 +107,7 @@ const save = useMutation({
             </div>
           </div>
           <span v-if="!inRange(f.key)" class="text-xs text-destructive">Between {{ f.min }} and {{ f.max }}.</span>
-          <span v-else-if="f.key === 'warn_free_percent' && warnBelowCleanup" class="text-xs text-destructive">Must be above the cleanup threshold.</span>
+          <span v-else-if="f.key === 'warn_free_percent' && warnBelowCleanup" class="text-xs text-destructive">Must be above “Clean up below”.</span>
           <span v-else class="text-xs text-muted-foreground">{{ f.hint(form[f.key]) }}</span>
         </div>
 
@@ -114,7 +116,7 @@ const save = useMutation({
           <Button type="button" size="sm" variant="ghost" :disabled="save.isPending.value" @click="reset">Undo</Button>
         </div>
         <p v-if="gap" class="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          Between {{ auto.min_free_percent }}% and {{ auto.builds_min_free_percent }}% free, builds are paused while bitploy only deletes build cache and unused
+          Between {{ auto.min_free_percent }}% and {{ auto.builds_min_free_percent }}% free, builds are paused and bitploy deletes only build cache and unused
           images. The other steps start below {{ auto.min_free_percent }}%.
         </p>
       </form>

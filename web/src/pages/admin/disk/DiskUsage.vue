@@ -44,10 +44,10 @@ const active = ref<DiskSegmentKey | 'free' | null>(null)
 const dim = (key: DiskSegmentKey | 'free') => active.value !== null && active.value !== key
 
 const markers = computed(() => {
-  const out: { at: number; label: string }[] = []
-  if (props.warnPercent !== null) out.push({ at: 100 - props.warnPercent, label: `Warning below ${props.warnPercent}%` })
-  out.push({ at: 100 - props.pausedPercent, label: `Builds pause below ${props.pausedPercent}%` })
-  if (props.autoPercent !== null) out.push({ at: 100 - props.autoPercent, label: `Cleanup below ${props.autoPercent}%` })
+  const out: { at: number; label: string; paused?: boolean }[] = []
+  if (props.warnPercent !== null) out.push({ at: 100 - props.warnPercent, label: `Warn admins below ${props.warnPercent}%` })
+  out.push({ at: 100 - props.pausedPercent, label: `Pause builds below ${props.pausedPercent}%`, paused: true })
+  if (props.autoPercent !== null) out.push({ at: 100 - props.autoPercent, label: `Clean up below ${props.autoPercent}%` })
   return out
 })
 </script>
@@ -121,7 +121,7 @@ const markers = computed(() => {
     <p class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
       <span v-for="m in markers" :key="m.label" class="inline-flex items-center gap-1.5">
         <span class="h-3 w-0.5 rounded-full bg-foreground/60" />
-        <span :class="cn(m.label.startsWith('Builds') && share(freeBytes, totalBytes) < pausedPercent && 'font-medium text-destructive')">{{ m.label }}</span>
+        <span :class="cn(m.paused && share(freeBytes, totalBytes) < pausedPercent && 'font-medium text-destructive')">{{ m.label }}</span>
       </span>
     </p>
   </div>

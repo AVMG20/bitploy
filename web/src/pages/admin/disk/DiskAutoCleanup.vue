@@ -50,7 +50,7 @@ const run = useMutation({
   mutationFn: () => api.runAdminDiskAuto(),
   onSuccess: async (r) => {
     confirmRun.value = false
-    toastOk(r.freed_bytes > 0 ? `Freed ${formatBytes(r.freed_bytes)}` : 'Nothing to free', `${r.free_before_percent.toFixed(1)}% → ${r.free_after_percent.toFixed(1)}% free`)
+    toastOk(r.freed_bytes > 0 ? `Freed ${formatBytes(r.freed_bytes)}` : 'Nothing to free', `${r.free_before_percent.toFixed(1)}% to ${r.free_after_percent.toFixed(1)}% free`)
     await qc.invalidateQueries({ queryKey: keys.adminDisk })
   },
   onError: (e) => toastError(e),
@@ -110,18 +110,18 @@ function stepLine(r: DiskCleanupRun): string {
               <span class="grid min-w-0 flex-1 gap-0.5">
                 <span :class="cn('text-sm font-medium', !on(k) && 'text-muted-foreground line-through decoration-muted-foreground/50')">
                   {{ CLEANUPS[k].title }}
-                  <span v-if="CLEANUPS[k].destructive" class="ml-1 text-xs font-normal text-muted-foreground">· cannot be undone</span>
+                  <span v-if="CLEANUPS[k].destructive" class="ml-1 text-xs font-normal whitespace-nowrap text-muted-foreground">cannot be undone</span>
                 </span>
-                <span class="truncate text-xs text-muted-foreground">{{ CLEANUPS[k].description }}</span>
+                <span class="text-xs text-muted-foreground">{{ CLEANUPS[k].description }}</span>
               </span>
-              <span v-if="k === 'other_images' && auto.dev" class="text-xs text-muted-foreground">Off in dev</span>
-              <span v-else class="text-sm tabular-nums" :class="on(k) && bytesOf(k) > 0 ? 'font-medium' : 'text-muted-foreground'">{{ formatBytes(bytesOf(k)) }}</span>
+              <span v-if="k === 'other_images' && auto.dev" class="text-xs whitespace-nowrap text-muted-foreground">Off in dev mode</span>
+              <span v-else class="text-sm whitespace-nowrap tabular-nums" :class="on(k) && bytesOf(k) > 0 ? 'font-medium' : 'text-muted-foreground'">{{ formatBytes(bytesOf(k)) }}</span>
             </label>
           </li>
         </ol>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <p class="text-xs text-muted-foreground">
-            The chosen steps could free up to <span class="font-medium text-foreground tabular-nums">{{ formatBytes(chosenBytes) }}</span> now.
+            The checked steps can free up to <span class="font-medium text-foreground tabular-nums">{{ formatBytes(chosenBytes) }}</span> now.
           </p>
           <Button size="sm" variant="outline" :disabled="run.isPending.value || chosen.length === 0" data-testid="disk-auto-run" @click="confirmRun = true">
             <Play /> {{ run.isPending.value ? 'Running...' : 'Run now' }}
@@ -131,7 +131,7 @@ function stepLine(r: DiskCleanupRun): string {
 
       <div class="grid gap-2">
         <p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Last runs</p>
-        <p v-if="auto.runs.length === 0" class="text-sm text-muted-foreground">It has not run yet.</p>
+        <p v-if="auto.runs.length === 0" class="text-sm text-muted-foreground">No runs yet.</p>
         <ul v-else class="grid divide-y rounded-lg border">
           <li v-for="r in auto.runs" :key="r.started_at" class="grid gap-1 px-3 py-2.5 text-sm">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -140,7 +140,7 @@ function stepLine(r: DiskCleanupRun): string {
                 {{ r.trigger === 'manual' ? 'Done' : RESULTS[r.result].label }}
               </span>
               <span class="tabular-nums">Freed {{ formatBytes(r.freed_bytes) }}</span>
-              <span class="text-muted-foreground tabular-nums">{{ r.free_before_percent.toFixed(1) }}% → {{ r.free_after_percent.toFixed(1) }}% free</span>
+              <span class="text-muted-foreground tabular-nums">{{ r.free_before_percent.toFixed(1) }}% to {{ r.free_after_percent.toFixed(1) }}% free</span>
               <RelativeTime :date="r.finished_at" class="ml-auto text-xs text-muted-foreground" />
             </div>
             <p class="text-xs text-muted-foreground">
@@ -154,7 +154,7 @@ function stepLine(r: DiskCleanupRun): string {
     <ConfirmDialog
       v-model:open="confirmRun"
       title="Run the automatic cleanup now?"
-      :description="`Runs every chosen step fully, whatever the free space (now ${freePercent.toFixed(1)}%).`"
+      :description="`Runs every checked step to the end, without stopping at ${auto.min_free_percent + MARGIN}% free. Now ${freePercent.toFixed(1)}% free.`"
       confirm-label="Run now"
       :destructive="runDestructive"
       :loading="run.isPending.value"

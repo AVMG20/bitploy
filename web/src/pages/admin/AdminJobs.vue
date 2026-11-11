@@ -23,7 +23,7 @@ const GROUPS: { key: JobGroup; title: string; description?: string }[] = [
   { key: 'backups', title: 'Backups' },
   { key: 'monitoring', title: 'Monitoring' },
   { key: 'upkeep', title: 'Upkeep' },
-  { key: 'nightly', title: 'Nightly', description: 'One step after another, every night at 03:30 UTC.' },
+  { key: 'nightly', title: 'Nightly', description: 'Run in this order, every night at 03:30 UTC.' },
 ]
 const groups = computed(() =>
   GROUPS.map((g) => ({ ...g, jobs: (data.value?.jobs ?? []).filter((j) => j.group === g.key) })).filter((g) => g.jobs.length > 0),
@@ -61,7 +61,7 @@ function nextText(at: string): string {
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
       <p>
         What bitploy runs by itself.
-        <template v-if="data?.since">Runs count since bitploy started <RelativeTime :date="data.since" />.</template>
+        <template v-if="data?.since">Runs are counted since bitploy started <RelativeTime :date="data.since" />.</template>
         <template v-else-if="data">The background jobs do not run in this bitploy process.</template>
       </p>
       <Badge v-if="failed > 0" variant="destructive" data-testid="jobs-failed">{{ failed }} failed last time</Badge>
@@ -80,7 +80,7 @@ function nextText(at: string): string {
       <CardContent class="px-0">
         <!-- Column labels from sm up; on a phone each row stacks and the cells say what they are. -->
         <div
-          class="hidden grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,11rem)] gap-x-6 border-b px-4 pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase sm:grid"
+          class="hidden grid-cols-[minmax(0,1fr)_minmax(0,16rem)_minmax(0,11rem)] gap-x-6 border-b px-4 pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase sm:grid"
         >
           <span>Job</span>
           <span>Last run</span>
@@ -90,7 +90,7 @@ function nextText(at: string): string {
           <li
             v-for="j in g.jobs"
             :key="j.id"
-            class="grid gap-x-6 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,11rem)]"
+            class="grid gap-x-6 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_minmax(0,11rem)]"
             :data-testid="`job-${j.id}`"
           >
             <div class="min-w-0">
@@ -103,7 +103,7 @@ function nextText(at: string): string {
 
             <div class="min-w-0 pl-4 sm:pl-0">
               <template v-if="j.last_run">
-                <p class="break-words" :class="j.last_run.ok ? '' : 'font-medium text-destructive'">
+                <p class="break-words first-letter:uppercase" :class="j.last_run.ok ? '' : 'font-medium text-destructive'">
                   {{ j.last_run.ok ? j.last_run.summary || 'Done' : 'Failed' }}
                 </p>
                 <p class="text-xs text-muted-foreground tabular-nums">
@@ -125,7 +125,7 @@ function nextText(at: string): string {
 
             <p
               v-if="j.last_run && !j.last_run.ok && j.last_run.error"
-              class="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-xs break-words text-destructive sm:col-span-3 dark:bg-destructive/20"
+              class="min-w-0 rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-xs break-words text-destructive sm:col-span-3 dark:bg-destructive/20"
             >
               {{ j.last_run.error }}
             </p>

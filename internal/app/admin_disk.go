@@ -265,7 +265,7 @@ func (s *Service) AdminUpdateDiskCleanup(ctx context.Context, a Actor, in Update
 			return nil
 		}
 		if *v < lo || *v > hi {
-			return apperr.BadRequest("invalid_"+name, fmt.Sprintf("%s must be %d to %d.", name, lo, hi), hint)
+			return apperr.BadRequest("invalid_"+name, fmt.Sprintf("%s must be between %d and %d.", name, lo, hi), hint)
 		}
 		if *v != *cur {
 			changes[name] = map[string]any{"from": *cur, "to": *v}
@@ -295,7 +295,7 @@ func (s *Service) AdminUpdateDiskCleanup(ctx context.Context, a Actor, in Update
 		for _, k := range *in.Steps {
 			if !slices.Contains(diskuse.AutoSteps, k) {
 				return DiskAutoCleanup{}, apperr.BadRequest("invalid_steps", "There is no automatic cleanup step "+quote(k)+".",
-					"Use some of: "+strings.Join(diskuse.AutoSteps, ", ")+".")
+					"Use any of: "+strings.Join(diskuse.AutoSteps, ", ")+".")
 			}
 			next[k] = true
 		}
@@ -505,7 +505,9 @@ func (s *Service) AdminDiskReport(ctx context.Context, a Actor, refresh bool) (D
 	d.reportMu.Lock()
 	defer d.reportMu.Unlock()
 	if refresh || d.report == nil || s.Now().Sub(d.reportAt) >= diskReportTTL {
-		rep, err := s.measureDisk(ctx)
+		// Measured to the end even when the admin leaves the page: a request
+		// cut off halfway would otherwise be kept as "cannot reach Docker".
+		rep, err := s.measureDisk(context.WithoutCancel(ctx))
 		if err != nil {
 			return DiskReport{}, err
 		}
@@ -866,7 +868,7 @@ func (s *Service) AdminDiskCleanup(ctx context.Context, a Actor, in DiskCleanupI
 		return DiskCleanupResult{}, apperr.BadRequest("volumes_not_allowed", "Only the orphan_volumes cleanup takes volumes.", "Leave volumes out.")
 	}
 	if kind == diskuse.OtherImages && s.Cfg.Dev {
-		return DiskCleanupResult{}, apperr.Conflict("dev_mode", "In dev mode bitploy leaves images that are not its own alone.", "Remove them with docker image prune.")
+		return DiskCleanupResult{}, apperr.Conflict("dev_mode", "In dev mode bitploy does not delete images it did not make.", "Remove them with docker image prune.")
 	}
 	if s.Docker == nil {
 		return DiskCleanupResult{}, apperr.Unavailable("docker_unavailable", "bitploy cannot reach Docker right now.", "Check that the Docker daemon runs.")
@@ -917,6 +919,9 @@ func (s *Service) runDiskWatch(ctx context.Context) {
 	defer t.Stop()
 	stale := time.NewTicker(staleCacheEvery)
 	defer stale.Stop()
+	// The first old-cache pass runs soon after start, so a bitploy that
+	// restarts often still gets one.
+	firstStale := time.After(5 * time.Minute)
 	for {
 		select {
 		case <-ctx.Done():
@@ -924,13 +929,10 @@ func (s *Service) runDiskWatch(ctx context.Context) {
 		case <-t.C:
 			start := s.Now()
 			s.jobRan("disk_watch", start, nil, diskRunSummary(s.diskWatchOnce(ctx, triggerLowDisk)))
+		case <-firstStale:
+			s.staleCacheJob(ctx)
 		case <-stale.C:
-			start := s.Now()
-			summary := "nothing unused"
-			if freed := s.pruneStaleBuildCache(ctx); freed > 0 {
-				summary = "freed " + bytesText(freed)
-			}
-			s.jobRan("disk_stale_cache", start, nil, summary)
+			s.staleCacheJob(ctx)
 		case <-s.disk.kick:
 			s.diskWatchOnce(ctx, triggerBuildRefused)
 		}
@@ -980,10 +982,12 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 	now, free := s.Now(), sp.FreeFraction()
 	s.disk.watchMu.Lock()
 	s.seedDiskWatch(ctx)
-	if free >= lowAt {
+	// Re-armed only diskuse.Margin above the level, so a disk hovering
+	// around it does not count as a new episode every few minutes.
+	if free >= lowAt+diskuse.Margin {
 		s.disk.lowAlerted = false
 	}
-	if free >= buildsAt {
+	if free >= buildsAt+diskuse.Margin {
 		s.disk.refusedAlerted = false
 	}
 	due := w.Due(now, free, threshold)
@@ -1008,7 +1012,10 @@ func (s *Service) diskWatchOnce(ctx context.Context, trigger string) *DiskCleanu
 			return s.diskStep(ctx, k, nil, true, enough)
 		}})
 	}
-	results, reached := diskuse.Escalate(ctx, runs, s.diskSpace, target)
+	// A Docker call that hangs must not hold the cleanup lock forever.
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	results, reached := diskuse.Escalate(runCtx, runs, s.diskSpace, target)
 	after, err := s.diskSpace()
 	if err != nil {
 		after = sp
@@ -1070,13 +1077,13 @@ func (s *Service) diskWarnCheck(ctx context.Context, sp diskuse.Space, set diskS
 	}
 	m := notify.Message{
 		Event: EventDiskLow, Time: s.Now(), Tag: "server-disk", URL: s.dashboardURL("/admin/disk"),
-		Title: fmt.Sprintf("The server disk is getting full: %.0f%% free", free*100),
+		Title: fmt.Sprintf("The server disk is filling up: %.1f%% free", free*100),
 		Tone:  notify.ToneFailure, Severity: notify.Normal,
 		Fields: []notify.Field{
 			{Name: "Free", Value: bytesText(int64(sp.Free)) + " of " + bytesText(int64(sp.Total)), Inline: true},
 			{Name: "Builds pause below", Value: fmt.Sprintf("%d%%", set.builds), Inline: true},
 		},
-		Hint: "Open the disk page to see what takes the space and free some.",
+		Hint: "Open the disk page to see what takes the space.",
 	}
 	if set.enabled {
 		m.Fields = append(m.Fields, notify.Field{Name: "Automatic cleanup below", Value: fmt.Sprintf("%d%%", set.percent), Inline: true})
@@ -1187,43 +1194,51 @@ func diskRunNews(result string, freed int64, alerted bool) (record, announce, al
 	return freed > 0, false, true
 }
 
+// staleCacheJob runs pruneStaleBuildCache and records it for the Jobs tab.
+func (s *Service) staleCacheJob(ctx context.Context) {
+	start := s.Now()
+	freed, skipped, err := s.pruneStaleBuildCache(ctx)
+	summary := skipped
+	switch {
+	case skipped != "":
+	case freed > 0:
+		summary = "freed " + bytesText(freed)
+	default:
+		summary = "nothing to delete"
+	}
+	s.jobRan("disk_stale_cache", start, err, summary)
+}
+
 // pruneStaleBuildCache deletes build cache that no build used in the
 // admin's number of days (7 unless changed; 0 turns it off): the layers of
 // an app that has not been built for that long. It returns what Docker and
-// buildx said they freed. Nothing in dev mode.
-func (s *Service) pruneStaleBuildCache(ctx context.Context) int64 {
+// buildx said they freed, or why it did nothing. Nothing in dev mode.
+func (s *Service) pruneStaleBuildCache(ctx context.Context) (freed int64, skipped string, err error) {
 	if s.Cfg.Dev || s.Docker == nil {
-		return 0
+		return 0, "off in dev mode", nil
 	}
-	st, err := s.serverSettings(ctx, s.Q)
-	if err != nil {
-		return 0
-	}
-	days := diskSettingsOf(st).cacheDays
+	days := s.diskSettingsNow(ctx).cacheDays
 	if days == 0 {
-		return 0
+		return 0, "off (0 days)", nil
 	}
 	if !s.disk.run.TryLock() {
-		return 0 // a cleanup runs; the next hour will do
+		return 0, "skipped: another cleanup was running", nil // the next hour will do
 	}
 	defer s.disk.run.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	unused := time.Duration(days) * 24 * time.Hour
-	freed, err := s.buildBuilder().PruneUnused(ctx, unused)
-	if err != nil {
+	freed, berr := s.buildBuilder().PruneUnused(ctx, unused)
+	n, derr := s.Docker.PruneBuildCacheUnused(ctx, unused)
+	freed += int64(n)
+	if err = errors.Join(berr, derr); err != nil {
 		s.Log.Warn("deleting old build cache failed", "err", err)
 	}
-	n, derr := s.Docker.PruneBuildCacheUnused(ctx, unused)
-	if derr != nil {
-		s.Log.Warn("deleting old Docker build cache failed", "err", derr)
-	}
-	freed += int64(n)
 	if freed > 0 {
 		s.forgetDiskReport()
 		s.Log.Info("deleted old build cache", "unused_days", days, "freed_bytes", freed)
 	}
-	return freed
+	return freed, "", err
 }
 
 // seedDiskWatch starts the watches from the last recorded run, so a restart
@@ -1271,10 +1286,10 @@ func (s *Service) busyAppIDs() map[string]bool {
 // diskStepNames are the cleanup kinds in a message.
 var diskStepNames = map[string]string{
 	diskuse.BuildCache:        "build cache",
-	diskuse.UnusedImages:      "unused bitploy images",
+	diskuse.UnusedImages:      "unused images",
 	diskuse.StoppedContainers: "leftover containers",
-	diskuse.RollbackImages:    "older app versions kept for rollback",
-	diskuse.OtherImages:       "unused images that are not bitploy's",
+	diskuse.RollbackImages:    "rollback versions",
+	diskuse.OtherImages:       "unused images not from bitploy",
 }
 
 // notifyDiskCleanup tells every admin who subscribed to server.disk_low
@@ -1304,7 +1319,7 @@ func (s *Service) notifyDiskCleanup(ctx context.Context, run DiskCleanupRun, set
 			m.Title = "The server disk is almost full: builds are paused"
 		}
 		m.Tone, m.Severity = notify.ToneFailure, notify.Emergency
-		m.Hint = fmt.Sprintf("Open the disk page to see what takes the space. bitploy keeps trying below %d%% free, without repeating this message until free space has come back.", set.percent)
+		m.Hint = fmt.Sprintf("Open the disk page to see what takes the space. bitploy keeps trying and sends no further message until free space is back above %d%%.", set.percent)
 		if run.Trigger == triggerBuildRefused {
 			m.Hint = fmt.Sprintf("Builds, uploads and backups start again above %d%% free. Open the disk page to see what takes the space.", set.builds)
 		}
