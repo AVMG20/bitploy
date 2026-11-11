@@ -518,7 +518,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 	if s.Docker != nil {
 		if _, err := s.Docker.InspectImage(ctx, target.Image.String); err != nil {
 			return Deployment{}, apperr.Conflict("rollback_unavailable",
-				"The image of that deployment was removed (bitploy keeps the last 3).",
+				"The image of that deployment was removed (bitploy keeps the last "+strconv.Itoa(s.rollbackVersions(ctx))+" versions of an app).",
 				"Pick a more recent deployment, or deploy the source again.").WithNext("list_deployments")
 		}
 		if isMulti(row) {
@@ -537,7 +537,7 @@ func (s *Service) Rollback(ctx context.Context, a Actor, ref, deploymentID strin
 				}
 				if _, err := s.Docker.InspectImage(ctx, sv.Image.String); err != nil {
 					return Deployment{}, apperr.Conflict("rollback_unavailable",
-						"The image of the "+sv.Service+" service of that deployment was removed (bitploy keeps the last 3).",
+						"The image of the "+sv.Service+" service of that deployment was removed (bitploy keeps the last "+strconv.Itoa(s.rollbackVersions(ctx))+" versions of an app).",
 						"Pick a more recent deployment.").WithNext("list_deployments")
 				}
 			}

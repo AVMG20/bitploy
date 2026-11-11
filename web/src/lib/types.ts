@@ -918,6 +918,18 @@ export interface ServerStats {
   version: string
   /** Below this much free disk (%), builds, uploads and backups are refused. */
   disk_min_free_percent: number
+  /** bitploy's own containers. bitploy itself is left out when it does not run in Docker. */
+  system: SystemContainer[]
+}
+
+/** One of bitploy's own containers on Admin > Server. */
+export interface SystemContainer {
+  name: 'bitploy' | 'proxy' | 'builder'
+  /** Docker's state (running, exited, ...); missing when there is no such container. */
+  state: string
+  /** % of one core, like an app's; 0 when not running. */
+  cpu_percent: number
+  memory_mb: number
 }
 
 /** Where the server's disk space goes (GET /admin/disk). */
@@ -939,6 +951,8 @@ export interface DiskReport {
   files: DiskGroup<DiskFilesKey>[]
   cleanups: DiskCleanupOption[]
   auto: DiskAutoCleanup
+  /** What every app takes, largest first. */
+  apps: DiskAppUsage[]
 }
 
 export type DiskSegmentKey =
@@ -965,6 +979,17 @@ export interface DiskGroup<K extends string = string> {
   key: K
   bytes: number
   count: number
+}
+
+/** What one app takes on disk (image bytes without layers shared with other images). */
+export interface DiskAppUsage {
+  app: DiskAppRef
+  image_bytes: number
+  rollback_bytes: number
+  rollback_count: number
+  volume_bytes: number
+  container_bytes: number
+  total_bytes: number
 }
 
 export interface DiskAppRef {
@@ -1017,15 +1042,32 @@ export interface DiskCleanupOption {
   volumes?: string[]
 }
 
+export type DiskAutoStep = Exclude<DiskCleanupKind, 'orphan_volumes'>
+
+/** PATCH /admin/disk/auto: only what changes. */
+export interface DiskAutoInput {
+  enabled?: boolean
+  min_free_percent?: number
+  builds_min_free_percent?: number
+  steps?: DiskAutoStep[]
+  build_cache_days?: number
+  warn_free_percent?: number
+  rollback_versions?: number
+}
+
 export interface DiskAutoCleanup {
   enabled: boolean
   min_free_percent: number
   /** Below this much free, builds, uploads and backups are refused. */
   builds_min_free_percent: number
-  /** The automatic cleanup may delete unused images that are not bitploy's. */
-  other_images: boolean
+  /** The steps the automatic cleanup may take, in its order. */
+  steps: DiskAutoStep[]
   /** Build cache no build used for this many days is deleted (hourly); 0: never. */
   build_cache_days: number
+  /** Admins are warned below this much free (%); 0: never. */
+  warn_free_percent: number
+  /** Versions every app keeps, the live one included. */
+  rollback_versions: number
   /** Dev mode: the automatic cleanup does not run. */
   dev: boolean
   /** Newest first, at most 5. */
@@ -1035,7 +1077,7 @@ export interface DiskAutoCleanup {
 export interface DiskCleanupRun {
   started_at: string
   finished_at: string
-  trigger: 'low_disk' | 'build_refused'
+  trigger: 'low_disk' | 'build_refused' | 'manual'
   result: 'recovered' | 'still_low' | 'failed'
   freed_bytes: number
   free_before_percent: number

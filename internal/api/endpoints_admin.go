@@ -161,6 +161,14 @@ func (a *API) adminRoutes() {
 		return okOrNil(a.svc.AdminDiskCleanup(ctx, act, in.Body))
 	})
 	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminRunDiskAuto", Method: http.MethodPost, Path: "/admin/disk/auto/run", Tags: []string{"Admin"},
+		Summary: "Run the automatic disk cleanup now",
+		Description: "Admin only. Runs every step the automatic cleanup may take, fully, whatever the free space; recorded with its runs " +
+			"(trigger manual), without a notification. 409 disk_cleanup_running; 503 docker_unavailable.",
+	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.DiskCleanupRun], error) {
+		return okOrNil(a.svc.AdminRunDiskCleanup(ctx, act))
+	})
+	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminUpdateDiskAuto", Method: http.MethodPatch, Path: "/admin/disk/auto", Tags: []string{"Admin"},
 		Summary: "Turn the automatic disk cleanup on or off, or change its threshold",
 		Description: "Admin only. Below min_free_percent free, bitploy deletes build cache, unused images, leftover containers, " +

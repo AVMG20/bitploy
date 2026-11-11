@@ -53,7 +53,7 @@ var notificationEvents = []NotificationEvent{
 	{Type: EventAppCrashed, Group: "app", Label: "App stopped working", Emergency: true, Default: true,
 		Description: "The app crashed 5 times within 5 minutes, so bitploy stopped it, or its health check started failing."},
 	{Type: EventDiskLow, Group: "server", Label: "Server disk almost full", Emergency: true, Default: true, AdminOnly: true,
-		Description: "Free disk space dropped below the threshold and bitploy deleted build cache and unused images."},
+		Description: "Free disk space dropped below the warning level, or the automatic cleanup had to delete things to make room."},
 }
 
 // notificationEventsFor are the events a user can subscribe to: the

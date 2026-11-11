@@ -765,6 +765,17 @@ type ServerStats struct {
 	// DiskMinFreePercent is the free disk below which builds, uploads and
 	// backups are refused.
 	DiskMinFreePercent float64 `json:"disk_min_free_percent"`
+	// System is what bitploy's own containers use: bitploy itself (left out
+	// when it does not run in Docker), the proxy and the builder.
+	System []SystemContainer `json:"system"`
+}
+
+// SystemContainer is one of bitploy's own containers on Admin > Server.
+type SystemContainer struct {
+	Name       string  `json:"name"`        // bitploy | proxy | builder
+	State      string  `json:"state"`       // Docker's state (running, exited, ...); missing when there is no such container
+	CPUPercent float64 `json:"cpu_percent"` // % of one core, like an app's; 0 when not running
+	MemoryMB   float64 `json:"memory_mb"`   // without reclaimable cache; 0 when not running
 }
 
 // ServerMetricPoint is one point of the server's CPU and memory history.

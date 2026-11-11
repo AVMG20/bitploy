@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +94,66 @@ func (c *Client) StreamStats(ctx context.Context, id string, fn func(Stats) erro
 			return err
 		}
 	}
+}
+
+// StatsSnapshot reads one stats message without a stream. The daemon takes
+// two samples a second apart, so prev and cur give CPU use over that second.
+// It takes about a second; pass a ctx with a timeout.
+func (c *Client) StatsSnapshot(ctx context.Context, id string) (prev, cur Stats, err error) {
+	res, err := c.API.ContainerStats(ctx, id, client.ContainerStatsOptions{IncludePreviousSample: true})
+	if err != nil {
+		return Stats{}, Stats{}, err
+	}
+	defer res.Body.Close()
+	var r container.StatsResponse
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+		return Stats{}, Stats{}, err
+	}
+	cur = StatsFromResponse(&r)
+	prev = cur
+	prev.Read = r.PreRead
+	prev.CPUTotal, prev.SystemCPU = r.PreCPUStats.CPUUsage.TotalUsage, r.PreCPUStats.SystemUsage
+	return prev, cur, nil
+}
+
+// SelfContainerID is the ID of the container this process runs in, read from
+// /proc/self/mountinfo (Docker bind-mounts /etc/hostname and friends from
+// /var/lib/docker/containers/<id>/). "" outside a container or off Linux.
+func SelfContainerID() string {
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return ""
+	}
+	return containerIDFromMountinfo(string(b))
+}
+
+// containerIDFromMountinfo finds the 64-hex container ID in a path like
+// .../containers/<id>/hostname in mountinfo text.
+func containerIDFromMountinfo(s string) string {
+	const marker = "/containers/"
+	for _, line := range strings.Split(s, "\n") {
+		for i := strings.Index(line, marker); i >= 0; {
+			rest := line[i+len(marker):]
+			if len(rest) > 64 && rest[64] == '/' && isHex(rest[:64]) {
+				return rest[:64]
+			}
+			j := strings.Index(rest, marker)
+			if j < 0 {
+				break
+			}
+			i += len(marker) + j
+		}
+	}
+	return ""
+}
+
+func isHex(s string) bool {
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // Managed is a container carrying the bitploy labels.

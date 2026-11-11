@@ -23,8 +23,10 @@ import { toastError, toastOk } from '@/lib/notify'
 import type { DiskCleanupKind, DiskCleanupOption } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import AdminTabBar from './AdminTabBar.vue'
+import DiskApps from './disk/DiskApps.vue'
 import DiskAutoCleanup from './disk/DiskAutoCleanup.vue'
 import DiskDetails from './disk/DiskDetails.vue'
+import DiskSettings from './disk/DiskSettings.vue'
 import DiskUsage from './disk/DiskUsage.vue'
 
 let refreshNext = false
@@ -149,6 +151,7 @@ const pausedNow = computed(() => !!r.value && r.value.filesystem.total_bytes > 0
             :segments="r.segments"
             :auto-percent="r.auto.enabled && !r.auto.dev ? r.auto.min_free_percent : null"
             :paused-percent="r.builds_paused_percent"
+            :warn-percent="r.auto.warn_free_percent > 0 ? r.auto.warn_free_percent : null"
             :freed="freed"
           />
         </CardContent>
@@ -200,7 +203,12 @@ const pausedNow = computed(() => !!r.value && r.value.filesystem.total_bytes > 0
         </div>
       </section>
 
-      <DiskAutoCleanup :auto="r.auto" />
+      <DiskApps v-if="r.docker_available" :apps="r.apps" />
+
+      <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <DiskAutoCleanup :auto="r.auto" :cleanups="r.cleanups" :free-percent="freePercent" />
+        <DiskSettings :auto="r.auto" />
+      </div>
 
       <DiskDetails v-if="r.docker_available || r.files.length" :report="r" />
     </template>

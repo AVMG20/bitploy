@@ -168,7 +168,8 @@ func (q *Queries) ListDiskCleanups(ctx context.Context, limit int64) ([]DiskClea
 const updateDiskCleanupSettings = `-- name: UpdateDiskCleanupSettings :exec
 
 UPDATE server_settings SET disk_auto_cleanup = ?, disk_cleanup_min_free_percent = ?,
-    disk_builds_min_free_percent = ?, disk_auto_other_images = ?, disk_build_cache_days = ?, updated_at = ?
+    disk_builds_min_free_percent = ?, disk_auto_steps = ?, disk_build_cache_days = ?,
+    disk_warn_free_percent = ?, rollback_versions = ?, updated_at = ?
 WHERE id = 1
 `
 
@@ -176,8 +177,10 @@ type UpdateDiskCleanupSettingsParams struct {
 	DiskAutoCleanup           int64
 	DiskCleanupMinFreePercent int64
 	DiskBuildsMinFreePercent  int64
-	DiskAutoOtherImages       int64
+	DiskAutoSteps             string
 	DiskBuildCacheDays        int64
+	DiskWarnFreePercent       int64
+	RollbackVersions          int64
 	UpdatedAt                 int64
 }
 
@@ -187,8 +190,10 @@ func (q *Queries) UpdateDiskCleanupSettings(ctx context.Context, arg UpdateDiskC
 		arg.DiskAutoCleanup,
 		arg.DiskCleanupMinFreePercent,
 		arg.DiskBuildsMinFreePercent,
-		arg.DiskAutoOtherImages,
+		arg.DiskAutoSteps,
 		arg.DiskBuildCacheDays,
+		arg.DiskWarnFreePercent,
+		arg.RollbackVersions,
 		arg.UpdatedAt,
 	)
 	return err

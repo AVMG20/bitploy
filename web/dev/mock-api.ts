@@ -1640,6 +1640,11 @@ function serverStats(): ServerStats {
     apps_max: 60,
     version: 'v0.9.0-12-g590f8a6',
     disk_min_free_percent: 15,
+    system: [
+      { name: 'bitploy', state: 'running', cpu_percent: 1.8, memory_mb: 182.4 },
+      { name: 'proxy', state: 'running', cpu_percent: 0.4, memory_mb: 41.2 },
+      { name: 'builder', state: 'exited', cpu_percent: 0, memory_mb: 0 },
+    ],
   }
 }
 

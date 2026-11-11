@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -20,7 +21,8 @@ func TestDiskSettingsAndBuildsThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !auto.Enabled || auto.MinFreePercent != 10 || auto.BuildsMinFreePercent != 15 || !auto.OtherImages || auto.BuildCacheDays != 7 {
+	if !auto.Enabled || auto.MinFreePercent != 10 || auto.BuildsMinFreePercent != 15 || len(auto.Steps) != 5 ||
+		auto.BuildCacheDays != 7 || auto.WarnFreePercent != 20 || auto.RollbackVersions != 3 {
 		t.Fatalf("defaults: %+v", auto)
 	}
 
@@ -30,15 +32,20 @@ func TestDiskSettingsAndBuildsThreshold(t *testing.T) {
 		t.Fatal("10% free passed the 15% rule")
 	}
 
-	five, two, no, three := 5, 2, false, 3
+	five, two, three := 5, 2, 3
+	steps := []string{diskuse.RollbackImages, diskuse.BuildCache} // any order; stored in the cleanup's order
 	auto, err = e.s.AdminUpdateDiskCleanup(ctx, admin, UpdateDiskCleanupInput{
-		BuildsMinFreePercent: &five, MinFreePercent: &two, OtherImages: &no, BuildCacheDays: &three,
+		BuildsMinFreePercent: &five, MinFreePercent: &two, Steps: &steps, BuildCacheDays: &three, RollbackVersions: new(5),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auto.BuildsMinFreePercent != 5 || auto.MinFreePercent != 2 || auto.OtherImages || auto.BuildCacheDays != 3 {
+	if auto.BuildsMinFreePercent != 5 || auto.MinFreePercent != 2 || auto.BuildCacheDays != 3 || auto.RollbackVersions != 5 ||
+		strings.Join(auto.Steps, ",") != "build_cache,rollback_images" {
 		t.Fatalf("after update: %+v", auto)
+	}
+	if e.s.rollbackVersions(ctx) != 5 {
+		t.Fatal("rollback versions not used")
 	}
 	if ok, _ := e.s.DiskHasRoom(); !ok {
 		t.Fatal("10% free refused under a 5% rule")
@@ -53,6 +60,11 @@ func TestDiskSettingsAndBuildsThreshold(t *testing.T) {
 		"cleanup 1":      {MinFreePercent: new(1)},
 		"cache days 91":  {BuildCacheDays: new(91)},
 		"cache days -1":  {BuildCacheDays: new(-1)},
+		"versions 0":     {RollbackVersions: new(0)},
+		"versions 11":    {RollbackVersions: new(11)},
+		"warn <= clean":  {WarnFreePercent: new(2)},
+		"no steps":       {Steps: &[]string{}},
+		"unknown step":   {Steps: &[]string{"volumes"}},
 		"nothing at all": {},
 	} {
 		if _, err := e.s.AdminUpdateDiskCleanup(ctx, admin, in); apperr.As(err) == nil || apperr.As(err).HTTPStatus != 400 {
@@ -64,15 +76,14 @@ func TestDiskSettingsAndBuildsThreshold(t *testing.T) {
 	}
 }
 
-func TestDiskAutoStepsFollowOtherImages(t *testing.T) {
-	for _, on := range []bool{true, false} {
-		has := false
-		for _, k := range (diskSettings{otherImages: on}).autoSteps() {
-			has = has || k == diskuse.OtherImages
-		}
-		if has != on {
-			t.Errorf("other_images %v: steps include other images = %v", on, has)
-		}
+// A refused build only takes the safe steps the admin allows.
+func TestDiskSafeStepsFollowChosenSteps(t *testing.T) {
+	d := diskSettings{steps: map[string]bool{diskuse.UnusedImages: true, diskuse.RollbackImages: true}}
+	if got := strings.Join(d.safeSteps(), ","); got != diskuse.UnusedImages {
+		t.Fatalf("safe steps %q", got)
+	}
+	if got := strings.Join(d.autoSteps(), ","); got != "unused_images,rollback_images" {
+		t.Fatalf("auto steps %q", got)
 	}
 }
 

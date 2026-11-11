@@ -2,7 +2,8 @@
 
 -- name: UpdateDiskCleanupSettings :exec
 UPDATE server_settings SET disk_auto_cleanup = ?, disk_cleanup_min_free_percent = ?,
-    disk_builds_min_free_percent = ?, disk_auto_other_images = ?, disk_build_cache_days = ?, updated_at = ?
+    disk_builds_min_free_percent = ?, disk_auto_steps = ?, disk_build_cache_days = ?,
+    disk_warn_free_percent = ?, rollback_versions = ?, updated_at = ?
 WHERE id = 1;
 
 -- name: InsertDiskCleanup :exec

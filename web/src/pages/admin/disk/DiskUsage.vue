@@ -16,6 +16,8 @@ const props = defineProps<{
   /** Below this much free (%) the automatic cleanup runs; null when it is off. */
   autoPercent: number | null
   pausedPercent: number
+  /** Below this much free (%) admins get a warning; null when it is off. */
+  warnPercent: number | null
   /** Just freed by a cleanup: shown next to the free space for a moment. */
   freed: number
 }>()
@@ -25,7 +27,7 @@ const freePct = computed(() => share(free.value, props.totalBytes))
 const tone = computed(() => {
   const p = share(props.freeBytes, props.totalBytes)
   if (p < props.pausedPercent) return 'text-destructive'
-  if (p < 20) return 'text-warning-text'
+  if (p < (props.warnPercent ?? 20)) return 'text-warning-text'
   return 'text-foreground'
 })
 
@@ -42,8 +44,10 @@ const active = ref<DiskSegmentKey | 'free' | null>(null)
 const dim = (key: DiskSegmentKey | 'free') => active.value !== null && active.value !== key
 
 const markers = computed(() => {
-  const out: { at: number; label: string }[] = [{ at: 100 - props.pausedPercent, label: `Builds pause below ${props.pausedPercent}% free` }]
-  if (props.autoPercent !== null) out.push({ at: 100 - props.autoPercent, label: `Automatic cleanup below ${props.autoPercent}% free` })
+  const out: { at: number; label: string }[] = []
+  if (props.warnPercent !== null) out.push({ at: 100 - props.warnPercent, label: `Warning below ${props.warnPercent}%` })
+  out.push({ at: 100 - props.pausedPercent, label: `Builds pause below ${props.pausedPercent}%` })
+  if (props.autoPercent !== null) out.push({ at: 100 - props.autoPercent, label: `Cleanup below ${props.autoPercent}%` })
   return out
 })
 </script>

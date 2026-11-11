@@ -1,6 +1,7 @@
 package app
 
-// OWNER: deploy agent. Retention: images (last 3 per app), build logs (last
+// OWNER: deploy agent. Retention: images (last 3 versions per app unless
+// the admin changed it on the disk page), build logs (last
 // 20 deployments per app), source snapshots, old uploads.
 
 import (
@@ -14,8 +15,7 @@ import (
 )
 
 const (
-	keepImages = 3
-	keepLogs   = 20
+	keepLogs = 20
 )
 
 // pruneApp applies the retention rules to one app. Safe to call at any time.
@@ -33,10 +33,12 @@ func (s *Service) pruneApp(ctx context.Context, appID string) {
 		}
 	}
 
-	// Images: per service, the newest 3 that ran, the current one and anything
+	// Images: per service, the newest versions that ran (the admin's number,
+	// 3 unless changed), the current one and anything
 	// in flight stay. Worked out from the deployment rows, so the source rule
 	// below holds without Docker too.
 	imgs := s.deploymentImages(ctx, app, appErr == nil, deps)
+	keepImages := s.rollbackVersions(ctx)
 	keep := map[string]bool{}
 	ran := map[string]int{}
 	rollbackable := map[string]bool{} // deployments whose image is kept as a rollback target

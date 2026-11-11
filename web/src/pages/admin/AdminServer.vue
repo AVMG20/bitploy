@@ -13,8 +13,8 @@ import AdminPublicPorts from './AdminPublicPorts.vue'
 import { keys, REFRESH_MS, useServerMetrics } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { api } from '@/lib/api'
-import { formatGB, formatMB, formatPercent, pct } from '@/lib/format'
-import type { MetricWindow } from '@/lib/types'
+import { cpuFromPercent, formatCPU, formatGB, formatMB, formatPercent, pct } from '@/lib/format'
+import type { MetricWindow, SystemContainer } from '@/lib/types'
 
 const server = useQuery({ queryKey: keys.adminServer, queryFn: api.adminServer, refetchInterval: REFRESH_MS })
 const s = computed(() => server.data.value)
@@ -35,6 +35,22 @@ const diskFreeGB = computed(() => (s.value ? Math.max(0, s.value.disk_total_gb -
 const diskFreePercent = computed(() => (s.value && s.value.disk_total_gb > 0 ? (diskFreeGB.value / s.value.disk_total_gb) * 100 : 100))
 const diskLow = computed(() => diskFreePercent.value < DISK_WARN_PERCENT)
 const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.disk_min_free_percent)
+
+// bitploy's own containers. The builder only runs during builds, so a stopped one is idle.
+const system = computed(() => s.value?.system ?? [])
+const systemMemMB = computed(() => system.value.reduce((sum, c) => sum + c.memory_mb, 0))
+const systemCPU = computed(() => system.value.reduce((sum, c) => sum + c.cpu_percent, 0))
+function systemReading(c: SystemContainer): string {
+  if (c.state === 'running') return formatMB(c.memory_mb)
+  if (c.name === 'builder') return 'idle'
+  return c.state === 'missing' || c.state === 'unknown' ? c.state : 'stopped'
+}
+const systemSub = computed(() =>
+  system.value.length
+    ? [formatCPU(cpuFromPercent(systemCPU.value)), ...system.value.map((c) => `${c.name} ${systemReading(c)}`)].join(' · ')
+    : 'Docker is not reachable',
+)
+const proxyDown = computed(() => system.value.some((c) => c.name === 'proxy' && c.state !== 'running' && c.state !== 'unknown'))
 </script>
 
 <template>
@@ -76,11 +92,13 @@ const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.dis
         :progress="s ? pct(s.disk_used_gb, s.disk_total_gb) : undefined"
       />
       <StatCard
-        title="Docker disk use"
-        :to="{ name: 'admin-disk' }"
+        title="bitploy itself"
+        hint="Memory and CPU of bitploy's own containers: bitploy, the proxy (Traefik) and the builder (BuildKit)"
         :loading="!s"
-        :value="s ? formatGB(s.docker_images_gb + s.docker_build_cache_gb + s.docker_volumes_gb) : ''"
-        :sub="s ? `Images ${formatGB(s.docker_images_gb)}, build cache ${formatGB(s.docker_build_cache_gb)}, saved files (/data) ${formatGB(s.docker_volumes_gb)}` : ''"
+        :value="s ? (system.length ? formatMB(systemMemMB) : '-') : ''"
+        :suffix="system.length ? 'memory' : undefined"
+        :sub="s ? systemSub : ''"
+        :alert="proxyDown ? 'The proxy is not running, so no app can be reached.' : undefined"
       />
       <StatCard title="Builds" :loading="!s" :value="s ? `${s.builds_running} running` : ''" :sub="s ? `${s.builds_queued} waiting in line` : ''" />
       <StatCard

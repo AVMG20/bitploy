@@ -156,7 +156,8 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 	return u, nil
 }
 
-// AdminServerStats: host CPU, RAM, disk, Docker disk use, build queue.
+// AdminServerStats: host CPU, RAM, disk, Docker disk use, build queue and
+// what bitploy's own containers use.
 func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, error) {
 	if err := RequireAdmin(a); err != nil {
 		return ServerStats{}, err
@@ -199,6 +200,7 @@ func (s *Service) AdminServerStats(ctx context.Context, a Actor) (ServerStats, e
 	}
 	st.AppsTotal, st.AppsRunning = counts.Total, counts.Running
 	st.AppsMax = int64(s.Cfg.MaxApps)
+	st.System = s.systemContainers(ctx)
 	return st, nil
 }
 

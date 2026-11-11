@@ -34,7 +34,7 @@ const RuntimeContract = `## Runtime contract
 - A web app is healthy when its port is open and GET health_path (default /) answers with a status below 500 within 60 seconds. A Dockerfile HEALTHCHECK replaces this check.
 - A failed deploy never takes a working app down: the old version keeps serving until the new one is healthy.
 - With a volume attached, a deploy stops the old container before starting the new one (a few seconds of downtime).
-- The last 3 images are kept per app so rollback works.
+- The last versions of every app (3 unless the admin changed it) are kept so rollback works.
 
 ## Databases
 
@@ -94,7 +94,7 @@ const RuntimeContract = `## Runtime contract
 - update_app volume=true, memory_mb, cpu_millis: apply on restart_app. volume=false applies at once. port, dockerfile_path, context_dir, type: apply on the next deploy. health_path: next deploy. slug (rename): applies at once, the URL changes, the app is down for a few seconds, files in /data are kept. volume_mb (storage limit): applies at once.
 - Code or Dockerfile changes: a push (linked repository), or a new deploy_files or deploy. Only the Dockerfile changed in an app deployed from files: get_dockerfile reads it (also without a checkout), set_dockerfile saves the new one and deploys; every other file stays.
 - cancel_deployment(id or app) stops a queued or in-progress deployment: the build ends, the new container goes and the live version keeps running. If a build is clearly wrong or stuck, call cancel_deployment instead of waiting for it, then fix the cause and deploy again. It is refused once the deployment is swapping (too_late_to_cancel) or finished (deployment_finished). A cancelled deployment is not a failure and does not count towards "3 failures".
-- rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last 3 images exist). Roll back only when the user asks. Only the code goes back: variables, settings, /data and database contents stay as they are, and the deploy commands do not run (a migration stays applied).
+- rollback(app, deployment_id) runs an older image again; pick a deployment from list_deployments with state running or superseded (only the last few images exist; list_deployments marks the others image_removed). Roll back only when the user asks. Only the code goes back: variables, settings, /data and database contents stay as they are, and the deploy commands do not run (a migration stays applied).
 
 ## Fixing failures (read error.code, error.hint and log_tail of get_deployment)
 

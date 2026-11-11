@@ -32,6 +32,20 @@ type DiskReport struct {
 	Files    []DiskGroup         `json:"files"`
 	Cleanups []DiskCleanupOption `json:"cleanups"`
 	Auto     DiskAutoCleanup     `json:"auto"`
+	// Apps is what every app takes, largest first.
+	Apps []DiskAppUsage `json:"apps"`
+}
+
+// DiskAppUsage is the disk space one app takes. Image bytes are the bytes
+// only its images hold: layers shared with other images are not counted.
+type DiskAppUsage struct {
+	App            DiskAppRef `json:"app"`
+	ImageBytes     int64      `json:"image_bytes" doc:"The live version's images"`
+	RollbackBytes  int64      `json:"rollback_bytes" doc:"Older versions kept for a rollback"`
+	RollbackCount  int        `json:"rollback_count"`
+	VolumeBytes    int64      `json:"volume_bytes" doc:"/data and its services' volumes"`
+	ContainerBytes int64      `json:"container_bytes" doc:"Files its containers wrote outside volumes"`
+	TotalBytes     int64      `json:"total_bytes"`
 }
 
 type DiskFilesystem struct {
@@ -110,8 +124,10 @@ type DiskAutoCleanup struct {
 	// BuildsMinFreePercent: below this much free, builds, uploads and
 	// backups are refused, and the steps that only cost a slower next build run.
 	BuildsMinFreePercent int              `json:"builds_min_free_percent"`
-	OtherImages          bool             `json:"other_images" doc:"The automatic cleanup may delete unused images that are not bitploy's (its last step)"`
+	Steps                []string         `json:"steps" doc:"The steps the automatic cleanup may take, in its order: build_cache, unused_images, stopped_containers, rollback_images, other_images"`
 	BuildCacheDays       int              `json:"build_cache_days" doc:"Build cache no build used for this many days is deleted (checked every hour); 0: never"`
+	WarnFreePercent      int              `json:"warn_free_percent" doc:"Admins get a warning once free space drops below this; 0: no warning"`
+	RollbackVersions     int              `json:"rollback_versions" doc:"Versions every app keeps, the live one included (the others can be rolled back to)"`
 	Dev                  bool             `json:"dev" doc:"Dev mode: the automatic cleanup does not run"`
 	Runs                 []DiskCleanupRun `json:"runs" doc:"Newest first, at most 5"`
 }
@@ -119,7 +135,7 @@ type DiskAutoCleanup struct {
 type DiskCleanupRun struct {
 	StartedAt         time.Time            `json:"started_at"`
 	FinishedAt        time.Time            `json:"finished_at"`
-	Trigger           string               `json:"trigger" enum:"low_disk,build_refused"`
+	Trigger           string               `json:"trigger" enum:"low_disk,build_refused,manual"`
 	Result            string               `json:"result" enum:"recovered,still_low,failed"`
 	FreedBytes        int64                `json:"freed_bytes"`
 	FreeBeforePercent float64              `json:"free_before_percent"`
@@ -131,10 +147,15 @@ type UpdateDiskCleanupInput struct {
 	Enabled        *bool `json:"enabled,omitempty"`
 	MinFreePercent *int  `json:"min_free_percent,omitempty" minimum:"2" maximum:"50"`
 	// BuildsMinFreePercent: builds, uploads and backups are refused below it.
-	BuildsMinFreePercent *int  `json:"builds_min_free_percent,omitempty" minimum:"1" maximum:"50"`
-	OtherImages          *bool `json:"other_images,omitempty"`
+	BuildsMinFreePercent *int `json:"builds_min_free_percent,omitempty" minimum:"1" maximum:"50"`
+	// Steps the automatic cleanup may take; at least one.
+	Steps *[]string `json:"steps,omitempty"`
 	// BuildCacheDays: build cache unused for this many days is deleted; 0 never.
 	BuildCacheDays *int `json:"build_cache_days,omitempty" minimum:"0" maximum:"90"`
+	// WarnFreePercent: warn admins below this much free; 0 never. Above min_free_percent.
+	WarnFreePercent *int `json:"warn_free_percent,omitempty" minimum:"0" maximum:"80"`
+	// RollbackVersions: versions every app keeps, the live one included.
+	RollbackVersions *int `json:"rollback_versions,omitempty" minimum:"1" maximum:"10"`
 }
 
 type DiskCleanupInput struct {
