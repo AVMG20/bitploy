@@ -918,6 +918,131 @@ export interface ServerStats {
   disk_min_free_percent: number
 }
 
+/** Where the server's disk space goes (GET /admin/disk). */
+export interface DiskReport {
+  measured_at: string
+  filesystem: { total_bytes: number; used_bytes: number; free_bytes: number }
+  /** Below this much free (%), builds, uploads and backups are refused. */
+  builds_paused_percent: number
+  docker_available: boolean
+  docker_error?: string
+  /** The used space in a fixed order; empty ones are left out. */
+  segments: DiskSegment[]
+  image_groups: DiskGroup<DiskImageCategory>[]
+  /** The largest 100 of each. */
+  images: DiskImageItem[]
+  containers: DiskContainerItem[]
+  volumes: DiskVolumeItem[]
+  build_cache: { builder_bytes: number; docker_bytes: number }
+  files: DiskGroup<DiskFilesKey>[]
+  cleanups: DiskCleanupOption[]
+  auto: DiskAutoCleanup
+}
+
+export type DiskSegmentKey =
+  | 'images_in_use'
+  | 'images_rollback'
+  | 'images_unused'
+  | 'images_other'
+  | 'build_cache'
+  | 'containers'
+  | 'volumes_app'
+  | 'volumes_other'
+  | 'bitploy_files'
+  | 'other'
+
+export interface DiskSegment {
+  key: DiskSegmentKey
+  bytes: number
+}
+
+export type DiskImageCategory = 'in_use' | 'rollback' | 'unused' | 'other'
+export type DiskFilesKey = 'database' | 'database_backups' | 'app_backups' | 'sources' | 'uploads' | 'builds' | 'proxy' | 'other'
+
+export interface DiskGroup<K extends string = string> {
+  key: K
+  bytes: number
+  count: number
+}
+
+export interface DiskAppRef {
+  id: string
+  slug: string
+  name: string
+  project_id?: string
+}
+
+export interface DiskImageItem {
+  id: string
+  tags: string[]
+  app?: DiskAppRef
+  category: DiskImageCategory
+  /** With layers shared with other images. */
+  size_bytes: number
+  /** What removing it frees. */
+  unique_bytes: number
+  in_use: boolean
+  removable: boolean
+  created_at: string
+}
+
+export interface DiskContainerItem {
+  name: string
+  state: string
+  category: 'running' | 'stopped' | 'leftover' | 'other'
+  app?: DiskAppRef
+  bytes: number
+  removable: boolean
+}
+
+export interface DiskVolumeItem {
+  name: string
+  category: 'app' | 'builder' | 'orphan' | 'other'
+  app?: DiskAppRef
+  /** -1 when Docker did not measure it. */
+  bytes: number
+  in_use: boolean
+  removable: boolean
+}
+
+export type DiskCleanupKind = 'build_cache' | 'unused_images' | 'stopped_containers' | 'rollback_images' | 'other_images' | 'orphan_volumes'
+
+export interface DiskCleanupOption {
+  kind: DiskCleanupKind
+  bytes: number
+  count: number
+  /** orphan_volumes: the volumes it deletes. */
+  volumes?: string[]
+}
+
+export interface DiskAutoCleanup {
+  enabled: boolean
+  min_free_percent: number
+  /** Dev mode: the automatic cleanup does not run. */
+  dev: boolean
+  /** Newest first, at most 5. */
+  runs: DiskCleanupRun[]
+}
+
+export interface DiskCleanupRun {
+  started_at: string
+  finished_at: string
+  trigger: 'low_disk' | 'build_refused'
+  result: 'recovered' | 'still_low' | 'failed'
+  freed_bytes: number
+  free_before_percent: number
+  free_after_percent: number
+  steps: { kind: DiskCleanupKind; freed_bytes: number; removed: number; error?: string }[]
+}
+
+export interface DiskCleanupResult {
+  kind: DiskCleanupKind
+  freed_bytes: number
+  removed: number
+  /** Part of the cleanup failed. */
+  error?: string
+}
+
 /** One point of the server's CPU and memory history (GET /admin/server/metrics). */
 export interface ServerMetricPoint {
   ts: string
@@ -1297,7 +1422,7 @@ export interface ComposeCheck {
 
 // ---- notifications (Settings, Notifications) ----
 
-export type NotificationEventGroup = 'deployments' | 'backups' | 'app'
+export type NotificationEventGroup = 'deployments' | 'backups' | 'app' | 'server'
 
 export interface NotificationEvent {
   type: string

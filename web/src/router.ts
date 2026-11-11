@@ -137,6 +137,12 @@ export const router = createRouter({
           component: () => import('./pages/admin/AdminDatabasePage.vue'),
           meta: { title: 'Database', admin: true },
         },
+        {
+          path: 'admin/disk',
+          name: 'admin-disk',
+          component: () => import('./pages/admin/AdminDiskPage.vue'),
+          meta: { title: 'Disk', admin: true },
+        },
       ],
     },
     { path: '/:rest(.*)*', name: 'not-found', component: () => import('./pages/NotFoundPage.vue'), meta: { public: true, title: 'Not found' } },

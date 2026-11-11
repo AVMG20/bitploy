@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// The Admin tab bar. The Database tab opens a wide page of its own
-// (/admin/database), which shows this same bar so the admin keeps their place.
+// The Admin tab bar. The Database tab opens a page of its own
+// (/admin/database), and the Server tab's disk card opens /admin/disk; both
+// show this same bar so the admin keeps their place.
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { AdminTab } from './adminTabs'
 
-const props = defineProps<{ tab: AdminTab }>()
+// page: this bar sits on a page of its own (not AdminPage), under tab.
+const props = defineProps<{ tab: AdminTab; page?: boolean }>()
 const router = useRouter()
 
 const tabs: { value: AdminTab; label: string }[] = [
@@ -23,8 +25,13 @@ const tabs: { value: AdminTab; label: string }[] = [
 
 function onTab(v: string | number) {
   if (v === 'database') void router.push({ name: 'admin-database' })
-  else if (props.tab === 'database') void router.push({ name: 'admin', query: { tab: v === 'users' ? undefined : String(v) } })
+  else if (props.tab === 'database' || props.page) void router.push({ name: 'admin', query: { tab: v === 'users' ? undefined : String(v) } })
   else void router.replace({ name: 'admin', query: { tab: v === 'users' ? undefined : String(v) } })
+}
+
+// The open tab's own page: its trigger leads back to the tab.
+function onTrigger(v: AdminTab) {
+  if (props.page && v === props.tab && v !== 'database') void router.push({ name: 'admin', query: { tab: v === 'users' ? undefined : v } })
 }
 
 // On a phone the bar scrolls sideways: keep the open tab in view.
@@ -43,7 +50,7 @@ watch(() => props.tab, showActive)
   <Tabs :model-value="tab" class="min-w-0 gap-0" @update:model-value="onTab">
     <div ref="bar" class="overflow-x-auto overflow-y-hidden border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <TabsList variant="line" class="-ml-1.5">
-        <TabsTrigger v-for="t in tabs" :key="t.value" :value="t.value">{{ t.label }}</TabsTrigger>
+        <TabsTrigger v-for="t in tabs" :key="t.value" :value="t.value" @click="onTrigger(t.value)">{{ t.label }}</TabsTrigger>
       </TabsList>
     </div>
     <slot />

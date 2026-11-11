@@ -76,6 +76,9 @@ const LABELS: Record<string, string> = {
   'admin.project_invite_revoke': 'Revoked someone’s project invite',
   'user.signup': 'Made an account',
   'admin.db.query': 'Ran a query on the bitploy database',
+  'admin.disk_cleanup': 'Cleaned up disk space',
+  'admin.disk_cleanup_settings': 'Changed the automatic disk cleanup',
+  'server.disk_cleanup': 'bitploy cleaned up disk space',
   'github_app.create': 'Set up the GitHub app',
   'github_app.disconnect': 'Disconnected the GitHub app',
   'github.installation_link': 'Connected a GitHub account',
@@ -91,7 +94,7 @@ export function auditLabel(action: string): string {
 
 export function auditGroup(action: string): AuditGroup {
   const [head] = action.split('.')
-  if (action.startsWith('admin.') || head === 'invite' || head === 'user') return 'admin'
+  if (action.startsWith('admin.') || head === 'invite' || head === 'user' || head === 'server') return 'admin'
   if (head === 'deployment' || head === 'upload' || head === 'catalog' || head === 'dockerfile' || action === 'github.push_not_deployed') return 'deploys'
   if (head === 'backup' || head === 'files' || head === 'db') return 'data'
   if (head === 'domain') return 'domains'

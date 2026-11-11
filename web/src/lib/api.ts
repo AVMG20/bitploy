@@ -62,6 +62,10 @@ import type {
   PublicConnection,
   PublicPortInput,
   PublicPortsOverview,
+  DiskAutoCleanup,
+  DiskCleanupKind,
+  DiskCleanupResult,
+  DiskReport,
   ServerMetrics,
   ServerStats,
   ServiceTemplate,
@@ -179,6 +183,9 @@ export const paths = {
   adminSettings: `${V1}/admin/settings`,
   adminServer: `${V1}/admin/server`,
   adminServerMetrics: `${V1}/admin/server/metrics`,
+  adminDisk: `${V1}/admin/disk`,
+  adminDiskCleanup: `${V1}/admin/disk/cleanup`,
+  adminDiskAuto: `${V1}/admin/disk/auto`,
   adminApps: `${V1}/admin/apps`,
   adminPublicPorts: `${V1}/admin/public-ports`,
   adminPublicPort: (slug: string) => `${V1}/admin/public-ports/${enc(slug)}`,
@@ -679,6 +686,10 @@ export const api = {
     request<ServerSettings>('PATCH', paths.adminSettings, { body: input }),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
   adminServerMetrics: (window: MetricWindow) => request<ServerMetrics>('GET', paths.adminServerMetrics, { query: { window } }),
+  /** Measured at most every two minutes unless refresh is set; measuring takes a while on a big server. */
+  adminDisk: (refresh = false) => request<DiskReport>('GET', paths.adminDisk, { query: { refresh: refresh || undefined } }),
+  adminDiskCleanup: (input: { kind: DiskCleanupKind; volumes?: string[] }) => request<DiskCleanupResult>('POST', paths.adminDiskCleanup, { body: input }),
+  updateAdminDiskAuto: (input: { enabled?: boolean; min_free_percent?: number }) => request<DiskAutoCleanup>('PATCH', paths.adminDiskAuto, { body: input }),
   async adminApps(): Promise<App[]> {
     return listAll<App>(paths.adminApps)
   },

@@ -52,7 +52,10 @@ const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.dis
             Below {{ s.disk_min_free_percent }}% free, bitploy stops accepting new builds, uploads and backups, and skips automatic backups.
           </template>
         </p>
-        <p>Make room: delete apps or old backups nobody needs, lower storage limits, or give the server a bigger disk.</p>
+        <p>
+          Make room: <RouterLink :to="{ name: 'admin-disk' }" class="font-medium underline underline-offset-4">clean up Docker on the disk page</RouterLink>, delete apps or old
+          backups nobody needs, lower storage limits, or give the server a bigger disk.
+        </p>
       </AlertDescription>
     </Alert>
     <div v-if="!server.isError.value" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -66,6 +69,7 @@ const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.dis
       />
       <StatCard
         title="Disk"
+        :to="{ name: 'admin-disk' }"
         :loading="!s"
         :value="s ? `${formatGB(s.disk_used_gb)} of ${formatGB(s.disk_total_gb)}` : ''"
         :sub="s ? `${formatGB(Math.max(0, s.disk_total_gb - s.disk_used_gb))} free` : ''"
@@ -73,6 +77,7 @@ const diskFull = computed(() => !!s.value && diskFreePercent.value < s.value.dis
       />
       <StatCard
         title="Docker disk use"
+        :to="{ name: 'admin-disk' }"
         :loading="!s"
         :value="s ? formatGB(s.docker_images_gb + s.docker_build_cache_gb + s.docker_volumes_gb) : ''"
         :sub="s ? `Images ${formatGB(s.docker_images_gb)}, build cache ${formatGB(s.docker_build_cache_gb)}, saved files (/data) ${formatGB(s.docker_volumes_gb)}` : ''"

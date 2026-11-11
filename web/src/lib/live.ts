@@ -47,6 +47,7 @@ export const keys = {
   signupRules: ['signup-rules'] as const,
   adminServer: ['admin', 'server'] as const,
   adminServerMetrics: (window: MetricWindow) => ['admin', 'server-metrics', window] as const,
+  adminDisk: ['admin', 'disk'] as const,
   adminApps: ['admin', 'apps'] as const,
   adminPublicPorts: ['admin', 'public-ports'] as const,
   adminAudit: ['admin', 'audit'] as const,
