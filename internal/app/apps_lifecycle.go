@@ -61,6 +61,10 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 	if sp != nil && isMulti(row) && row.DesiredState == "running" {
 		only = []string{sp.Name} // a stopped app starts as a whole
 	}
+	// Stopping and starting a big app takes a while, and the app is down
+	// meanwhile: everyone looking at it sees it restart instead of "running".
+	s.markBringing(ctx, row.ID, map[bool]string{true: "restarting", false: "starting"}[force])
+	defer s.unmarkBringing(ctx, row.ID)
 	if ae := s.startCurrentLocked(ctx, row, only...); ae != nil {
 		return App{}, ae
 	}
@@ -84,6 +88,27 @@ func (s *Service) bringUp(ctx context.Context, a Actor, ref, action string, forc
 	s.Audit(ctx, a, action, "app", row.ID, meta)
 	fresh, _ := s.Q.GetApp(ctx, row.ID)
 	return s.appView(ctx, a, fresh), nil
+}
+
+// markBringing shows the app as restarting (or starting) until
+// unmarkBringing; it lives in memory only, so a restart of bitploy itself
+// never leaves an app stuck on it.
+func (s *Service) markBringing(ctx context.Context, appID, status string) {
+	s.bringing.Store(appID, status)
+	s.publishApp(ctx, appID)
+}
+
+func (s *Service) unmarkBringing(ctx context.Context, appID string) {
+	s.bringing.Delete(appID)
+	s.publishApp(ctx, appID)
+}
+
+// bringingStatus is "restarting" or "starting" while the app's containers
+// are being replaced, else "".
+func (s *Service) bringingStatus(appID string) string {
+	v, _ := s.bringing.Load(appID)
+	st, _ := v.(string)
+	return st
 }
 
 // currentRunning reports whether every container of the current deployment

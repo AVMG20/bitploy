@@ -1332,6 +1332,9 @@ func (s *Service) appView(ctx context.Context, a Actor, r db.App) App {
 		Volume: r.VolumeEnabled != 0, VolumeMB: r.VolumeMb, MemoryMB: r.MemoryMb, CPUMillis: r.CpuMillis,
 		Domains: []Domain{}, CreatedAt: ts(r.CreatedAt), UpdatedAt: ts(r.UpdatedAt),
 	}
+	if st := s.bringingStatus(r.ID); st != "" {
+		v.Status, v.StatusMessage = st, ""
+	}
 	if d, err := s.Q.GetAppDisk(ctx, r.ID); err == nil {
 		files := round1(float64(d.ImageBytes+d.SourceBytes) / mib)
 		at := ts(d.MeasuredAt)

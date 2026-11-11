@@ -226,6 +226,11 @@ function subApps(p: (typeof list.value)[number]) {
                         <Clock v-if="buildOf(a.id)!.state === 'queued'" class="ml-auto size-3! shrink-0 text-muted-foreground" aria-label="A new version waits to build" />
                         <LoaderCircle v-else class="ml-auto size-3! shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-label="Building a new version" />
                       </template>
+                      <LoaderCircle
+                        v-else-if="a.status === 'restarting' || a.status === 'starting'"
+                        class="ml-auto size-3! shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
+                        :aria-label="a.status === 'restarting' ? 'Restarting' : 'Starting'"
+                      />
                     </RouterLink>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>

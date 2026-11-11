@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
@@ -68,11 +69,12 @@ type Service struct {
 	Now    func() time.Time
 	// Version is the bitploy build (main.version), shown to admins.
 	Version string
-	wakeCh chan struct{} // nudges the deploy worker when a deployment is queued
-	hub    *hub          // deployment state change notifications for long-polls
-	events *Broker       // live events for the dashboard (events.go)
+	wakeCh  chan struct{} // nudges the deploy worker when a deployment is queued
+	hub     *hub          // deployment state change notifications for long-polls
+	events  *Broker       // live events for the dashboard (events.go)
 
 	deployRT deployRuntime // in-memory coordination of deploy pipelines (deploy_runtime.go)
+	bringing sync.Map      // app id → "restarting" or "starting" while bringUp replaces its containers (apps_lifecycle.go)
 	ops      opsState      // metrics manager and domain-check settings (ops.go)
 	backup   backupState   // locks and restore state of /data backups (backups.go)
 	dbv      dbViewerState // helpers of the SQLite viewer that run (db_viewer.go)

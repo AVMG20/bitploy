@@ -159,7 +159,7 @@ type App struct {
 	// by an admin with the address @. <slug>.<domain> keeps working too.
 	Root          bool   `json:"root" doc:"The address is the domain itself (url is https://<domain>); set by an admin with slug @ in the dashboard. <slug>.<domain> keeps working too."`
 	OwnerID       string `json:"owner_id"`
-	Status        string `json:"status"` // new | deploying | running | stopped | failed | crashed
+	Status        string `json:"status"` // new | deploying | running | stopped | failed | crashed; restarting | starting while restart_app or start_app replaces its containers
 	StatusMessage string `json:"status_message,omitempty"`
 	// Protected is true while a login prompt (username and password) stands in
 	// front of the app's public addresses. The password itself is never returned.

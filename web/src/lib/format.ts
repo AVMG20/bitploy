@@ -3,7 +3,7 @@ import type { App, AppStatus, Deployment, DeploymentState, DomainStatus } from '
 export type Tone = 'success' | 'warning' | 'danger' | 'progress' | 'muted'
 
 export function appStatusInfo(status: string): { label: string; tone: Tone } {
-  // Shown while a restart or start request runs.
+  // While a restart or start replaces the containers (the server says so too).
   if (status === 'restarting') return { label: 'Restarting', tone: 'progress' }
   if (status === 'starting') return { label: 'Starting', tone: 'progress' }
   switch (status as AppStatus) {

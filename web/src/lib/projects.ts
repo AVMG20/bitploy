@@ -206,7 +206,7 @@ export function appSourceText(app: App, templates: readonly ServiceTemplate[] = 
 
 // ---------------------------------------------------------------- status
 
-const STATUS_RANK: Record<string, number> = { failed: 0, crashed: 1, deploying: 2, running: 3, stopped: 4, new: 5 }
+const STATUS_RANK: Record<string, number> = { failed: 0, crashed: 1, deploying: 2, restarting: 2, starting: 2, running: 3, stopped: 4, new: 5 }
 
 export interface ProjectHealth {
   /** The status to show for the whole project: the most urgent one of its apps. */
@@ -236,6 +236,8 @@ export function projectHealthText(apps: readonly Pick<App, 'status' | 'slug' | '
     return `${bad.join(', ')} ${h.status === 'failed' ? 'failed' : 'crashed'}`
   }
   if (h.status === 'deploying') return 'Deploying'
+  if (h.status === 'restarting') return 'Restarting'
+  if (h.status === 'starting') return 'Starting'
   if (h.status === 'new') return 'Not deployed yet'
   if (h.running === h.total) return h.total === 1 ? 'Running' : `All ${h.total} running`
   if (h.running === 0) return 'Stopped'

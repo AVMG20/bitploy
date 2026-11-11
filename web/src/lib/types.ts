@@ -216,7 +216,8 @@ export interface GitSource {
   last_push_at: string | null
 }
 
-export type AppStatus = 'new' | 'deploying' | 'running' | 'stopped' | 'failed' | 'crashed'
+/** `restarting` and `starting` only while a restart or start replaces the app's containers. */
+export type AppStatus = 'new' | 'deploying' | 'running' | 'stopped' | 'failed' | 'crashed' | 'restarting' | 'starting'
 
 export interface DeployError {
   code: string
