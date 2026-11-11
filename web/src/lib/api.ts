@@ -68,6 +68,7 @@ import type {
   DiskCleanupKind,
   DiskCleanupResult,
   DiskReport,
+  JobList,
   ServerMetrics,
   ServerStats,
   ServiceTemplate,
@@ -189,6 +190,7 @@ export const paths = {
   adminDiskCleanup: `${V1}/admin/disk/cleanup`,
   adminDiskAuto: `${V1}/admin/disk/auto`,
   adminDiskAutoRun: `${V1}/admin/disk/auto/run`,
+  adminJobs: `${V1}/admin/jobs`,
   adminApps: `${V1}/admin/apps`,
   adminPublicPorts: `${V1}/admin/public-ports`,
   adminPublicPort: (slug: string) => `${V1}/admin/public-ports/${enc(slug)}`,
@@ -694,6 +696,8 @@ export const api = {
   adminDiskCleanup: (input: { kind: DiskCleanupKind; volumes?: string[] }) => request<DiskCleanupResult>('POST', paths.adminDiskCleanup, { body: input }),
   updateAdminDiskAuto: (input: DiskAutoInput) => request<DiskAutoCleanup>('PATCH', paths.adminDiskAuto, { body: input }),
   runAdminDiskAuto: () => request<DiskCleanupRun>('POST', paths.adminDiskAutoRun),
+  /** The background jobs and their last run since bitploy started. */
+  adminJobs: () => request<JobList>('GET', paths.adminJobs),
   async adminApps(): Promise<App[]> {
     return listAll<App>(paths.adminApps)
   },

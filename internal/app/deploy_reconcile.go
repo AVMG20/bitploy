@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"time"
 
@@ -20,10 +21,13 @@ import (
 
 const maxRestoreTries = 3
 
+// reconcileEvery is how often the reconciler runs after the first pass.
+const reconcileEvery = 60 * time.Second
+
 // RunReconciler repairs drift on startup and every 60 s until ctx ends.
 func (s *Service) RunReconciler(ctx context.Context) {
 	s.reconcileSafe(ctx)
-	t := time.NewTicker(60 * time.Second)
+	t := time.NewTicker(reconcileEvery)
 	defer t.Stop()
 	for {
 		select {
@@ -35,11 +39,17 @@ func (s *Service) RunReconciler(ctx context.Context) {
 	}
 }
 
+// reconcileSafe runs one pass and records it for the Jobs tab; a panic is
+// logged and recorded as a failed run.
 func (s *Service) reconcileSafe(ctx context.Context) {
+	start := s.Now()
+	var err error
 	defer func() {
 		if r := recover(); r != nil {
 			s.Log.Error("reconciler panic", "panic", r)
+			err = fmt.Errorf("panic: %v", r)
 		}
+		s.jobRan("reconciler", start, err, "")
 	}()
 	s.Reconcile(ctx)
 }

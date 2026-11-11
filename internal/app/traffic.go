@@ -32,6 +32,7 @@ func (s *Service) trafficMgr() *traffic.Manager {
 		if s.Now != nil {
 			m.Now = s.Now
 		}
+		m.OnJob = s.jobRan // its flushes on the admin's Jobs tab (jobs.go)
 		s.ops.traffic = m
 	})
 	return s.ops.traffic

@@ -148,12 +148,25 @@ func (m *Manager) runCollector(ctx context.Context) {
 			m.syncContainers(ctx)
 		case <-tick.C:
 			now := m.now()
-			if err := m.Tick(ctx, now, now.Sub(last)); err != nil {
+			err := m.Tick(ctx, now, now.Sub(last))
+			if err != nil {
 				m.Log.Warn("writing metric samples failed", "err", err)
 			}
+			m.jobRan(JobCollect, now, err, m.sampledText())
 			last = now
 		}
 	}
+}
+
+// sampledText says how many apps the last Tick sampled, for the Jobs page.
+func (m *Manager) sampledText() string {
+	m.mu.RLock()
+	n := len(m.latest)
+	m.mu.RUnlock()
+	if n == 0 {
+		return "no apps running"
+	}
+	return countText(int64(n), "app", "sampled")
 }
 
 // syncContainers opens a stats stream for every running bitploy container

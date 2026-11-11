@@ -278,16 +278,17 @@ func (s *Service) dropBackup(ctx context.Context, app db.App, id string) {
 // runDueBackups starts the automatic backups that are due and applies
 // retention to every app. The backups run in goroutines of their own, at most
 // backupConcurrency at a time, so a slow one does not hold up the others or
-// the next check.
-func (s *Service) runDueBackups(ctx context.Context) {
+// the next check. It returns of how many apps it started backups.
+func (s *Service) runDueBackups(ctx context.Context) (int, error) {
 	apps, err := s.Q.ListAllApps(ctx)
 	if err != nil {
 		s.Log.Warn("listing apps for backups failed", "err", err)
-		return
+		return 0, err
 	}
+	started := 0
 	for _, app := range apps {
 		if ctx.Err() != nil {
-			return
+			return started, nil
 		}
 		s.pruneBackups(ctx, app)
 		if wantsDefaultBackups(app) {
@@ -301,24 +302,28 @@ func (s *Service) runDueBackups(ctx context.Context) {
 		if err != nil || !backupDue(app.BackupSchedule, backupMinute(app.ID), backupSince(app, last), s.Now()) {
 			continue
 		}
-		s.startScheduledBackup(ctx, app)
+		if s.startScheduledBackup(ctx, app) {
+			started++
+		}
 	}
+	return started, nil
 }
 
-// startScheduledBackup queues one automatic backup. The app's backup lock is
-// taken here and held until the job is done, so the next check does not queue
-// the same app twice while it waits for a free slot.
-func (s *Service) startScheduledBackup(ctx context.Context, app db.App) {
+// startScheduledBackup queues one automatic backup and reports whether it
+// did. The app's backup lock is taken here and held until the job is done, so
+// the next check does not queue the same app twice while it waits for a free
+// slot.
+func (s *Service) startScheduledBackup(ctx context.Context, app db.App) bool {
 	owner, err := s.Q.GetUser(ctx, app.UserID)
 	if err != nil || owner.Status != "active" {
-		return
+		return false
 	}
 	if _, err := s.volumes(); err != nil {
-		return // no Docker right now; try again at the next check
+		return false // no Docker right now; try again at the next check
 	}
 	l := s.backupLock(app.ID)
 	if !l.TryLock() {
-		return
+		return false
 	}
 	s.backupGo(func() {
 		defer l.Unlock()
@@ -333,6 +338,7 @@ func (s *Service) startScheduledBackup(ctx context.Context, app db.App) {
 		defer cancel()
 		s.runScheduledBackup(jctx, app, owner)
 	})
+	return true
 }
 
 func (s *Service) backupSem() chan struct{} {
@@ -469,7 +475,14 @@ func (s *Service) runBackups(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			s.runDueBackups(ctx)
+			// The backups run on their own after this; the Jobs tab shows the check.
+			start := s.Now()
+			n, err := s.runDueBackups(ctx)
+			summary := "nothing due"
+			if n > 0 {
+				summary = jobCount("started backups of", n, "app", "apps")
+			}
+			s.jobRan("backups", start, err, summary)
 			timer.Reset(backupCheckEvery)
 		}
 	}

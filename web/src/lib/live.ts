@@ -48,6 +48,7 @@ export const keys = {
   adminServer: ['admin', 'server'] as const,
   adminServerMetrics: (window: MetricWindow) => ['admin', 'server-metrics', window] as const,
   adminDisk: ['admin', 'disk'] as const,
+  adminJobs: ['admin', 'jobs'] as const,
   adminApps: ['admin', 'apps'] as const,
   adminPublicPorts: ['admin', 'public-ports'] as const,
   adminAudit: ['admin', 'audit'] as const,

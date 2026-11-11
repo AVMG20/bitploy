@@ -16,6 +16,7 @@ const tabs: { value: AdminTab; label: string }[] = [
   { value: 'invites', label: 'Invites' },
   { value: 'signups', label: 'Signups' },
   { value: 'server', label: 'Server' },
+  { value: 'jobs', label: 'Jobs' },
   { value: 'apps', label: 'All apps' },
   { value: 'domains', label: 'Domains' },
   { value: 'github', label: 'GitHub' },

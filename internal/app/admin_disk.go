@@ -922,13 +922,28 @@ func (s *Service) runDiskWatch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.diskWatchOnce(ctx, triggerLowDisk)
+			start := s.Now()
+			s.jobRan("disk_watch", start, nil, diskRunSummary(s.diskWatchOnce(ctx, triggerLowDisk)))
 		case <-stale.C:
-			s.pruneStaleBuildCache(ctx)
+			start := s.Now()
+			summary := "nothing unused"
+			if freed := s.pruneStaleBuildCache(ctx); freed > 0 {
+				summary = "freed " + bytesText(freed)
+			}
+			s.jobRan("disk_stale_cache", start, nil, summary)
 		case <-s.disk.kick:
 			s.diskWatchOnce(ctx, triggerBuildRefused)
 		}
 	}
+}
+
+// diskRunSummary is a run on the Jobs tab: what it freed, or nothing for
+// a check that found enough free space.
+func diskRunSummary(run *DiskCleanupRun) string {
+	if run == nil {
+		return ""
+	}
+	return fmt.Sprintf("cleaned up: freed %s, %.0f%% free", bytesText(run.FreedBytes), run.FreeAfterPercent)
 }
 
 // diskWatchOnce runs the automatic cleanup when it is due; it returns what

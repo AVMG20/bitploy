@@ -528,13 +528,18 @@ func (s *Service) insertUserHashed(ctx context.Context, q *db.Queries, p acctNew
 // and audit rows older than 90 days. It returns when ctx ends.
 func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 	run := func() {
-		now := s.now()
-		_ = s.Q.DeleteExpiredSessions(ctx, db.DeleteExpiredSessionsParams{ExpiresAt: now, AbsoluteExpiresAt: now})
-		_ = s.Q.DeleteOldInvites(ctx, db.DeleteOldInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)})
-		_ = s.Q.DeleteOldProjectInvites(ctx, db.DeleteOldProjectInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)})
-		_ = s.Q.DeleteOldIdempotencyKeys(ctx, now-86400)
-		_ = s.Q.DeleteOldAudit(ctx, now-90*86400)
-		_ = s.Q.PruneGitHubDeliveries(ctx, now-7*86400)
+		start := s.Now()
+		now := start.Unix()
+		// One failing delete does not stop the others; the Jobs tab shows what failed.
+		err := errors.Join(
+			s.Q.DeleteExpiredSessions(ctx, db.DeleteExpiredSessionsParams{ExpiresAt: now, AbsoluteExpiresAt: now}),
+			s.Q.DeleteOldInvites(ctx, db.DeleteOldInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)}),
+			s.Q.DeleteOldProjectInvites(ctx, db.DeleteOldProjectInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)}),
+			s.Q.DeleteOldIdempotencyKeys(ctx, now-86400),
+			s.Q.DeleteOldAudit(ctx, now-90*86400),
+			s.Q.PruneGitHubDeliveries(ctx, now-7*86400),
+		)
+		s.jobRan("accounts_cleanup", start, err, "")
 	}
 	run()
 	t := time.NewTicker(time.Hour)

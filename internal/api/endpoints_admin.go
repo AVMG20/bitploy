@@ -178,6 +178,15 @@ func (a *API) adminRoutes() {
 	})
 
 	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminJobs", Method: http.MethodGet, Path: "/admin/jobs", Tags: []string{"Admin"},
+		Summary: "The background jobs bitploy runs by itself, and what each did last time",
+		Description: "Admin only. Runs are kept in memory: last_run, runs and the next run of an interval job start empty when bitploy starts. " +
+			"next_run_at is null for jobs started by events and for interval jobs that have not run yet.",
+	}, func(ctx context.Context, act app.Actor, _ *struct{}) (*Out[app.JobList], error) {
+		return okOrNil(a.svc.AdminJobs(ctx, act))
+	})
+
+	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminListApps", Method: http.MethodGet, Path: "/admin/apps", Tags: []string{"Admin"},
 		Summary: "List every app on the server", Description: "Admin only.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ PageParams }) (*Out[app.Page[app.App]], error) {

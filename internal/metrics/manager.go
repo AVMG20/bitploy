@@ -53,6 +53,9 @@ type Manager struct {
 	BuildxPrune func(ctx context.Context, keepBytes int64) (int64, error)
 	// BuildCacheKeepBytes caps the BuildKit cache after the nightly prune.
 	BuildCacheKeepBytes int64
+	// OnJob records one run of a scheduled job (id is one of the Job names
+	// in jobs.go) for the admin's Jobs page. May be nil.
+	OnJob func(id string, started time.Time, err error, summary string)
 
 	mu     sync.RWMutex
 	latest map[string]Point // newest sample per running app
@@ -98,6 +101,13 @@ func New(st *store.Store, dk Docker, log *slog.Logger) *Manager {
 }
 
 func (m *Manager) now() time.Time { return m.Now() }
+
+// jobRan reports a run of a scheduled job through OnJob.
+func (m *Manager) jobRan(id string, started time.Time, err error, summary string) {
+	if m.OnJob != nil {
+		m.OnJob(id, started, err, summary)
+	}
+}
 
 func (m *Manager) audit(ctx context.Context, action, targetType, targetID string, details map[string]any) {
 	if m.Audit != nil {

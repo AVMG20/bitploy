@@ -9,6 +9,7 @@ import AdminAudit from './admin/AdminAudit.vue'
 import AdminDomains from './admin/AdminDomains.vue'
 import AdminGithub from './admin/AdminGithub.vue'
 import AdminInvites from './admin/AdminInvites.vue'
+import AdminJobs from './admin/AdminJobs.vue'
 import AdminServer from './admin/AdminServer.vue'
 import AdminSignups from './admin/AdminSignups.vue'
 import AdminTabBar from './admin/AdminTabBar.vue'
@@ -32,6 +33,7 @@ const tab = computed<AdminTab>(() => (route.query.code && !route.query.tab ? 'gi
       <TabsContent value="invites" class="pt-6"><AdminInvites /></TabsContent>
       <TabsContent value="signups" class="pt-6"><AdminSignups /></TabsContent>
       <TabsContent value="server" class="pt-6"><AdminServer /></TabsContent>
+      <TabsContent value="jobs" class="pt-6"><AdminJobs /></TabsContent>
       <TabsContent value="apps" class="pt-6"><AdminApps /></TabsContent>
       <TabsContent value="domains" class="pt-6"><AdminDomains /></TabsContent>
       <TabsContent value="github" class="pt-6"><AdminGithub /></TabsContent>

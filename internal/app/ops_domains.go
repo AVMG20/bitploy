@@ -331,23 +331,33 @@ func (s *Service) runDomainChecker(ctx context.Context) {
 		case <-first:
 		case <-t.C:
 		}
-		s.checkPendingDomains(ctx)
+		start := s.Now()
+		n, err := s.checkPendingDomains(ctx)
+		summary := "no domains waiting"
+		if n > 0 {
+			summary = jobCount("checked", n, "domain", "domains")
+		}
+		s.jobRan("domain_check", start, err, summary)
 	}
 }
 
-// checkPendingDomains is one round of the background check.
-func (s *Service) checkPendingDomains(ctx context.Context) {
+// checkPendingDomains is one round of the background check; it returns how
+// many domains it checked. A domain whose check fails is logged, not returned.
+func (s *Service) checkPendingDomains(ctx context.Context) (int, error) {
 	rows, err := s.Q.OpsListDomainsByStatuses(ctx, []string{"pending_dns", "issuing_cert"})
 	if err != nil {
 		s.Log.Error("listing pending domains failed", "err", err)
-		return
+		return 0, err
 	}
+	checked := 0
 	for _, d := range rows {
 		if ctx.Err() != nil {
-			return
+			return checked, nil
 		}
+		checked++
 		if _, err := s.runDomainCheck(ctx, System, d, false); err != nil {
 			s.Log.Warn("domain check failed", "domain", d.Hostname, "err", err)
 		}
 	}
+	return checked, nil
 }

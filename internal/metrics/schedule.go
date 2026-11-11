@@ -29,7 +29,7 @@ const (
 
 // runSchedule runs the hourly rollup and the nightly job.
 func (m *Manager) runSchedule(ctx context.Context) {
-	m.logErr("rollup", m.Rollup(ctx))
+	m.rollupJob(ctx)
 	hourly := time.NewTicker(time.Hour)
 	defer hourly.Stop()
 	for {
@@ -38,11 +38,19 @@ func (m *Manager) runSchedule(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-hourly.C:
-			m.logErr("rollup", m.Rollup(ctx))
+			m.rollupJob(ctx)
 		case <-time.After(wait):
 			m.Nightly(ctx)
 		}
 	}
+}
+
+// rollupJob is one scheduled Rollup, logged and reported.
+func (m *Manager) rollupJob(ctx context.Context) {
+	start := m.now()
+	err := m.Rollup(ctx)
+	m.logErr("rollup", err)
+	m.jobRan(JobRollup, start, err, "")
 }
 
 // NextNightly is the next 03:30 UTC after t.
@@ -64,25 +72,29 @@ func (m *Manager) logErr(job string, err error) {
 // Nightly runs every housekeeping step; one failing step never stops the rest.
 func (m *Manager) Nightly(ctx context.Context) {
 	m.Log.Info("nightly job started")
+	// Each step says in a few words what it did, for the admin's Jobs page.
 	steps := []struct {
-		name string
-		fn   func(context.Context) error
+		name, job string
+		fn        func(context.Context) (string, error)
 	}{
-		{"rollup", m.Rollup},
-		{"prune metrics", m.PruneMetrics},
-		{"measure disk", m.MeasureDisk},
-		{"docker prune", m.PruneDocker},
-		{"database backup", m.BackupDB},
-		{"prune audit log", m.PruneAudit},
-		{"delete old uploads", m.DeleteOldUploads},
+		{"rollup", JobRollup, func(ctx context.Context) (string, error) { return "", m.Rollup(ctx) }},
+		{"prune metrics", JobPruneMetrics, m.pruneMetrics},
+		{"measure disk", JobMeasureDisk, m.measureDisk},
+		{"docker prune", JobDockerPrune, m.pruneDocker},
+		{"database backup", JobBackupDB, m.backupDB},
+		{"prune audit log", JobPruneAudit, func(ctx context.Context) (string, error) { return "", m.PruneAudit(ctx) }},
+		{"delete old uploads", JobOldUploads, m.deleteOldUploads},
 	}
 	for _, s := range steps {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := s.fn(ctx); err != nil {
+		start := m.now()
+		summary, err := s.fn(ctx)
+		if err != nil {
 			m.Log.Error("nightly step failed", "step", s.name, "err", err)
 		}
+		m.jobRan(s.job, start, err, summary)
 	}
 	m.Log.Info("nightly job finished")
 }
@@ -144,43 +156,63 @@ func (m *Manager) Rollup(ctx context.Context) error {
 // PruneMetrics deletes raw samples older than 24 h and rollups older than 30
 // days, of the apps and of the server itself.
 func (m *Manager) PruneMetrics(ctx context.Context) error {
+	_, err := m.pruneMetrics(ctx)
+	return err
+}
+
+// pruneMetrics is PruneMetrics; it also says how many old samples went.
+func (m *Manager) pruneMetrics(ctx context.Context) (string, error) {
 	now := m.now()
 	q := m.Store.Q
+	var deleted int64
 	for _, del := range []func(context.Context, int64) (int64, error){q.OpsDeleteSamplesBefore, q.OpsDeleteHostSamplesBefore} {
-		if _, err := del(ctx, now.Add(-rawRetention).Unix()); err != nil {
-			return err
+		n, err := del(ctx, now.Add(-rawRetention).Unix())
+		if err != nil {
+			return "", err
 		}
+		deleted += n
 	}
 	for _, del := range []func(context.Context, int64) (int64, error){q.OpsDeleteRollupsBefore, q.OpsDeleteHostRollupsBefore} {
-		if _, err := del(ctx, now.Add(-rollupRetention).Unix()); err != nil {
-			return err
+		n, err := del(ctx, now.Add(-rollupRetention).Unix())
+		if err != nil {
+			return "", err
 		}
+		deleted += n
 	}
 	// Rows of deleted apps (these tables have no foreign key).
 	for _, del := range []func(context.Context) error{
 		m.Store.Q.OpsDeleteOrphanSamples, m.Store.Q.OpsDeleteOrphanRollups, m.Store.Q.OpsDeleteOrphanAppDisk,
 	} {
 		if err := del(ctx); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return m.Store.Q.OpsDeleteOrphanUsage(ctx, now.Add(-usageRetention).Format("2006-01-02"))
+	if err := m.Store.Q.OpsDeleteOrphanUsage(ctx, now.Add(-usageRetention).Format("2006-01-02")); err != nil {
+		return "", err
+	}
+	return countText(deleted, "old sample", "deleted"), nil
 }
 
 // MeasureDisk records per app in app_disk what counts towards the storage
 // allowance: its images, its stored source snapshots and its volume.
 func (m *Manager) MeasureDisk(ctx context.Context) error {
+	_, err := m.measureDisk(ctx)
+	return err
+}
+
+// measureDisk is MeasureDisk; it also says how many apps it measured.
+func (m *Manager) measureDisk(ctx context.Context) (string, error) {
 	if m.Docker == nil {
-		return nil
+		return "skipped: Docker is unavailable", nil
 	}
 	du, err := m.Docker.DiskUsage(ctx, true)
 	if err != nil {
-		return err
+		return "", err
 	}
 	images := imageBytesByApp(du.Images)
 	sources, err := m.sourceBytesByApp(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	volumes := map[string]int64{}
 	for _, v := range du.Volumes {
@@ -190,18 +222,18 @@ func (m *Manager) MeasureDisk(ctx context.Context) error {
 	}
 	apps, err := m.Store.Q.OpsListAppVolumes(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	appVols, err := m.Store.Q.ListAllAppVolumes(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	sizeByName := map[string]int64{}
 	for _, v := range du.Volumes {
 		sizeByName[v.Name] = v.Size
 	}
 	now := m.now().Unix()
-	return m.Store.Tx(ctx, func(q *db.Queries) error {
+	err = m.Store.Tx(ctx, func(q *db.Queries) error {
 		// Every volume of an app on its own, for the per-volume limits.
 		for _, v := range appVols {
 			if err := q.SetAppVolumeUsed(ctx, db.SetAppVolumeUsedParams{UsedBytes: sizeByName[v.VolumeName], VolumeName: v.VolumeName}); err != nil {
@@ -230,6 +262,10 @@ func (m *Manager) MeasureDisk(ctx context.Context) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return "", err
+	}
+	return countText(int64(len(apps)), "app", "measured"), nil
 }
 
 // imageBytesByApp is the disk an app's images take: its largest image (the
@@ -305,20 +341,35 @@ func (m *Manager) sourceBytesByApp(ctx context.Context) (map[string]int64, error
 // PruneDocker removes dangling bitploy images and trims the build cache.
 // It does nothing in dev mode, where the Docker daemon is the developer's own.
 func (m *Manager) PruneDocker(ctx context.Context) error {
-	if m.Docker == nil || m.Dev {
-		return nil
+	_, err := m.pruneDocker(ctx)
+	return err
+}
+
+// pruneDocker is PruneDocker; it also says how much it freed.
+func (m *Manager) pruneDocker(ctx context.Context) (string, error) {
+	switch {
+	case m.Docker == nil:
+		return "skipped: Docker is unavailable", nil
+	case m.Dev:
+		return "skipped in dev mode", nil
 	}
 	images, err := m.Docker.PruneDanglingImages(ctx)
 	if err != nil {
-		return fmt.Errorf("image prune: %w", err)
+		return "", fmt.Errorf("image prune: %w", err)
 	}
+	freed := int64(images)
 	if m.BuildxPrune != nil {
-		if _, err := m.BuildxPrune(ctx, m.BuildCacheKeepBytes); err != nil {
-			return fmt.Errorf("builder prune: %w", err)
+		cache, err := m.BuildxPrune(ctx, m.BuildCacheKeepBytes)
+		if err != nil {
+			return "", fmt.Errorf("builder prune: %w", err)
 		}
+		freed += max(cache, 0)
 	}
 	m.Log.Info("docker pruned", "images_reclaimed_bytes", images, "build_cache_cap_bytes", m.BuildCacheKeepBytes)
-	return nil
+	if freed == 0 {
+		return "nothing to free", nil
+	}
+	return "freed " + sizeText(freed), nil
 }
 
 // BackupDir is where VACUUM INTO writes the database copies.
@@ -327,21 +378,31 @@ func (m *Manager) BackupDir() string { return filepath.Join(m.DataDir, "backups"
 // BackupDB writes a consistent copy of the database with VACUUM INTO and
 // keeps the newest seven copies. The restic backup script picks them up.
 func (m *Manager) BackupDB(ctx context.Context) error {
+	_, err := m.backupDB(ctx)
+	return err
+}
+
+// backupDB is BackupDB; it also says how big the copy is.
+func (m *Manager) backupDB(ctx context.Context) (string, error) {
 	if m.DataDir == "" {
-		return nil
+		return "skipped: no data directory", nil
 	}
 	dir := m.BackupDir()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
+		return "", err
 	}
 	name := "bitploy-" + m.now().UTC().Format("20060102T150405Z") + ".db"
 	path := filepath.Join(dir, name)
 	if _, err := m.Store.DB.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
-		return fmt.Errorf("vacuum into %s: %w", path, err)
+		return "", fmt.Errorf("vacuum into %s: %w", path, err)
+	}
+	summary := "saved a copy"
+	if info, err := os.Stat(path); err == nil {
+		summary = "saved a " + sizeText(info.Size()) + " copy"
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var files []string
 	for _, e := range entries {
@@ -354,7 +415,7 @@ func (m *Manager) BackupDB(ctx context.Context) error {
 		_ = os.Remove(filepath.Join(dir, files[0]))
 		files = files[1:]
 	}
-	return nil
+	return summary, nil
 }
 
 // PruneAudit deletes audit rows older than 90 days.
@@ -364,10 +425,16 @@ func (m *Manager) PruneAudit(ctx context.Context) error {
 
 // DeleteOldUploads removes upload rows and zip files older than 24 h.
 func (m *Manager) DeleteOldUploads(ctx context.Context) error {
+	_, err := m.deleteOldUploads(ctx)
+	return err
+}
+
+// deleteOldUploads is DeleteOldUploads; it also says how many uploads went.
+func (m *Manager) deleteOldUploads(ctx context.Context) (string, error) {
 	cutoff := m.now().Add(-uploadRetention)
 	ids, err := m.Store.Q.OpsListUploadsBefore(ctx, cutoff.Unix())
 	if err != nil {
-		return err
+		return "", err
 	}
 	dir := filepath.Join(m.DataDir, "uploads")
 	for _, id := range ids {
@@ -378,16 +445,17 @@ func (m *Manager) DeleteOldUploads(ctx context.Context) error {
 			m.Log.Warn("deleting upload file failed", "upload", id, "err", err)
 		}
 		if err := m.Store.Q.OpsDeleteUpload(ctx, id); err != nil {
-			return err
+			return "", err
 		}
 	}
+	summary := countText(int64(len(ids)), "upload", "deleted")
 	// Files whose row is already gone.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return summary, nil
 		}
-		return err
+		return "", err
 	}
 	for _, e := range entries {
 		info, err := e.Info()
@@ -398,5 +466,5 @@ func (m *Manager) DeleteOldUploads(ctx context.Context) error {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
-	return nil
+	return summary, nil
 }

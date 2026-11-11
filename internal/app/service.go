@@ -89,6 +89,7 @@ type Service struct {
 	notif notifyState   // queue and senders of notifications (notifications_send.go)
 	disk  diskState     // disk page cache and the automatic disk cleanup (admin_disk.go)
 	sys   systemState   // what bitploy's own containers use (system_stats.go)
+	jobs  jobsState     // the last run of each background job, for the Jobs tab (jobs.go)
 	vapid vapidState    // the key pair for browser notifications (notifications_push.go)
 
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no

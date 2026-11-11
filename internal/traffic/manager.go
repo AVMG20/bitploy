@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -28,6 +29,9 @@ const (
 	// plus a day, so 30 days can be compared with the 30 before.
 	Retention      = 30 * 24 * time.Hour
 	DailyRetention = 61 * 24 * time.Hour
+
+	// JobFlush is the id Manager.OnJob reports flushes with.
+	JobFlush = "traffic"
 )
 
 // Manager reads Traefik's access log, counts requests per app and writes the
@@ -37,6 +41,8 @@ type Manager struct {
 	Log   *slog.Logger
 	Now   func() time.Time
 	Geo   *Geo // nil: country comes from Cf-Ipcountry only
+	// OnJob records one flush (id JobFlush) for the admin's Jobs page. May be nil.
+	OnJob func(id string, started time.Time, err error, summary string)
 
 	tail *Tailer
 	agg  *Aggregator
@@ -105,11 +111,14 @@ func (m *Manager) Run(ctx context.Context) {
 		m.Poll(ctx)
 		lastPoll = m.Now()
 		if now := m.Now(); watched || now.Sub(lastFlush) >= flushEvery {
-			m.Flush(ctx)
+			apps, err := m.flush(ctx)
 			lastFlush = now
 			if now.Sub(lastPrune) >= pruneEvery {
 				m.Prune(ctx)
 				lastPrune = now
+			}
+			if m.OnJob != nil {
+				m.OnJob(JobFlush, now, err, flushText(apps))
 			}
 		}
 	}
@@ -204,13 +213,17 @@ func (m *Manager) Forget(appID string) { m.agg.Forget(appID) }
 // been read, in one transaction. If that fails the counts go back into memory
 // and are saved with the next flush; the saved position then stays behind, so
 // a restart in between reads those lines again instead of losing them.
-func (m *Manager) Flush(ctx context.Context) {
+func (m *Manager) Flush(ctx context.Context) { _, _ = m.flush(ctx) }
+
+// flush is Flush; it says how many apps had counts to save, and the error
+// that put them back.
+func (m *Manager) flush(ctx context.Context) (int, error) {
 	snap := m.agg.Flush()
 	m.dropDeleted(ctx, snap)
 	pos, havePos := m.tail.Position()
 	save := havePos && pos != m.savedPos
 	if len(snap) == 0 && !save {
-		return
+		return 0, nil
 	}
 	err := m.Store.Tx(ctx, func(q *db.Queries) error {
 		for appID, d := range snap {
@@ -226,11 +239,23 @@ func (m *Manager) Flush(ctx context.Context) {
 	if err != nil {
 		m.Log.Warn("traffic: saving counts failed, will try again", "err", err)
 		m.agg.Restore(snap)
-		return
+		return 0, err
 	}
 	if save {
 		m.savedPos = pos
 	}
+	return len(snap), nil
+}
+
+// flushText is the Jobs page summary of a flush that saved the counts of apps apps.
+func flushText(apps int) string {
+	switch apps {
+	case 0:
+		return "no new requests"
+	case 1:
+		return "saved requests of 1 app"
+	}
+	return fmt.Sprintf("saved requests of %d apps", apps)
 }
 
 // dropDeleted removes apps that no longer exist from a snapshot: saving their

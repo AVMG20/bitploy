@@ -8,6 +8,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -100,13 +101,22 @@ func (s *Service) RunNotifications(ctx context.Context) {
 	wg.Wait()
 }
 
+// sendQueued sends one queued notification and records it on the Jobs tab,
+// with the event as its summary.
 func (s *Service) sendQueued(ctx context.Context, j notifyJob) {
+	start := s.Now()
+	var err error
 	defer func() {
 		if r := recover(); r != nil {
 			s.Log.Error("notification sender panicked", "channel", j.channelID, "panic", r)
+			err = fmt.Errorf("panic: %v", r)
 		}
+		if err != nil {
+			err = errors.New(notify.ErrorText(err))
+		}
+		s.jobRan("notifications", start, err, j.msg.Event)
 	}()
-	if err := s.deliverNotification(ctx, j.channelID, j.msg); err != nil {
+	if err = s.deliverNotification(ctx, j.channelID, j.msg); err != nil {
 		s.Log.Warn("notification not sent", "channel", j.channelID, "event", j.msg.Event, "err", notify.ErrorText(err))
 	}
 }

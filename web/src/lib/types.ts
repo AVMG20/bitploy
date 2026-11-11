@@ -932,6 +932,42 @@ export interface SystemContainer {
   memory_mb: number
 }
 
+/** A group of background jobs on the Jobs tab. */
+export type JobGroup = 'disk' | 'backups' | 'monitoring' | 'upkeep' | 'nightly'
+
+/** One run of a background job. */
+export interface JobRun {
+  started_at: string
+  duration_ms: number
+  ok: boolean
+  error?: string
+  /** What the run did, in a few words ("freed 1.2 GB"). */
+  summary?: string
+}
+
+/** A background job bitploy runs by itself (GET /admin/jobs). Runs are kept in memory, since bitploy started. */
+export interface Job {
+  id: string
+  group: JobGroup
+  title: string
+  description: string
+  /** When it runs, in words. */
+  schedule: string
+  /** timed has a next run; always_on listens all the time and records no runs. */
+  kind: 'timed' | 'triggered' | 'always_on'
+  last_run: JobRun | null
+  /** Null when not timed, or an interval job has not run since bitploy started. */
+  next_run_at: string | null
+  /** Runs since bitploy started. */
+  runs: number
+}
+
+export interface JobList {
+  jobs: Job[]
+  /** When bitploy started its background jobs; null when they do not run in this process. */
+  since: string | null
+}
+
 /** Where the server's disk space goes (GET /admin/disk). */
 export interface DiskReport {
   measured_at: string

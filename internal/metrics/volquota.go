@@ -86,7 +86,12 @@ func (m *Manager) MeasureSoon() {
 }
 
 func (m *Manager) runVolumeQuota(ctx context.Context) {
-	run := func() { m.logErr("volume quota", m.EnforceVolumeQuota(ctx)) }
+	run := func() {
+		start := m.now()
+		err := m.EnforceVolumeQuota(ctx)
+		m.logErr("volume quota", err)
+		m.jobRan(JobVolumeQuota, start, err, "")
+	}
 	run()
 	last := time.Now()
 	t := time.NewTicker(volumeQuotaEvery)
