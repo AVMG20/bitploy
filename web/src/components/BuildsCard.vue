@@ -3,7 +3,8 @@
 // (desktop only). Hidden while nothing builds; each row opens the app's
 // Deployments tab. Only your own builds (and those of projects shared with
 // you) show; a build that waits says how many of the server's builds, of
-// anyone, go before it.
+// anyone, go before it. The card grows past the sidebar's edge to fit a long
+// app name with its state and time, up to a width where the name truncates.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Clock, Hammer, LoaderCircle } from 'lucide-vue-next'
@@ -88,7 +89,7 @@ function link(b: ActiveBuild) {
     leave-active-class="transition duration-150 ease-in"
     leave-to-class="translate-y-1 opacity-0"
   >
-    <section v-if="visible" aria-label="Builds" class="rounded-lg border bg-card p-2.5 text-xs shadow-card" data-testid="builds-card">
+    <section v-if="visible" aria-label="Builds" class="relative z-30 w-max min-w-full max-w-[min(22rem,calc(100vw-1rem))] rounded-lg border bg-card p-2.5 text-xs shadow-card" data-testid="builds-card">
       <header class="mb-2 flex items-center gap-2">
         <span :class="cn('grid size-5 shrink-0 place-items-center rounded-md', running.length ? 'bg-foreground/10 text-foreground' : 'bg-muted text-muted-foreground')">
           <Hammer :class="cn('size-3', running.length && 'builds-swing')" aria-hidden="true" />
