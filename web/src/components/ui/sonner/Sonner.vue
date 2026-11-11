@@ -40,16 +40,16 @@ const delegatedProps = reactiveOmit(props, 'class', 'toastOptions')
     v-bind="delegatedProps"
   >
     <template #success-icon>
-      <CircleCheckIcon class="size-4" />
+      <CircleCheckIcon class="size-4 text-success" />
     </template>
     <template #info-icon>
       <InfoIcon class="size-4" />
     </template>
     <template #warning-icon>
-      <TriangleAlertIcon class="size-4" />
+      <TriangleAlertIcon class="size-4 text-warning" />
     </template>
     <template #error-icon>
-      <OctagonXIcon class="size-4" />
+      <OctagonXIcon class="size-4 text-destructive" />
     </template>
     <template #loading-icon>
       <div>
