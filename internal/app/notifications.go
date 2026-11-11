@@ -32,6 +32,7 @@ const (
 	EventBackupSucceeded     = "backup.succeeded"
 	EventBackupFailed        = "backup.failed"
 	EventAppCrashed          = "app.crashed"
+	// EventDiskLow (admin_disk.go) is for admins only.
 	// eventTest is the "Send test message" button; no channel subscribes to it.
 	eventTest = "test"
 )
@@ -51,6 +52,20 @@ var notificationEvents = []NotificationEvent{
 	{Type: EventBackupFailed, Group: "backups", Label: "Backup failed", Emergency: true, Default: true},
 	{Type: EventAppCrashed, Group: "app", Label: "App stopped working", Emergency: true, Default: true,
 		Description: "The app crashed 5 times within 5 minutes, so bitploy stopped it, or its health check started failing."},
+	{Type: EventDiskLow, Group: "server", Label: "Server disk almost full", Emergency: true, Default: true, AdminOnly: true,
+		Description: "Free disk space dropped below the threshold and bitploy deleted build cache and unused images."},
+}
+
+// notificationEventsFor are the events a user can subscribe to: the
+// server's only for admins.
+func notificationEventsFor(a Actor) []NotificationEvent {
+	out := make([]NotificationEvent, 0, len(notificationEvents))
+	for _, e := range notificationEvents {
+		if !e.AdminOnly || a.IsAdmin() {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func notificationEvent(typ string) (NotificationEvent, bool) {
@@ -78,7 +93,7 @@ func (s *Service) NotificationOptions(ctx context.Context, a Actor) (Notificatio
 	if err := RequireSession(a); err != nil {
 		return NotificationOptions{}, err
 	}
-	out := NotificationOptions{Events: notificationEvents, Types: []NotificationType{}}
+	out := NotificationOptions{Events: notificationEventsFor(a), Types: []NotificationType{}}
 	for _, t := range notificationTypes {
 		if s.notifySenders()[t.Type] == nil {
 			continue
@@ -124,7 +139,7 @@ func (s *Service) CreateNotificationChannel(ctx context.Context, a Actor, in Cre
 	}
 	var events []string
 	if in.Events == nil {
-		for _, e := range notificationEvents {
+		for _, e := range notificationEventsFor(a) {
 			if e.Default {
 				events = append(events, e.Type)
 			}

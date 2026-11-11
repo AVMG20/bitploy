@@ -34,7 +34,7 @@ func (q *Queries) GetProjectInviteByID(ctx context.Context, id string) (ProjectI
 
 const getServerSettings = `-- name: GetServerSettings :one
 
-SELECT id, signups, project_invite_apps, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, updated_at, max_parallel_builds FROM server_settings WHERE id = 1
+SELECT id, signups, project_invite_apps, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, updated_at, max_parallel_builds, disk_auto_cleanup, disk_cleanup_min_free_percent FROM server_settings WHERE id = 1
 `
 
 // Server settings (one row, migration 00380) and the admin's view of every
@@ -54,6 +54,8 @@ func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) 
 		&i.QuotaVolumeMb,
 		&i.UpdatedAt,
 		&i.MaxParallelBuilds,
+		&i.DiskAutoCleanup,
+		&i.DiskCleanupMinFreePercent,
 	)
 	return i, err
 }

@@ -313,7 +313,7 @@ func (m *Manager) PruneDocker(ctx context.Context) error {
 		return fmt.Errorf("image prune: %w", err)
 	}
 	if m.BuildxPrune != nil {
-		if err := m.BuildxPrune(ctx, m.BuildCacheKeepBytes); err != nil {
+		if _, err := m.BuildxPrune(ctx, m.BuildCacheKeepBytes); err != nil {
 			return fmt.Errorf("builder prune: %w", err)
 		}
 	}

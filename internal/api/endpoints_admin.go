@@ -142,6 +142,34 @@ func (a *API) adminRoutes() {
 	})
 
 	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminDisk", Method: http.MethodGet, Path: "/admin/disk", Tags: []string{"Admin"},
+		Summary: "Where the server's disk space goes, and what each cleanup would free",
+		Description: "Admin only. Measured at most every two minutes (measuring sizes every volume); refresh=true measures now. " +
+			"auto is the automatic cleanup's settings and its last runs.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		Refresh bool `query:"refresh" doc:"Measure now instead of using a measurement of the last two minutes"`
+	}) (*Out[app.DiskReport], error) {
+		return okOrNil(a.svc.AdminDiskReport(ctx, act, in.Refresh))
+	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminDiskCleanup", Method: http.MethodPost, Path: "/admin/disk/cleanup", Tags: []string{"Admin"},
+		Summary: "Run one disk cleanup now",
+		Description: "Admin only. Nothing a container uses, no app's live version and nothing of an app that is deploying is removed. " +
+			"orphan_volumes deletes only the named volumes, and only while they are bitploy volumes of deleted apps. " +
+			"409 disk_cleanup_running; 503 disk_cleanup_failed.",
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.DiskCleanupInput }) (*Out[app.DiskCleanupResult], error) {
+		return okOrNil(a.svc.AdminDiskCleanup(ctx, act, in.Body))
+	})
+	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminUpdateDiskAuto", Method: http.MethodPatch, Path: "/admin/disk/auto", Tags: []string{"Admin"},
+		Summary: "Turn the automatic disk cleanup on or off, or change its threshold",
+		Description: "Admin only. Below min_free_percent free, bitploy deletes build cache, unused images, leftover containers, " +
+			"older app versions and unused images that are not its own, in that order, until free space is back above it. It never deletes volumes.",
+	}, func(ctx context.Context, act app.Actor, in *struct{ Body app.UpdateDiskCleanupInput }) (*Out[app.DiskAutoCleanup], error) {
+		return okOrNil(a.svc.AdminUpdateDiskCleanup(ctx, act, in.Body))
+	})
+
+	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminListApps", Method: http.MethodGet, Path: "/admin/apps", Tags: []string{"Admin"},
 		Summary: "List every app on the server", Description: "Admin only.",
 	}, func(ctx context.Context, act app.Actor, in *struct{ PageParams }) (*Out[app.Page[app.App]], error) {

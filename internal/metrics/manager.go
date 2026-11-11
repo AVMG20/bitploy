@@ -50,7 +50,7 @@ type Manager struct {
 	SampleInterval time.Duration
 	// BuildxPrune trims the cache of the isolated builder (`docker buildx prune
 	// --builder bitploy`) down to keepBytes. May be nil.
-	BuildxPrune func(ctx context.Context, keepBytes int64) error
+	BuildxPrune func(ctx context.Context, keepBytes int64) (int64, error)
 	// BuildCacheKeepBytes caps the BuildKit cache after the nightly prune.
 	BuildCacheKeepBytes int64
 

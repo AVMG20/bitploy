@@ -87,6 +87,7 @@ type Service struct {
 
 	term  terminalState // open terminals per user (terminal.go)
 	notif notifyState   // queue and senders of notifications (notifications_send.go)
+	disk  diskState     // disk page cache and the automatic disk cleanup (admin_disk.go)
 	vapid vapidState    // the key pair for browser notifications (notifications_push.go)
 
 	// lsRemote checks a repository (deploy.LsRemoteInfo); tests replace it so no

@@ -244,10 +244,19 @@ func (s *Service) ServerHasRoom(ctx context.Context, extraMB int64) (bool, error
 	return s.metricsMgr().ServerHasRoom(ctx, extraMB)
 }
 
-// DiskHasRoom reports whether the disk has at least 15% free (else builds are refused).
+// DiskHasRoom reports whether the disk has at least 15% free (else builds
+// are refused). When it has not, the automatic disk cleanup is asked to
+// delete build cache and unused images, so a later try can pass.
 func (s *Service) DiskHasRoom() (bool, error) {
+	var ok bool
+	var err error
 	if s.ops.diskHasRoom != nil {
-		return s.ops.diskHasRoom()
+		ok, err = s.ops.diskHasRoom()
+	} else {
+		ok, err = s.metricsMgr().DiskHasRoom()
 	}
-	return s.metricsMgr().DiskHasRoom()
+	if err == nil && !ok {
+		s.kickDiskCleanup()
+	}
+	return ok, err
 }

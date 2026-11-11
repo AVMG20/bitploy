@@ -217,6 +217,19 @@ type DeploymentService struct {
 	ConfigHash     string
 }
 
+type DiskCleanup struct {
+	ID         int64
+	Trigger    string
+	StartedAt  int64
+	FinishedAt int64
+	TotalBytes int64
+	FreeBefore int64
+	FreeAfter  int64
+	FreedBytes int64
+	Steps      string
+	Result     string
+}
+
 type Domain struct {
 	ID            string
 	AppID         string
@@ -415,17 +428,19 @@ type PublicPort struct {
 }
 
 type ServerSetting struct {
-	ID                  int64
-	Signups             string
-	ProjectInviteApps   int64
-	QuotaApps           int64
-	QuotaMemoryMb       int64
-	QuotaCpuMillis      int64
-	QuotaDeploysPerHour int64
-	QuotaDomainsPerApp  int64
-	QuotaVolumeMb       int64
-	UpdatedAt           int64
-	MaxParallelBuilds   int64
+	ID                        int64
+	Signups                   string
+	ProjectInviteApps         int64
+	QuotaApps                 int64
+	QuotaMemoryMb             int64
+	QuotaCpuMillis            int64
+	QuotaDeploysPerHour       int64
+	QuotaDomainsPerApp        int64
+	QuotaVolumeMb             int64
+	UpdatedAt                 int64
+	MaxParallelBuilds         int64
+	DiskAutoCleanup           int64
+	DiskCleanupMinFreePercent int64
 }
 
 type Session struct {

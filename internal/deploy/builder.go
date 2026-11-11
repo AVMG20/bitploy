@@ -37,6 +37,10 @@ const (
 	BuilderNetwork = "bp-builder"
 	// BuilderContainer is the BuildKit container buildx creates for the builder.
 	BuilderContainer = "buildx_buildkit_bitploy0"
+	// BuilderStateVolume is the Docker volume that container keeps its
+	// BuildKit state in (/var/lib/buildkit): the builder's cache. Docker counts
+	// it as a volume, not as build cache.
+	BuilderStateVolume = BuilderContainer + "_state"
 	// BuilderLabel marks the network; it is deliberately not nl.bitploy.managed,
 	// so no app cleanup ever touches it.
 	BuilderLabel = "nl.bitploy.builder"
@@ -194,18 +198,60 @@ func lastLine(s string) string {
 	return s
 }
 
-// Prune trims the builder's BuildKit cache so that at most keepBytes stay.
-// Without a builder (no build has run yet) there is nothing to prune.
-func (b *Builder) Prune(ctx context.Context, keepBytes int64) error {
+// Prune trims the builder's BuildKit cache so that at most keepBytes stay;
+// keepBytes 0 deletes all of it. It returns the bytes buildx reports as freed
+// (0 when it does not say). Without a builder (no build has run yet) there
+// is nothing to prune.
+func (b *Builder) Prune(ctx context.Context, keepBytes int64) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, err := b.run(ctx, "buildx", "inspect", BuilderName); err != nil {
-		return nil
+		return 0, nil
 	}
-	out, err := b.run(ctx, "buildx", "prune", "--builder", BuilderName, "--all", "--force",
-		"--max-used-space", strconv.FormatInt(keepBytes, 10))
+	args := []string{"buildx", "prune", "--builder", BuilderName, "--all", "--force"}
+	if keepBytes > 0 {
+		args = append(args, "--max-used-space", strconv.FormatInt(keepBytes, 10))
+	}
+	out, err := b.run(ctx, args...)
 	if err != nil {
-		return fmt.Errorf("docker buildx prune: %s", lastLine(out))
+		return 0, fmt.Errorf("docker buildx prune: %s", lastLine(out))
 	}
-	return nil
+	return PruneTotal(out), nil
+}
+
+// PruneTotal reads the "Total: 1.2GB" line that `docker buildx prune` ends
+// with; 0 when there is none.
+func PruneTotal(out string) int64 {
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Total:"); ok {
+			if n, ok := ParseSize(strings.TrimSpace(v)); ok {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+// ParseSize reads a size as Docker prints it: "1.23GB", "512kB", "0B" (powers
+// of 1000) or "1.5GiB" (powers of 1024).
+func ParseSize(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
+	i := 0
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
+		i++
+	}
+	num, err := strconv.ParseFloat(s[:i], 64)
+	if err != nil || num < 0 {
+		return 0, false
+	}
+	units := map[string]float64{
+		"": 1, "B": 1,
+		"KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "PB": 1e15,
+		"KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30, "TIB": 1 << 40, "PIB": 1 << 50,
+	}
+	mul, ok := units[strings.ToUpper(strings.TrimSpace(s[i:]))]
+	if !ok {
+		return 0, false
+	}
+	return int64(num * mul), true
 }
