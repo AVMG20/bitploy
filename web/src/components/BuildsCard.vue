@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The builds that wait or run, above the account menu in the sidebar
-// (desktop only). Hidden while nothing builds; each row opens the app's
-// Deployments tab. Only your own builds (and those of projects shared with
+// (desktop only). Hidden while nothing builds; each row opens the build log
+// of that build. Only your own builds (and those of projects shared with
 // you) show; a build that waits says how many of the server's builds, of
 // anyone, go before it. The card grows past the sidebar's edge to fit a long
 // app name with its state and time, up to a width where the name truncates.
@@ -78,7 +78,11 @@ function hint(b: ActiveBuild): string {
 }
 
 function link(b: ActiveBuild) {
-  return { name: 'app-deployments', params: { projectId: b.app.project_id || b.app.id, slug: b.app.slug } }
+  return {
+    name: 'app-logs',
+    params: { projectId: b.app.project_id || b.app.id, slug: b.app.slug },
+    query: { kind: 'build', deployment: b.id },
+  }
 }
 </script>
 
