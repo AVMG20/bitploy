@@ -7,15 +7,18 @@ package app
 // that exist keep their limits.
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
 	"github.com/AVMG20/bitploy/internal/metrics"
 	"github.com/AVMG20/bitploy/internal/store/db"
 )
@@ -104,6 +107,69 @@ func (s *Service) maxParallelBuilds(ctx context.Context) int {
 	return s.parallelBuilds(st)
 }
 
+// The bounds of the builder's limits (Admin > Server); the most is what the
+// server has.
+const (
+	minBuilderCPUMillis = 500
+	minBuilderMemoryMB  = 512
+)
+
+// defaultBuilderLimits are the builder's CPU millis and memory MB when no
+// admin set them: BITPLOY_BUILDER_CPUS and BITPLOY_BUILDER_MEMORY.
+func (s *Service) defaultBuilderLimits() (cpuMillis, memoryMB int64) {
+	cpuMillis = config.BuilderCPUMillis(cmp.Or(s.Cfg.BuilderCPUs, config.DefaultBuilderCPUs))
+	memoryMB = config.BuilderMemoryMB(cmp.Or(s.Cfg.BuilderMemory, config.DefaultBuilderMemory))
+	return cpuMillis, memoryMB
+}
+
+// builderLimits are the builder's CPU millis and memory MB of the settings row st.
+func (s *Service) builderLimits(st db.ServerSetting) (cpuMillis, memoryMB int64) {
+	cpuMillis, memoryMB = s.defaultBuilderLimits()
+	if st.BuilderCpuMillis > 0 {
+		cpuMillis = st.BuilderCpuMillis
+	}
+	if st.BuilderMemoryMb > 0 {
+		memoryMB = st.BuilderMemoryMb
+	}
+	return cpuMillis, memoryMB
+}
+
+// builderDriverLimits are the limits an admin set, as the builder takes them
+// ("1.5", "4096m"); "" for one that is not set, so the configured one stays.
+func (s *Service) builderDriverLimits(ctx context.Context) (cpus, memory string) {
+	st, err := s.serverSettings(ctx, s.Q)
+	if err != nil {
+		return "", ""
+	}
+	if st.BuilderCpuMillis > 0 {
+		cpus = strconv.FormatFloat(float64(st.BuilderCpuMillis)/1000, 'f', -1, 64)
+	}
+	if st.BuilderMemoryMb > 0 {
+		memory = strconv.FormatInt(st.BuilderMemoryMb, 10) + "m"
+	}
+	return cpus, memory
+}
+
+func validBuilderLimits(cpuMillis, memoryMB int64, c ServerCapacity) error {
+	if cpuMillis < minBuilderCPUMillis || cpuMillis > 256000 || (c.CPUMillis > 0 && cpuMillis > c.CPUMillis) {
+		most := "what the server has"
+		if c.CPUMillis > 0 {
+			most = fmt.Sprintf("%g cores", float64(c.CPUMillis)/1000)
+		}
+		return apperr.BadRequest("invalid_builder_limits", fmt.Sprintf("Build CPU must be at least %g and at most %s.", float64(minBuilderCPUMillis)/1000, most),
+			"Send builder_cpu_millis: 1000 is one CPU core; 2000 suits most servers.")
+	}
+	if memoryMB < minBuilderMemoryMB || memoryMB > 1<<20 || (c.MemoryMB > 0 && memoryMB > c.MemoryMB) {
+		most := "what the server has"
+		if c.MemoryMB > 0 {
+			most = fmt.Sprintf("%d MB", c.MemoryMB)
+		}
+		return apperr.BadRequest("invalid_builder_limits", fmt.Sprintf("Build memory must be at least %d MB and at most %s.", minBuilderMemoryMB, most),
+			"Send builder_memory_mb in MB, like 6144 for 6 GB. Builds of big front ends need several GB.")
+	}
+	return nil
+}
+
 func (s *Service) settingsView(st db.ServerSetting, c ServerCapacity) ServerSettings {
 	out := ServerSettings{
 		Signups:                  st.Signups,
@@ -113,6 +179,8 @@ func (s *Service) settingsView(st db.ServerSetting, c ServerCapacity) ServerSett
 		DefaultMaxParallelBuilds: s.defaultParallelBuilds(),
 		Server:                   c,
 	}
+	out.BuilderCPUMillis, out.BuilderMemoryMB = s.builderLimits(st)
+	out.DefaultBuilderCPUMillis, out.DefaultBuilderMemoryMB = s.defaultBuilderLimits()
 	if st.UpdatedAt > 0 {
 		t := ts(st.UpdatedAt)
 		out.UpdatedAt = &t
@@ -175,8 +243,10 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 	if err := RequireAdmin(a); err != nil {
 		return ServerSettings{}, err
 	}
-	if in.Signups == nil && in.ProjectInviteApps == nil && in.NewAccountQuota == nil && in.MaxParallelBuilds == nil {
-		return ServerSettings{}, apperr.BadRequest("nothing_to_change", "Send signups, project_invite_apps, new_account_quota and/or max_parallel_builds.",
+	if in.Signups == nil && in.ProjectInviteApps == nil && in.NewAccountQuota == nil && in.MaxParallelBuilds == nil &&
+		in.BuilderCPUMillis == nil && in.BuilderMemoryMB == nil {
+		return ServerSettings{}, apperr.BadRequest("nothing_to_change",
+			"Send signups, project_invite_apps, new_account_quota, max_parallel_builds, builder_cpu_millis and/or builder_memory_mb.",
 			"Example: {\"signups\": \"admin_invites\"}.")
 	}
 	cur, err := s.serverSettings(ctx, s.Q)
@@ -226,6 +296,26 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 		}
 		next.MaxParallelBuilds = int64(v)
 	}
+	if in.BuilderCPUMillis != nil || in.BuilderMemoryMB != nil {
+		oldCPU, oldMem := s.builderLimits(cur)
+		cpu, mem := oldCPU, oldMem
+		if in.BuilderCPUMillis != nil {
+			cpu = *in.BuilderCPUMillis
+		}
+		if in.BuilderMemoryMB != nil {
+			mem = *in.BuilderMemoryMB
+		}
+		if err := validBuilderLimits(cpu, mem, capacity); err != nil {
+			return ServerSettings{}, err
+		}
+		if cpu != oldCPU {
+			changes["builder_cpu_millis"] = map[string]any{"from": oldCPU, "to": cpu}
+		}
+		if mem != oldMem {
+			changes["builder_memory_mb"] = map[string]any{"from": oldMem, "to": mem}
+		}
+		next.BuilderCpuMillis, next.BuilderMemoryMb = cpu, mem
+	}
 	if len(changes) == 0 {
 		return s.settingsView(cur, capacity), nil
 	}
@@ -234,7 +324,8 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 		Signups: next.Signups, ProjectInviteApps: next.ProjectInviteApps,
 		QuotaApps: next.QuotaApps, QuotaMemoryMb: next.QuotaMemoryMb, QuotaCpuMillis: next.QuotaCpuMillis,
 		QuotaDeploysPerHour: next.QuotaDeploysPerHour, QuotaDomainsPerApp: next.QuotaDomainsPerApp, QuotaVolumeMb: next.QuotaVolumeMb,
-		MaxParallelBuilds: next.MaxParallelBuilds, UpdatedAt: next.UpdatedAt,
+		MaxParallelBuilds: next.MaxParallelBuilds, BuilderCpuMillis: next.BuilderCpuMillis, BuilderMemoryMb: next.BuilderMemoryMb,
+		UpdatedAt: next.UpdatedAt,
 	}); err != nil {
 		return ServerSettings{}, apperr.Internal(err)
 	}

@@ -64,6 +64,7 @@ func (s *Service) buildBuilder() *deploy.Builder {
 	r := &s.deployRT
 	r.builderOnce.Do(func() {
 		r.builder = deploy.NewBuilder(s.Cfg.BuildxDir(), s.Cfg.BuilderCPUs, s.Cfg.BuilderMemory)
+		r.builder.Limits = s.builderDriverLimits // Admin > Server, read before every build
 	})
 	return r.builder
 }

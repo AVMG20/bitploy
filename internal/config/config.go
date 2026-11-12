@@ -32,6 +32,40 @@ func ValidateBuilderLimits(cpus, memory string) error {
 	return nil
 }
 
+// BuilderCPUMillis is a builder CPU limit such as "2" or "1.5" in CPU millis
+// (1000 = 1 CPU); 0 when it is not a positive number.
+func BuilderCPUMillis(cpus string) int64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(cpus), 64)
+	if err != nil || f <= 0 {
+		return 0
+	}
+	return int64(f*1000 + 0.5)
+}
+
+// BuilderMemoryMB is a builder memory limit such as "6g", "2048m" or
+// "3gb" in MB (1024 based, like Docker reads it); 0 when it is not a size.
+func BuilderMemoryMB(memory string) int64 {
+	memory = strings.TrimSpace(memory)
+	if !memoryRe.MatchString(memory) {
+		return 0
+	}
+	unit := strings.TrimSuffix(strings.ToLower(strings.TrimLeft(memory, "0123456789")), "b")
+	n, err := strconv.ParseInt(strings.TrimRight(memory, "kKmMgGbB"), 10, 64)
+	if err != nil {
+		return 0
+	}
+	switch unit {
+	case "g":
+		return n * 1024
+	case "m":
+		return n
+	case "k":
+		return n / 1024
+	default: // bytes
+		return n / (1024 * 1024)
+	}
+}
+
 type Config struct {
 	PublicURL         string // https://bitploy.nl — dashboard, API, MCP; also the CSRF origin
 	AppsDomain        string // bitploy.nl — parent domain for app subdomains

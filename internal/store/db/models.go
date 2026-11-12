@@ -447,6 +447,8 @@ type ServerSetting struct {
 	DiskAutoSteps             string
 	DiskWarnFreePercent       int64
 	LastVersion               string
+	BuilderCpuMillis          int64
+	BuilderMemoryMb           int64
 }
 
 type Session struct {

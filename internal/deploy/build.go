@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
+	"github.com/AVMG20/bitploy/internal/config"
 )
 
 // BuildTimeout is the hard limit for one `docker buildx build`.
@@ -168,8 +170,22 @@ func BuildOutOfMemory(lines []string) bool {
 	return false
 }
 
-// MemoryLimit is the builder's memory limit as configured, such as "6g".
-func (b *Builder) MemoryLimit() string { return b.memory() }
+// MemoryLimit is the memory limit of the builder that runs, such as "6 GB"
+// or "1536 MB"; the configured one before it ran.
+func (b *Builder) MemoryLimit() string {
+	b.mu.Lock()
+	mem := cmp.Or(b.applied, b.memory())
+	b.mu.Unlock()
+	mb := config.BuilderMemoryMB(mem)
+	switch {
+	case mb <= 0:
+		return mem
+	case mb%1024 == 0:
+		return fmt.Sprintf("%d GB", mb/1024)
+	default:
+		return fmt.Sprintf("%d MB", mb)
+	}
+}
 
 // BuildFailureSummary picks the most useful single line from a failed build's
 // output: the cause, like a compiler message, rather than Docker's wrapper

@@ -197,7 +197,7 @@ All settings are environment variables in `/etc/bitploy/bitploy.env`. Restart wi
 | `BITPLOY_ACME_EMAIL` | `you@example.nl` | Let's Encrypt account (written into Traefik's config by `install.sh`) |
 | `BITPLOY_ADMIN_PASSWORD` | — | Password for `bitploy admin create-user` without a prompt (scripts only) |
 | `BITPLOY_MAX_PARALLEL_BUILDS` | `2` | Server-wide build slots until an admin sets them in Admin → Server |
-| `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `6g` | Limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network) |
+| `BITPLOY_BUILDER_CPUS`, `BITPLOY_BUILDER_MEMORY` | `2`, `6g` | Default limits of the isolated build container (builds run in their own buildx builder on the firewalled `bp-builder` network); an admin can change them in Admin → Server |
 | `BITPLOY_DB_HELPER_BIN` | — | A bitploy binary built for Linux for the SQLite viewer's helper image. Only needed when bitploy does not run on Linux itself; `make dev` builds and sets it |
 | `BITPLOY_PUBLIC_PORTS` | empty (off) | A range like `30000-30099` (at most 1000 ports, 1024 and up). Users can then open a port of it for an app without a web address (a database) to connect with psql or TablePlus; it closes after 1 hour unless they choose 24 hours or never. Allow the range in the Hetzner Cloud Firewall and run `systemctl restart bitploy-firewall` after changing it |
 | `BITPLOY_PUBLIC_PORTS_PER_USER` | `3` | Open public ports per user |

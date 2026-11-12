@@ -508,6 +508,10 @@ const settings: ServerSettings = {
   new_account_quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
   max_parallel_builds: 2,
   default_max_parallel_builds: 2,
+  builder_cpu_millis: 2000,
+  builder_memory_mb: 6144,
+  default_builder_cpu_millis: 2000,
+  default_builder_memory_mb: 6144,
   updated_at: null,
   server: { memory_mb: 16384, cpu_millis: 8000, disk_mb: 409600 },
 }
@@ -520,7 +524,22 @@ function updateSettings(body: Record<string, unknown>): ServerSettings {
     if (!Number.isInteger(n) || n < 1 || n > 16) throw bad('invalid_max_parallel_builds', 'Builds at the same time must be 1 to 16.')
     settings.max_parallel_builds = n
   }
-  if (body.signups === undefined && body.project_invite_apps === undefined && body.new_account_quota === undefined && body.max_parallel_builds === undefined)
+  if (body.builder_cpu_millis !== undefined || body.builder_memory_mb !== undefined) {
+    const cpu = Number(body.builder_cpu_millis ?? settings.builder_cpu_millis)
+    const mem = Number(body.builder_memory_mb ?? settings.builder_memory_mb)
+    if (!Number.isInteger(cpu) || cpu < 500 || cpu > settings.server.cpu_millis) throw bad('invalid_builder_limits', `Build CPU must be at least 0.5 and at most ${settings.server.cpu_millis / 1000} cores.`)
+    if (!Number.isInteger(mem) || mem < 512 || mem > settings.server.memory_mb) throw bad('invalid_builder_limits', `Build memory must be at least 512 MB and at most ${settings.server.memory_mb} MB.`)
+    settings.builder_cpu_millis = cpu
+    settings.builder_memory_mb = mem
+  }
+  if (
+    body.signups === undefined &&
+    body.project_invite_apps === undefined &&
+    body.new_account_quota === undefined &&
+    body.max_parallel_builds === undefined &&
+    body.builder_cpu_millis === undefined &&
+    body.builder_memory_mb === undefined
+  )
     throw new HttpError(400, 'nothing_to_change', 'Send signups, project_invite_apps and/or new_account_quota.')
   if (body.signups !== undefined && !['admin_invites', 'any_invite', 'open'].includes(String(body.signups)))
     throw bad('invalid_signups', 'signups must be admin_invites, any_invite or open.')

@@ -874,6 +874,14 @@ export interface ServerSettings {
   max_parallel_builds: number
   /** The default of max_parallel_builds (BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set). */
   default_max_parallel_builds: number
+  /** CPU of the builder, shared by the builds that run at the same time; 1000 = 1 CPU. */
+  builder_cpu_millis: number
+  /** Memory of the builder in MB, shared by the builds that run at the same time. */
+  builder_memory_mb: number
+  /** The default of builder_cpu_millis (BITPLOY_BUILDER_CPUS, 2 CPUs unless set). */
+  default_builder_cpu_millis: number
+  /** The default of builder_memory_mb (BITPLOY_BUILDER_MEMORY, 6 GB unless set). */
+  default_builder_memory_mb: number
   updated_at: string | null
   /** What the server has, the most a limit may be; 0 when not known. */
   server: { memory_mb: number; cpu_millis: number; disk_mb: number }

@@ -687,7 +687,7 @@ export const api = {
   /** What waits and runs of the apps you can see (the sidebar's builds card). */
   builds: () => request<Builds>('GET', paths.builds),
   adminSettings: () => request<ServerSettings>('GET', paths.adminSettings),
-  updateAdminSettings: (input: { signups?: SignupMode; project_invite_apps?: boolean; new_account_quota?: NewAccountQuota; max_parallel_builds?: number }) =>
+  updateAdminSettings: (input: { signups?: SignupMode; project_invite_apps?: boolean; new_account_quota?: NewAccountQuota; max_parallel_builds?: number; builder_cpu_millis?: number; builder_memory_mb?: number }) =>
     request<ServerSettings>('PATCH', paths.adminSettings, { body: input }),
   adminServer: () => request<ServerStats>('GET', paths.adminServer),
   adminServerMetrics: (window: MetricWindow) => request<ServerMetrics>('GET', paths.adminServerMetrics, { query: { window } }),

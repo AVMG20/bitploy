@@ -34,7 +34,7 @@ func (q *Queries) GetProjectInviteByID(ctx context.Context, id string) (ProjectI
 
 const getServerSettings = `-- name: GetServerSettings :one
 
-SELECT id, signups, project_invite_apps, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, updated_at, max_parallel_builds, disk_auto_cleanup, disk_cleanup_min_free_percent, disk_builds_min_free_percent, disk_build_cache_days, rollback_versions, disk_auto_steps, disk_warn_free_percent, last_version FROM server_settings WHERE id = 1
+SELECT id, signups, project_invite_apps, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, updated_at, max_parallel_builds, disk_auto_cleanup, disk_cleanup_min_free_percent, disk_builds_min_free_percent, disk_build_cache_days, rollback_versions, disk_auto_steps, disk_warn_free_percent, last_version, builder_cpu_millis, builder_memory_mb FROM server_settings WHERE id = 1
 `
 
 // Server settings (one row, migration 00380) and the admin's view of every
@@ -62,6 +62,8 @@ func (q *Queries) GetServerSettings(ctx context.Context) (ServerSetting, error) 
 		&i.DiskAutoSteps,
 		&i.DiskWarnFreePercent,
 		&i.LastVersion,
+		&i.BuilderCpuMillis,
+		&i.BuilderMemoryMb,
 	)
 	return i, err
 }
@@ -135,7 +137,7 @@ func (q *Queries) SetLastVersion(ctx context.Context, lastVersion string) error 
 const updateServerSettings = `-- name: UpdateServerSettings :exec
 UPDATE server_settings SET signups = ?, project_invite_apps = ?,
     quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?, quota_deploys_per_hour = ?,
-    quota_domains_per_app = ?, quota_volume_mb = ?, max_parallel_builds = ?, updated_at = ?
+    quota_domains_per_app = ?, quota_volume_mb = ?, max_parallel_builds = ?, builder_cpu_millis = ?, builder_memory_mb = ?, updated_at = ?
 WHERE id = 1
 `
 
@@ -149,6 +151,8 @@ type UpdateServerSettingsParams struct {
 	QuotaDomainsPerApp  int64
 	QuotaVolumeMb       int64
 	MaxParallelBuilds   int64
+	BuilderCpuMillis    int64
+	BuilderMemoryMb     int64
 	UpdatedAt           int64
 }
 
@@ -163,6 +167,8 @@ func (q *Queries) UpdateServerSettings(ctx context.Context, arg UpdateServerSett
 		arg.QuotaDomainsPerApp,
 		arg.QuotaVolumeMb,
 		arg.MaxParallelBuilds,
+		arg.BuilderCpuMillis,
+		arg.BuilderMemoryMb,
 		arg.UpdatedAt,
 	)
 	return err

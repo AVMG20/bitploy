@@ -625,7 +625,7 @@ func (p *pipeline) buildFailed(ctx context.Context, err error, bld *deploy.Build
 	if deploy.BuildOutOfMemory(p.failTail) {
 		return apperr.Unprocessable("build_failed",
 			"The build ran out of memory. Builds on this server can use up to "+bld.MemoryLimit()+".",
-			"Make the build use less memory (for example, build fewer things at once), or ask the bitploy admin to raise BITPLOY_BUILDER_MEMORY.")
+			"Make the build use less memory (for example, build fewer things at once), or ask the bitploy admin to give builds more memory in Admin > Server.")
 	}
 	summary := deploy.BuildFailureSummary(p.failTail)
 	msg := "The build failed."

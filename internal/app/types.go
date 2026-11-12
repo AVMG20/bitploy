@@ -694,9 +694,15 @@ type ServerSettings struct {
 	// NewAccountQuota are the limits of every account made from now on.
 	NewAccountQuota NewAccountQuota `json:"new_account_quota" doc:"The limits every account made from now on gets; existing accounts keep theirs"`
 	// MaxParallelBuilds is how many builds may run at the same time.
-	MaxParallelBuilds        int        `json:"max_parallel_builds" doc:"How many builds (fetch, check and build) may run at the same time on the whole server; more wait in line"`
-	DefaultMaxParallelBuilds int        `json:"default_max_parallel_builds" doc:"The default of max_parallel_builds: BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set"`
-	UpdatedAt                *time.Time `json:"updated_at" doc:"When an admin last changed these; null: never"`
+	MaxParallelBuilds        int `json:"max_parallel_builds" doc:"How many builds (fetch, check and build) may run at the same time on the whole server; more wait in line"`
+	DefaultMaxParallelBuilds int `json:"default_max_parallel_builds" doc:"The default of max_parallel_builds: BITPLOY_MAX_PARALLEL_BUILDS, 2 unless set"`
+	// BuilderCPUMillis and BuilderMemoryMB are the limits of the isolated
+	// builder, shared by the builds that run at the same time.
+	BuilderCPUMillis        int64      `json:"builder_cpu_millis" doc:"CPU of the builder, shared by the builds that run at the same time; 1000 = 1 CPU"`
+	BuilderMemoryMB         int64      `json:"builder_memory_mb" doc:"Memory of the builder, shared by the builds that run at the same time; a build that needs more fails out of memory"`
+	DefaultBuilderCPUMillis int64      `json:"default_builder_cpu_millis" doc:"The default of builder_cpu_millis: BITPLOY_BUILDER_CPUS, 2 CPUs unless set"`
+	DefaultBuilderMemoryMB  int64      `json:"default_builder_memory_mb" doc:"The default of builder_memory_mb: BITPLOY_BUILDER_MEMORY, 6 GB unless set"`
+	UpdatedAt               *time.Time `json:"updated_at" doc:"When an admin last changed these; null: never"`
 	// Server is what this server has: the most a limit may be.
 	Server ServerCapacity `json:"server" doc:"What the server has, the most new_account_quota may be; 0 when not known"`
 }
@@ -724,6 +730,8 @@ type UpdateServerSettingsInput struct {
 	ProjectInviteApps *bool            `json:"project_invite_apps,omitempty"`
 	NewAccountQuota   *NewAccountQuota `json:"new_account_quota,omitempty" doc:"Every number; replaces the limits for new accounts"`
 	MaxParallelBuilds *int             `json:"max_parallel_builds,omitempty" minimum:"1" maximum:"16" doc:"How many builds may run at the same time, 1 to 16"`
+	BuilderCPUMillis  *int64           `json:"builder_cpu_millis,omitempty" doc:"CPU of the builder, at least 500 (half a CPU) and at most what the server has; applies once no build runs"`
+	BuilderMemoryMB   *int64           `json:"builder_memory_mb,omitempty" doc:"Memory of the builder in MB, at least 512 and at most what the server has; applies once no build runs"`
 }
 
 // SignupRules is GET /signup-rules (no login): what the login, invite and

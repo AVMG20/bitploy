@@ -13,6 +13,7 @@ package deploy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -55,8 +56,12 @@ type Builder struct {
 	ConfigDir string // BUILDX_CONFIG, normally <data>/buildx
 	CPUs      string // default config.DefaultBuilderCPUs
 	Memory    string // default config.DefaultBuilderMemory
+	// Limits, when set, gives the CPU and memory limits before every Ensure
+	// (Admin > Server); "" keeps CPUs or Memory.
+	Limits func(ctx context.Context) (cpus, memory string)
 
 	mu           sync.Mutex
+	applied      string // memory limit of the builder that runs; "" until Ensure confirmed one
 	activeBuilds int
 	lastBuildUse time.Time
 	now          func() time.Time // tests replace it; nil means time.Now
@@ -274,6 +279,13 @@ func (b *Builder) ensureLocked(parent context.Context) error {
 			"This is a server problem, not your app. Try again in a minute; if it repeats, tell the bitploy admin.")
 	}
 
+	if b.Limits != nil {
+		if cpus, memory := b.Limits(ctx); cpus != "" || memory != "" {
+			if err := config.ValidateBuilderLimits(cmp.Or(cpus, b.cpus()), cmp.Or(memory, b.memory())); err == nil {
+				b.CPUs, b.Memory = cmp.Or(cpus, b.CPUs), cmp.Or(memory, b.Memory)
+			}
+		}
+	}
 	opts, err := b.driverOpts()
 	if err != nil {
 		return unavailable(err.Error(), err)
@@ -298,14 +310,26 @@ func (b *Builder) ensureLocked(parent context.Context) error {
 	}
 
 	// 2. The builder: keep it if it exists, has the same limits and boots.
+	// With other limits it is only recreated while no build runs in it (a
+	// running build would die with it): until then builds share the
+	// builder as it is, and the next build that starts alone applies them.
 	have, _ := os.ReadFile(hashFile)
-	if b.ConfigDir == "" || strings.TrimSpace(string(have)) == want {
+	same := b.ConfigDir == "" || strings.TrimSpace(string(have)) == want
+	if same || b.activeBuilds > 0 {
 		if _, err := b.run(ctx, "buildx", "inspect", BuilderName, "--bootstrap"); err == nil {
+			if same {
+				b.applied = b.memory()
+			}
 			return nil
 		}
 	}
-	// Missing, broken or configured differently: start over.
-	_, _ = b.run(ctx, "buildx", "rm", "--force", BuilderName)
+	// Missing, broken or configured differently: start over. Only new limits
+	// keep the BuildKit state (the build cache); a broken builder loses it.
+	rm := []string{"buildx", "rm", "--force", BuilderName}
+	if !same {
+		rm = append(rm, "--keep-state")
+	}
+	_, _ = b.run(ctx, rm...)
 	_, _ = b.run(ctx, "rm", "-f", BuilderContainer)
 	args := []string{"buildx", "create", "--name", BuilderName, "--driver", "docker-container", "--bootstrap"}
 	for _, o := range opts {
@@ -317,6 +341,7 @@ func (b *Builder) ensureLocked(parent context.Context) error {
 	if b.ConfigDir != "" {
 		_ = os.WriteFile(hashFile, []byte(want+"\n"), 0o600)
 	}
+	b.applied = b.memory()
 	return nil
 }
 
