@@ -6,7 +6,7 @@ import type { App } from '../src/lib/types.ts'
 const app = (over: Partial<App>): App =>
   ({ id: over.slug, slug: 'a', name: '', owner_id: 'me', volume: false, volume_mb: 0, volume_used_mb: null, files_mb: null, backups_mb: 0, ...over }) as App
 
-test('counts files, backups and /data at its full size, biggest first', () => {
+test('counts files, backups and what /data holds, biggest first', () => {
   const rows = storageByApp(
     [
       app({ slug: 'site', files_mb: 40 }),
@@ -15,10 +15,10 @@ test('counts files, backups and /data at its full size, biggest first', () => {
     'me',
   )
   assert.deepEqual(
-    rows.map((r) => [r.app.slug, r.allocatedMB, r.usedMB]),
+    rows.map((r) => [r.app.slug, r.usedMB]),
     [
-      ['db', 1144, 420],
-      ['site', 40, 40],
+      ['db', 420],
+      ['site', 40],
     ],
   )
 })
@@ -26,7 +26,7 @@ test('counts files, backups and /data at its full size, biggest first', () => {
 test('leaves out apps of others and a volume that is off', () => {
   const rows = storageByApp([app({ slug: 'theirs', owner_id: 'you', files_mb: 10 }), app({ slug: 'mine', volume: false, volume_mb: 512, volume_used_mb: 5 })], 'me')
   assert.deepEqual(
-    rows.map((r) => [r.app.slug, r.allocatedMB, r.volumeMB, r.filesMB]),
+    rows.map((r) => [r.app.slug, r.usedMB, r.volumeMB, r.filesMB]),
     [['mine', 0, 0, null]],
   )
 })
@@ -41,10 +41,10 @@ test('adds up the apps of each project, biggest project first', () => {
     'me',
   )
   assert.deepEqual(
-    rows.map((r) => [r.project.name, r.allocatedMB, r.usedMB, r.apps.map((a) => a.app.slug)]),
+    rows.map((r) => [r.project.name, r.usedMB, r.apps.map((a) => a.app.slug)]),
     [
-      ['Shop', 702, 220, ['db', 'web']],
-      ['Blog', 50, 50, ['blog']],
+      ['Shop', 220, ['db', 'web']],
+      ['Blog', 50, ['blog']],
     ],
   )
 })

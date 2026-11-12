@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Where the storage allowance goes: per project, with the apps in it (so a
-// postgres shows under the project it belongs to). Each app takes its files
-// (kept images and source), its backups and its /data, of which the empty
-// part still counts. Biggest first, like By app in Admin, Disk.
+// What your storage holds: per project, with the apps in it (so a postgres
+// shows under the project it belongs to). Each app's files (kept images and
+// source), its backups and what its /data holds. Biggest first, like By app
+// in Admin, Disk.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -11,26 +11,24 @@ import { formatMB } from '@/lib/format'
 import { storageByProject, type AppStorage } from '@/lib/storage'
 import type { Project } from '@/lib/types'
 
-const props = defineProps<{ projects: readonly Project[]; ownerId: string; usedMb: number; allocatedMb: number; maxMb: number | null }>()
+const props = defineProps<{ projects: readonly Project[]; ownerId: string; usedMb: number }>()
 const open = defineModel<boolean>('open', { default: false })
 
 const rows = computed(() => storageByProject(props.projects, props.ownerId))
-const max = computed(() => Math.max(1, ...rows.value.map((r) => r.allocatedMB)))
+const max = computed(() => Math.max(1, ...rows.value.map((r) => r.usedMB)))
 
 const PARTS = [
   { key: 'files', label: 'App files', color: 'var(--chart-1)' },
   { key: 'backups', label: 'Backups', color: 'var(--chart-3)' },
   { key: 'data', label: 'Saved files (/data)', color: 'var(--chart-2)' },
-  { key: 'empty', label: 'Empty space in /data', color: 'color-mix(in oklch, var(--chart-2) 30%, transparent)' },
 ] as const
 type Part = (typeof PARTS)[number]['key']
-type Sizes = { filesMB: number | null; backupsMB: number; volumeUsedMB: number; volumeMB: number }
+type Sizes = { filesMB: number | null; backupsMB: number; volumeUsedMB: number }
 
 function size(r: Sizes, p: Part): number {
   if (p === 'files') return r.filesMB ?? 0
   if (p === 'backups') return r.backupsMB
-  if (p === 'data') return Math.min(r.volumeUsedMB, r.volumeMB)
-  return Math.max(0, r.volumeMB - r.volumeUsedMB)
+  return r.volumeUsedMB
 }
 
 function detail(r: AppStorage): string {
@@ -38,14 +36,10 @@ function detail(r: AppStorage): string {
   if (r.filesMB === null) out.push('files not measured yet')
   else if (r.filesMB > 0) out.push(`files ${formatMB(r.filesMB)}`)
   if (r.backupsMB > 0) out.push(`backups ${formatMB(r.backupsMB)}`)
-  if (r.volumeMB > 0) out.push(`/data ${formatMB(r.volumeUsedMB)} of ${formatMB(r.volumeMB)}`)
+  if (r.volumeMB > 0) out.push(`/data ${formatMB(r.volumeUsedMB)}`)
   return out.join(' · ')
 }
 
-const summary = computed(() => {
-  const s = `${formatMB(props.usedMb)} in use, ${formatMB(props.allocatedMb)} allocated`
-  return props.maxMb ? `${s} of ${formatMB(props.maxMb)}.` : `${s}. No limit.`
-})
 </script>
 
 <template>
@@ -53,7 +47,7 @@ const summary = computed(() => {
     <DialogContent class="flex max-h-[85vh] flex-col sm:max-w-xl" data-testid="storage-apps">
       <DialogHeader>
         <DialogTitle>Storage by project</DialogTitle>
-        <DialogDescription>{{ summary }} The size of /data counts in full, even the part that is still empty.</DialogDescription>
+        <DialogDescription>{{ formatMB(usedMb) }} in use: app files, backups and saved files (/data).</DialogDescription>
       </DialogHeader>
 
       <p v-if="rows.length === 0" class="py-6 text-center text-sm text-muted-foreground">You have no apps yet.</p>
@@ -62,10 +56,10 @@ const summary = computed(() => {
           <div class="grid gap-1.5">
             <div class="flex items-baseline gap-3">
               <RouterLink :to="projectRoute(p.project.id)" class="min-w-0 truncate text-sm font-medium hover:underline" @click="open = false">{{ p.project.name }}</RouterLink>
-              <span class="ml-auto text-sm font-medium whitespace-nowrap tabular-nums">{{ formatMB(p.allocatedMB) }}</span>
+              <span class="ml-auto text-sm font-medium whitespace-nowrap tabular-nums">{{ formatMB(p.usedMB) }}</span>
             </div>
             <div class="flex h-2 overflow-hidden rounded-full bg-muted">
-              <div class="flex h-full gap-px" :style="{ width: `${(p.allocatedMB / max) * 100}%` }">
+              <div class="flex h-full gap-px" :style="{ width: `${(p.usedMB / max) * 100}%` }">
                 <div
                   v-for="part in PARTS"
                   v-show="size(p, part.key) > 0"
@@ -83,7 +77,7 @@ const summary = computed(() => {
                 {{ a.app.name || a.app.slug }}
               </RouterLink>
               <span class="min-w-0 flex-1 truncate text-muted-foreground">{{ detail(a) }}</span>
-              <span class="whitespace-nowrap text-muted-foreground tabular-nums">{{ formatMB(a.allocatedMB) }}</span>
+              <span class="whitespace-nowrap text-muted-foreground tabular-nums">{{ formatMB(a.usedMB) }}</span>
             </li>
           </ul>
         </li>

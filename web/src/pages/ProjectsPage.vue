@@ -177,8 +177,6 @@ function sourceTo(key: string) {
       :projects="all"
       :owner-id="me.data.value.user.id"
       :used-mb="storageUsed"
-      :allocated-mb="storageTaken"
-      :max-mb="quota?.volume_mb || null"
     />
 
     <QueryError v-if="projects.isError.value && !projects.data.value" :error="projects.error.value" @retry="projects.refetch()" />

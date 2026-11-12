@@ -8,10 +8,8 @@ export interface AppStorage {
   backupsMB: number
   /** What /data holds. */
   volumeUsedMB: number
-  /** The size of /data, counted in full; 0 without a volume. */
+  /** The size of /data; 0 without a volume. */
   volumeMB: number
-  /** What counts towards the allowance: files, backups and /data at its full size. */
-  allocatedMB: number
   /** Files, backups and what /data holds. */
   usedMB: number
 }
@@ -19,7 +17,7 @@ export interface AppStorage {
 /**
  * The storage of every app the user owns, biggest first. Apps in a project
  * someone shared with them count towards that owner's allowance, so they are
- * left out. Same sums as the Storage card on the home page.
+ * left out. Same sums as in use on the Storage card on the home page.
  */
 export function storageByApp(apps: readonly App[], ownerId: string): AppStorage[] {
   return apps
@@ -34,11 +32,10 @@ export function storageByApp(apps: readonly App[], ownerId: string): AppStorage[
         backupsMB: app.backups_mb,
         volumeUsedMB,
         volumeMB,
-        allocatedMB: files + app.backups_mb + volumeMB,
         usedMB: files + app.backups_mb + volumeUsedMB,
       }
     })
-    .sort((a, b) => b.allocatedMB - a.allocatedMB || b.usedMB - a.usedMB || (a.app.name || a.app.slug).localeCompare(b.app.name || b.app.slug))
+    .sort((a, b) => b.usedMB - a.usedMB || (a.app.name || a.app.slug).localeCompare(b.app.name || b.app.slug))
 }
 
 /** A project and what its apps take, so a postgres shows under the project it belongs to. */
@@ -50,7 +47,6 @@ export interface ProjectStorage {
   backupsMB: number
   volumeUsedMB: number
   volumeMB: number
-  allocatedMB: number
   usedMB: number
 }
 
@@ -67,10 +63,9 @@ export function storageByProject(projects: readonly Project[], ownerId: string):
         backupsMB: sum((a) => a.backupsMB),
         volumeUsedMB: sum((a) => a.volumeUsedMB),
         volumeMB: sum((a) => a.volumeMB),
-        allocatedMB: sum((a) => a.allocatedMB),
         usedMB: sum((a) => a.usedMB),
       }
     })
     .filter((p) => p.apps.length > 0)
-    .sort((a, b) => b.allocatedMB - a.allocatedMB || b.usedMB - a.usedMB || a.project.name.localeCompare(b.project.name))
+    .sort((a, b) => b.usedMB - a.usedMB || a.project.name.localeCompare(b.project.name))
 }
