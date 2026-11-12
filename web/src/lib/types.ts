@@ -1519,6 +1519,8 @@ export interface NotificationEvent {
   emergency: boolean
   /** On for a new channel. */
   default: boolean
+  /** About the server, not an app: only admins get it (and see it). */
+  admin_only?: boolean
 }
 
 export type NotificationChannelType = 'discord' | 'browser'

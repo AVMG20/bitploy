@@ -10,6 +10,7 @@ import {
   discordWebhookProblem,
   emergencyMark,
   groupEvents,
+  splitAdminEvents,
   isPushServiceError,
   pushServiceHint,
   hex,
@@ -36,6 +37,24 @@ test('events are grouped Deployments, Backups, App', () => {
     ],
   )
   assert.deepEqual(groupEvents(catalog.slice(0, 2)).map((g) => g.group), ['deployments'])
+})
+
+test('admin-only events get their own section', () => {
+  const withAdmin: NotificationEvent[] = [
+    ...catalog,
+    { type: 'server.disk_low', group: 'server', label: 'Disk', emergency: true, default: true, admin_only: true },
+    { type: 'account.created', group: 'accounts', label: 'New account', emergency: false, default: true, admin_only: true },
+  ]
+  const { own, admin } = splitAdminEvents(withAdmin)
+  assert.deepEqual(own.map((g) => g.group), ['deployments', 'backups', 'app'])
+  assert.deepEqual(
+    admin.map((g) => [g.group, g.events.map((e) => e.type)]),
+    [
+      ['server', ['server.disk_low']],
+      ['accounts', ['account.created']],
+    ],
+  )
+  assert.deepEqual(splitAdminEvents(catalog).admin, [])
 })
 
 test('defaults and toggling keep the catalog order', () => {

@@ -22,6 +22,18 @@ export function groupEvents(events: NotificationEvent[]): EventGroup[] {
   return EVENT_GROUPS.map((g) => ({ ...g, events: events.filter((e) => e.group === g.group) })).filter((g) => g.events.length > 0)
 }
 
+/**
+ * The events by group, split into the user's own (about their apps) and the
+ * admin-only ones (about the server), which the picker shows in their own
+ * section.
+ */
+export function splitAdminEvents(events: NotificationEvent[]): { own: EventGroup[]; admin: EventGroup[] } {
+  return {
+    own: groupEvents(events.filter((e) => !e.admin_only)),
+    admin: groupEvents(events.filter((e) => e.admin_only)),
+  }
+}
+
 /** The events a new channel starts with. */
 export function defaultEvents(events: NotificationEvent[]): string[] {
   return events.filter((e) => e.default).map((e) => e.type)
