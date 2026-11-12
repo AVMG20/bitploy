@@ -57,22 +57,17 @@ const items = computed(() => {
 // for you (a new one on top); the one you are in shows its apps.
 const currentProject = computed(() => (typeof route.params.projectId === 'string' ? route.params.projectId : ''))
 const currentSlug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
-const MAX = 12
+// All of them: a long list scrolls with the sidebar.
 const all = computed(() => projects.data.value?.projects ?? [])
 // While dragging: the order the list shows, saved on drop.
 const preview = ref<string[] | null>(null)
-const list = computed(() => {
-  const top = all.value.slice(0, MAX)
-  return preview.value ? sortByIds(top, preview.value) : top
-})
-const more = computed(() => Math.max(0, all.value.length - MAX))
+const list = computed(() => (preview.value ? sortByIds(all.value, preview.value) : all.value))
 // One app per project on an old server: it keeps no order.
 const canSort = computed(() => !projects.data.value?.fallback && all.value.length > 1)
 
 const qc = useQueryClient()
-/** Saves the shown projects in `shown` order, the ones past MAX after them as they were. */
-async function saveOrder(shown: string[]) {
-  const ids = [...shown, ...all.value.map((p) => p.id).filter((id) => !shown.includes(id))]
+/** Saves the projects in `ids` order. */
+async function saveOrder(ids: string[]) {
   if (ids.join() === all.value.map((p) => p.id).join()) return
   await qc.cancelQueries({ queryKey: keys.projects })
   qc.setQueryData<ProjectList>(keys.projects, (old) => (old ? { ...old, projects: sortByIds(old.projects, ids) } : old))
@@ -240,11 +235,6 @@ function subApps(p: (typeof list.value)[number]) {
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
               </SidebarMenuSub>
-            </SidebarMenuItem>
-            <SidebarMenuItem v-if="more">
-              <SidebarMenuButton as-child class="text-muted-foreground">
-                <RouterLink to="/" @click="setOpenMobile(false)"><span>And {{ more }} more</span></RouterLink>
-              </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
