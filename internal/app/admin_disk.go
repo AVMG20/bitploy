@@ -1326,29 +1326,3 @@ func (s *Service) notifyDiskCleanup(ctx context.Context, run DiskCleanupRun, set
 	}
 	s.notifyAdmins(ctx, m, EventDiskLow)
 }
-
-// notifyAdmins queues m for every enabled channel of every active admin
-// that gets one of events.
-func (s *Service) notifyAdmins(ctx context.Context, m notify.Message, events ...string) {
-	s.notifyInit()
-	ids, err := s.Q.ListAdminUserIDs(ctx)
-	if err != nil {
-		return
-	}
-	for _, uid := range ids {
-		chans, err := s.Q.ListEnabledNotificationChannels(ctx, uid)
-		if err != nil {
-			continue
-		}
-		for _, c := range chans {
-			if !subscribed(parseEvents(c.Events), events) {
-				continue
-			}
-			select {
-			case s.notif.queue <- notifyJob{channelID: c.ID, msg: m}:
-			default:
-				s.Log.Warn("notification queue full; message dropped", "channel", c.ID, "event", m.Event)
-			}
-		}
-	}
-}

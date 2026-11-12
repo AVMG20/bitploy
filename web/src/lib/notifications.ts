@@ -8,6 +8,7 @@ export const EVENT_GROUPS: { group: NotificationEventGroup; label: string }[] = 
   { group: 'backups', label: 'Backups' },
   { group: 'app', label: 'App' },
   { group: 'server', label: 'Server' },
+  { group: 'accounts', label: 'Accounts' },
 ]
 
 export interface EventGroup {

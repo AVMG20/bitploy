@@ -446,6 +446,7 @@ type ServerSetting struct {
 	RollbackVersions          int64
 	DiskAutoSteps             string
 	DiskWarnFreePercent       int64
+	LastVersion               string
 }
 
 type Session struct {

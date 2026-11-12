@@ -159,6 +159,8 @@ func serve(log *slog.Logger) error {
 		defer close(notifyDone)
 		svc.RunNotifications(ctx)
 	}()
+	// Tell the admins when this start runs a new version of bitploy.
+	svc.NotifyVersion(ctx)
 
 	handler, stopStreams := api.NewWithStop(svc, mcp.Handler(svc), web.Dist())
 	srv := &http.Server{

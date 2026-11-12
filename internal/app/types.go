@@ -994,7 +994,7 @@ type BackupSettingsInput struct {
 // NotificationEvent is one kind of notification a channel can get.
 type NotificationEvent struct {
 	Type        string `json:"type" doc:"Like deployment.failed"`
-	Group       string `json:"group" enum:"deployments,backups,app,server"`
+	Group       string `json:"group" enum:"deployments,backups,app,server,accounts"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Emergency   bool   `json:"emergency" doc:"Announced loudly: @here on Discord, where other messages ping nobody"`

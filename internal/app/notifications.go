@@ -32,7 +32,8 @@ const (
 	EventBackupSucceeded     = "backup.succeeded"
 	EventBackupFailed        = "backup.failed"
 	EventAppCrashed          = "app.crashed"
-	// EventDiskLow (admin_disk.go) is for admins only.
+	// EventDiskLow (admin_disk.go), EventServerUpdated and EventAccountCreated
+	// (notifications_admin.go) are for admins only.
 	// eventTest is the "Send test message" button; no channel subscribes to it.
 	eventTest = "test"
 )
@@ -54,6 +55,10 @@ var notificationEvents = []NotificationEvent{
 		Description: "The app crashed 5 times within 5 minutes, so bitploy stopped it, or its health check started failing."},
 	{Type: EventDiskLow, Group: "server", Label: "Server disk almost full", Emergency: true, Default: true, AdminOnly: true,
 		Description: "Free disk space fell below the warning level, or the automatic cleanup ran."},
+	{Type: EventServerUpdated, Group: "server", Label: "bitploy updated", Default: true, AdminOnly: true,
+		Description: "bitploy started on a new version."},
+	{Type: EventAccountCreated, Group: "accounts", Label: "New account", Default: true, AdminOnly: true,
+		Description: "Someone made an account with an invite link or open signup."},
 }
 
 // notificationEventsFor are the events a user can subscribe to: the

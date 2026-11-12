@@ -171,6 +171,7 @@ func (s *Service) signup(ctx context.Context, r signupReq) (db.User, error) {
 	if terr != nil {
 		return db.User{}, terr
 	}
+	s.notifyAccountCreated(ctx, user, r)
 	return user, nil
 }
 

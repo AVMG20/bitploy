@@ -1508,7 +1508,7 @@ export interface ComposeCheck {
 
 // ---- notifications (Settings, Notifications) ----
 
-export type NotificationEventGroup = 'deployments' | 'backups' | 'app' | 'server'
+export type NotificationEventGroup = 'deployments' | 'backups' | 'app' | 'server' | 'accounts'
 
 export interface NotificationEvent {
   type: string

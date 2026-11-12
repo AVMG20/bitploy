@@ -23,3 +23,6 @@ LIMIT 500;
 
 -- name: GetProjectInviteByID :one
 SELECT * FROM project_invites WHERE id = ?;
+
+-- name: SetLastVersion :exec
+UPDATE server_settings SET last_version = ? WHERE id = 1;
