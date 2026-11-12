@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Bot, Boxes, Container, FileCode2, Github, Plus, Upload } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
+import StorageAppsDialog from '@/components/StorageAppsDialog.vue'
 import ProjectCard from '@/components/project/ProjectCard.vue'
 import UsageCard from '@/components/UsageCard.vue'
 import { Button } from '@/components/ui/button'
@@ -50,6 +51,8 @@ const appsAlert = computed(() =>
 const showStats = computed(() => projects.isPending.value || all.value.length > 0)
 
 const all = computed(() => projects.data.value?.projects ?? [])
+// Clicking the Storage card shows what each of your apps takes.
+const storageOpen = ref(false)
 
 // Below sm the four cards would push the projects off the screen: one compact figure and bar each.
 const strip = computed(() => {
@@ -95,13 +98,20 @@ function sourceTo(key: string) {
 
     <!-- Each card: in use right now (solid), allocated by the apps (light), and the most that may be allocated (the whole bar). -->
     <div v-if="showStats && strip.length" class="grid grid-cols-2 gap-x-5 gap-y-3 rounded-xl border bg-card px-4 py-3 sm:hidden" data-testid="usage-strip">
-      <div v-for="r in strip" :key="r.label" class="grid min-w-0 gap-1">
+      <component
+        :is="r.label === 'storage' ? 'button' : 'div'"
+        v-for="r in strip"
+        :key="r.label"
+        :type="r.label === 'storage' ? 'button' : undefined"
+        class="grid min-w-0 gap-1 text-left"
+        @click="r.label === 'storage' && (storageOpen = true)"
+      >
         <p class="truncate text-xs text-muted-foreground"><span class="font-medium text-foreground tabular-nums">{{ r.text }}</span> {{ r.label }}</p>
         <div class="relative h-1 w-full overflow-hidden rounded-full bg-muted" role="img" :aria-label="`${r.label}: ${r.text}${r.alert ? '. ' + r.alert : ''}`">
           <div :class="['absolute inset-y-0 left-0 rounded-full opacity-30', stripTone(r.bar.level)]" :style="{ width: `${r.bar.allocatedPct}%` }" />
           <div :class="['absolute inset-y-0 left-0 rounded-full', stripTone(r.bar.level)]" :style="{ width: `${r.bar.usedPct}%` }" />
         </div>
-      </div>
+      </component>
       <p v-for="r in strip.filter((x) => x.alert)" :key="r.label" class="col-span-2 text-xs font-medium text-destructive" role="status">{{ r.alert }}</p>
     </div>
     <Skeleton v-else-if="showStats && me.isPending.value" class="h-24 rounded-xl sm:hidden" />
@@ -142,6 +152,8 @@ function sourceTo(key: string) {
         :max-text="quota ? formatMB(quota.volume_mb) : ''"
         :alert="storageAlert"
         hint="App files, backups and saved files (/data). Allocated counts each saved-files volume at its full size."
+        open-label="See storage per app"
+        @open="storageOpen = true"
       />
       <UsageCard
         title="Apps"
@@ -158,6 +170,16 @@ function sourceTo(key: string) {
         hint="Databases and caches count as apps."
       />
     </div>
+
+    <StorageAppsDialog
+      v-if="me.data.value"
+      v-model:open="storageOpen"
+      :projects="all"
+      :owner-id="me.data.value.user.id"
+      :used-mb="storageUsed"
+      :allocated-mb="storageTaken"
+      :max-mb="quota?.volume_mb || null"
+    />
 
     <QueryError v-if="projects.isError.value && !projects.data.value" :error="projects.error.value" @retry="projects.refetch()" />
 

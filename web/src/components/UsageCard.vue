@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Infinity as InfinityIcon } from 'lucide-vue-next'
+import { ChevronRight, Infinity as InfinityIcon } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usageBar } from '@/lib/usage'
@@ -27,9 +27,13 @@ const props = withDefaults(
     /** Like "8.0 GB"; left out when there is no max. */
     maxText?: string
     alert?: string
+    /** Makes the whole card a button that emits open, like "See storage per app". */
+    openLabel?: string
   }>(),
   { valueLabel: 'in use', allocatedLabel: 'allocated' },
 )
+
+const emit = defineEmits<{ open: [] }>()
 
 const bar = computed(() => usageBar(props.used, props.allocated, props.max))
 const hasMax = computed(() => props.max !== null && props.max > 0)
@@ -44,9 +48,21 @@ const barText = computed(() => {
 </script>
 
 <template>
-  <Card>
+  <Card :class="openLabel && 'relative transition-colors hover:border-foreground/25 has-focus-visible:ring-2 has-focus-visible:ring-ring'">
+    <!-- Covers the card, so the whole card opens the details. -->
+    <button
+      v-if="openLabel"
+      type="button"
+      class="absolute inset-0 z-10 rounded-xl outline-none"
+      :aria-label="`${title}: ${openLabel}`"
+      :title="hint ? `${hint}\n\n${openLabel}` : openLabel"
+      @click="emit('open')"
+    />
     <CardHeader class="pb-1">
-      <CardTitle class="text-xs font-medium tracking-wide text-muted-foreground uppercase" :title="hint">{{ title }}</CardTitle>
+      <CardTitle class="flex items-center justify-between gap-2 text-xs font-medium tracking-wide text-muted-foreground uppercase" :title="hint">
+        {{ title }}
+        <ChevronRight v-if="openLabel" class="size-3.5 shrink-0" aria-hidden="true" />
+      </CardTitle>
     </CardHeader>
     <CardContent class="grid gap-2">
       <template v-if="loading">
