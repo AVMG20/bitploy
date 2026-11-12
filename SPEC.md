@@ -369,7 +369,7 @@ Also expose the rules as resource `bitploy://rules` and each template as `bitplo
 | `env_file_in_context` | warning | `.env` would be copied into the image; suggest `set_env` and `.dockerignore` |
 | `no_dockerignore` | warning | `node_modules`, `.git` or `venv` present without a `.dockerignore` |
 | `unpinned_base` | warning | Base image has no tag or uses `latest` |
-| `runs_as_root` | warning | Final stage has no `USER` |
+| `runs_as_root` | info | Final stage has no `USER` (or `USER root`) |
 | `compose_ignored` | warning | A compose file with several services at the top: only the Dockerfile is built; the hint suggests SQLite in `/data`, and `update_app(build_mode="compose")` only if the app needs those services |
 | `database_server_in_image` | warning | A `RUN` installs a database server (postgresql, mysql-server, mariadb-server, redis); use SQLite in `/data` |
 | `lockfile_mismatch` | warning | `npm ci` but the only lock file is pnpm's, yarn's or bun's |

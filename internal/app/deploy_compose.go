@@ -175,6 +175,14 @@ func issueFinding(i deploy.ComposeIssue) deploy.Finding {
 	return deploy.Finding{Code: i.Code, Severity: "warning", Message: i.Message, Hint: i.Hint}
 }
 
+// quietOnDeploy reports compose notes that ask nothing of the user: bitploy
+// handles them by itself (published ports, variables it sets like PORT). A
+// deployment does not list them; validate_compose and the preview still do.
+func quietOnDeploy(i deploy.ComposeIssue) bool {
+	return i.Code == deploy.CodeComposePortsIgnored ||
+		i.Code == deploy.CodeComposeKeyIgnored && strings.HasPrefix(i.Key, "environment.")
+}
+
 // checkComposeServices runs the Dockerfile checks of every service built
 // from the source, as for an app with one Dockerfile, and fills in the port of
 // a public service from its Dockerfile's EXPOSE. It returns the warnings of
@@ -182,6 +190,9 @@ func issueFinding(i deploy.ComposeIssue) deploy.Finding {
 func (s *Service) checkComposeServices(app db.App, proj *deploy.ComposeProject, files []string, read func(string) []byte) ([]deploy.Finding, *apperr.Error) {
 	var out []deploy.Finding
 	for _, w := range proj.Warnings {
+		if quietOnDeploy(w) {
+			continue
+		}
 		out = append(out, issueFinding(w))
 	}
 	for i := range proj.Services {

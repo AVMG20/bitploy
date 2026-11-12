@@ -616,7 +616,7 @@ func (g *graph) runsAsRoot(i int, final instructions.Stage) (Finding, bool) {
 		}
 		return Finding{
 			Code:     CodeRunsAsRoot,
-			Severity: sevWarning,
+			Severity: sevInfo,
 			Line:     userLine,
 			Message:  "The last stage runs as root (USER root), so a bug in the app has full rights inside the container.",
 			Hint:     "Create a normal user and switch to it before CMD, for example `RUN adduser -D app` then `USER app` on Alpine, or `USER node` on node images.",
@@ -627,7 +627,7 @@ func (g *graph) runsAsRoot(i int, final instructions.Stage) (Finding, bool) {
 	}
 	return Finding{
 		Code:     CodeRunsAsRoot,
-		Severity: sevWarning,
+		Severity: sevInfo,
 		Line:     stageLine(final),
 		Message:  "The last stage has no USER line, so the app runs as root inside the container.",
 		Hint:     "Add a USER line before CMD: `USER node` on node images, or create one with `RUN adduser -D app` and `USER app` on Alpine, or `RUN useradd -r app` and `USER app` on Debian.",
@@ -1239,8 +1239,8 @@ func (g *graph) noLockfile(files []string) (Finding, bool) {
 // nativeModules are npm packages with compiled code. Their ready-made
 // binaries are built for Debian (glibc) first; on Alpine (musl) npm often has
 // to compile them, which needs python3, make and g++ and can take many
-// minutes or fail.
-var nativeModules = []string{"better-sqlite3", "sqlite3", "bcrypt", "argon2", "sharp", "canvas", "node-pty", "re2"}
+// minutes or fail. sharp is not here: it ships ready-made Alpine builds.
+var nativeModules = []string{"better-sqlite3", "sqlite3", "bcrypt", "argon2", "canvas", "node-pty", "re2"}
 
 // nativeOnAlpine flags native modules in package.json when a stage that
 // installs packages builds on an Alpine image. Only the deploy pipeline (and

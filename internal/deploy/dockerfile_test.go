@@ -687,7 +687,7 @@ func TestFirstErrorNewStacks(t *testing.T) {
 
 func TestNativeModuleOnAlpine(t *testing.T) {
 	const tail = "\nUSER node\nEXPOSE 3000\nCMD [\"node\",\"x.js\"]\n"
-	sqlite := `{"dependencies": {"express": "^4.21.0", "better-sqlite3": "^11.3.0"}, "devDependencies": {"sharp": "0.33.5"}}`
+	sqlite := `{"dependencies": {"express": "^4.21.0", "better-sqlite3": "^11.3.0", "sharp": "0.33.5"}, "devDependencies": {"bcrypt": "5.1.1"}}`
 	tests := []struct {
 		name string
 		df   string
@@ -696,11 +696,12 @@ func TestNativeModuleOnAlpine(t *testing.T) {
 		line int
 		in   string // in the message
 	}{
-		{"alpine", "FROM node:24-alpine\nCOPY package*.json ./\nRUN npm ci" + tail, sqlite, true, 1, "better-sqlite3, sharp"},
+		{"alpine", "FROM node:24-alpine\nCOPY package*.json ./\nRUN npm ci" + tail, sqlite, true, 1, "better-sqlite3, bcrypt"},
 		{"alpine build stage", "FROM node:24-alpine AS build\nRUN npm ci\nFROM node:22-bookworm-slim\nCOPY --from=build /app /app" + tail, sqlite, true, 1, "node:24-alpine"},
 		{"stage built on an alpine stage", "ARG V=24\nFROM node:${V}-alpine AS base\nFROM base AS deps\nRUN yarn install --frozen-lockfile" + tail, sqlite, true, 3, "node:24-alpine"},
 		{"bun on alpine", "FROM oven/bun:1-alpine\nRUN bun install" + tail, `{"dependencies": {"bcrypt": "5.1.1"}}`, true, 1, "bcrypt"},
 		{"debian", "FROM node:22-bookworm-slim\nRUN npm ci" + tail, sqlite, false, 0, ""},
+		{"sharp has alpine builds", "FROM node:24-alpine\nRUN npm ci" + tail, `{"dependencies": {"sharp": "0.33.5"}}`, false, 0, ""},
 		{"alpine without native modules", "FROM node:24-alpine\nRUN npm ci" + tail, `{"dependencies": {"express": "^4.21.0"}}`, false, 0, ""},
 		{"alpine final stage installs nothing", "FROM node:22-bookworm-slim AS build\nRUN npm ci\nFROM node:24-alpine\nCOPY --from=build /app /app" + tail, sqlite, false, 0, ""},
 		{"package.json unknown", "FROM node:24-alpine\nRUN npm ci" + tail, "", false, 0, ""},

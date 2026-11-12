@@ -22,6 +22,7 @@ import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole } from '@/lib/services'
 import CancelBuildButton from './CancelBuildButton.vue'
 import DeployFailure from './DeployFailure.vue'
+import DeploymentWarnings from './DeploymentWarnings.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
@@ -190,22 +191,7 @@ function serviceState(d: Deployment, s: DeploymentService) {
             </li>
           </ul>
         </details>
-        <ul v-if="d.warnings?.length" class="grid gap-1 text-sm">
-          <li
-            v-for="(w, i) in d.warnings"
-            :key="i"
-            :class="w.severity === 'info' ? 'text-muted-foreground' : 'text-warning-text'"
-          >
-            {{ w.message }}<template v-if="plainHint(w.code, w.hint)">&nbsp;{{ plainHint(w.code, w.hint) }}</template>
-            <RouterLink
-              v-if="w.code === 'after_deploy_failed'"
-              :to="{ name: 'app-settings', params: { slug }, hash: '#deploy-commands' }"
-              class="ml-1 font-medium underline underline-offset-2"
-            >
-              Change the deploy commands
-            </RouterLink>
-          </li>
-        </ul>
+        <DeploymentWarnings v-if="d.warnings?.length" :warnings="d.warnings" :slug="slug" />
         <p v-if="d.after_deploy === 'pending' || d.after_deploy === 'running'" class="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 class="size-3.5 animate-spin" aria-hidden="true" />
           This version is live. Running its after-deploy command now (up to 5 minutes).

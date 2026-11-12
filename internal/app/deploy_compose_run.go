@@ -89,7 +89,7 @@ func (p *pipeline) useSingleService(ctx context.Context, ch composeChoice) {
 	p.app = singleFromCompose(p.app, svc)
 	p.logf("%s has one service (%s): building it like an app with one Dockerfile (%s).", ch.path, svc.Name, svc.Dockerfile)
 	for _, w := range ch.proj.Warnings {
-		if w.Code == deploy.CodeComposeIgnored {
+		if w.Code == deploy.CodeComposeIgnored || quietOnDeploy(w) {
 			continue
 		}
 		p.findings = append(p.findings, issueFinding(w))
