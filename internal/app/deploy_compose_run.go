@@ -124,12 +124,13 @@ func (p *pipeline) useSingleService(ctx context.Context, ch composeChoice) {
 func (p *pipeline) buildCompose(ctx context.Context) *apperr.Error {
 	s := p.s
 	bld := s.buildBuilder()
-	if err := bld.Ensure(ctx); err != nil {
+	if err := bld.BeginBuild(ctx); err != nil {
 		if ctx.Err() != nil {
 			return errCancelled
 		}
 		return asApperr(err, "builder_unavailable")
 	}
+	defer bld.EndBuild()
 	prevImage := p.liveImages(ctx)
 	var primary string
 	var total int64

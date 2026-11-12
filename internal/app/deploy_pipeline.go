@@ -545,12 +545,13 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		return perr
 	}
 	bld := s.buildBuilder()
-	if err := bld.Ensure(ctx); err != nil {
+	if err := bld.BeginBuild(ctx); err != nil {
 		if ctx.Err() != nil {
 			return errCancelled
 		}
 		return asApperr(err, "builder_unavailable")
 	}
+	defer bld.EndBuild()
 	p.image = dockerx.ImageName(p.app.Slug, p.dep.Seq)
 	labels := s.Docker.ManagedLabels(p.app.ID, p.app.Slug)
 	labels[dockerx.LabelDeployment] = p.dep.ID

@@ -41,6 +41,9 @@ const (
 	// BuildKit state in (/var/lib/buildkit): the builder's cache. Docker counts
 	// it as a volume, not as build cache.
 	BuilderStateVolume = BuilderContainer + "_state"
+	// BuilderIdleTimeout is how long the isolated builder may stay idle before
+	// bitploy stops it to release its memory. The BuildKit state volume remains.
+	BuilderIdleTimeout = 8 * time.Hour
 	// BuilderLabel marks the network; it is deliberately not nl.bitploy.managed,
 	// so no app cleanup ever touches it.
 	BuilderLabel = "nl.bitploy.builder"
@@ -53,7 +56,37 @@ type Builder struct {
 	CPUs      string // default config.DefaultBuilderCPUs
 	Memory    string // default config.DefaultBuilderMemory
 
-	mu sync.Mutex
+	mu           sync.Mutex
+	activeBuilds int
+	lastBuildUse time.Time
+	now          func() time.Time // tests replace it; nil means time.Now
+}
+
+// lastUseFile keeps the end of the last build, so a restart of bitploy does
+// not reset the idle interval.
+const lastUseFile = "bitploy-builder.last-use"
+
+// NewBuilder returns the isolated builder with its idle clock read from
+// ConfigDir: a builder left running before a restart of bitploy is still
+// stopped once it has been idle long enough.
+func NewBuilder(configDir, cpus, memory string) *Builder {
+	b := &Builder{ConfigDir: configDir, CPUs: cpus, Memory: memory}
+	b.lastBuildUse = b.clock()
+	if configDir != "" {
+		if raw, err := os.ReadFile(filepath.Join(configDir, lastUseFile)); err == nil {
+			if ns, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil && ns > 0 {
+				b.lastBuildUse = time.Unix(0, ns)
+			}
+		}
+	}
+	return b
+}
+
+func (b *Builder) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
 }
 
 func (b *Builder) docker() string {
@@ -119,11 +152,111 @@ func (b *Builder) run(ctx context.Context, args ...string) (string, error) {
 }
 
 // Ensure makes sure the network and the builder exist, run and match the
-// configured limits, creating or repairing them when needed. It is called
-// before every build; when everything is in place it costs two docker calls.
+// configured limits, creating or repairing them when needed. Build pipelines
+// should use BeginBuild so idle shutdown also knows when they are active.
 func (b *Builder) Ensure(parent context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.ensureLocked(parent)
+}
+
+// BeginBuild ensures the builder is ready and marks it in use, so the idle
+// stop leaves it alone. The caller calls EndBuild when its builds are done.
+func (b *Builder) BeginBuild(parent context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.ensureLocked(parent); err != nil {
+		return err
+	}
+	b.activeBuilds++
+	b.lastBuildUse = b.clock()
+	return nil
+}
+
+// EndBuild ends one BeginBuild; the idle interval starts when the last
+// active build ends.
+func (b *Builder) EndBuild() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.activeBuilds > 0 {
+		b.activeBuilds--
+	}
+	if b.activeBuilds == 0 {
+		b.lastBuildUse = b.clock()
+		if b.ConfigDir != "" {
+			_ = os.WriteFile(filepath.Join(b.ConfigDir, lastUseFile),
+				[]byte(strconv.FormatInt(b.lastBuildUse.UnixNano(), 10)+"\n"), 0o600)
+		}
+	}
+}
+
+// idleLocked: no build is running and none ended in the last BuilderIdleTimeout.
+func (b *Builder) idleLocked() bool {
+	return b.activeBuilds == 0 && b.clock().Sub(b.lastBuildUse) >= BuilderIdleTimeout
+}
+
+// statusLocked is the builder node's status as `buildx inspect` reports it
+// ("running", "stopped", "inactive", ...); "" when there is no builder or
+// Docker cannot be reached.
+func (b *Builder) statusLocked(ctx context.Context) string {
+	out, err := b.run(ctx, "buildx", "inspect", BuilderName)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Status:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return "unknown"
+}
+
+// StopIfIdle stops the BuildKit container once no build has run for
+// BuilderIdleTimeout, to release its memory. `buildx stop` keeps the builder
+// and its state volume with the build cache; the next build or prune starts
+// it again. It reports whether it stopped a running builder.
+func (b *Builder) StopIfIdle(ctx context.Context) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.idleLocked() || b.statusLocked(ctx) != "running" {
+		return false, nil
+	}
+	if out, err := b.run(ctx, "buildx", "stop", BuilderName); err != nil {
+		return false, fmt.Errorf("docker buildx stop: %s", lastLine(out))
+	}
+	return true, nil
+}
+
+// pruneLocked runs `docker buildx prune` with args. buildx cannot prune a
+// stopped builder, so it starts one first and stops it again afterwards when
+// it is idle. Without a builder (no build has run yet) there is nothing to
+// prune.
+func (b *Builder) pruneLocked(ctx context.Context, args ...string) (int64, error) {
+	status := b.statusLocked(ctx)
+	if status == "" {
+		return 0, nil
+	}
+	if status != "running" {
+		if out, err := b.run(ctx, "buildx", "inspect", BuilderName, "--bootstrap"); err != nil {
+			return 0, fmt.Errorf("start the builder to prune it: %s", lastLine(out))
+		}
+	}
+	out, err := b.run(ctx, append([]string{"buildx", "prune", "--builder", BuilderName, "--all", "--force"}, args...)...)
+	if err != nil {
+		err = fmt.Errorf("docker buildx prune: %s", lastLine(out))
+	}
+	if b.idleLocked() {
+		if sout, serr := b.run(ctx, "buildx", "stop", BuilderName); serr != nil {
+			err = errors.Join(err, fmt.Errorf("docker buildx stop: %s", lastLine(sout)))
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	return PruneTotal(out), nil
+}
+
+func (b *Builder) ensureLocked(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
@@ -205,18 +338,11 @@ func lastLine(s string) string {
 func (b *Builder) Prune(ctx context.Context, keepBytes int64) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, err := b.run(ctx, "buildx", "inspect", BuilderName); err != nil {
-		return 0, nil
-	}
-	args := []string{"buildx", "prune", "--builder", BuilderName, "--all", "--force"}
+	var args []string
 	if keepBytes > 0 {
 		args = append(args, "--max-used-space", strconv.FormatInt(keepBytes, 10))
 	}
-	out, err := b.run(ctx, args...)
-	if err != nil {
-		return 0, fmt.Errorf("docker buildx prune: %s", lastLine(out))
-	}
-	return PruneTotal(out), nil
+	return b.pruneLocked(ctx, args...)
 }
 
 // PruneUnused deletes the builder's cache that no build used in the last
@@ -226,15 +352,7 @@ func (b *Builder) Prune(ctx context.Context, keepBytes int64) (int64, error) {
 func (b *Builder) PruneUnused(ctx context.Context, unusedFor time.Duration) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, err := b.run(ctx, "buildx", "inspect", BuilderName); err != nil {
-		return 0, nil
-	}
-	out, err := b.run(ctx, "buildx", "prune", "--builder", BuilderName, "--all", "--force",
-		"--filter", fmt.Sprintf("until=%dh", int(unusedFor.Hours())))
-	if err != nil {
-		return 0, fmt.Errorf("docker buildx prune: %s", lastLine(out))
-	}
-	return PruneTotal(out), nil
+	return b.pruneLocked(ctx, "--filter", fmt.Sprintf("until=%dh", int(unusedFor.Hours())))
 }
 
 // PruneTotal reads the "Total: 1.2GB" line that `docker buildx prune` ends

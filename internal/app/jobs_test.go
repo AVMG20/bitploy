@@ -52,7 +52,7 @@ func TestJobDefs(t *testing.T) {
 	for _, id := range []string{
 		metrics.JobCollect, metrics.JobRollup, metrics.JobVolumeQuota, metrics.JobPruneMetrics, metrics.JobMeasureDisk,
 		metrics.JobDockerPrune, metrics.JobBackupDB, metrics.JobPruneAudit, metrics.JobOldUploads, traffic.JobFlush,
-		"disk_watch", "disk_stale_cache",
+		"disk_watch", "disk_stale_cache", "builder_idle",
 	} {
 		if !seen[id] {
 			t.Errorf("no job row for %s", id)

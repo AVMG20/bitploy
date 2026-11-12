@@ -58,7 +58,7 @@ func TestIsolatedBuilderIntegration(t *testing.T) {
 		docker("rmi", "bitploy/bp-test-evil:1")
 		t.Fatalf("build from a local bitploy image must fail:\n%s", out)
 	}
-	if err := b.Prune(t.Context(), 1<<30); err != nil {
+	if _, err := b.Prune(t.Context(), 1<<30); err != nil {
 		t.Errorf("prune: %v", err)
 	}
 }

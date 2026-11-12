@@ -63,7 +63,7 @@ func (s *Service) appLock(appID string) *sync.Mutex {
 func (s *Service) buildBuilder() *deploy.Builder {
 	r := &s.deployRT
 	r.builderOnce.Do(func() {
-		r.builder = &deploy.Builder{ConfigDir: s.Cfg.BuildxDir(), CPUs: s.Cfg.BuilderCPUs, Memory: s.Cfg.BuilderMemory}
+		r.builder = deploy.NewBuilder(s.Cfg.BuildxDir(), s.Cfg.BuilderCPUs, s.Cfg.BuilderMemory)
 	})
 	return r.builder
 }

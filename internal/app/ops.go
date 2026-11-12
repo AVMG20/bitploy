@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AVMG20/bitploy/internal/deploy"
 	"github.com/AVMG20/bitploy/internal/dockerx"
 	"github.com/AVMG20/bitploy/internal/domains"
 	"github.com/AVMG20/bitploy/internal/metrics"
@@ -97,8 +98,45 @@ func (s *Service) RunBackground(ctx context.Context) {
 		defer wg.Done()
 		s.runBackups(ctx)
 	}()
+	if s.Docker != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.runBuilderIdleStopper(ctx)
+		}()
+	}
 	s.metricsMgr().Run(ctx)
 	wg.Wait()
+}
+
+// builderIdleEvery is how often the idle builder check runs.
+const builderIdleEvery = 5 * time.Minute
+
+// runBuilderIdleStopper stops the BuildKit container after
+// deploy.BuilderIdleTimeout without builds, to release its memory. Its
+// state volume stays, so the build cache is still there next time.
+func (s *Service) runBuilderIdleStopper(ctx context.Context) {
+	t := time.NewTicker(builderIdleEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			start := s.Now()
+			stopCtx, cancel := context.WithTimeout(ctx, time.Minute)
+			stopped, err := s.buildBuilder().StopIfIdle(stopCtx)
+			cancel()
+			summary := ""
+			if err != nil {
+				s.Log.Warn("stop idle buildx builder", "err", err)
+			} else if stopped {
+				summary = "stopped the builder"
+				s.Log.Info("stopped idle buildx builder", "idle_for", deploy.BuilderIdleTimeout)
+			}
+			s.jobRan("builder_idle", start, err, summary)
+		}
+	}
 }
 
 // domainCheckEvery is how often pending domains are re-checked.

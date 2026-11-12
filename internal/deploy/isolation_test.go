@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AVMG20/bitploy/internal/config"
 )
@@ -132,4 +133,85 @@ exit 0`)
 	if c := calls(); !strings.Contains(c, "buildx rm --force bitploy") || !strings.Contains(c, "memory=4g") {
 		t.Errorf("changed limits must recreate the builder:\n%s", c)
 	}
+}
+
+// The idle stop: a builder is stopped only after BuilderIdleTimeout without
+// builds, never during one, and every prune starts a stopped builder first
+// (buildx cannot prune one) and stops it again when it is idle.
+func TestBuilderIdleStop(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	state := filepath.Join(dir, "state")
+	os.MkdirAll(state, 0o755)
+	fake := fakeDocker(t, `echo "$@" >> `+log+`
+case "$1 $2" in
+  "network inspect") ;;
+  "buildx inspect")
+    [ -e `+state+`/builder ] || { echo "no builder" >&2; exit 1; }
+    if [ "$4" = "--bootstrap" ]; then touch `+state+`/running; fi
+    if [ -e `+state+`/running ]; then echo "Status: running"; else echo "Status: stopped"; fi ;;
+  "buildx create") touch `+state+`/builder `+state+`/running ;;
+  "buildx stop") rm -f `+state+`/running ;;
+  "buildx prune") [ -e `+state+`/running ] || { echo "ERROR: container is not running" >&2; exit 1; }; echo "Total: 1.5GB" ;;
+esac
+exit 0`)
+	cfg := filepath.Join(dir, "buildx")
+	now := time.Now()
+	b := NewBuilder(cfg, "2", "3g")
+	b.Docker = fake
+	b.now = func() time.Time { return now }
+	calls := func() string { c, _ := os.ReadFile(log); os.Remove(log); return string(c) }
+	running := func() bool { _, err := os.Stat(state + "/running"); return err == nil }
+
+	if stopped, err := b.StopIfIdle(t.Context()); stopped || err != nil {
+		t.Fatalf("no builder yet: stopped=%v err=%v", stopped, err)
+	}
+	if n, err := b.Prune(t.Context(), 0); n != 0 || err != nil || strings.Contains(calls(), "buildx prune") {
+		t.Fatalf("no builder, nothing to prune: %d %v", n, err)
+	}
+
+	if err := b.BeginBuild(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(9 * time.Hour) // a long build
+	if stopped, _ := b.StopIfIdle(t.Context()); stopped || !running() {
+		t.Fatal("a builder in use must not be stopped")
+	}
+	b.EndBuild()
+	now = now.Add(BuilderIdleTimeout - time.Minute)
+	if stopped, _ := b.StopIfIdle(t.Context()); stopped || !running() {
+		t.Fatal("stopped before the idle timeout")
+	}
+	now = now.Add(time.Minute)
+	if stopped, err := b.StopIfIdle(t.Context()); !stopped || err != nil || running() {
+		t.Fatalf("idle builder not stopped: %v %v", stopped, err)
+	}
+	if stopped, _ := b.StopIfIdle(t.Context()); stopped {
+		t.Fatal("a stopped builder must not be stopped again")
+	}
+
+	// A prune of a stopped, idle builder starts it and stops it again.
+	calls()
+	n, err := b.PruneUnused(t.Context(), 7*24*time.Hour)
+	if err != nil || n != 1_500_000_000 || running() {
+		t.Fatalf("prune while stopped: %d %v running=%v", n, err, running())
+	}
+	if c := calls(); !strings.Contains(c, "buildx inspect bitploy --bootstrap") || !strings.Contains(c, "until=168h") || !strings.Contains(c, "buildx stop bitploy") {
+		t.Errorf("calls:\n%s", c)
+	}
+
+	// The idle clock survives a restart of bitploy.
+	b2 := NewBuilder(cfg, "2", "3g")
+	if want := now.Add(-BuilderIdleTimeout); !b2.lastBuildUse.Equal(want) {
+		t.Errorf("last use after restart = %v, want %v", b2.lastBuildUse, want)
+	}
+
+	// While a build runs, a prune leaves the builder running.
+	if err := b.BeginBuild(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Prune(t.Context(), 10<<30); err != nil || !running() {
+		t.Fatalf("prune during a build: %v running=%v", err, running())
+	}
+	b.EndBuild()
 }
