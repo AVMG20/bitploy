@@ -435,16 +435,8 @@ func (p *pipeline) afterDeploy(ctx context.Context, cmd string) {
 func (p *pipeline) afterDeployFailed(ctx context.Context, why string) {
 	msg := "The after-deploy command failed. " + why + " The new version stays live."
 	p.logf("WARNING: %s", msg)
-	f := deploy.Finding{Code: codeAfterDeployFailed, Severity: "warning", Message: msg,
-		Hint: "Read its output in the deploy log (get_logs kind=build, the lines marked [after-deploy]). Fix the command (update_app after_deploy_command=...) or the code; it runs again on the next deploy."}
-	if d, err := p.s.Q.GetDeployment(ctx, p.dep.ID); err == nil {
-		var list []deploy.Finding
-		if d.Warnings.Valid && d.Warnings.String != "" {
-			_ = json.Unmarshal([]byte(d.Warnings.String), &list)
-		}
-		list = append(list, f)
-		_ = p.s.Q.SetDeploymentWarnings(ctx, db.SetDeploymentWarningsParams{Warnings: nullStr(mustJSON(list)), ID: p.dep.ID})
-	}
+	p.addWarning(ctx, deploy.Finding{Code: codeAfterDeployFailed, Severity: "warning", Message: msg,
+		Hint: "Read its output in the deploy log (get_logs kind=build, the lines marked [after-deploy]). Fix the command (update_app after_deploy_command=...) or the code; it runs again on the next deploy."})
 	p.markAfterDeploy(ctx, afterDeployFailed)
 	p.s.notifyAfterDeployFailed(ctx, p.dep.ID, why)
 }

@@ -34,6 +34,7 @@ const (
 	CodePortAmbiguous     = "port_ambiguous"
 	CodePortFromImage     = "port_from_image"
 	CodeImageTooLarge     = "image_too_large"
+	CodeLargeImage        = "large_image"
 	CodeEnvFileInContext  = "env_file_in_context"
 	CodeNoDockerignore    = "no_dockerignore"
 	CodeUnpinnedBase      = "unpinned_base"
@@ -47,6 +48,7 @@ const (
 	CodeCacheMount        = "cache_mount_forbidden"
 	CodeNoLockfile        = "no_lockfile"
 	CodeNativeOnAlpine    = "native_module_on_alpine"
+	CodeDevDepsInImage    = "dev_deps_in_image"
 )
 
 // ReservedPort is Traefik's internal entrypoint. firewall.sh drops connections
@@ -64,6 +66,25 @@ func ImageTooLargeFinding(sizeBytes int64) Finding {
 		Message:  fmt.Sprintf("The built image is %.1f GB; bitploy allows at most 2 GB.", float64(sizeBytes)/(1<<30)),
 		Hint:     "Use a smaller base image (an -alpine or -slim tag), build in two stages and copy only the result into the final stage, add a .dockerignore for node_modules, .git and other big folders, and do not download large files during the build.",
 	}
+}
+
+// LargeImageBytes is the size above which a built image gets the large_image
+// warning. A web app on a slim base image is usually 100 to 400 MB; above
+// this the image mostly holds build tools, dev dependencies or caches.
+const LargeImageBytes = 800 << 20
+
+// LargeImageFinding is the warning for a built image over LargeImageBytes
+// (and within MaxImageBytes). ok is false for a smaller image.
+func LargeImageFinding(sizeBytes int64) (Finding, bool) {
+	if sizeBytes <= LargeImageBytes {
+		return Finding{}, false
+	}
+	return Finding{
+		Code:     CodeLargeImage,
+		Severity: sevWarning,
+		Message:  fmt.Sprintf("The built image is %d MB. A web app usually needs 100 to 400 MB, so it probably holds files it does not use while it runs; every version kept for a rollback takes that space again.", sizeBytes>>20),
+		Hint:     "Build in two stages and copy only what the app runs into the last one. Node.js: no dev dependencies (npm prune --omit=dev after the build, or npm ci --omit=dev in the last stage), no source or node_modules next to a self-contained build (Nuxt: only .output; Next.js: output standalone). Keep node_modules, .git and build caches out with .dockerignore. validate_dockerfile with package_json names the line (dev_deps_in_image).",
+	}, true
 }
 
 // Finding is one Dockerfile check result.
@@ -259,6 +280,11 @@ func CheckDockerfile(in CheckInput) CheckResult {
 
 	// Native Node modules installed on Alpine.
 	if f, ok := g.nativeOnAlpine(in.PackageJSON); ok {
+		add(f)
+	}
+
+	// The dev dependencies of package.json left in the image.
+	if f, ok := g.devDepsInImage(last, in.PackageJSON); ok {
 		add(f)
 	}
 
@@ -1283,4 +1309,186 @@ func (g *graph) nativeOnAlpine(pkgJSON []byte) (Finding, bool) {
 		}, true
 	}
 	return Finding{}, false
+}
+
+// ---- dev dependencies in the image ----
+
+// devDepsInImage flags a last stage that keeps the dev dependencies of
+// package.json: it installs all of them (or copies node_modules or the whole
+// app folder from a stage that did) and nothing removes them afterwards. They
+// are the compilers and bundlers of the build (TypeScript, Vite, the Nuxt and
+// Next.js builders) and often make up most of a Node image. With a
+// package.json that has no devDependencies there is nothing to warn about.
+func (g *graph) devDepsInImage(last int, pkgJSON []byte) (Finding, bool) {
+	fw := ""
+	if len(pkgJSON) > 0 {
+		var pkg struct {
+			DevDependencies map[string]any `json:"devDependencies"`
+		}
+		if json.Unmarshal(pkgJSON, &pkg) != nil {
+			return Finding{}, false
+		}
+		if len(pkg.DevDependencies) == 0 {
+			return Finding{}, false
+		}
+		if p, ok := readProject(nil, false, func(string) []byte { return pkgJSON }); ok {
+			fw = p.framework()
+		}
+	}
+	line := g.devDepsLine(last, 0)
+	if line == 0 {
+		return Finding{}, false
+	}
+	hint := "Build in a first stage, and in the last stage keep only what the app runs: either run `npm prune --omit=dev` (pnpm: `pnpm prune --prod`) after the build and copy the folder, or install with `npm ci --omit=dev` in the last stage and copy only the build output (dist, build) and package.json from the first. A package the app needs while it runs (also tsx or ts-node in the start command) belongs in dependencies, not devDependencies."
+	switch fw {
+	case fwNuxt:
+		hint = "Nuxt builds a server that runs by itself: build in a first stage and copy only `.output` into the last one (`COPY --from=build /app/.output ./.output`, `CMD [\"node\", \".output/server/index.mjs\"]`). It needs no node_modules and no package.json."
+	case fwNext:
+		hint = "Add `output: \"standalone\"` to the Next.js config and use the nextjs template of get_template: the last stage copies only `.next/standalone`, `.next/static` and `public` and runs `node server.js`, without node_modules."
+	case fwSvelteKit:
+		hint = "With @sveltejs/adapter-node, build in a first stage and run `npm prune --omit=dev` after the build; copy `build`, `package.json` and the pruned node_modules into the last stage and start with `node build`. Packages in devDependencies are bundled into the build, so they are not needed at run time."
+	}
+	return Finding{
+		Code:     CodeDevDepsInImage,
+		Severity: sevWarning,
+		Line:     line,
+		Message:  "The image keeps the dev dependencies of package.json: line " + strconv.Itoa(line) + " brings in all of them and nothing removes them later. They are the build tools (TypeScript, Vite, framework compilers) and can make the image hundreds of MB bigger than the app needs.",
+		Hint:     hint,
+	}, true
+}
+
+// devDepsLine walks the stage chain of stage i in order and returns the line
+// that last brought the dev dependencies into it (an install that keeps them,
+// or a COPY --from of node_modules or the app folder of a stage that has
+// them), or 0 when there are none or a later line removes them.
+func (g *graph) devDepsLine(i, depth int) int {
+	if depth > len(g.stages) {
+		return 0
+	}
+	line, prodEnv := 0, false
+	vars := map[string]string{}
+	for k, v := range g.meta {
+		vars[k] = v
+	}
+	for _, idx := range g.chain(i) {
+		for _, c := range g.stages[idx].Commands {
+			switch c := c.(type) {
+			case *instructions.ArgCommand:
+				for _, kv := range c.Args {
+					if kv.Value != nil {
+						if v, ok := g.expand(*kv.Value, vars); ok {
+							vars[kv.Key] = v
+						}
+					}
+				}
+			case *instructions.EnvCommand:
+				for _, kv := range c.Env {
+					v, _ := g.expand(kv.Value, vars)
+					vars[kv.Key] = v
+					if kv.Key == "NODE_ENV" {
+						prodEnv = strings.Trim(v, "\"'") == "production"
+					}
+				}
+			case *instructions.RunCommand:
+				text := strings.ReplaceAll(runText(c), "\\\n", " ")
+				for _, seg := range shellSplit.Split(text, -1) {
+					switch devDepsEffect(seg, prodEnv) {
+					case devKept:
+						line = firstLine(c.Location())
+					case devRemoved:
+						line = 0
+					}
+				}
+			case *instructions.CopyCommand:
+				j, ok := g.byName[strings.ToLower(c.From)]
+				if c.From == "" || !ok || j >= idx {
+					continue
+				}
+				if g.copiesAppFolder(j, c.SourcePaths) && g.devDepsLine(j, depth+1) > 0 {
+					line = firstLine(c.Location())
+				}
+			}
+		}
+	}
+	return line
+}
+
+// copiesAppFolder reports whether a COPY --from of stage j takes node_modules
+// or the whole folder the stage worked in (its WORKDIR, or /).
+func (g *graph) copiesAppFolder(j int, srcs []string) bool {
+	workdir := "/"
+	for _, idx := range g.chain(j) {
+		for _, c := range g.stages[idx].Commands {
+			if w, ok := c.(*instructions.WorkdirCommand); ok {
+				if strings.HasPrefix(w.Path, "/") {
+					workdir = path.Clean(w.Path)
+				} else {
+					workdir = path.Join(workdir, w.Path)
+				}
+			}
+		}
+	}
+	for _, src := range srcs {
+		abs := src
+		if !strings.HasPrefix(abs, "/") {
+			abs = "/" + abs // a COPY --from source is relative to the root of the stage
+		}
+		abs = path.Clean(abs)
+		if abs == "/" || abs == workdir || path.Base(abs) == "node_modules" {
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	devNone = iota
+	devKept
+	devRemoved
+)
+
+// devDepsEffect says what one shell command does to the dev dependencies:
+// an install that keeps them (npm ci, pnpm install, bun install, yarn), or
+// one that leaves them out or removes them (--omit=dev, --prod, NODE_ENV=production,
+// npm prune --omit=dev, rm -rf node_modules).
+func devDepsEffect(seg string, prodEnv bool) int {
+	toks := strings.Fields(seg)
+	prod := prodEnv
+	for i, t := range toks {
+		t = strings.Trim(t, "\"'")
+		switch t {
+		case "NODE_ENV=production", "--production", "--production=true", "--prod", "-P", "--omit=dev", "--only=prod", "--only=production":
+			prod = true
+		case "--omit":
+			if i+1 < len(toks) && toks[i+1] == "dev" {
+				prod = true
+			}
+		}
+		if path.Base(t) == "rm" {
+			for _, a := range toks[i+1:] {
+				if path.Base(strings.TrimRight(strings.Trim(a, "\"'"), "/")) == "node_modules" {
+					return devRemoved
+				}
+			}
+		}
+	}
+	if jsInstall(seg) != "" && !containsString(toks, "--version") && !containsString(toks, "-v") && !containsString(toks, "--help") {
+		if containsString(toks, "--include=dev") {
+			return devKept
+		}
+		if prod {
+			return devRemoved // a production install leaves the dev dependencies out (npm ci starts from an empty node_modules)
+		}
+		return devKept
+	}
+	for i, t := range toks {
+		base := path.Base(t)
+		if (base == "npm" || base == "pnpm") && i+1 < len(toks) && toks[i+1] == "prune" && prod {
+			return devRemoved
+		}
+		if base == "yarn" && i+2 < len(toks) && toks[i+1] == "workspaces" && toks[i+2] == "focus" && prod {
+			return devRemoved
+		}
+	}
+	return devNone
 }

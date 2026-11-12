@@ -247,12 +247,15 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    the memory and CPU quota). Every other app is built from a Dockerfile;
    bitploy refuses to deploy a server without one. If the code has none, call
    get_template with the stack and file_list, adapt it, and add a .dockerignore.
+   The last stage gets only what the app runs: no dev dependencies or build
+   tools (Nuxt: only .output; Next.js: output "standalone").
    Only for a repository you cannot change (not the user's, or no checkout)
    that holds a Node.js app without a Dockerfile: create_app build_mode=auto,
    and bitploy builds it by itself.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
-3. Call validate_dockerfile before every deploy and fix all errors.
+3. Call validate_dockerfile before every deploy (with package_json for a
+   Node project), fix all errors and read every warning.
 4. Never put secrets in the Dockerfile or the source. Use set_env. A value
    the build bakes in (VITE_*, NEXT_PUBLIC_*) reaches the build too and
    applies on the next deploy.

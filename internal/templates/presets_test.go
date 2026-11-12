@@ -55,11 +55,11 @@ func TestStaticBuild(t *testing.T) {
 }
 
 func TestNextJS(t *testing.T) {
-	std, ok := NextJS([]string{"package.json", "package-lock.json"}, true, true)
+	std, ok := NextJS([]string{"package.json", "package-lock.json"}, true, true, true)
 	if !ok || !strings.Contains(std.Dockerfile, ".next/standalone") {
 		t.Fatalf("standalone: %v\n%s", ok, std.Dockerfile)
 	}
-	fb, ok := NextJS([]string{"package.json", "package-lock.json"}, false, true)
+	fb, ok := NextJS([]string{"package.json", "package-lock.json"}, false, true, true)
 	if !ok {
 		t.Fatal("fallback not applied")
 	}
@@ -68,11 +68,11 @@ func TestNextJS(t *testing.T) {
 		t.Errorf("fallback order: build %d chown %d user %d\n%s", build, chown, user, fb.Dockerfile)
 	}
 	parses(t, "next fallback", fb.Dockerfile)
-	noStart, ok := NextJS(nil, false, false)
+	noStart, ok := NextJS(nil, false, false, true)
 	if !ok || !strings.Contains(noStart.Dockerfile, `CMD ["npx", "next", "start"]`) {
 		t.Errorf("no start script: %v\n%s", ok, noStart.Dockerfile)
 	}
-	bun, ok := NextJS([]string{"package.json", "bun.lock"}, false, true)
+	bun, ok := NextJS([]string{"package.json", "bun.lock"}, false, true, true)
 	if !ok || !strings.Contains(bun.Dockerfile, "RUN chown -R bun:bun /app/.next") {
 		t.Errorf("bun: %v\n%s", ok, bun.Dockerfile)
 	}

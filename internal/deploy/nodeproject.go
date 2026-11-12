@@ -69,6 +69,7 @@ type project struct {
 	scripts  map[string]bool // names of the scripts that are not empty
 	start    string          // the start script
 	deps     map[string]bool // dependencies and devDependencies
+	devDeps  map[string]bool // devDependencies only
 	main     string
 	files    []string
 	hasIndex bool
@@ -108,7 +109,7 @@ func readProject(files []string, hasIndex bool, read func(string) []byte) (*proj
 	if json.Unmarshal(raw, &pkg) != nil {
 		return nil, false
 	}
-	p := &project{scripts: map[string]bool{}, deps: map[string]bool{}, main: pkg.Main, files: files, hasIndex: hasIndex}
+	p := &project{scripts: map[string]bool{}, deps: map[string]bool{}, devDeps: map[string]bool{}, main: pkg.Main, files: files, hasIndex: hasIndex}
 	for name, v := range pkg.Scripts {
 		if s, _ := v.(string); strings.TrimSpace(s) != "" {
 			p.scripts[name] = true
@@ -120,6 +121,11 @@ func readProject(files []string, hasIndex bool, read func(string) []byte) (*proj
 	for _, m := range []map[string]any{pkg.Dependencies, pkg.DevDependencies} {
 		for k := range m {
 			p.deps[k] = true
+		}
+	}
+	for k := range pkg.DevDependencies {
+		if _, prod := pkg.Dependencies[k]; !prod {
+			p.devDeps[k] = true
 		}
 	}
 	has := map[string]bool{}
@@ -318,23 +324,28 @@ func (p *project) buildNode(userIgnore []byte, why string) (BuildPlan, bool) {
 	fw := p.framework()
 	hasBuild := p.scripts["build"]
 	var tpl templates.Template
-	var ok bool
+	var ok, startSet bool
 	switch {
 	case fw == fwNext && !hasBuild:
 		return BuildPlan{}, false // a Next.js app is always built
 	case fw == fwNext:
 		// The standalone server only fits a project that starts with next start.
 		standalone := p.next.standalone && (!p.scripts["start"] || strings.Contains(p.start, "next"))
-		tpl, ok = templates.NextJS(p.files, standalone, p.scripts["start"])
+		tpl, ok = templates.NextJS(p.files, standalone, p.scripts["start"], p.canPrune(fw))
+	case fw == fwNuxt && hasBuild && (!p.scripts["start"] || strings.Contains(p.start, ".output/server/index.mjs")):
+		// Nuxt 3+: the build is a server that runs by itself. Nuxt 2 starts
+		// with nuxt start and has no .output; it takes the case below.
+		tpl, ok = templates.NuxtServer(p.files)
+		startSet = true
 	case hasBuild:
-		tpl, ok = templates.NodeWithBuild(p.files)
+		tpl, ok = templates.NodeWithBuild(p.files, p.canPrune(fw))
 	default:
 		tpl, ok = templates.ForFiles("node", p.files)
 	}
 	if !ok {
 		return BuildPlan{}, false
 	}
-	if fw != fwNext {
+	if fw != fwNext && !startSet {
 		cmd, env := p.startFallback(fw)
 		if p.scripts["start"] {
 			cmd = nil // the project's own start script
@@ -351,6 +362,45 @@ func (p *project) buildNode(userIgnore []byte, why string) (BuildPlan, bool) {
 	}
 	plan := templatePlan(BuildKindNode, NodeDockerfilePath, tpl, userIgnore, why)
 	return plan, true
+}
+
+// prunable matches a start script that only runs node on a file: node
+// dist/index.js, node build, NODE_ENV=production node --env-file=.env
+// server.js. Anything else (tsc && node, nest start, node -r ts-node/register,
+// node --import=tsx, dotenv -- node, npm run x) may need a dev dependency
+// while it runs, so the dev dependencies stay.
+var prunable = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*node(?:\s+--?[A-Za-z][A-Za-z0-9-]*(?:=\S+)?)*\s+[A-Za-z0-9_./@-]+(?:\s+[A-Za-z0-9_./=:@-]+)*$`)
+
+// nodeLoaderFlag matches node options that load code before the app: a
+// TypeScript loader from the dev dependencies (ts-node/register, tsx).
+var nodeLoaderFlag = regexp.MustCompile(`(?:^|\s)(?:-r|--require|--import|--loader|--experimental-loader)(?:[=\s]|$)`)
+
+// canPrune reports whether the dev dependencies can be removed after the
+// build. Only when the start command is plain node on a file (or, without a
+// start script, the framework's own server from a dependency): then the build
+// output and the dependencies are all it needs. Next.js without standalone is
+// never pruned: next start loads next.config.ts with typescript and the
+// config's plugins, often dev dependencies.
+func (p *project) canPrune(fw string) bool {
+	if fw == fwNext || p.scripts["prestart"] {
+		return false
+	}
+	if !p.scripts["start"] {
+		cmd, _ := p.startFallback(fw)
+		switch {
+		case len(cmd) == 0:
+			return false
+		case cmd[0] == "node":
+			return true
+		case cmd[0] == "npx" && len(cmd) > 1:
+			// The server must come from a dependency, not a dev dependency.
+			pkg := map[string]string{"remix-serve": "@remix-run/serve", "react-router-serve": "@react-router/serve"}[cmd[1]]
+			return pkg != "" && p.deps[pkg] && !p.devDeps[pkg]
+		}
+		return false
+	}
+	start := strings.TrimSpace(p.start)
+	return prunable.MatchString(start) && !nodeLoaderFlag.MatchString(start) && !shellControl.MatchString(start)
 }
 
 // buildStatic makes the plan for a static build: the site is built with Node

@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -585,7 +586,26 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		return apperr.Internal(err)
 	}
 	p.logf("Built %s (%d MB).", p.image, info.SizeBytes>>20)
+	// Ready-made apps run the image their makers publish, whatever its size.
+	if f, big := deploy.LargeImageFinding(info.SizeBytes); big && p.dep.CatalogVersion == "" {
+		p.logf("WARNING: %s %s", f.Message, f.Hint)
+		p.addWarning(ctx, f)
+	}
 	return nil
+}
+
+// addWarning adds a finding to the warnings of the deployment.
+func (p *pipeline) addWarning(ctx context.Context, f deploy.Finding) {
+	d, err := p.s.Q.GetDeployment(ctx, p.dep.ID)
+	if err != nil {
+		return
+	}
+	var list []deploy.Finding
+	if d.Warnings.Valid && d.Warnings.String != "" {
+		_ = json.Unmarshal([]byte(d.Warnings.String), &list)
+	}
+	list = append(list, f)
+	_ = p.s.Q.SetDeploymentWarnings(ctx, db.SetDeploymentWarningsParams{Warnings: nullStr(mustJSON(list)), ID: p.dep.ID})
 }
 
 // buildFailed is the error of a failed build.

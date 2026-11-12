@@ -71,6 +71,7 @@ const (
 	nodeInstallProd     = "RUN npm ci --omit=dev"
 	nodeInstallDev      = "RUN npm ci"
 	nodeBuildLine       = "RUN npm run build"
+	nodePrune           = "RUN npm prune --omit=dev"
 	nodeFromRuntime     = "FROM node:22-bookworm-slim"
 	nodeFromBuild       = "FROM node:22-bookworm-slim AS build"
 	nodeFromAssets      = "FROM node:22-bookworm-slim AS assets"
@@ -98,6 +99,7 @@ type pkgManager struct {
 	installDev string // all dependencies, for stages that build
 	installRun string // runtime dependencies only, for the node stack
 	build      string
+	prune      string // removes the dev dependencies after the build; empty: keep them
 	bun        bool
 }
 
@@ -106,9 +108,10 @@ type pkgManager struct {
 func detectNode(top map[string]bool) pkgManager {
 	switch {
 	case top["pnpm-lock.yaml"]:
-		files := "package.json pnpm-lock.yaml"
+		files, prune := "package.json pnpm-lock.yaml", "RUN pnpm prune --prod"
 		if top["pnpm-workspace.yaml"] {
 			files += " pnpm-workspace.yaml"
+			prune = "" // pnpm prune does not handle a workspace
 		}
 		return pkgManager{
 			name:       "pnpm",
@@ -116,6 +119,7 @@ func detectNode(top map[string]bool) pkgManager {
 			installDev: "RUN corepack enable && pnpm install --frozen-lockfile",
 			installRun: "RUN corepack enable && pnpm install --frozen-lockfile --prod",
 			build:      "RUN pnpm build",
+			prune:      prune,
 		}
 	case top["bun.lock"] || top["bun.lockb"]:
 		lock := "bun.lock"
@@ -145,6 +149,7 @@ func detectNode(top map[string]bool) pkgManager {
 			installDev: "RUN corepack enable && yarn install --frozen-lockfile",
 			installRun: "RUN corepack enable && yarn install --frozen-lockfile --production",
 			build:      "RUN yarn build",
+			prune:      "RUN yarn install --frozen-lockfile --production --ignore-scripts --prefer-offline",
 		}
 	case top["package-lock.json"], top["npm-shrinkwrap.json"]:
 		return pkgManager{name: "npm"}
@@ -153,6 +158,7 @@ func detectNode(top map[string]bool) pkgManager {
 			name:       "npm-nolock",
 			installDev: "RUN npm install",
 			installRun: "RUN npm install --omit=dev",
+			prune:      nodePrune,
 		}
 	}
 }
@@ -275,32 +281,77 @@ func dropLaravelAssets(t *Template) {
 
 // NodeWithBuild is the node template, adapted with ForFiles, for a project
 // that must be built before it starts (a build script next to the start
-// script: TypeScript, Next.js, NestJS, Remix). The dependencies are installed
-// with the dev dependencies (NODE_ENV=production is set only after the build),
-// the build script runs, then the start script. ok is false when the template
-// no longer has the lines this swaps.
-func NodeWithBuild(files []string) (Template, bool) {
+// script: TypeScript, NestJS, Remix, SvelteKit, Astro). It has two stages:
+// the first installs every dependency and runs the build script, the second
+// gets only the result, so compilers and bundlers stay out of the image. With
+// pruneDev the dev dependencies are removed after the build; the caller turns
+// it off when the start command needs one of them (tsx, vite preview). Bun and
+// Yarn 2+ have no safe way to remove them and keep them. ok is false when the
+// template no longer has the lines this swaps.
+func NodeWithBuild(files []string, pruneDev bool) (Template, bool) {
+	return nodeWithBuild(files, pruneDev, "")
+}
+
+// nodeWithBuild is NodeWithBuild; extra are lines that run in the build stage
+// after the build script (before the dev dependencies are removed).
+func nodeWithBuild(files []string, pruneDev bool, extra string) (Template, bool) {
 	tpl, _ := ForFiles("node", files)
 	pm := pkgManager{name: "npm"}
 	if top := topLevel(files); len(top) > 0 {
 		pm = detectNode(top)
 	}
-	installRun, installDev, build := nodeInstallProd, nodeInstallDev, nodeBuildLine
+	copyLine, installRun, installDev, build, prune := nodeCopyLine, nodeInstallProd, nodeInstallDev, nodeBuildLine, nodePrune
+	if pm.copyLine != "" {
+		copyLine = pm.copyLine
+	}
 	if pm.installRun != "" {
-		installRun, installDev = pm.installRun, pm.installDev
+		installRun, installDev, prune = pm.installRun, pm.installDev, pm.prune
 	}
 	if pm.build != "" {
 		build = pm.build
 	}
-	const envLine, copyAll = "ENV NODE_ENV=production\n", "\nCOPY . .\n"
+	depsBlock := "# Install dependencies first so Docker can cache this layer.\n" + copyLine + "\n" + installRun + "\n\nCOPY . .\n"
 	df := tpl.Dockerfile
-	if strings.Count(df, envLine) != 1 || strings.Count(df, installRun+"\n") != 1 || strings.Count(df, copyAll) != 1 {
+	from, _, _ := strings.Cut(df, "\n")
+	if !strings.HasPrefix(from, "FROM ") || strings.Contains(from, " AS ") || strings.Count(df, depsBlock) != 1 {
 		return tpl, false
 	}
-	df = strings.Replace(df, envLine, "", 1)
-	df = replaceLine(df, installRun, installDev)
-	df = strings.Replace(df, copyAll, copyAll+build+"\n"+envLine, 1)
-	tpl.Dockerfile = df
-	tpl.Readme += "\n- package.json has a build script, so the Dockerfile installs all dependencies, runs the build and then the start script.\n"
+	var b strings.Builder
+	b.WriteString("# Stage 1: install all dependencies and run the build.\n")
+	b.WriteString(from + " AS build\nWORKDIR /app\n")
+	b.WriteString(copyLine + "\n" + installDev + "\nCOPY . .\n" + build + "\n")
+	b.WriteString(extra)
+	pruned := pruneDev && prune != ""
+	if pruned {
+		b.WriteString("# Remove the dev dependencies (compilers, bundlers) and build caches: the app does not need them to run.\n")
+		b.WriteString(prune + " && rm -rf node_modules/.cache\n")
+	}
+	b.WriteString("\n# Stage 2: run the app with only what the build left in /app.\n")
+	b.WriteString(strings.Replace(df, depsBlock, "COPY --from=build /app ./\n", 1))
+	tpl.Dockerfile = b.String()
+	tpl.Readme += "\n- package.json has a build script, so the Dockerfile has two stages: the first installs all dependencies and runs the build, the second copies the result and starts it."
+	if pruned {
+		tpl.Readme += " The dev dependencies are removed after the build, so a package the app needs while it runs must be in `dependencies`, not `devDependencies`."
+	}
+	tpl.Readme += "\n"
 	return tpl, true
+}
+
+// NuxtServer is the template for a Nuxt 3+ app that runs its own server.
+// nuxt build writes a server that runs by itself into .output (Nitro copies
+// the packages it needs into .output/server/node_modules), so the image gets
+// only that folder and no node_modules or source.
+func NuxtServer(files []string) (Template, bool) {
+	tpl, ok := NodeWithBuild(files, false)
+	if !ok {
+		return tpl, false
+	}
+	const copyApp = "COPY --from=build /app ./\n"
+	if strings.Count(tpl.Dockerfile, copyApp) != 1 {
+		return tpl, false
+	}
+	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, copyApp,
+		"# nuxt build makes a server that runs by itself: only .output goes into the image.\nCOPY --from=build /app/.output ./.output\n", 1)
+	tpl.Readme += "\n- Nuxt: the image holds only the `.output` folder of `nuxt build` and starts `.output/server/index.mjs`.\n"
+	return WithStart(tpl, []string{"node", ".output/server/index.mjs"})
 }

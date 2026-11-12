@@ -86,13 +86,14 @@ const nextCacheNote = "\n- The server runs with `next start`. Add `output: \"sta
 // Without it, it is the node template with a build step running the project's
 // start script (`next start`), with .next owned by the unprivileged user so
 // Next.js can write its cache. A project without a start script runs
-// `npx next start`.
-func NextJS(files []string, standalone, hasStart bool) (Template, bool) {
+// `npx next start`. pruneDev is passed to NodeWithBuild; the build cache in
+// .next/cache stays out of the image.
+func NextJS(files []string, standalone, hasStart, pruneDev bool) (Template, bool) {
 	if standalone {
 		tpl, ok := ForFiles("nextjs", files)
 		return tpl, ok
 	}
-	tpl, ok := NodeWithBuild(files)
+	tpl, ok := nodeWithBuild(files, pruneDev, "RUN rm -rf .next/cache\n")
 	if !ok {
 		return tpl, false
 	}

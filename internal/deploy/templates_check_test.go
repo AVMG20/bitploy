@@ -30,28 +30,39 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 		"go":             {"go.mod", "go.sum", "main.go"},
 		"go, no go.sum":  {"go.mod", "main.go"},
 	}
-	stacks := append(append([]string{}, templates.Stacks...), "node+build")
+	stacks := append(append([]string{}, templates.Stacks...), "node+build", "node+build, dev kept", "nuxt")
 	for _, stack := range stacks {
 		for name, files := range variants {
 			tpl, ok := templates.ForFiles(stack, files)
-			if stack == "node+build" {
+			switch stack {
+			case "node+build", "node+build, dev kept":
 				// Auto mode's node template with a build step: every lock file must fit.
-				if tpl, ok = templates.NodeWithBuild(files); !ok {
+				if tpl, ok = templates.NodeWithBuild(files, stack == "node+build"); !ok {
 					t.Errorf("%s / %s: NodeWithBuild did not apply", stack, name)
+					continue
+				}
+			case "nuxt":
+				if tpl, ok = templates.NuxtServer(files); !ok {
+					t.Errorf("%s / %s: NuxtServer did not apply", stack, name)
 					continue
 				}
 			}
 			if !ok {
 				t.Fatalf("%s: unknown stack", stack)
 			}
-			checkTemplate(t, stack+" / "+name, tpl, files)
+			// Auto mode keeps the dev dependencies on purpose when the start
+			// command needs one, or the package manager cannot remove them
+			// (bun, Yarn 2+, a pnpm workspace); it drops the warning then.
+			devKept := stack == "node+build, dev kept" ||
+				stack == "node+build" && (name == "bun" || name == "bun.lockb" || name == "yarn berry" || name == "pnpm workspace")
+			checkTemplate(t, stack+" / "+name, tpl, files, devKept)
 		}
 	}
 }
 
 // checkTemplate runs bitploy's own Dockerfile checks on a template: a port, no
 // errors or warnings, no carriage returns.
-func checkTemplate(t *testing.T, name string, tpl templates.Template, files []string) {
+func checkTemplate(t *testing.T, name string, tpl templates.Template, files []string, devKept bool) {
 	t.Helper()
 	ctx := append([]string{"Dockerfile", ".dockerignore"}, files...)
 	res := CheckDockerfile(CheckInput{
@@ -65,6 +76,9 @@ func checkTemplate(t *testing.T, name string, tpl templates.Template, files []st
 		// A project without a lock file is told to add one: that is about
 		// the code, not the template, which installs with npm install then.
 		if f.Code == CodeNoLockfile && !hasLockFile(files) {
+			continue
+		}
+		if f.Code == CodeDevDepsInImage && devKept {
 			continue
 		}
 		if f.Severity == sevError || f.Severity == sevWarning {

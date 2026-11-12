@@ -85,12 +85,12 @@ func TestWithTemplateBuildVarsNodeTemplates(t *testing.T) {
 		{"node-static pnpm", func() (templates.Template, bool) { return templates.StaticBuild(pkg("pnpm-lock.yaml"), "dist", false) }, "pnpm build"},
 		{"node-spa yarn", func() (templates.Template, bool) { return templates.StaticBuild(pkg("yarn.lock"), "build", true) }, "yarn build"},
 		{"node-spa bun", func() (templates.Template, bool) { return templates.StaticBuild(pkg("bun.lock"), "dist", true) }, "bun run build"},
-		{"node with build", func() (templates.Template, bool) { return templates.NodeWithBuild(pkg("package-lock.json")) }, "npm run build"},
+		{"node with build", func() (templates.Template, bool) { return templates.NodeWithBuild(pkg("package-lock.json"), true) }, "npm run build"},
 		{"nextjs standalone", func() (templates.Template, bool) {
-			return templates.NextJS(pkg("package-lock.json"), true, true)
+			return templates.NextJS(pkg("package-lock.json"), true, true, true)
 		}, "npm run build"},
 		{"nextjs start", func() (templates.Template, bool) {
-			return templates.NextJS(pkg("package-lock.json"), false, true)
+			return templates.NextJS(pkg("package-lock.json"), false, true, true)
 		}, "npm run build"},
 	}
 	for _, c := range cases {

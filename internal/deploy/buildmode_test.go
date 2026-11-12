@@ -273,9 +273,10 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 			t.Fatal(err)
 		}
 		df := string(plan.Inject[NodeDockerfilePath])
-		install, build, env := strings.Index(df, "RUN npm ci\n"), strings.Index(df, "RUN npm run build\n"), strings.Index(df, "ENV NODE_ENV=production")
-		if install < 0 || build < install || env < build || strings.Contains(df, "--omit=dev") {
-			t.Errorf("want all dependencies, the build, then NODE_ENV=production:\n%s", df)
+		install, build, prune := strings.Index(df, "RUN npm ci\n"), strings.Index(df, "RUN npm run build\n"), strings.Index(df, "RUN npm prune --omit=dev")
+		run, env, copyApp := strings.Index(df, "\nFROM node:22-bookworm-slim\n"), strings.Index(df, "ENV NODE_ENV=production"), strings.Index(df, "COPY --from=build /app ./\n")
+		if install < 0 || build < install || prune < build || run < prune || env < run || copyApp < env || strings.Count(df, "COPY . .") != 1 {
+			t.Errorf("want all dependencies, the build, the prune, then a second stage with the result:\n%s", df)
 		}
 		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", []string{"package.json", "pnpm-lock.yaml"}, nil, both)
 		df = string(plan.Inject[NodeDockerfilePath])
@@ -285,6 +286,63 @@ func TestPlanBuildNodeTemplates(t *testing.T) {
 		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", files, nil, start)
 		if df := string(plan.Inject[NodeDockerfilePath]); strings.Contains(df, "npm run build") || !strings.Contains(df, "--omit=dev") {
 			t.Errorf("no build script, no build:\n%s", df)
+		}
+	})
+
+	t.Run("the image keeps only what the app runs", func(t *testing.T) {
+		nuxt := []byte(`{"scripts":{"build":"nuxt build","dev":"nuxt dev"},"dependencies":{"nuxt":"^4.0.0","vue":"^3.5.0"}}`)
+		plan, err := planWith(BuildModeAuto, "Dockerfile", "", files, nil, nuxt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		df := string(plan.Inject[NodeDockerfilePath])
+		if !strings.Contains(df, "COPY --from=build /app/.output ./.output\n") || strings.Contains(df, "COPY --from=build /app ./") ||
+			!strings.Contains(df, `CMD ["node", ".output/server/index.mjs"]`) || strings.Contains(df, "prune") {
+			t.Errorf("nuxt: only .output:\n%s", df)
+		}
+		nuxt2 := []byte(`{"scripts":{"build":"nuxt build","start":"nuxt start"},"dependencies":{"nuxt":"^2.17.0"}}`)
+		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", files, nil, nuxt2)
+		if df := string(plan.Inject[NodeDockerfilePath]); strings.Contains(df, ".output") || !strings.Contains(df, `CMD ["npm", "start"]`) {
+			t.Errorf("nuxt 2 runs its start script:\n%s", df)
+		}
+
+		for _, c := range []struct {
+			name  string
+			pkg   string
+			prune bool
+		}{
+			{"tsc then node", `{"scripts":{"build":"tsc","start":"node dist/index.js"},"dependencies":{"express":"5"},"devDependencies":{"typescript":"5","tsx":"4","@types/node":"22"}}`, true},
+			{"start runs tsx", `{"scripts":{"build":"tsc --noEmit","start":"tsx src/index.ts"},"dependencies":{"express":"5"},"devDependencies":{"typescript":"5","tsx":"4"}}`, false},
+			{"start runs a script that runs vite", `{"scripts":{"build":"vite build","serve":"vite preview --host","start":"npm run serve"},"dependencies":{"express":"5"},"devDependencies":{"vite":"7"}}`, false},
+			{"prestart runs ts-node", `{"scripts":{"build":"tsc","prestart":"ts-node migrate.ts","start":"node dist/index.js"},"dependencies":{"express":"5"},"devDependencies":{"ts-node":"10"}}`, false},
+			{"react-router-serve from a scoped dev dependency", `{"scripts":{"build":"react-router build","start":"react-router-serve ./build/server/index.js"},"dependencies":{"react":"19"},"devDependencies":{"@react-router/dev":"7","@react-router/serve":"7"}}`, false},
+			{"sveltekit node build", `{"scripts":{"build":"vite build","start":"node build"},"devDependencies":{"@sveltejs/kit":"2","@sveltejs/adapter-node":"5","vite":"7"}}`, true},
+			{"node with an env file", `{"scripts":{"build":"tsc","start":"NODE_ENV=production node --env-file=.env dist/index.js"},"dependencies":{"express":"5"},"devDependencies":{"typescript":"5"}}`, true},
+			{"node -r ts-node/register", `{"scripts":{"build":"tsc --noEmit","start":"node -r ts-node/register src/index.ts"},"dependencies":{"express":"5"},"devDependencies":{"ts-node":"10"}}`, false},
+			{"node --import=tsx", `{"scripts":{"build":"tsc --noEmit","start":"node --import=tsx src/index.ts"},"dependencies":{"express":"5"},"devDependencies":{"tsx":"4"}}`, false},
+			{"tsc in the start script", `{"scripts":{"build":"tsc","start":"tsc && node dist/index.js"},"dependencies":{"express":"5"},"devDependencies":{"typescript":"5"}}`, false},
+			{"dotenv-cli", `{"scripts":{"build":"tsc","start":"dotenv -e .env -- node dist/index.js"},"dependencies":{"express":"5"},"devDependencies":{"dotenv-cli":"8"}}`, false},
+			{"nest start", `{"scripts":{"build":"nest build","start":"nest start"},"dependencies":{"@nestjs/core":"11"},"devDependencies":{"@nestjs/cli":"11"}}`, false},
+			{"react router without a start script, server a dependency", `{"scripts":{"build":"react-router build"},"dependencies":{"@react-router/serve":"7","react":"19"},"devDependencies":{"@react-router/dev":"7"}}`, true},
+		} {
+			plan, err := planWith(BuildModeAuto, "Dockerfile", "", files, nil, []byte(c.pkg))
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			df := string(plan.Inject[NodeDockerfilePath])
+			if got := strings.Contains(df, "npm prune --omit=dev"); got != c.prune {
+				t.Errorf("%s: prune = %v, want %v\n%s", c.name, got, c.prune, df)
+			}
+			if !strings.Contains(df, "COPY --from=build /app ./\n") {
+				t.Errorf("%s: no second stage:\n%s", c.name, df)
+			}
+		}
+
+		// next start loads next.config.ts with typescript, a dev dependency.
+		next := []byte(`{"scripts":{"build":"next build","start":"next start"},"dependencies":{"next":"16","react":"19"},"devDependencies":{"typescript":"5"}}`)
+		plan, _ = planWith(BuildModeAuto, "Dockerfile", "", files, nil, next)
+		if df := string(plan.Inject[NodeDockerfilePath]); strings.Contains(df, "prune") || !strings.Contains(df, "RUN rm -rf .next/cache") {
+			t.Errorf("next keeps its dev dependencies, not the cache:\n%s", df)
 		}
 	})
 

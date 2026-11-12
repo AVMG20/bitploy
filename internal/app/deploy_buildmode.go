@@ -80,7 +80,9 @@ func templateFindings(plan deploy.BuildPlan, res deploy.CheckResult) deploy.Chec
 	}
 	kept := res.Findings[:0:0]
 	for _, f := range res.Findings {
-		if f.Code != deploy.CodeNoHealthcheck {
+		// The template keeps the dev dependencies only when it must (the start
+		// command may need one, or the package manager cannot remove them).
+		if f.Code != deploy.CodeNoHealthcheck && f.Code != deploy.CodeDevDepsInImage {
 			kept = append(kept, f)
 		}
 	}

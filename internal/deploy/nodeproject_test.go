@@ -213,7 +213,7 @@ func TestStaticBuildVariantsPassTheChecks(t *testing.T) {
 				if !ok {
 					t.Fatalf("%s %v %s: StaticBuild did not apply", out, spa, name)
 				}
-				checkTemplate(t, out+"/"+name, tpl, files)
+				checkTemplate(t, out+"/"+name, tpl, files, false)
 			}
 		}
 	}

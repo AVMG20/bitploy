@@ -19,6 +19,9 @@ const HINTS: Record<string, string> = {
   before_deploy_timeout:
     'Open the build log and read the lines marked [before-deploy]. A command that waits for a database it cannot reach hangs: check the variables it uses, like DATABASE_URL. Then deploy again.',
   after_deploy_failed: 'Open the build log and read the lines marked [after-deploy] to see why. Fix your code or the command under Settings, Deploy commands. It runs again on the next deploy.',
+  // image size (warnings)
+  large_image: 'The app still works. Ask your AI assistant to make the Dockerfile smaller: build in two stages and copy only what the app runs into the last one.',
+  dev_deps_in_image: 'The app still works. Ask your AI assistant to make the Dockerfile smaller: build in two stages and leave the dev dependencies out of the last one.',
   deploy_commands_unsupported: 'Only an app built from your own code with one service has deploy commands. Set them on the app that runs your code.',
   deploy_command_invalid: 'Put longer steps in a script in your code, like scripts/migrate.sh, and run that script.',
   apps_quota_exceeded: 'Delete an app you no longer need, or ask your admin to raise your limit.',
