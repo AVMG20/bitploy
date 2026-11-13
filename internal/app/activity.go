@@ -16,11 +16,13 @@ package app
 // addresses or user ids of others in the details.
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -118,7 +120,7 @@ func (s *Service) ListActivity(ctx context.Context, a Actor, appRef string, limi
 		}
 		rows, err = s.Q.ListActivityForApp(ctx, db.ListActivityForAppParams{AppID: nullStr(row.ID), BeforeID: before, UserID: me, Lim: int64(limit) + 1})
 	} else {
-		rows, err = s.Q.ListActivity(ctx, db.ListActivityParams{BeforeID: before, UserID: me, Lim: int64(limit) + 1})
+		rows, err = s.activityRows(ctx, me, before, int64(limit)+1)
 	}
 	if err != nil {
 		return Page[ActivityEntry]{}, apperr.Internal(err)
@@ -133,6 +135,49 @@ func (s *Service) ListActivity(ctx context.Context, a Actor, appRef string, limi
 		page.Items = append(page.Items, v.entry(ctx, r))
 	}
 	return page, nil
+}
+
+// activityRows is the newest n rows below before that are the user's: the
+// rows about their stuff, about each project they are a member of, and what
+// they did to an app or project. Each way is read on its own, newest first
+// with its own index and limit, and merged here: a page reads at most n rows
+// per way instead of every matching row of the last 90 days.
+func (s *Service) activityRows(ctx context.Context, me sql.NullString, before, n int64) ([]db.AuditLog, error) {
+	var all []db.AuditLog
+	owned, err := s.Q.ListActivityOwned(ctx, db.ListActivityOwnedParams{UserID: me, BeforeID: before, Lim: n})
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, owned...)
+	done, err := s.Q.ListActivityDoneBy(ctx, db.ListActivityDoneByParams{UserID: me, BeforeID: before, Lim: n})
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, done...)
+	projects, err := s.Q.ListMemberProjectIDs(ctx, me.String)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range projects {
+		rows, err := s.Q.ListActivityInProject(ctx, db.ListActivityInProjectParams{ProjectID: nullStr(id), BeforeID: before, Lim: n})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rows...)
+	}
+	// Newest first, each row once (a row can be the user's in more than one way).
+	slices.SortFunc(all, func(x, y db.AuditLog) int { return cmp.Compare(y.ID, x.ID) })
+	out := all[:0]
+	for i, r := range all {
+		if i > 0 && r.ID == all[i-1].ID {
+			continue
+		}
+		out = append(out, r)
+		if int64(len(out)) == n {
+			break
+		}
+	}
+	return out, nil
 }
 
 // activityView turns audit rows into what one user may see of them. It

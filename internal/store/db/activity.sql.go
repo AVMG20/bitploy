@@ -21,30 +21,23 @@ func (q *Queries) GetDomainAppID(ctx context.Context, id string) (string, error)
 	return app_id, err
 }
 
-const listActivity = `-- name: ListActivity :many
-
-SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details, app_id, project_id, owner_id FROM audit_log
-WHERE id < ?1
-  AND (owner_id = ?2
-    OR project_id IN (SELECT pm.project_id FROM project_members pm WHERE pm.user_id = ?2)
-    OR (user_id = ?2 AND (app_id IS NOT NULL OR project_id IS NOT NULL) AND action NOT LIKE 'admin.%'))
+const listActivityDoneBy = `-- name: ListActivityDoneBy :many
+SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details, app_id, project_id, owner_id FROM audit_log INDEXED BY audit_log_user_id
+WHERE user_id = ?1 AND id < ?2
+  AND (app_id IS NOT NULL OR project_id IS NOT NULL) AND action NOT LIKE 'admin.%'
 ORDER BY id DESC
 LIMIT ?3
 `
 
-type ListActivityParams struct {
-	BeforeID int64
+type ListActivityDoneByParams struct {
 	UserID   sql.NullString
+	BeforeID int64
 	Lim      int64
 }
 
-// Activity: the audit rows a user may see (GET /activity). A row is theirs
-// when it is about something they own (owner_id), about a project they are a
-// member of now (project_id), or something they did themselves to an app or
-// project (not as an admin). Each branch has its own index (audit_log_owner,
-// audit_log_project, audit_log_user), so a page never scans the whole log.
-func (q *Queries) ListActivity(ctx context.Context, arg ListActivityParams) ([]AuditLog, error) {
-	rows, err := q.db.QueryContext(ctx, listActivity, arg.BeforeID, arg.UserID, arg.Lim)
+// What the user did to an app or project (not as an admin).
+func (q *Queries) ListActivityDoneBy(ctx context.Context, arg ListActivityDoneByParams) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listActivityDoneBy, arg.UserID, arg.BeforeID, arg.Lim)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +122,144 @@ func (q *Queries) ListActivityForApp(ctx context.Context, arg ListActivityForApp
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivityInProject = `-- name: ListActivityInProject :many
+SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details, app_id, project_id, owner_id FROM audit_log
+WHERE project_id = ?1 AND id < ?2
+ORDER BY id DESC
+LIMIT ?3
+`
+
+type ListActivityInProjectParams struct {
+	ProjectID sql.NullString
+	BeforeID  int64
+	Lim       int64
+}
+
+func (q *Queries) ListActivityInProject(ctx context.Context, arg ListActivityInProjectParams) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listActivityInProject, arg.ProjectID, arg.BeforeID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ts,
+			&i.UserID,
+			&i.Channel,
+			&i.TokenID,
+			&i.Ip,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Details,
+			&i.AppID,
+			&i.ProjectID,
+			&i.OwnerID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivityOwned = `-- name: ListActivityOwned :many
+
+
+SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details, app_id, project_id, owner_id FROM audit_log
+WHERE owner_id = ?1 AND id < ?2
+ORDER BY id DESC
+LIMIT ?3
+`
+
+type ListActivityOwnedParams struct {
+	UserID   sql.NullString
+	BeforeID int64
+	Lim      int64
+}
+
+// Activity: the audit rows a user may see (GET /activity). A row is theirs
+// when it is about something they own (owner_id), about a project they are a
+// member of now (project_id), or something they did themselves to an app or
+// project (not as an admin). Each branch has its own index (audit_log_owner,
+// audit_log_project, audit_log_user), so a page never scans the whole log.
+// The three ways a row is the user's are read apart, each newest first with
+// its own index and LIMIT; the service merges them. One query with OR (or
+// IN over the projects) made SQLite read and sort every matching row of the
+// last 90 days for each page.
+func (q *Queries) ListActivityOwned(ctx context.Context, arg ListActivityOwnedParams) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listActivityOwned, arg.UserID, arg.BeforeID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Ts,
+			&i.UserID,
+			&i.Channel,
+			&i.TokenID,
+			&i.Ip,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Details,
+			&i.AppID,
+			&i.ProjectID,
+			&i.OwnerID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMemberProjectIDs = `-- name: ListMemberProjectIDs :many
+SELECT project_id FROM project_members WHERE user_id = ?
+`
+
+func (q *Queries) ListMemberProjectIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listMemberProjectIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var project_id string
+		if err := rows.Scan(&project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, project_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

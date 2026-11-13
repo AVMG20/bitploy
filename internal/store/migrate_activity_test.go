@@ -139,6 +139,10 @@ func TestActivityQueriesUseIndexes(t *testing.T) {
 			if strings.HasPrefix(p, "SCAN audit_log") && !strings.Contains(p, "USING") {
 				t.Errorf("%s scans the whole audit_log:\n%s", name, strings.Join(plan, "\n"))
 			}
+			// A sort means every matching row is read before the LIMIT applies.
+			if strings.Contains(p, "TEMP B-TREE") {
+				t.Errorf("%s sorts its rows instead of reading them newest first from an index:\n%s", name, strings.Join(plan, "\n"))
+			}
 		}
 		t.Logf("%s:\n%s", name, strings.Join(plan, "\n"))
 	}
