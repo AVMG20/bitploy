@@ -15,7 +15,12 @@ SELECT * FROM deployments WHERE app_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?
 SELECT * FROM deployments WHERE app_id = ? ORDER BY seq DESC;
 
 -- name: ListQueuedDeployments :many
-SELECT * FROM deployments WHERE state = 'queued' ORDER BY queued_at, seq;
+-- The server's line, oldest first, with the owner of each app: the worker
+-- gives build slots fairly between owners (fairBuildOrder).
+SELECT d.id, d.app_id, d.source_kind, a.user_id AS owner_id
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.state = 'queued'
+ORDER BY d.queued_at, d.seq;
 
 -- name: ListActiveDeploymentsForUser :many
 -- Deployments that wait or run, of the user's apps and the apps of the

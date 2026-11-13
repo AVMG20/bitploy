@@ -74,7 +74,7 @@ function hint(b: ActiveBuild): string {
   const what = b.commit_message?.split('\n')[0] || `${b.app.name}: version ${b.seq}`
   if (b.state !== 'queued' || !b.position || running.value.some((r) => r.app.id === b.app.id)) return what
   const ahead = b.position - 1
-  return `${what}\n${ahead ? `${ahead} ${ahead === 1 ? 'build waits' : 'builds wait'} before this one on the server` : 'Starts as soon as a build on the server finishes'}`
+  return `${what}\n${ahead ? `${ahead} ${ahead === 1 ? 'build goes' : 'builds go'} before this one on the server (someone with fewer builds running goes first)` : 'Starts as soon as a build on the server finishes'}`
 }
 
 function link(b: ActiveBuild) {

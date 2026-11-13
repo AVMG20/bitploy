@@ -27,8 +27,10 @@ type deployRuntime struct {
 	foreignLogged bool
 	builderOnce   sync.Once
 	builder       *deploy.Builder
-	slotsUsed     int // build slots taken (fetch, validate, build); the limit is maxParallelBuilds
-	wg            sync.WaitGroup
+	// slots are the build slots taken (fetch, validate, build), deployment ID
+	// -> the app owner's user ID; the limit is maxParallelBuilds.
+	slots map[string]string
+	wg    sync.WaitGroup
 }
 
 func (r *deployRuntime) init() {
@@ -42,6 +44,7 @@ func (r *deployRuntime) init() {
 		r.draining = map[string]bool{}
 		r.locks = map[string]*sync.Mutex{}
 		r.restore = map[string]int{}
+		r.slots = map[string]string{}
 	}
 }
 
@@ -72,24 +75,27 @@ func (s *Service) buildBuilder() *deploy.Builder {
 // tryBuildSlot takes a build slot when fewer than limit are taken. The limit
 // is read on every dispatch pass, so lowering it lets the builds that run
 // finish and starts no new one until a slot is free.
-func (s *Service) tryBuildSlot(limit int) bool {
+// depID is the deployment that builds and owner the user whose app it is
+// (fairBuildOrder counts slots per owner).
+func (s *Service) tryBuildSlot(depID, owner string, limit int) bool {
 	r := &s.deployRT
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.slotsUsed >= limit {
+	r.init()
+	if _, ok := r.slots[depID]; ok || len(r.slots) >= limit {
 		return false
 	}
-	r.slotsUsed++
+	r.slots[depID] = owner
 	return true
 }
 
-func (s *Service) releaseBuildSlot() {
+// releaseBuildSlot frees the slot of a deployment; nothing when it has none.
+func (s *Service) releaseBuildSlot(depID string) {
 	r := &s.deployRT
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.slotsUsed > 0 {
-		r.slotsUsed--
-	}
+	r.init()
+	delete(r.slots, depID)
 }
 
 // buildSlotsUsed is how many builds hold a slot right now.
@@ -97,7 +103,21 @@ func (s *Service) buildSlotsUsed() int {
 	r := &s.deployRT
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.slotsUsed
+	r.init()
+	return len(r.slots)
+}
+
+// buildSlotHolders is how many slots each owner holds right now.
+func (s *Service) buildSlotHolders() map[string]int {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.init()
+	out := make(map[string]int, len(r.slots))
+	for _, owner := range r.slots {
+		out[owner]++
+	}
+	return out
 }
 
 // tryBusy marks an app as running a pipeline; false when one already runs.

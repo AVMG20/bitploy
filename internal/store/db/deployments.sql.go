@@ -549,52 +549,35 @@ func (q *Queries) ListInterruptibleDeployments(ctx context.Context) ([]Deploymen
 }
 
 const listQueuedDeployments = `-- name: ListQueuedDeployments :many
-SELECT id, app_id, seq, state, source_kind, source_ref, commit_sha, commit_message, channel, created_by, token_id, image, image_size_bytes, container_name, port, has_healthcheck, error_code, error_message, error_hint, error_next, log_tail, warnings, cancel_requested, queued_at, started_at, built_at, finished_at, build_kind, catalog_version, services_spec, error_service, after_deploy, build_reads FROM deployments WHERE state = 'queued' ORDER BY queued_at, seq
+SELECT d.id, d.app_id, d.source_kind, a.user_id AS owner_id
+FROM deployments d JOIN apps a ON a.id = d.app_id
+WHERE d.state = 'queued'
+ORDER BY d.queued_at, d.seq
 `
 
-func (q *Queries) ListQueuedDeployments(ctx context.Context) ([]Deployment, error) {
+type ListQueuedDeploymentsRow struct {
+	ID         string
+	AppID      string
+	SourceKind string
+	OwnerID    string
+}
+
+// The server's line, oldest first, with the owner of each app: the worker
+// gives build slots fairly between owners (fairBuildOrder).
+func (q *Queries) ListQueuedDeployments(ctx context.Context) ([]ListQueuedDeploymentsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listQueuedDeployments)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Deployment{}
+	items := []ListQueuedDeploymentsRow{}
 	for rows.Next() {
-		var i Deployment
+		var i ListQueuedDeploymentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.AppID,
-			&i.Seq,
-			&i.State,
 			&i.SourceKind,
-			&i.SourceRef,
-			&i.CommitSha,
-			&i.CommitMessage,
-			&i.Channel,
-			&i.CreatedBy,
-			&i.TokenID,
-			&i.Image,
-			&i.ImageSizeBytes,
-			&i.ContainerName,
-			&i.Port,
-			&i.HasHealthcheck,
-			&i.ErrorCode,
-			&i.ErrorMessage,
-			&i.ErrorHint,
-			&i.ErrorNext,
-			&i.LogTail,
-			&i.Warnings,
-			&i.CancelRequested,
-			&i.QueuedAt,
-			&i.StartedAt,
-			&i.BuiltAt,
-			&i.FinishedAt,
-			&i.BuildKind,
-			&i.CatalogVersion,
-			&i.ServicesSpec,
-			&i.ErrorService,
-			&i.AfterDeploy,
-			&i.BuildReads,
+			&i.OwnerID,
 		); err != nil {
 			return nil, err
 		}

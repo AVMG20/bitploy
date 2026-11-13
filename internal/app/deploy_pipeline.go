@@ -79,6 +79,7 @@ type pipeline struct {
 	oldStopped bool // recreate mode: the old container was stopped for us
 	failTail   []string
 	slotHeld   bool
+	slotDep    string // the deployment the slot was taken for (dep.ID when empty)
 	slotOnce   sync.Once
 
 	// runs are the services of the deployment in start order; one for a
@@ -130,7 +131,7 @@ type serviceRun struct {
 // runPipeline runs one claimed deployment to its end. slotHeld says the
 // caller took a build slot, which is released after the build step.
 func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) {
-	p := &pipeline{s: s, slotHeld: slotHeld, ring: deploy.NewLineRing(runtimeTailLines)}
+	p := &pipeline{s: s, slotHeld: slotHeld, slotDep: depID, ring: deploy.NewLineRing(runtimeTailLines)}
 	defer p.releaseSlot()
 
 	n, err := s.Q.ClaimDeployment(ctx, db.ClaimDeploymentParams{StartedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: depID})
@@ -166,7 +167,11 @@ func (s *Service) runPipeline(ctx context.Context, depID string, slotHeld bool) 
 func (p *pipeline) releaseSlot() {
 	p.slotOnce.Do(func() {
 		if p.slotHeld {
-			p.s.releaseBuildSlot()
+			id := p.slotDep
+			if id == "" {
+				id = p.dep.ID
+			}
+			p.s.releaseBuildSlot(id)
 		}
 	})
 }

@@ -1631,6 +1631,6 @@ export interface ActiveBuild {
   commit_message: string | null
   queued_at: string
   started_at: string | null
-  /** Queued: the place in the server's line, 1 is next. */
+  /** Queued: the place in the server's line, 1 is next. Fair: an account with fewer builds running goes first. */
   position?: number
 }

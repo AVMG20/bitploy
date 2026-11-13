@@ -23,7 +23,7 @@ func (e *depEnv) insertDep(t *testing.T, app App, id string, seq int64, state st
 // like the real one (finish with errCancelled), then frees both.
 func (e *depEnv) fakePipeline(t *testing.T, appID, depID string, holdSlot bool) (done chan struct{}) {
 	t.Helper()
-	if holdSlot && !e.s.tryBuildSlot(1) {
+	if holdSlot && !e.s.tryBuildSlot(depID, e.user.UserID, 1) {
 		t.Fatal("a build slot is taken already")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
