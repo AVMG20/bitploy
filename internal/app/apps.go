@@ -241,9 +241,16 @@ func (s *Service) createApp(ctx context.Context, a Actor, in CreateAppInput) (Ap
 				return apperr.Internal(err)
 			}
 			if total >= int64(s.Cfg.MaxApps) {
+				// The server's limit, not the user's: only an admin hears the
+				// numbers and the setting behind it.
+				if a.IsAdmin() {
+					return apperr.Forbidden("server_app_limit",
+						fmt.Sprintf("This bitploy server already holds %d apps, which is its maximum.", total),
+						"Raise BITPLOY_MAX_APPS in the server's environment, or delete apps that are no longer needed.")
+				}
 				return apperr.Forbidden("server_app_limit",
-					fmt.Sprintf("This bitploy server already runs %d apps, which is its maximum.", total),
-					"Delete an app you no longer need with delete_app, or ask the bitploy admin to raise BITPLOY_MAX_APPS.").WithNext("list_apps")
+					"The server holds as many apps as it can right now.",
+					"This is the server's limit, not yours. Tell the bitploy admin.")
 			}
 		}
 		return nil
@@ -1292,7 +1299,7 @@ func (s *Service) checkServerRoom(ctx context.Context, extraMB int64) error {
 		}
 		return apperr.Unavailable("server_room_unknown",
 			"bitploy could not check whether the server has room for this app.",
-			"Try again in a minute. If it keeps failing, tell the bitploy admin.")
+			"This is a problem on the server, not with your app or your quota. Tell the bitploy admin.")
 	}
 	if !ok {
 		return apperr.Unavailable("server_full",

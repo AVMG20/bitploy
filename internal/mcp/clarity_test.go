@@ -167,20 +167,31 @@ func TestErrorsWithoutNextToolGetADefault(t *testing.T) {
 		tool string
 		want string
 	}{
-		{apperr.TooMany("deploy_rate_limited", "Too many deployments.", "Wait 10 minutes."), "deploy_files", "get_app"},
+		{apperr.TooMany("deploy_rate_limited", "Too many deployments.", "Wait 10 minutes."), "deploy_files", "whoami"},
+		{apperr.TooMany("deploy_rate_limited", "Too many deployments.", "Wait 10 minutes.").WithNext("whoami"), "deploy", "whoami"},
 		{apperr.Conflict("app_busy", "A deployment is running.", "Wait."), "restart_app", "list_deployments"},
 		{apperr.Forbidden("token_read_only", "Read only.", "Use a deploy token."), "create_app", "whoami"},
 		{apperr.NotFound("domain_not_found", "No such domain.", "Check the name."), "check_domain", "get_app"},
 		{apperr.BadRequest("env_name_invalid", "Bad name.", "Use letters."), "set_env", "set_env"},
 		{apperr.Unprocessable("build_failed", "It failed.", "Read the log."), "deploy", "deploy"},
-		{apperr.Unavailable("server_full", "No room.", "Tell the admin."), "create_app", "create_app"},
+		// The server is out of room: no tool helps, the agent tells the user.
+		{apperr.Unavailable("server_full", "No room.", "Tell the admin."), "create_app", "none"},
+		{apperr.Unavailable("server_room_unknown", "Could not check.", "Tell the admin."), "start_app", "none"},
+		{apperr.Unavailable("server_disk_full", "Disk full.", "Tell the admin."), "deploy", "none"},
+		{apperr.Forbidden("server_app_limit", "Server full.", "Tell the admin.").WithNext("list_apps"), "create_app", "none"},
+		{apperr.Unavailable("docker_unavailable", "Docker is down.", "Try again."), "get_logs", "get_logs"},
 		{apperr.Internal(fmt.Errorf("boom")), "get_app", "get_app"},
 		{fmt.Errorf("plain error"), "get_app", "get_app"},
 	} {
 		res := s.errorResult(c.tool, c.err)
 		assertErrorShape(t, c.err.Error(), res)
-		if m := res.StructuredContent.(map[string]any); m["next_tool"] != c.want {
+		m := res.StructuredContent.(map[string]any)
+		if m["next_tool"] != c.want {
 			t.Errorf("%v on %s: next_tool = %v, want %s", c.err, c.tool, m["next_tool"], c.want)
+		}
+		if c.want == "none" && (!strings.Contains(m["hint"].(string), "not the user's quota") || !strings.Contains(m["hint"].(string), "Do not retry") ||
+			!strings.Contains(text(res), "Next tool: none (tell the user)")) {
+			t.Errorf("%v: a server capacity error must say so: %s", c.err, text(res))
 		}
 	}
 }

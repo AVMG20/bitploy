@@ -770,7 +770,7 @@ func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.Us
 	return apperr.TooMany("deploy_rate_limited",
 		fmt.Sprintf("You have already started %d deployments in the last hour, which is the limit for your account.", n),
 		deployAgainIn((wait+59)/60)).
-		WithNext("get_app").WithDetail("retry_after_seconds", wait)
+		WithNext("whoami").WithDetail("retry_after_seconds", wait)
 }
 
 // deployAgainIn is the rate limit hint, worded for people; the MCP adds its own advice for assistants.

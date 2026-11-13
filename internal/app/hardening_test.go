@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/AVMG20/bitploy/internal/apperr"
 )
 
 // The dashboard and the edge host can live below the apps domain. An app must
@@ -93,6 +95,14 @@ func TestServerAppLimitHoldsUnderParallelCalls(t *testing.T) {
 	wg.Wait()
 	if ok.Load() != 2 {
 		t.Fatalf("created %d apps with BITPLOY_MAX_APPS=2", ok.Load())
+	}
+	// A user hears that the server is full, not its numbers or setting, and
+	// is not told to delete their own app.
+	_, err := e.s.CreateApp(ctx, e.user, CreateAppInput{})
+	ae := apperr.As(err)
+	if ae.Code != "server_app_limit" || strings.Contains(ae.Message+ae.Hint, "BITPLOY_MAX_APPS") || strings.Contains(ae.Message, "2") ||
+		strings.Contains(ae.Hint, "delete") || ae.Next != "" || !strings.Contains(ae.Hint, "admin") {
+		t.Errorf("user sees %q / %q (next %q)", ae.Message, ae.Hint, ae.Next)
 	}
 }
 

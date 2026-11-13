@@ -196,7 +196,11 @@ func (s *srv) errorResult(tool string, err error) *mcp.CallToolResult {
 	if hint != "" {
 		text += "\nFix: " + hint
 	}
-	text += "\nNext tool: " + next
+	if next == noNextTool {
+		text += "\nNext tool: none (tell the user)"
+	} else {
+		text += "\nNext tool: " + next
+	}
 	return &mcp.CallToolResult{
 		IsError:           true,
 		Content:           []mcp.Content{&mcp.TextContent{Text: apperr.Redact(text)}},
@@ -208,6 +212,8 @@ func (s *srv) errorResult(tool string, err error) *mcp.CallToolResult {
 // not know which door the call came through).
 func hintSuffix(tool, code string) string {
 	switch {
+	case serverCapacity(code):
+		return "\n\nThis is the server's capacity, not the user's quota. Do not retry and do not delete or stop apps to make room: tell the user the server is out of room and that the bitploy admin has to make space."
 	case code == "dockerfile_missing" && tool == "deploy_files":
 		return "\n\nAfter saving the two files, call deploy_files again with ALL files, including the new Dockerfile and .dockerignore."
 	case code == "dockerfile_missing" && tool == "deploy":
@@ -231,6 +237,9 @@ func friendlySchemaError(msg string) string {
 // next_tool is always present. By default an input problem points back at the
 // same tool (fix the arguments and call it again).
 func defaultNextTool(tool string, ae *apperr.Error) string {
+	if serverCapacity(ae.Code) {
+		return noNextTool
+	}
 	if ae.Next != "" {
 		return ae.Next
 	}
@@ -240,7 +249,7 @@ func defaultNextTool(tool string, ae *apperr.Error) string {
 	case "app_busy":
 		return "list_deployments"
 	case "deploy_rate_limited":
-		return "get_app"
+		return "whoami" // deploys left this hour and when the next one is allowed
 	case "domain_not_found", "domain_taken":
 		return "get_app"
 	case "no_container":
@@ -256,9 +265,22 @@ func defaultNextTool(tool string, ae *apperr.Error) string {
 	case ae.HTTPStatus == 404:
 		return "list_apps"
 	case ae.HTTPStatus == 429:
-		return "get_app"
+		return "whoami"
 	}
 	return tool
+}
+
+// noNextTool is next_tool when no tool can help: the agent tells the user.
+const noNextTool = "none"
+
+// serverCapacity reports the errors of a server that is out of room (not
+// the user's quota): calling the same tool again, or another one, does not help.
+func serverCapacity(code string) bool {
+	switch code {
+	case "server_full", "server_room_unknown", "server_app_limit", "server_disk_full":
+		return true
+	}
+	return false
 }
 
 // usage lists a tool's arguments for invalid_arguments errors.
