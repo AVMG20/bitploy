@@ -99,10 +99,14 @@ func (s *Service) RunBackground(ctx context.Context) {
 		s.runBackups(ctx)
 	}()
 	if s.Docker != nil {
-		wg.Add(1)
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			s.runBuilderIdleStopper(ctx)
+		}()
+		go func() {
+			defer wg.Done()
+			s.runDiskGuard(ctx)
 		}()
 	}
 	s.metricsMgr().Run(ctx)

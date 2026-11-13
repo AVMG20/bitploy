@@ -178,6 +178,21 @@ func (c *Client) InspectContainer(ctx context.Context, name string) (container.I
 	return res.Container, err
 }
 
+// ContainerWriteBytes is how much one container wrote on top of its image
+// (its writable layer, volumes not included). Docker measures it on request
+// for this container only, which is far cheaper than listing every
+// container with sizes.
+func (c *Client) ContainerWriteBytes(ctx context.Context, name string) (int64, error) {
+	res, err := c.API.ContainerInspect(ctx, name, client.ContainerInspectOptions{Size: true})
+	if err != nil {
+		return 0, err
+	}
+	if res.Container.SizeRw == nil {
+		return 0, nil
+	}
+	return *res.Container.SizeRw, nil
+}
+
 // ContainerExists reports whether a container with this name exists.
 func (c *Client) ContainerExists(ctx context.Context, name string) (bool, error) {
 	_, err := c.InspectContainer(ctx, name)

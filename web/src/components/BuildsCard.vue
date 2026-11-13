@@ -22,6 +22,8 @@ const data = computed(() => builds.data.value)
 const running = computed(() => data.value?.running ?? [])
 const queued = computed(() => data.value?.queued ?? [])
 const total = computed(() => running.value.length + queued.value.length)
+// The server disk is almost full: nothing new builds until an admin frees space.
+const paused = computed(() => !!data.value?.slots.paused_for_disk && queued.value.length > 0)
 const visible = computed(() => !isMobile.value && state.value === 'expanded' && total.value > 0)
 
 // Running first, then the line; past MAX_ROWS the rest is "and N more".
@@ -66,6 +68,7 @@ function label(b: ActiveBuild): string {
   if (b.state !== 'queued') return deploymentStateInfo(b.state).label
   // Behind the app's own build: it starts when that one is done.
   if (running.value.some((r) => r.app.id === b.app.id)) return 'Up after this'
+  if (paused.value && b.source_kind !== 'rollback') return 'Paused: disk full'
   if (!b.position) return 'Waiting'
   return b.position === 1 ? 'Next up' : `${b.position - 1} ahead`
 }
@@ -73,6 +76,7 @@ function label(b: ActiveBuild): string {
 function hint(b: ActiveBuild): string {
   const what = b.commit_message?.split('\n')[0] || `${b.app.name}: version ${b.seq}`
   if (b.state !== 'queued' || !b.position || running.value.some((r) => r.app.id === b.app.id)) return what
+  if (paused.value) return `${what}\nBuilds are paused: the server disk is almost full. It starts once your admin frees space.`
   const ahead = b.position - 1
   return `${what}\n${ahead ? `${ahead} ${ahead === 1 ? 'build goes' : 'builds go'} before this one on the server (someone with fewer builds running goes first)` : 'Starts as soon as a build on the server finishes'}`
 }
@@ -126,6 +130,7 @@ function link(b: ActiveBuild) {
         </li>
       </ul>
       <p v-if="hidden" class="mt-1 text-muted-foreground">and {{ hidden }} more</p>
+      <p v-if="paused" class="mt-1 text-destructive" role="status">Builds are paused: the server disk is almost full.</p>
     </section>
   </Transition>
 </template>

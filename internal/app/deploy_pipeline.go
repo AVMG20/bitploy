@@ -1418,6 +1418,11 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		s.metricsMgr().MeasureSoon() // the new image and source count towards storage
 		return
 	}
+	if (ae == errCancelled || ae.Code == "cancelled") && s.cancelledForDisk(p.dep.ID) {
+		// The disk guard stopped the build: a failure with a reason the owner
+		// can act on, not a cancel by someone.
+		ae = diskBuildCancelledErr()
+	}
 	if ae == errCancelled || ae.Code == "cancelled" {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
 			// bitploy is shutting down: the reconciler cleans up after restart,

@@ -30,7 +30,9 @@ type deployRuntime struct {
 	// slots are the build slots taken (fetch, validate, build), deployment ID
 	// -> the app owner's user ID; the limit is maxParallelBuilds.
 	slots map[string]string
-	wg    sync.WaitGroup
+	// diskCancel: deployment IDs whose build the disk guard stopped.
+	diskCancel map[string]bool
+	wg         sync.WaitGroup
 }
 
 func (r *deployRuntime) init() {
@@ -45,6 +47,7 @@ func (r *deployRuntime) init() {
 		r.locks = map[string]*sync.Mutex{}
 		r.restore = map[string]int{}
 		r.slots = map[string]string{}
+		r.diskCancel = map[string]bool{}
 	}
 }
 
@@ -120,6 +123,40 @@ func (s *Service) buildSlotHolders() map[string]int {
 	return out
 }
 
+// cancelBuildsForDisk stops every build that holds a slot (fetch, validate,
+// build): the disk guard found the disk almost full. Their deployments fail
+// with disk_full_build_cancelled (pipeline.finish). It returns how many it
+// stopped.
+func (s *Service) cancelBuildsForDisk() int {
+	r := &s.deployRT
+	r.mu.Lock()
+	r.init()
+	var cancels []context.CancelFunc
+	for depID := range r.slots {
+		cancel, ok := r.cancels[depID]
+		if !ok || r.committed[depID] || r.byUser[depID] {
+			continue
+		}
+		r.byUser[depID] = true // not a shutdown: finish records it
+		r.diskCancel[depID] = true
+		cancels = append(cancels, cancel)
+	}
+	r.mu.Unlock()
+	for _, c := range cancels {
+		c()
+	}
+	return len(cancels)
+}
+
+// cancelledForDisk reports whether the disk guard stopped this deployment.
+func (s *Service) cancelledForDisk(depID string) bool {
+	r := &s.deployRT
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.init()
+	return r.diskCancel[depID]
+}
+
 // tryBusy marks an app as running a pipeline; false when one already runs.
 func (s *Service) tryBusy(appID, depID string, cancel context.CancelFunc) bool {
 	r := &s.deployRT
@@ -146,6 +183,7 @@ func (s *Service) clearBusy(appID, depID string) {
 	delete(r.byUser, depID)
 	delete(r.cancelReq, depID)
 	delete(r.committed, depID)
+	delete(r.diskCancel, depID)
 	delete(r.candidates, appID)
 }
 

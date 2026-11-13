@@ -883,6 +883,10 @@ func (s *Service) nextSteps(d Deployment, appType string) []string {
 			return []string{"This deployment was cancelled on request. It is not a failure and nothing needs fixing. The version that was live keeps running. Call get_app to see the current state."}
 		}
 		return []string{"A newer deployment replaced this one before it started, or the app was stopped. Call get_app to see the current state."}
+	case "queued":
+		if d.SourceKind != "rollback" && s.buildsPausedForDisk() {
+			return []string{"Builds are paused because the server disk is almost full: this deployment waits until the bitploy admin frees space. Tell the user; do not deploy again or cancel it."}
+		}
 	}
 	return []string{"Call get_deployment with wait_seconds=30 until the state is running or failed."}
 }

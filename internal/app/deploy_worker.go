@@ -14,7 +14,8 @@ import (
 //
 // Queued deployments live in SQLite. Every pass starts the queued rollbacks
 // of idle apps (they build nothing and need no slot) and hands the free build
-// slots out in fairBuildOrder. One pipeline runs per app at a time.
+// slots out in fairBuildOrder. One pipeline runs per app at a time. While the
+// disk guard pauses builds (disk almost full), no build starts.
 func (s *Service) RunWorker(ctx context.Context) {
 	if s.Docker == nil {
 		s.Log.Warn("deploy worker not started: Docker is unavailable")
@@ -55,6 +56,9 @@ func (s *Service) dispatch(ctx context.Context) {
 		if d.SourceKind == "rollback" && !s.appBusy(d.AppID) {
 			s.startPipeline(ctx, d.ID, d.AppID, false)
 		}
+	}
+	if s.buildsPausedForDisk() {
+		return // they stay queued until the disk guard lets builds run again
 	}
 	limit := s.maxParallelBuilds(ctx)
 	for _, d := range fairBuildOrder(rows, s.buildSlotHolders(), s.appBusy) {

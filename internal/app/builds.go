@@ -23,6 +23,9 @@ type BuildSlots struct {
 	Used   int `json:"used" doc:"Builds that hold a slot now (fetch, check and build)"`
 	Max    int `json:"max" doc:"Builds that may run at the same time (Admin > Server)"`
 	Queued int `json:"queued" doc:"Deployments waiting on the whole server, of every account"`
+	// PausedForDisk: the server disk is almost full, so no build starts
+	// until an admin frees space (rollbacks still run).
+	PausedForDisk bool `json:"paused_for_disk,omitempty" doc:"The server disk is almost full: queued builds wait until space is free"`
 }
 
 // ActiveBuild is one deployment in Builds.
@@ -80,7 +83,7 @@ func (s *Service) ListBuilds(ctx context.Context, a Actor) (Builds, error) {
 	}
 	out := Builds{
 		Running: []ActiveBuild{}, Queued: []ActiveBuild{},
-		Slots: BuildSlots{Used: s.buildSlotsUsed(), Max: s.maxParallelBuilds(ctx), Queued: len(queued)},
+		Slots: BuildSlots{Used: s.buildSlotsUsed(), Max: s.maxParallelBuilds(ctx), Queued: len(queued), PausedForDisk: s.buildsPausedForDisk()},
 	}
 	for _, r := range rows {
 		b := ActiveBuild{

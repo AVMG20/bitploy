@@ -83,8 +83,13 @@ type diskState struct {
 	// back above the warning level since.
 	warned bool
 
+	// guard is the disk guard's state (disk_guard.go).
+	guard diskGuard
+
 	// space replaces the statfs of the data directory in tests.
 	space func() (diskuse.Space, error)
+	// appBytes replaces appWrittenBytes in tests.
+	appBytes func(ctx context.Context) (map[string]int64, error)
 }
 
 func (s *Service) diskInit() {

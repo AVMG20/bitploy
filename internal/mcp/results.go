@@ -602,7 +602,7 @@ func failureSteps(d app.Deployment) []string {
 		out = append(out, "Shrink the image (smaller base, multi-stage build, a .dockerignore), then "+redo+".")
 	case "deploy_rate_limited":
 		out = append(out, "Wait as the hint says and tell the user; do not retry in a loop. whoami shows when the next deploy is allowed. Before the next deploy, fix and test as much as you can locally.")
-	case "server_full", "server_room_unknown", "server_app_limit", "server_disk_full", "disk_full_build_cancelled":
+	case "server_full", "server_room_unknown", "server_app_limit", "server_disk_full", "disk_full", "disk_full_build_cancelled":
 		out = append(out, "The server is out of room; this is not the user's quota and not a problem in the code. Do not deploy again and do not stop or delete apps: tell the user the server is out of room and that the bitploy admin has to make space.")
 	case "memory_quota_exceeded", "cpu_quota_exceeded":
 		out = append(out, "whoami shows what is left of the quota. If the app runs in less, lower memory_mb or cpu_millis with update_app, then deploy with only app="+slug+". Otherwise ask the user which app to stop, or to ask an admin for more; never stop or delete an app on your own.")

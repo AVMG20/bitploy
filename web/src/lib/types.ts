@@ -1619,6 +1619,8 @@ export interface Builds {
     max: number
     /** Deployments waiting on the whole server, of every account. */
     queued: number
+    /** The server disk is almost full: queued builds wait until space is free. */
+    paused_for_disk?: boolean
   }
 }
 
