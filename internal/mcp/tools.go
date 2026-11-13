@@ -242,7 +242,7 @@ func (s *srv) registerTools() {
 	adminURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/admin"
 
 	addTool(s, "whoami", "Who am I",
-		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>) and app_domains (every domain this user may put apps on), quotas with what is used and left (apps, memory, CPU, storage, deploys this hour and when the next one is allowed, domains per app) and hard limits (inline 2 MB/200 files, zip 95 MB). Call it before planning a deploy. Next: list_apps.",
+		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>) and app_domains (every domain this user may put apps on), quotas with what is used and left (apps, memory, CPU, storage, domains per app; deploys are not limited, deploys_last_hour is a count only) and hard limits (inline 2 MB/200 files, zip 95 MB). Call it before creating a new app. Next: list_apps.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			me, err := svc.Me(ctx, a)
