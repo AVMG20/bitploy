@@ -335,6 +335,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 | `deploy(app, upload_id?)` | Queues a deployment from the upload or git source | deploy | — |
 | `get_deployment(id?, app?, wait_seconds?)` | State, timings, error, last 50 log lines; with only `app` it returns the latest deployment | read | read-only |
 | `list_deployments(app)` | History, newest first | read | read-only |
+| `list_activity(app?, limit?, cursor?)` | What happened to the user's apps, projects and account, newest first: who (you, a project member by name, an admin, bitploy), what, when, which app (`GET /activity`) | read | read-only |
 | `get_logs(app, kind, tail?, since?, service?)` | `build` or `runtime` logs, max 1,000 lines; `service` picks one service of an app with several | read | read-only |
 | `set_env(app, set, unset, service?, hidden?)` | Encrypted env vars, readable unless hidden: `hidden` per name, else hidden when the name contains SECRET, TOKEN, KEY or PASSWORD; a hidden value is never returned. `service` scopes them to one service of a compose app. Values may hold `${{<alias>.VAR}}` references to apps of the same project, checked on set. Every variable also reaches the image build (Build-time variables) | deploy | idempotent |
 | `set_password_protection(app, enabled, username?, password?)` | Browser login prompt in front of the app's public addresses; only when the user asks; the password is never returned | deploy | idempotent |
@@ -435,6 +436,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `POST /api/v1/invites/{code}/accept` | Finish signup from an invite |
 | `GET /api/v1/password-resets/{code}`, `POST …/use` | The reset page: whose account the link is for, then set the new password and log in (no login) |
 | `GET /api/v1/me`, `GET /api/v1/usage` | `whoami`, usage totals |
+| `GET /api/v1/activity` | `list_activity`: the audit rows about the caller's apps, projects and account, newest first (`limit`, `cursor`, `app`); other people by name only when they share the project, IPs only on the caller's own rows; any scope |
 | `GET` `POST` `DELETE /api/v1/tokens[/{id}]` | Manage API tokens (session only) |
 | `GET /api/v1/github`, `POST /api/v1/github/connect`, `POST /api/v1/github/link`, `DELETE /api/v1/github/installations/{id}` | The user's GitHub connection (session only) |
 | `GET /api/v1/github/repositories`, `GET /api/v1/github/branches` | Repository and branch pickers (session only) |
