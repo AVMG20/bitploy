@@ -8,9 +8,12 @@ package app
 //     pauses builds: no queued build starts until free space is back above
 //     the threshold plus diskuse.Margin (rollbacks still run: they build
 //     nothing). It asks the automatic cleanup to run first (when it is on;
-//     the cleanup runs in its own goroutine, so the guard keeps looking), and
-//     when the disk is still low at a later look, with no cleanup running,
-//     it stops the builds that run (disk_full_build_cancelled).
+//     the cleanup runs in its own goroutine, so the guard keeps looking).
+//     Builds that already run go on until free space falls below the cancel
+//     level (twice the critical level, at most the builds threshold: 10% by
+//     default), so a big disk with room left never loses a build; below it,
+//     at a later look with no cleanup running, it stops the builds that run
+//     (disk_full_build_cancelled).
 //   - While builds are paused it asks the /data volume check to run early, so
 //     an app over its storage limit is stopped without waiting for the hour.
 //   - Below the critical level (half the builds threshold, between 1% and 5%
@@ -69,6 +72,7 @@ const (
 type diskGuard struct {
 	mu        sync.Mutex
 	paused    bool    // builds are paused for disk space
+	announced bool    // this pause was audited (and admins told, cooldown allowing)
 	cancelled bool    // this pause stopped the builds that ran
 	lastFree  float64 // free fraction at the previous look; 0 before the first
 	heavyAt   time.Time
@@ -82,18 +86,22 @@ type diskGuard struct {
 	saidAt time.Time
 }
 
-// diskLevels are the guard's thresholds as free fractions.
-type diskLevels struct{ builds, critical float64 }
+// diskLevels are the guard's thresholds as free fractions: builds pause
+// below builds, running builds stop below cancel, the growing app stops
+// below critical.
+type diskLevels struct{ builds, cancel, critical float64 }
 
 func diskLevelsOf(set diskSettings) diskLevels {
 	b := float64(set.builds) / 100
-	return diskLevels{builds: b, critical: min(max(b/2, diskCriticalMin), diskCriticalMax)}
+	c := min(max(b/2, diskCriticalMin), diskCriticalMax)
+	return diskLevels{builds: b, cancel: min(2*c, b), critical: c}
 }
 
 // diskGuardPlan is what one look asks for.
 type diskGuardPlan struct {
 	pause, resume  bool // pause: also ask the automatic cleanup to run
-	stopBuilds     bool // still low a look later: stop the builds that run
+	announce       bool // still low a look later: audit the pause, tell the admins
+	stopBuilds     bool // below the cancel level a look later: stop the builds that run
 	measureVolumes bool // run the /data volume check now
 	measureApps    bool // measure what every app wrote
 	critical       bool // stop the app that grows the most
@@ -106,7 +114,7 @@ func (g *diskGuard) plan(now time.Time, free float64, lv diskLevels) diskGuardPl
 	g.lastFree = free
 	if free >= lv.builds+diskuse.Margin {
 		p.resume = g.paused
-		g.paused, g.cancelled, g.sizes = false, false, nil
+		g.paused, g.announced, g.cancelled, g.sizes = false, false, false, nil
 		g.heavyAt, g.volumeAt = time.Time{}, time.Time{}
 		return p
 	}
@@ -116,7 +124,8 @@ func (g *diskGuard) plan(now time.Time, free float64, lv diskLevels) diskGuardPl
 	if !g.paused {
 		p.pause, g.paused = true, true // the cleanup gets one look to help first
 	} else {
-		p.stopBuilds = !g.cancelled
+		p.announce = !g.announced
+		p.stopBuilds = !g.cancelled && free < lv.cancel
 	}
 	p.critical = free < lv.critical
 	if (p.pause || fast || p.critical) && now.Sub(g.volumeAt) >= diskVolumeCheckGap {
@@ -252,38 +261,52 @@ func (s *Service) diskGuardOnce(ctx context.Context) {
 	if p.measureVolumes {
 		s.metricsMgr().MeasureSoon() // the hourly /data check, now; it never runs twice at once
 	}
-	if p.stopBuilds {
-		s.diskGuardStopBuilds(ctx, set, lv, sp)
+	if p.announce || p.stopBuilds {
+		s.diskGuardStopBuilds(ctx, set, lv, sp, p.stopBuilds)
 	}
 	if p.measureApps {
 		s.diskGuardMeasure(ctx, p.critical, free)
 	}
 }
 
-// diskGuardStopBuilds stops the builds that run, once the automatic cleanup
-// had its chance and the disk is still below the builds threshold, and
-// tells the admins.
-func (s *Service) diskGuardStopBuilds(ctx context.Context, set diskSettings, lv diskLevels, after diskuse.Space) {
+// diskGuardStopBuilds tells the admins that builds are paused, once the
+// automatic cleanup had its chance and the disk is still below the builds
+// threshold, and with stop (below the cancel level) stops the builds that
+// run. Each happens once per pause.
+func (s *Service) diskGuardStopBuilds(ctx context.Context, set diskSettings, lv diskLevels, after diskuse.Space, stop bool) {
 	if !s.disk.run.TryLock() {
 		return // a cleanup runs (by hand, the minute's or ours): look again after it
 	}
 	s.disk.run.Unlock()
-	n := s.cancelBuildsForDisk()
+	n := 0
+	if stop {
+		n = s.cancelBuildsForDisk()
+	}
 	now := s.Now()
 	g := &s.disk.guard
 	g.mu.Lock()
-	g.cancelled = true
-	say := g.sayPause(now)
+	first := !g.announced
+	g.announced = true
+	if stop {
+		g.cancelled = true
+	}
+	say := false
+	if first || n > 0 {
+		// A stopped build is news even within the hour of a told pause.
+		say = g.sayPause(now) || (n > 0 && g.said)
+	}
 	g.mu.Unlock()
 	free := after.FreeFraction()
 	bg := context.WithoutCancel(ctx)
-	s.Audit(bg, System, "server.builds_paused", "server", "disk", map[string]any{
-		"free_percent": round1(free * 100), "builds_threshold_percent": set.builds, "builds_stopped": n,
-	})
+	if first || n > 0 {
+		s.Audit(bg, System, "server.builds_paused", "server", "disk", map[string]any{
+			"free_percent": round1(free * 100), "builds_threshold_percent": set.builds, "builds_stopped": n,
+		})
+	}
 	if !say {
 		return
 	}
-	body := "No queued build starts until more of the disk is free. Running apps are not affected."
+	body := fmt.Sprintf("No queued build starts until more of the disk is free; builds that run are stopped below %.0f%%. Running apps are not affected.", lv.cancel*100)
 	if n > 0 {
 		body = fmt.Sprintf("bitploy stopped %d %s that ran. ", n, plural(n, "build", "builds")) + body
 	}

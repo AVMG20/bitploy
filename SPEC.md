@@ -714,7 +714,7 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 **Protecting the one server**
 
 - Keep the sum of all memory limits under the host RAM minus 1.5 GB reserved for Docker, Traefik and bitploy. Past that, `create_app` and `update_app` fail with `server_full` and a hint to tell the admin.
-- Refuse new builds when the disk has under 15% free; prune images and build cache nightly. A disk guard checks free space every 30 seconds: below that line it stops running builds and holds queued ones, and near full it stops the app that writes the most (see docs/decisions.md).
+- Refuse new builds when the disk has under 15% free; prune images and build cache nightly. A disk guard checks free space every 30 seconds: below that line it holds queued builds, lower (10% by default) it stops running ones, and near full it stops the app that writes the most (see docs/decisions.md).
 - Build steps run untrusted code. For colleagues that is acceptable with the 30-minute timeout; the public checklist below moves builds out.
 
 **Control plane**

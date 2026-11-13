@@ -12,16 +12,16 @@ import (
 
 func TestDiskLevels(t *testing.T) {
 	for _, c := range []struct {
-		builds   int
-		critical float64
+		builds           int
+		cancel, critical float64
 	}{
-		{15, 0.05}, // half is 7.5%: capped at 5%
-		{4, 0.02},
-		{1, 0.01},  // half is 0.5%: at least 1%
-		{50, 0.05}, // a careful admin does not make apps stop at 25% free
+		{15, 0.10, 0.05}, // half is 7.5%: capped at 5%
+		{4, 0.04, 0.02},  // the cancel level is never above the builds threshold
+		{1, 0.01, 0.01},  // half is 0.5%: at least 1%
+		{50, 0.10, 0.05}, // a careful admin does not make apps stop at 25% free
 	} {
 		lv := diskLevelsOf(diskSettings{builds: c.builds})
-		if lv.builds != float64(c.builds)/100 || lv.critical != c.critical {
+		if lv.builds != float64(c.builds)/100 || lv.cancel != c.cancel || lv.critical != c.critical {
 			t.Errorf("builds %d%%: %+v, want critical %v", c.builds, lv, c.critical)
 		}
 	}
@@ -29,24 +29,28 @@ func TestDiskLevels(t *testing.T) {
 
 // One guard over a falling, then recovering disk: what each look asks for.
 func TestDiskGuardPlan(t *testing.T) {
-	lv := diskLevels{builds: 0.15, critical: 0.05}
+	lv := diskLevels{builds: 0.15, cancel: 0.10, critical: 0.05}
 	var g diskGuard
 	t0 := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 	steps := []struct {
 		at   time.Duration
 		free float64
 		want diskGuardPlan
-		// cancelled: the caller stopped the builds after this look.
-		cancelled bool
+		// handled: the caller acted on the look (no cleanup was running).
+		handled bool
 	}{
 		{0, 0.30, diskGuardPlan{}, false},
 		// Below the builds threshold: pause (and ask the cleanup to run), check /data now,
 		// measure the apps (baseline). Running builds get one look for the cleanup to help.
 		{30 * time.Second, 0.14, diskGuardPlan{pause: true, measureVolumes: true, measureApps: true}, false},
-		// Still low: stop the builds. Falling fast, but the /data check ran 30 s ago.
+		// Still low but above the cancel level: announce the pause, running builds go on.
 		// The cleanup still runs, so the caller waits.
-		{time.Minute, 0.13, diskGuardPlan{stopBuilds: true}, false},
-		{90 * time.Second, 0.125, diskGuardPlan{stopBuilds: true}, true},
+		{time.Minute, 0.13, diskGuardPlan{announce: true}, false},
+		{80 * time.Second, 0.13, diskGuardPlan{announce: true}, true},
+		// Below the cancel level: stop the builds. Falling fast, but the /data check ran
+		// a minute ago. The cleanup runs again, so the caller waits.
+		{90 * time.Second, 0.09, diskGuardPlan{stopBuilds: true}, false},
+		{100 * time.Second, 0.085, diskGuardPlan{stopBuilds: true}, true},
 		// Builds stopped: nothing more until the heavy gap passed.
 		{2 * time.Minute, 0.12, diskGuardPlan{}, false},
 		// Critical after five minutes: measure and stop the grower; /data was checked under ten minutes ago.
@@ -68,8 +72,9 @@ func TestDiskGuardPlan(t *testing.T) {
 		if got != st.want {
 			t.Errorf("look %d (%.0f%% free): %+v, want %+v", i, st.free*100, got, st.want)
 		}
-		if st.cancelled {
-			g.cancelled = true
+		if st.handled {
+			g.announced = g.announced || got.announce
+			g.cancelled = g.cancelled || got.stopBuilds
 		}
 		if want := st.free < lv.builds+diskuse.Margin && (st.free < lv.builds || g.paused); g.paused != want {
 			t.Errorf("look %d: paused = %v", i, g.paused)
@@ -165,10 +170,11 @@ func TestDiskGuardPausesBuildsAndStopsTheGrower(t *testing.T) {
 		t.Fatalf("paused=%v measured=%d with 50%% free", e.s.buildsPausedForDisk(), measured)
 	}
 
-	// 10% free (builds stop below 15%): the queue is held at once; the
-	// running build gets one look for the cleanup to help, then it is stopped.
+	// 8% free (builds pause below 15%, running builds stop below 10%): the
+	// queue is held at once; the running build gets one look for the cleanup
+	// to help, then it is stopped.
 	written[web.ID], written[noisy.ID] = 100*mb, 200*mb
-	setFree(10)
+	setFree(8)
 	clock = clock.Add(30 * time.Second)
 	e.s.diskGuardOnce(ctx)
 	if !e.s.buildsPausedForDisk() || e.s.buildSlotsUsed() != 1 {
