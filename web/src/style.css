@@ -117,6 +117,9 @@
     --chart-3: oklch(0.72 0.14 80);
     --chart-4: oklch(0.55 0.02 60);
     --chart-5: oklch(0.6 0.19 355);
+    /* Builds shaded behind the server charts (Admin > Server): faint, so the line stays readable. */
+    --build-band: oklch(0.55 0.1 265 / 13%);
+    --build-band-failed: oklch(0.6 0.2 25 / 13%);
 
     --sidebar: oklch(0.97 0 0);
     --sidebar-foreground: oklch(0.4 0 0);
@@ -174,6 +177,8 @@
     --chart-3: oklch(0.8 0.13 80);
     --chart-4: oklch(0.7 0.02 60);
     --chart-5: oklch(0.7 0.16 355);
+    --build-band: oklch(0.78 0.09 265 / 15%);
+    --build-band-failed: oklch(0.7 0.18 25 / 17%);
 
     --sidebar: oklch(0.135 0 0);
     --sidebar-foreground: oklch(0.72 0 0);

@@ -102,7 +102,7 @@ func (q *Queries) InsertBuildHistory(ctx context.Context, arg InsertBuildHistory
 }
 
 const listAuditPageByUser = `-- name: ListAuditPageByUser :many
-SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details FROM audit_log WHERE user_id = ? AND id < ? ORDER BY id DESC LIMIT ?
+SELECT id, ts, user_id, channel, token_id, ip, "action", target_type, target_id, details, app_id, project_id, owner_id FROM audit_log WHERE user_id = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
 type ListAuditPageByUserParams struct {
@@ -132,6 +132,9 @@ func (q *Queries) ListAuditPageByUser(ctx context.Context, arg ListAuditPageByUs
 			&i.TargetType,
 			&i.TargetID,
 			&i.Details,
+			&i.AppID,
+			&i.ProjectID,
+			&i.OwnerID,
 		); err != nil {
 			return nil, err
 		}

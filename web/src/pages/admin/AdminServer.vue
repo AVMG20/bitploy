@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import AdminBuildSlots from './AdminBuildSlots.vue'
+import AdminBuildsByPerson from './AdminBuildsByPerson.vue'
 import AdminPublicPorts from './AdminPublicPorts.vue'
 import { keys, REFRESH_MS, useServerMetrics } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
@@ -28,6 +29,8 @@ const windows: { value: MetricWindow; label: string }[] = [
 const history = useServerMetrics(windowSel)
 const points = computed(() => history.data.value?.points ?? [])
 const memTotalMB = computed(() => history.data.value?.mem_total_mb || s.value?.mem_total_mb || 0)
+// Builds are shaded behind the charts of 1 hour and 24 hours; on 7 days they would cover everything.
+const builds = computed(() => (windowSel.value === '7d' ? null : (history.data.value?.builds ?? null)))
 
 // Free disk in %, and whether it is low enough to warn about (below 20%).
 const DISK_WARN_PERCENT = 20
@@ -131,18 +134,24 @@ const proxyDown = computed(() => system.value.some((c) => c.name === 'proxy' && 
               <span class="font-medium">CPU</span>
               <span class="text-xs text-muted-foreground">% of the whole server</span>
             </p>
-            <MetricChart :points="points" field="cpu" label="CPU" unit="%" :window="windowSel" :limit="100" color="var(--chart-1)" />
+            <MetricChart :points="points" field="cpu" label="CPU" unit="%" :window="windowSel" :limit="100" color="var(--chart-1)" :builds="builds" />
           </div>
           <div class="min-w-0">
             <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
               <span class="font-medium">Memory</span>
               <span class="text-xs text-muted-foreground">GB in use, of {{ formatMB(memTotalMB) }}</span>
             </p>
-            <MetricChart :points="points" field="memory_mb" label="Memory" unit="GB" :scale="1 / 1024" :window="windowSel" :limit="memTotalMB / 1024" color="var(--chart-2)" />
+            <MetricChart :points="points" field="memory_mb" label="Memory" unit="GB" :scale="1 / 1024" :window="windowSel" :limit="memTotalMB / 1024" color="var(--chart-2)" :builds="builds" />
           </div>
+          <p v-if="windowSel !== '7d'" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground md:col-span-2" data-testid="builds-legend">
+            <span class="inline-flex items-center gap-1.5"><span class="size-3 rounded-xs border bg-(--build-band)" aria-hidden="true" />Shaded: builds</span>
+            <span class="inline-flex items-center gap-1.5"><span class="size-3 rounded-xs border bg-(--build-band-failed)" aria-hidden="true" />failed builds</span>
+          </p>
         </div>
       </CardContent>
     </Card>
+
+    <AdminBuildsByPerson class="mt-6" />
 
     <AdminBuildSlots class="mt-6" />
 
