@@ -1189,6 +1189,61 @@ export interface ServerMetrics {
   /** The server's RAM; 0 when it cannot be read. */
   mem_total_mb: number
   points: ServerMetricPoint[] | null
+  /** The builds that overlap the window, oldest first (at most 500, the newest), with the ones that run now. */
+  builds?: BuildRecord[] | null
+}
+
+export type BuildWindow = '24h' | '7d' | '30d'
+
+/** One build: a deployment that used a build slot (rollbacks build nothing). */
+export interface BuildRecord {
+  deployment_id: string
+  app_id: string
+  /** The app's slug at the time of the build. */
+  app: string
+  app_name: string
+  /** Who started the build, else the app's owner (a git push). */
+  person_id: string
+  /** Their name; empty when the account is gone. */
+  person: string
+  channel: string
+  source_kind: string
+  queued_at: string
+  /** When it took a build slot. */
+  started_at: string
+  /** When the build step ended: the image was built, else the deployment ended. Null while it builds. */
+  ended_at: string | null
+  /** When the deployment ended; null while it runs. */
+  finished_at: string | null
+  wait_seconds: number
+  build_seconds: number
+  result: 'live' | 'failed' | 'cancelled' | 'in_progress'
+  error_code: string | null
+  /** Highest CPU of the whole server (%) while it built; null without samples. */
+  peak_cpu: number | null
+  peak_memory_mb: number | null
+}
+
+/** What one person built in the window (GET /admin/builds/stats). */
+export interface BuildPersonStats {
+  user_id: string
+  /** Empty when the account is gone. */
+  name: string
+  email: string
+  builds: number
+  failed: number
+  total_build_seconds: number
+  avg_build_seconds: number
+  longest_build_seconds: number
+  longest_app: string
+  peak_cpu: number | null
+  peak_memory_mb: number | null
+  last_build_at: string | null
+}
+
+export interface BuildStats {
+  window: BuildWindow
+  people: BuildPersonStats[] | null
 }
 
 export interface Page<T> {

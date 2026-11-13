@@ -146,6 +146,13 @@ export const router = createRouter({
           meta: { title: 'Database', admin: true },
         },
         {
+          path: 'admin/people/:id',
+          name: 'admin-person',
+          component: () => import('./pages/admin/AdminPersonPage.vue'),
+          props: true,
+          meta: { title: 'Person', admin: true },
+        },
+        {
           path: 'admin/disk',
           name: 'admin-disk',
           component: () => import('./pages/admin/AdminDiskPage.vue'),

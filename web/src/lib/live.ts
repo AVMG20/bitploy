@@ -2,7 +2,7 @@
 // cached queries. Pure on purpose (no Vue, no imports besides types), so Node
 // can run its test: see tests/live.test.ts and docs/CONTRACT.md "Live events".
 
-import type { MetricWindow, TrafficWindow } from './types'
+import type { BuildWindow, MetricWindow, TrafficWindow } from './types'
 
 export const keys = {
   me: ['me'] as const,
@@ -53,6 +53,9 @@ export const keys = {
   adminPublicPorts: ['admin', 'public-ports'] as const,
   adminAudit: ['admin', 'audit'] as const,
   activity: ['activity'] as const,
+  adminUserAudit: (userId: string) => ['admin', 'user-audit', userId] as const,
+  adminBuildStats: (window: BuildWindow) => ['admin', 'build-stats', window] as const,
+  adminBuilds: (userId: string, window: BuildWindow) => ['admin', 'builds', userId, window] as const,
   adminAppDomains: ['admin', 'app-domains'] as const,
 }
 

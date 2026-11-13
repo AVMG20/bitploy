@@ -1,5 +1,8 @@
 import type {
   AddServiceInput,
+  BuildRecord,
+  BuildStats,
+  BuildWindow,
   Builds,
   AdminProjectInvite,
   AdminUser,
@@ -203,6 +206,8 @@ export const paths = {
   adminAppStop: (slug: string) => `${V1}/admin/apps/${enc(slug)}/stop`,
   adminAudit: `${V1}/admin/audit`,
   activity: `${V1}/activity`,
+  adminBuildStats: `${V1}/admin/builds/stats`,
+  adminBuilds: `${V1}/admin/builds`,
   adminAppDomains: `${V1}/admin/app-domains`,
   adminAppDomain: (id: string) => `${V1}/admin/app-domains/${enc(id)}`,
   adminAppDomainCert: (id: string) => `${V1}/admin/app-domains/${enc(id)}/certificate`,
@@ -733,6 +738,16 @@ export const api = {
     request<Page<AuditEntry>>('GET', paths.adminAudit, { query: { limit: 50, cursor } }),
   activity: (cursor?: string) =>
     request<Page<ActivityEntry>>('GET', paths.activity, { query: { limit: 50, cursor } }),
+  /** The newest entries of what one person did. */
+  async adminUserAudit(userId: string, limit = 20): Promise<AuditEntry[]> {
+    return (await request<Page<AuditEntry>>('GET', paths.adminAudit, { query: { user: userId, limit } })).items ?? []
+  },
+  /** The builds per person that ended in the window, most build time first. */
+  adminBuildStats: (window: BuildWindow) => request<BuildStats>('GET', paths.adminBuildStats, { query: { window } }),
+  /** One person's builds that ended in the window, newest first (at most 100). */
+  async adminBuilds(userId: string, window: BuildWindow): Promise<BuildRecord[]> {
+    return (await request<Page<BuildRecord>>('GET', paths.adminBuilds, { query: { user: userId, window, limit: 100 } })).items ?? []
+  },
 }
 
 // ---------------------------------------------------------------------------

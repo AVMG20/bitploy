@@ -19,6 +19,10 @@ import type { Duplex } from 'node:stream'
 import type { Plugin } from 'vite'
 import type {
   ActiveBuild,
+  BuildPersonStats,
+  BuildRecord,
+  BuildStats,
+  BuildWindow,
   AdminProjectInvite,
   App,
   Builds,
@@ -1715,7 +1719,142 @@ function serverMetricsOf(window: string): ServerMetrics {
     c = Math.max(2, Math.min(85, c + (r() - 0.5) * 8))
     points.push({ ts: ago(i * stepMin), cpu: Math.round(c * 10) / 10, memory_mb: Math.round(m), memory_total_mb: total })
   }
-  return { window: window as ServerMetrics['window'], mem_total_mb: total, points }
+  const since = NOW - stepMin * 60 * 60_000
+  const builds = buildHistory()
+    .filter((b) => b.ended_at === null || Date.parse(b.ended_at) >= since)
+    .slice(-500)
+  return { window: window as ServerMetrics['window'], mem_total_mb: total, points, builds }
+}
+
+// ---------------------------------------------------------------- build history (Admin > Server, a person's page)
+
+// Who builds in the demo, how much and how long: Ada a lot, Linus long, Grace now and then.
+const BUILDERS: { id: string; name: string; apps: string[]; perDay: number; seconds: number }[] = [
+  { id: 'usr_ada', name: 'Ada', apps: ['mk-store', 'mk-api', 'mk-admin', 'notes'], perDay: 9, seconds: 70 },
+  { id: 'usr_linus', name: 'Linus', apps: ['shop', 'mk-api'], perDay: 3, seconds: 260 },
+  { id: 'usr_grace', name: 'Grace', apps: ['portfolio'], perDay: 0.6, seconds: 40 },
+]
+let builtHistory: BuildRecord[] | null = null
+/** 30 days of builds, oldest first, and one that builds now. */
+function buildHistory(): BuildRecord[] {
+  if (builtHistory) return builtHistory
+  const r = seeded('build-history')
+  const out: BuildRecord[] = []
+  let n = 0
+  for (const p of BUILDERS) {
+    const count = Math.round(p.perDay * 30)
+    for (let i = 0; i < count; i++) {
+      const start = NOW - r() * 30 * 86_400_000 - 120_000
+      const seconds = Math.round(p.seconds * (0.4 + r() * 1.4))
+      const wait = r() < 0.7 ? Math.round(r() * 8) : Math.round(r() * 180)
+      const failed = r() < 0.12
+      const cancelled = !failed && r() < 0.03
+      const app = p.apps[Math.floor(r() * p.apps.length)]!
+      const ended = start + seconds * 1000
+      out.push({
+        deployment_id: `dep_h${(n++).toString(36)}`,
+        app_id: `app_${app}`,
+        app,
+        app_name: app,
+        person_id: p.id,
+        person: p.name,
+        channel: r() < 0.6 ? 'mcp' : r() < 0.5 ? 'system' : 'dashboard',
+        source_kind: 'upload',
+        queued_at: new Date(start - wait * 1000).toISOString(),
+        started_at: new Date(start).toISOString(),
+        ended_at: new Date(ended).toISOString(),
+        finished_at: new Date(ended + (failed ? 0 : 15_000)).toISOString(),
+        wait_seconds: wait,
+        build_seconds: seconds,
+        result: failed ? 'failed' : cancelled ? 'cancelled' : 'live',
+        error_code: failed ? 'build_failed' : null,
+        peak_cpu: Math.round((35 + r() * 60) * 10) / 10,
+        peak_memory_mb: Math.round(6000 + r() * 6000),
+      })
+    }
+  }
+  // A few in the last hour, so the 1 hour chart shows some.
+  for (const [i, [min, seconds, who, app, result]] of (
+    [
+      [48, 140, 0, 'mk-store', 'live'],
+      [31, 320, 1, 'shop', 'failed'],
+      [12, 75, 0, 'notes', 'live'],
+    ] as const
+  ).entries()) {
+    const start = NOW - min * 60_000
+    out.push({
+      ...out[0]!,
+      deployment_id: `dep_hr${i}`,
+      app_id: `app_${app}`,
+      app,
+      app_name: app,
+      person_id: BUILDERS[who]!.id,
+      person: BUILDERS[who]!.name,
+      queued_at: new Date(start - 4000).toISOString(),
+      started_at: new Date(start).toISOString(),
+      ended_at: new Date(start + seconds * 1000).toISOString(),
+      finished_at: new Date(start + seconds * 1000 + 15_000).toISOString(),
+      wait_seconds: 4,
+      build_seconds: seconds,
+      result,
+      error_code: result === 'failed' ? 'build_failed' : null,
+      peak_cpu: result === 'failed' ? 91.5 : 64.2,
+      peak_memory_mb: 9800,
+    })
+  }
+  out.push({
+    deployment_id: 'dep_hnow',
+    app_id: 'app_mk-api',
+    app: 'mk-api',
+    app_name: 'mk-api',
+    person_id: 'usr_ada',
+    person: 'Ada',
+    channel: 'mcp',
+    source_kind: 'git',
+    queued_at: ago(2),
+    started_at: ago(1.5),
+    ended_at: null,
+    finished_at: null,
+    wait_seconds: 30,
+    build_seconds: 90,
+    result: 'in_progress',
+    error_code: null,
+    peak_cpu: null,
+    peak_memory_mb: null,
+  })
+  builtHistory = out.sort((a, b) => a.started_at.localeCompare(b.started_at))
+  return builtHistory
+}
+
+const BUILD_WINDOW_MS: Record<BuildWindow, number> = { '24h': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000 }
+function buildsIn(window: string): BuildRecord[] {
+  const since = NOW - (BUILD_WINDOW_MS[window as BuildWindow] ?? BUILD_WINDOW_MS['24h'])
+  return buildHistory().filter((b) => b.finished_at && Date.parse(b.finished_at) >= since)
+}
+
+function buildStats(window: string): BuildStats {
+  const by = new Map<string, BuildPersonStats>()
+  const emails = new Map(adminUsers().map((u) => [u.id, u.email]))
+  for (const b of buildsIn(window)) {
+    let st = by.get(b.person_id)
+    if (!st) {
+      st = { user_id: b.person_id, name: b.person, email: emails.get(b.person_id) ?? '', builds: 0, failed: 0, total_build_seconds: 0, avg_build_seconds: 0, longest_build_seconds: 0, longest_app: '', peak_cpu: null, peak_memory_mb: null, last_build_at: null }
+      by.set(b.person_id, st)
+    }
+    st.builds++
+    if (b.result === 'failed') st.failed++
+    st.total_build_seconds += b.build_seconds
+    if (st.builds === 1 || b.build_seconds > st.longest_build_seconds) {
+      st.longest_build_seconds = b.build_seconds
+      st.longest_app = b.app
+    }
+    if (b.peak_cpu !== null && (st.peak_cpu === null || b.peak_cpu > st.peak_cpu)) st.peak_cpu = b.peak_cpu
+    if (b.peak_memory_mb !== null && (st.peak_memory_mb === null || b.peak_memory_mb > st.peak_memory_mb)) st.peak_memory_mb = b.peak_memory_mb
+    st.last_build_at = b.started_at
+  }
+  const people = [...by.values()].map((st) => ({ ...st, avg_build_seconds: Math.round(st.total_build_seconds / st.builds) }))
+  people.sort((a, b) => b.total_build_seconds - a.total_build_seconds)
+  return { window: (window in BUILD_WINDOW_MS ? window : '24h') as BuildWindow, people }
 }
 
 // ---------------------------------------------------------------- a SQLite file in /data, and bitploy's own database
@@ -2056,10 +2195,19 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
         server_ipv4: '203.0.113.10',
         server_ipv6: '2001:db8::10',
       })
-    case 'GET /admin/audit':
-      return send(res, 200, { items: audit })
     case 'GET /activity':
       return send(res, 200, { items: activityEntries() })
+    case 'GET /admin/audit': {
+      const who = q.get('user')
+      return send(res, 200, { items: who ? audit.filter((e) => e.user_id === who) : audit })
+    }
+    case 'GET /admin/builds/stats':
+      return send(res, 200, buildStats(q.get('window') ?? '24h'))
+    case 'GET /admin/builds': {
+      const who = q.get('user')
+      if (!who) throw new HttpError(400, 'user_required', 'Say whose builds to list.')
+      return send(res, 200, { items: buildsIn(q.get('window') ?? '30d').filter((b) => b.person_id === who).reverse().slice(0, 100) })
+    }
     case 'GET /admin/github':
       return send(res, 200, { configured: true, name: 'bitploy-ada', slug: 'bitploy-ada', html_url: 'https://github.com/apps/bitploy-ada', manage_url: 'https://github.com/settings/apps/bitploy-ada', owner: 'ada', webhook_url: 'https://bitploy.example.com/api/v1/github/webhook', push_events: true, created_at: ago(60 * 24 * 80) })
     case 'GET /admin/db':
