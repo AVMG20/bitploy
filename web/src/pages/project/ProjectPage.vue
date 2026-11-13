@@ -18,7 +18,7 @@ import { useProjectData } from '@/composables/useProjectData'
 import { api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { appStatusInfo, formatMB, hostOf } from '@/lib/format'
-import { toastError, toastOk, toastWarn } from '@/lib/notify'
+import { toastError, toastLoading } from '@/lib/notify'
 import { aliasOf, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, projectUsage } from '@/lib/projects'
 import type { ProjectPowerResult } from '@/lib/types'
 
@@ -57,24 +57,27 @@ const runningCount = computed(() => apps.value.filter((a) => a.desired_state ===
 const startableCount = computed(() => apps.value.filter((a) => a.desired_state !== 'running' && a.current_deployment).length)
 const confirmStop = ref(false)
 const plural = (n: number) => (n === 1 ? '1 app' : `${n} apps`)
+// The dialog closes at once; a loading toast follows the action and turns into its result.
 const power = useMutation({
   mutationFn: (start: boolean) => (start ? api.startProject(props.projectId) : api.stopProject(props.projectId)),
-  onSuccess: (r: ProjectPowerResult, start) => {
+  onMutate: (start) => {
+    confirmStop.value = false
+    const name = project.value?.name ?? 'the project'
+    return toastLoading(start ? `Starting all apps of ${name}...` : `Stopping all apps of ${name}...`)
+  },
+  onSuccess: (r: ProjectPowerResult, start, t) => {
     const verb = start ? 'Started' : 'Stopped'
     if (r.failed.length) {
       const what = r.failed.map((f) => `${f.app}: ${f.message}`).join(' ')
-      toastWarn(`${verb} ${plural(r.changed.length)}; ${plural(r.failed.length)} did not ${start ? 'start' : 'stop'}`, what)
+      t.warn(`${verb} ${plural(r.changed.length)}; ${plural(r.failed.length)} did not ${start ? 'start' : 'stop'}`, what)
     } else if (r.changed.length) {
-      toastOk(`${verb} ${plural(r.changed.length)}`)
+      t.ok(`${verb} ${plural(r.changed.length)}`)
     } else {
-      toastOk(start ? 'Nothing to start' : 'Nothing to stop')
+      t.ok(start ? 'Nothing to start' : 'Nothing to stop')
     }
   },
-  onError: (e) => toastError(e),
-  onSettled: () => {
-    confirmStop.value = false
-    void qc.invalidateQueries({ queryKey: keys.apps })
-  },
+  onError: (e, _start, t) => (t ? t.fail(e) : toastError(e)),
+  onSettled: () => void qc.invalidateQueries({ queryKey: keys.apps }),
 })
 
 const projectForAi = computed(() => {
@@ -131,7 +134,7 @@ const projectForAi = computed(() => {
             <Play /> {{ power.isPending.value && power.variables.value ? 'Starting...' : 'Start all' }}
           </Button>
           <Button v-if="runningCount" variant="outline" :disabled="power.isPending.value" data-testid="project-stop-all" @click="confirmStop = true">
-            <Square /> Stop all
+            <Square /> {{ power.isPending.value && !power.variables.value ? 'Stopping...' : 'Stop all' }}
           </Button>
         </template>
         <CopyForAiButton v-if="apps.length" :text="projectForAi" />
@@ -156,7 +159,6 @@ const projectForAi = computed(() => {
         :title="`Stop all apps of ${project.name}?`"
         :description="`${plural(runningCount)} stop, the databases and services last. Visitors see a page that says the app is stopped until you start it again. Their data stays.`"
         confirm-label="Stop all"
-        :loading="power.isPending.value"
         @confirm="power.mutate(false)"
       />
     </template>

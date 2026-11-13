@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { Cable } from 'lucide-vue-next'
@@ -7,7 +7,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { keys, useProject, useProjectEnv } from '@/composables/queries'
 import { ApiError, api } from '@/lib/api'
 import { appPath, appRoute, projectRoute } from '@/lib/appLinks'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading } from '@/lib/notify'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import { aliasOf, dependentsFromError, dependentsOf, projectIdOf, projectLinks } from '@/lib/projects'
 import type { Dependent } from '@/lib/projects'
@@ -31,7 +31,7 @@ const env = useProjectEnv(apps)
 const known = computed(() => dependentsOf(props.app, apps.value, projectLinks(apps.value, env.value)))
 // What the server said when it refused, which wins over what the page worked out.
 const refused = ref<Dependent[] | null>(null)
-watch(open, (o) => o && (refused.value = null))
+watch(open, (o) => !o && (refused.value = null))
 const dependents = computed(() => refused.value ?? known.value)
 const inUse = computed(() => dependents.value.length > 0)
 
@@ -56,20 +56,28 @@ function linkTo(d: Dependent) {
   return a ? appRoute(a, 'app-variables') : appPath(d.slug, 'variables')
 }
 
+// The dialog closes at once and a loading toast follows the delete. When the
+// server refuses because other apps read its variables, the dialog opens again
+// with them listed (or, when its panel is gone by then, the toast says why).
+let mounted = true
+onBeforeUnmount(() => (mounted = false))
 const del = useMutation({
-  mutationFn: async () => {
-    const changed = dependents.value
+  onMutate: () => {
+    open.value = false
+    return toastLoading(`Deleting ${props.app.name}...`)
+  },
+  // The list as the dialog showed it: closing the dialog clears what the server said.
+  mutationFn: async (changed: Dependent[]) => {
     for (const d of changed) await unsetVars(d)
     await api.deleteApp(props.app.slug)
     return changed
   },
-  onSuccess: async (changed) => {
+  onSuccess: async (changed, _v, t) => {
     const slug = props.app.slug
-    toastOk(
+    t.ok(
       `${props.app.name} deleted`,
       changed.length ? `Removed its variables from ${changed.map((d) => d.alias).join(', ')}. Restart ${changed.length === 1 ? 'that app' : 'those apps'} to stop using them.` : undefined,
     )
-    open.value = false
     emit('deleted')
     // Leave the app's own page first: removing its cache while the page polls would flash a 404.
     const rest = project.value?.apps.filter((a) => a.slug !== slug) ?? []
@@ -80,15 +88,21 @@ const del = useMutation({
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
-  onError: (e) => {
+  onError: (e, _v, t) => {
     if (e instanceof ApiError && e.code === 'app_in_use') {
       const listed = dependentsFromError(e.details)
-      refused.value = listed.length ? listed : known.value
+      const list = listed.length ? listed : known.value
       // The page's own list was behind; fetch the variables again.
       for (const a of apps.value) void qc.invalidateQueries({ queryKey: keys.env(a.slug) })
-      if (refused.value.length) return
+      if (list.length && mounted) {
+        t?.dismiss()
+        refused.value = list
+        open.value = true
+        return
+      }
     }
-    toastError(e)
+    if (t) t.fail(e)
+    else toastError(e)
   },
 })
 
@@ -108,7 +122,7 @@ const description = computed(() => {
     :confirm-label="inUse ? 'Remove these variables and delete' : 'Delete app'"
     :type-to-confirm="app.slug"
     :loading="del.isPending.value"
-    @confirm="del.mutate()"
+    @confirm="del.mutate(dependents)"
   >
     <ul v-if="inUse" class="divide-y rounded-lg border text-sm" data-testid="app-dependents">
       <li v-for="d in dependents" :key="d.slug" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
@@ -27,7 +27,8 @@ import { keys, useApp, useBackups, useMe, useServiceTemplates } from '@/composab
 import DataFiles from '@/pages/app/DataFiles.vue'
 import { ApiError, api, paths } from '@/lib/api'
 import { formatBytes, formatDateTime, formatMB, pct } from '@/lib/format'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading, toastOk } from '@/lib/notify'
+import type { LoadingToast } from '@/lib/notify'
 import { markRestartNeeded } from '@/composables/useRestartNeeded'
 import type { Backup, BackupKind, BackupSchedule } from '@/lib/types'
 import { useQueryParam } from '@/composables/useQueryParam'
@@ -148,21 +149,29 @@ const turnOn = useMutation({
 // The server is the judge: it refuses with volume_has_data when it finds files
 // (the "in use" figure is only measured hourly), and then the dialog opens.
 const confirmOffOpen = ref(false)
+// Confirmed in the dialog, the dialog closes at once and a loading toast follows the delete.
 const turnOff = useMutation({
   mutationFn: (deleteData: boolean) => api.updateApp(props.slug, { volume: false, delete_data: deleteData }),
-  onSuccess: () => {
+  onMutate: (deleteData) => {
+    if (!deleteData) return undefined
     confirmOffOpen.value = false
-    toastOk('Saved files are off')
+    return toastLoading('Deleting the saved files...')
+  },
+  onSuccess: (_r, _d, t) => {
+    confirmOffOpen.value = false
+    if (t) t.ok('Saved files are off')
+    else toastOk('Saved files are off')
     refreshApp()
   },
-  onError: (e) => {
-    if (e instanceof ApiError && e.code === 'volume_has_data' && !confirmOffOpen.value) {
+  onError: (e, deleteData, t) => {
+    if (e instanceof ApiError && e.code === 'volume_has_data' && !deleteData) {
       confirmOffOpen.value = true
       refreshApp()
       return
     }
     confirmOffOpen.value = false
-    toastError(e)
+    if (t) t.fail(e)
+    else toastError(e)
   },
 })
 
@@ -352,15 +361,30 @@ const restoreOpen = computed({
     if (!v) toRestore.value = null
   },
 })
+// The dialog closes at once. A loading toast stays while the restore runs on
+// the server and turns into its result (it goes when the page does: the
+// result is told on this page only).
+let restoreToast: LoadingToast | null = null
+onBeforeUnmount(() => restoreToast?.dismiss())
 const restore = useMutation({
   mutationFn: (id: string) => api.restoreBackup(props.slug, id),
-  onSuccess: () => {
+  onMutate: () => {
     toRestore.value = null
+    restoreToast?.dismiss()
+    restoreToast = toastLoading('Restoring the backup...')
+  },
+  onSuccess: (r) => {
+    // It runs on the server; the watch below tells the result. One that ended already has nothing to wait for.
+    if (r.state !== 'running') {
+      restoreToast?.dismiss()
+      restoreToast = null
+    }
     refreshBackups()
   },
   onError: (e) => {
-    toRestore.value = null
-    toastError(e)
+    if (restoreToast) restoreToast.fail(e)
+    else toastError(e)
+    restoreToast = null
   },
 })
 
@@ -392,7 +416,16 @@ watch(
   () => list.value?.restore,
   (now, before) => {
     if (before?.state !== 'running' || !now || now.state === 'running') return
-    if (now.state === 'done') toastOk('Backup restored', now.app_restarts ? 'The app is running again.' : undefined)
+    const t = restoreToast
+    restoreToast = null
+    const what = now.app_restarts ? 'The app is running again.' : undefined
+    if (now.state === 'done') {
+      if (t) t.ok('Backup restored', what)
+      else toastOk('Backup restored', what)
+    } else if (t) {
+      // The alert on the page says what went wrong.
+      t.warn('The restore did not finish', now.error)
+    }
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.me })
   },
@@ -734,7 +767,6 @@ const restoreText = computed(() => {
       :description="restoreText"
       confirm-label="Restore"
       :destructive="false"
-      :loading="restore.isPending.value"
       @confirm="toRestore && restore.mutate(toRestore.id)"
     />
     <ConfirmDialog
@@ -743,7 +775,6 @@ const restoreText = computed(() => {
       :description="confirmOffText"
       confirm-label="Delete and turn off"
       :type-to-confirm="slug"
-      :loading="turnOff.isPending.value"
       @confirm="turnOff.mutate(true)"
     />
     <ConfirmDialog

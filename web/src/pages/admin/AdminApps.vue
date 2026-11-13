@@ -21,7 +21,7 @@ import { api } from '@/lib/api'
 import { appMatches, sortApps } from '@/lib/appList'
 import { appPath } from '@/lib/appLinks'
 import { CPU_HINT, compareText, cpuFromPercent, formatCPU, formatMB, formatPercent, hostOf, pct } from '@/lib/format'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading } from '@/lib/notify'
 import type { App } from '@/lib/types'
 
 const qc = useQueryClient()
@@ -79,14 +79,17 @@ const open = computed({
 })
 const stop = useMutation({
   mutationFn: (slug: string) => api.adminStopApp(slug),
-  onSuccess: (_r, slug) => {
-    toastOk(`Stopped ${slug}`)
+  onMutate: (slug) => {
     target.value = null
+    return toastLoading(`Stopping ${slug}...`)
+  },
+  onSuccess: (_r, slug, t) => {
+    t.ok(`Stopped ${slug}`)
     void qc.invalidateQueries({ queryKey: keys.adminApps })
     void qc.invalidateQueries({ queryKey: keys.apps })
     void qc.invalidateQueries({ queryKey: keys.app(slug) })
   },
-  onError: (e) => toastError(e),
+  onError: (e, _slug, t) => (t ? t.fail(e) : toastError(e)),
 })
 </script>
 
@@ -171,7 +174,6 @@ const stop = useMutation({
       :title="`Stop ${target?.name ?? 'this app'}?`"
       :description="`${target?.name ?? 'This app'} belongs to ${owners.get(target?.owner_id ?? '') ?? 'someone else'}. It goes offline until they start it again.`"
       confirm-label="Stop app"
-      :loading="stop.isPending.value"
       @confirm="target && stop.mutate(target.slug)"
     />
   </div>

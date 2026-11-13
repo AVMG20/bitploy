@@ -79,3 +79,20 @@ export async function copyText(text: string, what = 'Copied'): Promise<boolean> 
 export function toastWarn(message: string, description?: string) {
   toast.warning(message, { description })
 }
+
+/**
+ * A loading toast for an action that takes a while, so its dialog can close
+ * at once and the action ends in the background. The toast turns into the
+ * result: ok, warn or fail. Return it from a mutation's onMutate to get it
+ * back in onSuccess and onError.
+ */
+export function toastLoading(message: string) {
+  const id = toast.loading(message)
+  return {
+    ok: (m: string, description?: string) => void toast.success(m, { id, description }),
+    warn: (m: string, description?: string) => void toast.warning(m, { id, description }),
+    fail: (e: unknown, fallback?: string) => toastError(e, fallback, id),
+    dismiss: () => void toast.dismiss(id),
+  }
+}
+export type LoadingToast = ReturnType<typeof toastLoading>

@@ -16,7 +16,7 @@ import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { CLEANUPS, STEP_NAMES } from '@/lib/disk'
 import { formatBytes } from '@/lib/format'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading, toastOk } from '@/lib/notify'
 import type { DiskAutoCleanup, DiskAutoInput, DiskAutoStep, DiskCleanupOption, DiskCleanupRun, DiskReport } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -48,12 +48,16 @@ function toggle(k: DiskAutoStep, v: boolean) {
 const confirmRun = ref(false)
 const run = useMutation({
   mutationFn: () => api.runAdminDiskAuto(),
-  onSuccess: async (r) => {
+  // The dialog closes at once; a loading toast follows the run.
+  onMutate: () => {
     confirmRun.value = false
-    toastOk(r.freed_bytes > 0 ? `Freed ${formatBytes(r.freed_bytes)}` : 'Nothing to free', `${r.free_before_percent.toFixed(1)}% to ${r.free_after_percent.toFixed(1)}% free`)
+    return toastLoading('Running the automatic cleanup...')
+  },
+  onSuccess: async (r, _v, t) => {
+    t.ok(r.freed_bytes > 0 ? `Freed ${formatBytes(r.freed_bytes)}` : 'Nothing to free', `${r.free_before_percent.toFixed(1)}% to ${r.free_after_percent.toFixed(1)}% free`)
     await qc.invalidateQueries({ queryKey: keys.adminDisk })
   },
-  onError: (e) => toastError(e),
+  onError: (e, _v, t) => (t ? t.fail(e) : toastError(e)),
 })
 const runDestructive = computed(() => chosen.value.some((k) => CLEANUPS[k].destructive))
 
@@ -157,7 +161,6 @@ function stepLine(r: DiskCleanupRun): string {
       :description="`Runs every checked step to the end, without stopping at ${auto.min_free_percent + MARGIN}% free. Now ${freePercent.toFixed(1)}% free.`"
       confirm-label="Run now"
       :destructive="runDestructive"
-      :loading="run.isPending.value"
       @confirm="run.mutate()"
     >
       <ol class="grid gap-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">

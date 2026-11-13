@@ -5,7 +5,6 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useMutation, useQuery } from '@tanstack/vue-query'
-import { toast } from 'vue-sonner'
 import { ArrowLeft, Box, Check, Database, Hammer, History, Layers, Package, RefreshCw } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -19,7 +18,7 @@ import { keys } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { CLEANUPS, share } from '@/lib/disk'
 import { formatBytes } from '@/lib/format'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading } from '@/lib/notify'
 import type { DiskCleanupKind, DiskCleanupOption } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import AdminTabBar from './AdminTabBar.vue'
@@ -76,13 +75,17 @@ const info = computed(() => (pending.value ? CLEANUPS[pending.value.kind] : null
 
 const cleanup = useMutation({
   mutationFn: (o: DiskCleanupOption) => api.adminDiskCleanup({ kind: o.kind, volumes: o.kind === 'orphan_volumes' ? o.volumes : undefined }),
-  onSuccess: async (res) => {
+  // The dialog closes at once; a loading toast follows the cleanup.
+  onMutate: (o) => {
     confirmOpen.value = false
+    return toastLoading(`${CLEANUPS[o.kind].confirmLabel}...`)
+  },
+  onSuccess: async (res, _o, t) => {
     const c = CLEANUPS[res.kind]
     const what = res.removed > 0 && c.unit(res.removed) ? `Deleted ${c.unit(res.removed)}.` : undefined
-    if (res.error) toast.warning(`Freed ${formatBytes(res.freed_bytes)}; part of the cleanup failed`, { description: res.error })
-    else if (res.freed_bytes > 0) toastOk(`Freed ${formatBytes(res.freed_bytes)}`, what)
-    else toastOk('Nothing to free', what)
+    if (res.error) t.warn(`Freed ${formatBytes(res.freed_bytes)}; part of the cleanup failed`, res.error)
+    else if (res.freed_bytes > 0) t.ok(`Freed ${formatBytes(res.freed_bytes)}`, what)
+    else t.ok('Nothing to free', what)
     done.value = { kind: res.kind, bytes: res.freed_bytes }
     extraFree.value += res.freed_bytes
     freed.value = res.freed_bytes
@@ -94,7 +97,7 @@ const cleanup = useMutation({
     await report.refetch()
     extraFree.value = 0
   },
-  onError: (e) => toastError(e),
+  onError: (e, _o, t) => (t ? t.fail(e) : toastError(e)),
 })
 
 function blockedReason(o: DiskCleanupOption): string {
@@ -220,7 +223,6 @@ const pausedNow = computed(() => !!r.value && r.value.filesystem.total_bytes > 0
       :description="info.confirm(formatBytes(pending.bytes), pending.count)"
       :confirm-label="info.confirmLabel"
       :destructive="info.destructive"
-      :loading="cleanup.isPending.value"
       :type-to-confirm="pending.kind === 'orphan_volumes' ? 'delete volumes' : undefined"
       @confirm="cleanup.mutate(pending)"
     >

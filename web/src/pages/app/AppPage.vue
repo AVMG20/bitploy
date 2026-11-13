@@ -131,7 +131,8 @@ function rebuild() {
 
 const confirmStop = ref(false)
 function stop() {
-  actions.stop.mutate(undefined, { onSettled: () => (confirmStop.value = false) })
+  confirmStop.value = false
+  actions.stop.mutate()
 }
 
 const updateOpen = ref(false)
@@ -288,7 +289,6 @@ const deleteOpen = ref(false)
       :title="`Stop ${data?.name ?? 'this app'}?`"
       :description="multi ? 'Every service stops. Visitors see a page that says the app is stopped until you start it again.' : 'Visitors see a page that says the app is stopped until you start it again.'"
       :confirm-label="`Stop ${thing}`"
-      :loading="actions.stop.isPending.value"
       @confirm="stop"
     />
     <ServiceSheet v-if="data && multi" :app="data" />

@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { commitUrl, deployedVia, deploymentStateInfo, describeSource, formatDuration, shortSha, versionLabel } from '@/lib/format'
-import { toastError, toastOk } from '@/lib/notify'
+import { toastError, toastLoading } from '@/lib/notify'
 import type { Deployment, DeploymentService } from '@/lib/types'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole } from '@/lib/services'
@@ -44,17 +44,20 @@ const confirmOpen = computed({
 
 const rollback = useMutation({
   mutationFn: (d: Deployment) => api.rollback(props.slug, d.id),
-  onSuccess: (_r, d) => {
-    toastOk(
+  onMutate: (d) => {
+    target.value = null
+    return toastLoading(`Going back to ${versionLabel(d.seq).toLowerCase()}...`)
+  },
+  onSuccess: (_r, d, t) => {
+    t.ok(
       `Going back to ${versionLabel(d.seq).toLowerCase()}`,
       app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : undefined,
     )
-    target.value = null
     void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
     void qc.invalidateQueries({ queryKey: keys.apps })
   },
-  onError: (e) => toastError(e),
+  onError: (e, _d, t) => (t ? t.fail(e) : toastError(e)),
 })
 
 // What going back does, and that a push to the linked branch builds the newest code again.
@@ -204,7 +207,6 @@ function serviceState(d: Deployment, s: DeploymentService) {
       title="Go back to this version?"
       :description="goBackText"
       confirm-label="Go back"
-      :loading="rollback.isPending.value"
       @confirm="target && rollback.mutate(target)"
     />
   </div>
