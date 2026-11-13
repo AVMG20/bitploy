@@ -202,12 +202,14 @@ func (p *pipeline) buildCompose(ctx context.Context) *apperr.Error {
 	if ae := p.storeSpec(ctx); ae != nil { // with the ports the images gave
 		return ae
 	}
+	built := sql.NullInt64{Int64: s.now(), Valid: true}
 	if err := s.Q.SetDeploymentBuilt(ctx, db.SetDeploymentBuiltParams{
 		Image: nullStr(primary), ImageSizeBytes: sql.NullInt64{Int64: total, Valid: true},
-		BuiltAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+		BuiltAt: built, ID: p.dep.ID,
 	}); err != nil {
 		return apperr.Internal(err)
 	}
+	p.dep.BuiltAt = built
 	if err := s.Q.SetDeploymentPort(ctx, db.SetDeploymentPortParams{Port: portOf(int(p.port)), ID: p.dep.ID}); err != nil {
 		return apperr.Internal(err)
 	}

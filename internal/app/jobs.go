@@ -99,7 +99,7 @@ var jobDefs = []jobDef{
 
 	{id: metrics.JobPruneMetrics, group: "nightly", title: "Prune metrics", kind: jobTimed, next: metrics.NextNightly,
 		schedule:    nightlySchedule,
-		description: "Deletes samples older than a day and averages older than 30 days."},
+		description: "Deletes samples older than a day, averages older than 30 days and build history older than 90 days."},
 	{id: metrics.JobMeasureDisk, group: "nightly", title: "Measure disk", kind: jobTimed, next: metrics.NextNightly,
 		schedule:    nightlySchedule,
 		description: "Records how much disk each app's images, sources and volumes take."},

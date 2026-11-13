@@ -145,7 +145,8 @@ func (a *API) adminRoutes() {
 		OperationID: "adminServerMetrics", Method: http.MethodGet, Path: "/admin/server/metrics", Tags: []string{"Admin"},
 		Summary: "Server CPU and memory over time",
 		Description: "Admin only. cpu is % of the whole server (0-100); memory_mb is used memory without reclaimable cache. " +
-			"1h is 15-second samples, 24h and 7d are 5-minute averages with cpu_max and memory_max_mb.",
+			"1h is 15-second samples, 24h and 7d are 5-minute averages with cpu_max and memory_max_mb. " +
+			"builds are the builds that overlap the window (at most 500, the newest), including the ones that run now.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		Window string `query:"window" default:"24h" enum:"1h,24h,7d"`
 	}) (*Out[app.ServerMetrics], error) {
@@ -234,8 +235,11 @@ func (a *API) adminRoutes() {
 
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminAudit", Method: http.MethodGet, Path: "/admin/audit", Tags: []string{"Admin"},
-		Summary: "Audit log, newest first", Description: "Admin only. Kept 90 days.",
-	}, func(ctx context.Context, act app.Actor, in *struct{ PageParams }) (*Out[app.Page[app.AuditEntry]], error) {
+		Summary: "Audit log, newest first", Description: "Admin only. Kept 90 days. user: only what that person did.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		PageParams
+		User string `query:"user" doc:"Only the entries of this user id (usr_...)"`
+	}) (*Out[app.Page[app.AuditEntry]], error) {
 		var before int64
 		if in.Cursor != "" {
 			n, err := strconv.ParseInt(strings.TrimPrefix(in.Cursor, "a:"), 10, 64)
@@ -245,7 +249,14 @@ func (a *API) adminRoutes() {
 			before = n
 		}
 		limit := pageLimit(in.Limit)
-		items, more, err := a.svc.AdminListAuditPage(ctx, act, limit, before)
+		var items []app.AuditEntry
+		var more bool
+		var err error
+		if in.User != "" {
+			items, more, err = a.svc.AdminListUserAuditPage(ctx, act, in.User, limit, before)
+		} else {
+			items, more, err = a.svc.AdminListAuditPage(ctx, act, limit, before)
+		}
 		if err != nil {
 			return nil, err
 		}

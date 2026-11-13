@@ -235,6 +235,9 @@ func (s *Service) AdminServerMetrics(ctx context.Context, a Actor, window string
 			CPUMax: round1(p.CPUMax), MemMaxMB: round1(float64(p.MemMax) / mib),
 		}
 	}
+	if out.Builds, err = s.chartBuilds(ctx, s.Now().Add(-metrics.Windows[window])); err != nil {
+		return ServerMetrics{}, apperr.Internal(err)
+	}
 	if total, ok := metrics.HostMemTotal(); ok {
 		out.MemTotalMB = int64(total / mib)
 	} else if n := len(series); n > 0 {

@@ -19,6 +19,7 @@ const (
 	rawRetention    = 24 * time.Hour
 	rollupRetention = 30 * 24 * time.Hour
 	auditRetention  = 90 * 24 * time.Hour
+	buildRetention  = 90 * 24 * time.Hour // build_history
 	uploadRetention = 24 * time.Hour
 	usageRetention  = 45 * 24 * time.Hour
 	backupsToKeep   = 7
@@ -154,7 +155,8 @@ func (m *Manager) Rollup(ctx context.Context) error {
 }
 
 // PruneMetrics deletes raw samples older than 24 h and rollups older than 30
-// days, of the apps and of the server itself.
+// days, of the apps and of the server itself, and the build history older
+// than 90 days.
 func (m *Manager) PruneMetrics(ctx context.Context) error {
 	_, err := m.pruneMetrics(ctx)
 	return err
@@ -178,6 +180,9 @@ func (m *Manager) pruneMetrics(ctx context.Context) (string, error) {
 			return "", err
 		}
 		deleted += n
+	}
+	if _, err := q.DeleteOldBuildHistory(ctx, now.Add(-buildRetention).Unix()); err != nil {
+		return "", err
 	}
 	// Rows of deleted apps (these tables have no foreign key).
 	for _, del := range []func(context.Context) error{

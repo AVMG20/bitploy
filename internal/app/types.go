@@ -863,6 +863,9 @@ type ServerMetrics struct {
 	Window     string              `json:"window"`       // 1h | 24h | 7d
 	MemTotalMB int64               `json:"mem_total_mb"` // the server's RAM now (else the newest point's); 0 when unknown
 	Points     []ServerMetricPoint `json:"points"`
+	// Builds overlap the window, oldest first: from the build history and the
+	// ones that run now (ended_at null while they build). At most 500, the newest.
+	Builds []BuildRecord `json:"builds"`
 }
 
 type Template struct {

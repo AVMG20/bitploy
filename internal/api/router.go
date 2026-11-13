@@ -49,6 +49,7 @@ func NewWithStop(svc *app.Service, mcpHandler http.Handler, web fs.FS) (http.Han
 	a.adminDBRoutes()
 	a.githubRoutes()
 	a.adminRoutes()
+	a.adminBuildRoutes()
 	a.appDomainRoutes()
 	apiMux.HandleFunc("GET "+prefix+"/events", a.events)
 	apiMux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) { notFoundJSON(w) })

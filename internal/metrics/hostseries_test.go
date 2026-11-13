@@ -227,3 +227,21 @@ func TestRunHostCollectorWritesOnTheSampleInterval(t *testing.T) {
 		t.Errorf("cpu = %v, want 25", pct)
 	}
 }
+
+func TestPruneBuildHistory(t *testing.T) {
+	e := newEnv(t)
+	ins := func(id string, finished time.Time) {
+		e.exec(t, `INSERT INTO build_history (deployment_id, app_id, app_slug, app_name, owner_id, person_id, channel, source_kind,
+			queued_at, started_at, finished_at, result) VALUES (?, 'app_1', 'web', 'Web', 'usr_1', 'usr_1', 'api', 'files', ?, ?, ?, 'live')`,
+			id, finished.Unix()-60, finished.Unix()-50, finished.Unix())
+	}
+	ins("dep_old", t0.Add(-91*24*time.Hour))
+	ins("dep_kept", t0.Add(-89*24*time.Hour))
+	if err := e.m.PruneMetrics(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var left string
+	if err := e.m.Store.DB.QueryRow(`SELECT group_concat(deployment_id) FROM build_history`).Scan(&left); err != nil || left != "dep_kept" {
+		t.Errorf("left = %q, %v; want dep_kept", left, err)
+	}
+}

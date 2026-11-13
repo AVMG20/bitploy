@@ -584,12 +584,14 @@ func (p *pipeline) build(ctx context.Context) *apperr.Error {
 		f := deploy.ImageTooLargeFinding(info.SizeBytes)
 		return apperr.Unprocessable(f.Code, f.Message, f.Hint)
 	}
+	built := sql.NullInt64{Int64: s.now(), Valid: true}
 	if err := s.Q.SetDeploymentBuilt(ctx, db.SetDeploymentBuiltParams{
 		Image: nullStr(p.image), ImageSizeBytes: sql.NullInt64{Int64: info.SizeBytes, Valid: true},
-		BuiltAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID,
+		BuiltAt: built, ID: p.dep.ID,
 	}); err != nil {
 		return apperr.Internal(err)
 	}
+	p.dep.BuiltAt = built
 	p.logf("Built %s (%d MB).", p.image, info.SizeBytes>>20)
 	// Ready-made apps run the image their makers publish, whatever its size.
 	if f, big := deploy.LargeImageFinding(info.SizeBytes); big && p.dep.CatalogVersion == "" {
@@ -1412,6 +1414,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}()
 
 	if ae == nil {
+		p.recordBuild(bg, "live", "")
 		s.notifyDeployment(bg, p.dep.ID, EventDeploymentSucceeded)
 		s.runAfterLive(bg, p.dep.ID)
 		s.pruneApp(bg, p.app.ID)
@@ -1427,6 +1430,9 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		if ctx.Err() != nil && !s.cancelledByUser(p.dep.ID) {
 			// bitploy is shutting down: the reconciler cleans up after restart,
 			// and decides on the restarts of connected apps (reconcileRestarts).
+			// It fails the deployment as interrupted; the history says so now,
+			// with the time it stopped.
+			p.recordBuild(bg, "failed", "interrupted")
 			return
 		}
 	}
@@ -1442,12 +1448,14 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 			p.logf("%s", cancelledMessage(who))
 			s.settleStatusAfterCancel(bg, p.app.ID)
 			s.auditCancel(bg, who, p.app.Slug, p.dep.ID, p.dep.Seq, p.dep.State)
+			p.recordBuild(bg, "cancelled", "")
 			s.metricsMgr().MeasureSoon() // the image of the build is gone
 			s.notifyDeployment(bg, p.dep.ID, EventDeploymentCancelled)
 			return
 		}
 		_ = s.Q.FinishDeployment(bg, db.FinishDeploymentParams{State: "cancelled", FinishedAt: sql.NullInt64{Int64: s.now(), Valid: true}, ID: p.dep.ID})
 		p.logf("Cancelled.")
+		p.recordBuild(bg, "cancelled", "")
 		s.notifyDeployment(bg, p.dep.ID, EventDeploymentCancelled)
 		return
 	}
@@ -1469,11 +1477,27 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 		s.Log.Error("store deployment failure", "id", p.dep.ID, "err", err)
 	}
 	s.settleStatusAfterFailure(bg, p.app.ID, apperr.Redact(ae.Message))
+	p.recordBuild(bg, "failed", ae.Code)
 	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
 		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
 	s.notifyDeployment(bg, p.dep.ID, EventDeploymentFailed)
 	s.pruneApp(bg, p.app.ID)
 	s.metricsMgr().MeasureSoon()
+}
+
+// recordBuild writes the build history row of this deployment as it ended
+// (see Service.recordBuild).
+func (p *pipeline) recordBuild(ctx context.Context, result, code string) {
+	dep, err := p.s.Q.GetDeployment(ctx, p.dep.ID)
+	if err != nil {
+		// Deleted with its app: what the pipeline knows, ending now.
+		dep = p.dep
+		dep.FinishedAt = sql.NullInt64{}
+	}
+	if !dep.BuiltAt.Valid {
+		dep.BuiltAt = p.dep.BuiltAt
+	}
+	p.s.recordBuild(ctx, dep, p.app, result, code)
 }
 
 // cleanupFailed removes what a failed or cancelled deployment created and

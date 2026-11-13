@@ -168,6 +168,26 @@ type AuditLog struct {
 	OwnerID    sql.NullString
 }
 
+type BuildHistory struct {
+	DeploymentID string
+	AppID        string
+	AppSlug      string
+	AppName      string
+	OwnerID      string
+	StartedBy    sql.NullString
+	PersonID     string
+	Channel      string
+	SourceKind   string
+	QueuedAt     int64
+	StartedAt    int64
+	BuiltAt      sql.NullInt64
+	FinishedAt   int64
+	Result       string
+	ErrorCode    sql.NullString
+	PeakCpu      sql.NullFloat64
+	PeakMemMb    sql.NullFloat64
+}
+
 type Deployment struct {
 	ID              string
 	AppID           string

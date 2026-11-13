@@ -107,6 +107,10 @@ func (s *Service) reconcileDeployments(ctx context.Context) {
 			s.setCandidate(app.ID, "")
 			_ = s.SyncRoute(ctx, app.ID)
 			s.Audit(ctx, System, "deployment.interrupted", "deployment", d.ID, map[string]any{"app": app.Slug, "state": d.State})
+			// A crash leaves no history row behind (a shutdown wrote one already).
+			if dep, err := s.Q.GetDeployment(ctx, d.ID); err == nil {
+				s.recordBuild(ctx, dep, app, "failed", "interrupted")
+			}
 			s.notifyDeployment(ctx, d.ID, EventDeploymentFailed)
 		}
 		s.NotifyDeployment(d.ID)
