@@ -5,7 +5,7 @@ import type { ComposeCheck, Quota, Usage } from '../src/lib/types.ts'
 
 function me(quota: Partial<Quota> = {}, usage: Partial<Usage> = {}) {
   return {
-    quota: { apps: 10, memory_mb: 1024, cpu_millis: 1000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 2048, ...quota },
+    quota: { apps: 10, memory_mb: 1024, cpu_millis: 1000, domains_per_app: 5, volume_mb: 2048, ...quota },
     usage: { apps: 2, memory_reserved_mb: 768, cpu_reserved_millis: 500, files_mb: 100, backups_mb: 0, volume_reserved_mb: 0, ...usage } as Usage,
   }
 }

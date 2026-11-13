@@ -105,7 +105,7 @@ A user has two kinds of credential: a session cookie for the dashboard and beare
 
 - Invite-only by default. The first admin is created with `bitploy admin create-user --email you@x.nl --admin`. Admins create single-use invite links (7-day expiry) in the dashboard; the invitee picks a name and password.
 - Forgotten passwords: an admin makes a password reset link in Admin → People (`POST /api/v1/admin/users/{id}/password-reset`, also for their own account), or on the server with `bitploy admin reset-link --email x` when no admin can log in. It works once for 24 hours, only its hash is stored, and a newer link for the same person replaces the older ones. bitploy sends no email: the admin passes it on. On `/reset/<code>` the person sees whose account it is and picks a new password (the signup rules); that signs out every session of the account (API tokens keep working) and logs them in. A suspended account is refused (`account_suspended`) and stays suspended. A wrong, used or expired link answers `reset_link_invalid`; wrong codes count towards 5 per hour per IP.
-- Admin → Signups (server settings, `GET` `PATCH /api/v1/admin/settings`) decides who can create an account: `admin_invites` (only with an admin's invite link; a project invite then works only for people who already have an account), `any_invite` (the default: a project invite can also create one) or `open` (anyone, at `/invite/open`). It also holds the limits every new account gets (default 10 apps, 2 GB memory, 2 CPUs, 25 GB storage, 20 deploys per hour, 5 domains per app; at most what the server has) and whether an account made with a project invite may deploy apps of its own (default on; off gives it 0 apps, memory and CPU, and it works in the shared project on the owner's quota). Existing accounts keep their limits. Each account records how it joined (`setup`, `admin_invite`, `project_invite`, `open`), shown in Admin → People.
+- Admin → Signups (server settings, `GET` `PATCH /api/v1/admin/settings`) decides who can create an account: `admin_invites` (only with an admin's invite link; a project invite then works only for people who already have an account), `any_invite` (the default: a project invite can also create one) or `open` (anyone, at `/invite/open`). It also holds the limits every new account gets (default 10 apps, 2 GB memory, 2 CPUs, 25 GB storage, 5 domains per app; at most what the server has) and whether an account made with a project invite may deploy apps of its own (default on; off gives it 0 apps, memory and CPU, and it works in the shared project on the owner's quota). Existing accounts keep their limits. Each account records how it joined (`setup`, `admin_invite`, `project_invite`, `open`), shown in Admin → People.
 - Roles: `user` and `admin`. Admins manage users, invites and quotas, can read every app, and can stop any app.
 - Project members: the owner of a project shares it with single-use invite links (7-day expiry, optionally locked to one email address; bitploy sends no email, the owner passes the link on) at `/join/<code>`. A member sees the project and its apps and can do on them what the owner's deploy token can, except what cannot be undone: only the owner deletes apps, files in `/data` and backups, replaces a file or restores a backup (`owner_only`), renames or deletes the project and manages its members. Someone without an account can sign up through a project invite unless Admin → Signups allows only admin invites. Details under Projects.
 - Passwords: argon2id at or above the OWASP minimum parameters, at least 10 characters. Failed logins are limited to 5 per 15 minutes per email and IP.
@@ -257,8 +257,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy (with package_json for a
    Node project), fix all errors and read every warning. Call whoami before
-   planning a deploy: it shows what is left of the quota (apps, memory, CPU,
-   storage, deploys this hour).
+   creating a new app: it shows what is left of the quota (apps, memory, CPU,
+   storage).
 4. Never put secrets in the Dockerfile or the source. Use set_env. A value
    the build bakes in (VITE_*, NEXT_PUBLIC_*) reaches the build too and
    applies on the next deploy.
@@ -672,7 +672,7 @@ How to collect it:
 - Tables: `metric_samples(app_id, ts, cpu, mem, rx, tx)` and `metric_rollups` with the same columns plus max values. A nightly job prunes and rolls up.
 - The server itself is sampled on the same 15 s tick from `/proc/stat` and `/proc/meminfo` (the source of the admin Server numbers): `host_samples(ts, cpu, mem_used, mem_total)` and `host_rollups` with max values, rolled up and pruned by the same rules. CPU is % of the whole server between two ticks; memory is used without reclaimable cache. `GET /api/v1/admin/server/metrics?window=1h|24h|7d` returns the series for the charts on the admin Server tab.
 
-Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, deployments in the last hour (with when the next one is allowed), and disk used.
+Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, deployments in the last hour (a count only), and disk used.
 
 ## Security & limits
 
@@ -709,7 +709,9 @@ User code is untrusted. Each app runs as one locked-down container with hard lim
 - The App JSON has `public_port` with `address` (host:port), and for service templates `connection_url` with the generated passwords as `********`. The owner can read the URL with the password (`POST …/public-port/reveal`, audited): the one exception to "nobody can read env var values back", for generated passwords of service templates only, because a deploy token can already pass them to an app it deploys with `${{<alias>.VAR}}`.
 - Apps cannot use another app's public port through the server's address: after Docker's DNAT that is app-to-app traffic, which the firewall drops.
 
-**Quotas** (per user, editable by admins; the apps of a shared project count for its owner): 10 apps, 2 GB memory and 2 CPUs in total, 20 deployments per hour, 5 custom domains per app, 25 GB of storage in total for app files (kept images, stored source) and the /data volumes, each volume with its own limit (5 GB by default, warning at 80%).
+Deploys are not limited per account: a new deploy of an app replaces its deploy that still waits, and the build slots are shared fairly between people (see docs/decisions.md), so the build queue keeps the server in check.
+
+**Quotas** (per user, editable by admins; the apps of a shared project count for its owner): 10 apps, 2 GB memory and 2 CPUs in total, 5 custom domains per app, 25 GB of storage in total for app files (kept images, stored source) and the /data volumes, each volume with its own limit (5 GB by default, warning at 80%).
 
 **Protecting the one server**
 

@@ -33,7 +33,6 @@ export interface LimitsForm {
   apps: number
   memory_gb: number
   cpus: number
-  deploys_per_hour: number
   domains_per_app: number
   volume_gb: number
 }
@@ -46,7 +45,6 @@ export function limitsToForm(q: NewAccountQuota): LimitsForm {
     apps: q.apps,
     memory_gb: toGB(q.memory_mb),
     cpus: q.cpu_millis / 1000,
-    deploys_per_hour: q.deploys_per_hour,
     domains_per_app: q.domains_per_app,
     volume_gb: toGB(q.volume_mb),
   }
@@ -57,7 +55,6 @@ export function formToLimits(f: LimitsForm): NewAccountQuota {
     apps: f.apps,
     memory_mb: toMB(f.memory_gb),
     cpu_millis: Math.round(f.cpus * 1000),
-    deploys_per_hour: f.deploys_per_hour,
     domains_per_app: f.domains_per_app,
     volume_mb: toMB(f.volume_gb),
   }

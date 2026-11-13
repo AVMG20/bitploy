@@ -114,9 +114,6 @@ func (s *Service) CreateUpload(ctx context.Context, a Actor, ref string) (Upload
 	// An upload is the first step of a deployment: the same limits apply, and
 	// a user can keep only a few uploads waiting, since they take disk space
 	// that is not counted anywhere else.
-	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
-		return Upload{}, err
-	}
 	if err := s.checkStorageRoom(ctx, user); err != nil {
 		return Upload{}, err
 	}
@@ -632,9 +629,6 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 		return Deployment{}, err
 	}
 	if !rollback {
-		if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
-			return Deployment{}, err
-		}
 		if err := s.checkStorageRoom(ctx, user); err != nil {
 			return Deployment{}, err
 		}
@@ -670,13 +664,6 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 	var seq int64
 	now := s.now()
 	err = s.Store.Tx(ctx, func(q *db.Queries) error {
-		// Checked again inside the transaction: parallel deploy calls would
-		// otherwise all pass the check above before any of them is stored.
-		if !rollback {
-			if err := s.checkDeployRate(ctx, q, user); err != nil {
-				return err
-			}
-		}
 		if qs.inTx != nil {
 			if err := qs.inTx(q); err != nil {
 				return err
@@ -749,36 +736,6 @@ func (s *Service) queueDeployment(ctx context.Context, a Actor, app db.App, qs q
 		return Deployment{}, apperr.Internal(err)
 	}
 	return s.deploymentView(ctx, d, app), nil
-}
-
-func (s *Service) checkDeployRate(ctx context.Context, q *db.Queries, user db.User) error {
-	since := s.now() - 3600
-	n, err := q.CountUserDeploymentsSince(ctx, db.CountUserDeploymentsSinceParams{UserID: user.ID, QueuedAt: since})
-	if err != nil {
-		return apperr.Internal(err)
-	}
-	if n < user.QuotaDeploysPerHour {
-		return nil
-	}
-	wait := int64(60)
-	if oldest, err := q.OldestUserDeploymentSince(ctx, db.OldestUserDeploymentSinceParams{UserID: user.ID, QueuedAt: since}); err == nil && oldest > 0 {
-		wait = oldest + 3600 - s.now()
-		if wait < 1 {
-			wait = 1
-		}
-	}
-	return apperr.TooMany("deploy_rate_limited",
-		fmt.Sprintf("You have already started %d deployments in the last hour, which is the limit for your account.", n),
-		deployAgainIn((wait+59)/60)).
-		WithNext("whoami").WithDetail("retry_after_seconds", wait)
-}
-
-// deployAgainIn is the rate limit hint, worded for people; the MCP adds its own advice for assistants.
-func deployAgainIn(mins int64) string {
-	if mins == 1 {
-		return "You can deploy again in about 1 minute."
-	}
-	return fmt.Sprintf("You can deploy again in about %d minutes.", mins)
 }
 
 // ---- read side ----
@@ -1038,9 +995,6 @@ func (s *Service) UploadAndDeploy(ctx context.Context, a Actor, ref string, body
 		return Deployment{}, err
 	}
 	// Refuse before a large body is read, not after.
-	if err := s.checkDeployRate(ctx, s.Q, user); err != nil {
-		return Deployment{}, err
-	}
 	if err := s.checkStorageRoom(ctx, user); err != nil {
 		return Deployment{}, err
 	}

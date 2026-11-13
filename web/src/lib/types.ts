@@ -17,7 +17,6 @@ export interface Quota {
   apps: number
   memory_mb: number
   cpu_millis: number
-  deploys_per_hour: number
   domains_per_app: number
   /** Storage allowance, shared by the /data volumes of all apps. */
   volume_mb: number
@@ -36,10 +35,8 @@ export interface Usage {
   running_hours_month: number
   deploys_month: number
   deploys_week: number
-  /** Deployments in the last hour; they count towards quota.deploys_per_hour. */
+  /** Deployments in the last hour (a count only: deploys are not limited). */
   deploys_last_hour: number
-  /** When the oldest of them leaves the hour, so one more is allowed. */
-  deploys_reset_at?: string
   disk_used_mb: number
   volume_reserved_mb: number
   volume_used_mb: number
@@ -878,7 +875,6 @@ export interface NewAccountQuota {
   apps: number
   memory_mb: number
   cpu_millis: number
-  deploys_per_hour: number
   domains_per_app: number
   volume_mb: number
 }

@@ -167,8 +167,7 @@ func TestErrorsWithoutNextToolGetADefault(t *testing.T) {
 		tool string
 		want string
 	}{
-		{apperr.TooMany("deploy_rate_limited", "Too many deployments.", "Wait 10 minutes."), "deploy_files", "whoami"},
-		{apperr.TooMany("deploy_rate_limited", "Too many deployments.", "Wait 10 minutes.").WithNext("whoami"), "deploy", "whoami"},
+		{apperr.TooMany("rate_limited", "Too many requests.", "Wait a minute."), "deploy_files", "whoami"},
 		{apperr.Conflict("app_busy", "A deployment is running.", "Wait."), "restart_app", "list_deployments"},
 		{apperr.Forbidden("token_read_only", "Read only.", "Use a deploy token."), "create_app", "whoami"},
 		{apperr.NotFound("domain_not_found", "No such domain.", "Check the name."), "check_domain", "get_app"},
@@ -240,7 +239,7 @@ func TestKeyFlowsReturnNextSteps(t *testing.T) {
 	rules := structured(t, res)["rules"].(string)
 	for _, s := range []string{
 		"https://<slug>.bitploy.test", "This server", "2 MB", "95 MB", "restart_app", ".bitploy", "Never reuse an app only because its name looks similar",
-		"full snapshot", "out of memory", "/data", "DNS", "deploy_rate_limited", "token_read_only", "github_access_missing", "git_source_linked",
+		"full snapshot", "out of memory", "/data", "DNS", "build queue", "token_read_only", "github_access_missing", "git_source_linked",
 	} {
 		if !strings.Contains(rules, s) {
 			t.Errorf("rules lack %q", s)

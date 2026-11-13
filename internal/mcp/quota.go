@@ -3,19 +3,19 @@ package mcp
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/AVMG20/bitploy/internal/app"
 )
 
 // quotaReport is whoami's view of every account limit: used, limit and what
-// is left, so an agent can plan a deploy before it is refused. It returns the
-// structured form (whoami data "quotas") and one plain sentence.
+// is left, so an agent can plan a new app before it is refused. It returns
+// the structured form (whoami data "quotas") and one plain sentence. Deploys
+// are not limited; deploys_last_hour is a count only.
 //
-// The rules follow the service's checks: apps, memory, CPU, deploys per hour
-// and domains per app are hard numbers (0 means none); storage of 0 or less
-// means no limit; with overallocate on, memory and CPU are not checked.
-func quotaReport(me app.Me, now time.Time) (map[string]any, string) {
+// The rules follow the service's checks: apps, memory, CPU and domains per
+// app are hard numbers (0 means none); storage of 0 or less means no limit;
+// with overallocate on, memory and CPU are not checked.
+func quotaReport(me app.Me) (map[string]any, string) {
 	q, u := me.Quota, me.Usage
 	left := func(limit, used int64) int64 { return max(limit-used, 0) }
 	entry := func(used, limit int64) map[string]any {
@@ -52,44 +52,17 @@ func quotaReport(me app.Me, now time.Time) (map[string]any, string) {
 		parts = append(parts, fmt.Sprintf("storage %d of %d MB taken (%d MB left)", taken, q.VolumeMB, left(q.VolumeMB, taken)))
 	}
 
-	dep := entry(u.DeploysLastHour, q.DeploysPerHour)
-	deployText := fmt.Sprintf("deploys %d of %d in the last hour (%d left)", u.DeploysLastHour, q.DeploysPerHour, left(q.DeploysPerHour, u.DeploysLastHour))
-	if u.DeploysResetAt != nil {
-		secs := max(int64(u.DeploysResetAt.Sub(now).Seconds()), 0)
-		dep["resets_at"] = u.DeploysResetAt.UTC().Format(time.RFC3339)
-		dep["resets_in_seconds"] = secs
-		if left(q.DeploysPerHour, u.DeploysLastHour) <= 2 {
-			deployText = fmt.Sprintf("deploys %d of %d in the last hour (%d left; one more is allowed in about %s)",
-				u.DeploysLastHour, q.DeploysPerHour, left(q.DeploysPerHour, u.DeploysLastHour), minutesText(secs))
-		}
-	}
-	out["deploys_per_hour"] = dep
-	parts = append(parts, deployText, fmt.Sprintf("custom domains: %d per app", q.DomainsPerApp))
+	out["deploys_last_hour"] = u.DeploysLastHour
+	parts = append(parts, fmt.Sprintf("custom domains: %d per app", q.DomainsPerApp))
 	return out, "Quota: " + strings.Join(parts, "; ") + "."
 }
 
 // quotaSteps are whoami's next steps for a quota that is used up.
-func quotaSteps(me app.Me, now time.Time) []string {
+func quotaSteps(me app.Me) []string {
 	q, u := me.Quota, me.Usage
 	var out []string
 	if q.Apps > 0 && u.Apps >= q.Apps {
 		out = append(out, "The app limit is reached: a new app is refused (apps_quota_exceeded). Updating an existing app still works. For a new one, ask the user which app they no longer need, or to ask an admin for a higher limit; never delete an app on your own.")
 	}
-	if q.DeploysPerHour > 0 && u.DeploysLastHour >= q.DeploysPerHour {
-		wait := "a while"
-		if u.DeploysResetAt != nil {
-			wait = "about " + minutesText(max(int64(u.DeploysResetAt.Sub(now).Seconds()), 0))
-		}
-		out = append(out, "No deploys left this hour (deploy_rate_limited): the next one is allowed in "+wait+". Tell the user, and fix and check as much as you can before then; do not retry in a loop.")
-	}
 	return out
-}
-
-// minutesText is a wait in whole minutes, at least one.
-func minutesText(secs int64) string {
-	m := max((secs+59)/60, 1)
-	if m == 1 {
-		return "1 minute"
-	}
-	return fmt.Sprintf("%d minutes", m)
 }

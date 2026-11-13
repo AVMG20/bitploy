@@ -38,7 +38,7 @@ func (s *Service) serverSettings(ctx context.Context, q *db.Queries) (db.ServerS
 	if errors.Is(err, sql.ErrNoRows) {
 		return db.ServerSetting{
 			ID: 1, Signups: SignupAnyInvite, ProjectInviteApps: 1, QuotaApps: 10, QuotaMemoryMb: 2048,
-			QuotaCpuMillis: 2000, QuotaDeploysPerHour: 20, QuotaDomainsPerApp: 5, QuotaVolumeMb: 25600,
+			QuotaCpuMillis: 2000, QuotaDomainsPerApp: 5, QuotaVolumeMb: 25600,
 			DiskAutoCleanup: 1, DiskCleanupMinFreePercent: 10, DiskBuildsMinFreePercent: 15, DiskBuildCacheDays: 7,
 			DiskWarnFreePercent: 20, RollbackVersions: 3,
 		}, nil
@@ -56,7 +56,7 @@ func (s *Service) serverSettings(ctx context.Context, q *db.Queries) (db.ServerS
 func newAccountQuota(st db.ServerSetting, via string) NewAccountQuota {
 	q := NewAccountQuota{
 		Apps: st.QuotaApps, MemoryMB: st.QuotaMemoryMb, CPUMillis: st.QuotaCpuMillis,
-		DeploysPerHour: st.QuotaDeploysPerHour, DomainsPerApp: st.QuotaDomainsPerApp, VolumeMB: st.QuotaVolumeMb,
+		DomainsPerApp: st.QuotaDomainsPerApp, VolumeMB: st.QuotaVolumeMb,
 	}
 	if via == joinedProjectInvite && st.ProjectInviteApps == 0 {
 		q.Apps, q.MemoryMB, q.CPUMillis = 0, 0, 0
@@ -214,13 +214,10 @@ func validSignups(v string) error {
 // that can never be used.
 func validNewAccountQuota(q NewAccountQuota, c ServerCapacity) error {
 	bad := func(msg, hint string) error { return apperr.BadRequest("invalid_quota", msg, hint) }
-	for _, v := range []int64{q.Apps, q.MemoryMB, q.CPUMillis, q.DeploysPerHour, q.DomainsPerApp, q.VolumeMB} {
+	for _, v := range []int64{q.Apps, q.MemoryMB, q.CPUMillis, q.DomainsPerApp, q.VolumeMB} {
 		if v < 0 || v > math.MaxInt32 {
 			return bad("Limits must be zero or a positive whole number.", "Send whole numbers for every limit.")
 		}
-	}
-	if q.DeploysPerHour < 1 {
-		return bad("Deploys per hour must be at least 1.", "Use 1 or more; 0 apps is the way to let new accounts deploy nothing of their own.")
 	}
 	if q.VolumeMB < minVolumeMB {
 		return bad(fmt.Sprintf("Storage must be at least %d MB.", minVolumeMB), "Give new accounts some storage, like 25600 for 25 GB.")
@@ -282,7 +279,7 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 			changes["new_account_quota"] = map[string]any{"from": old, "to": q}
 		}
 		next.QuotaApps, next.QuotaMemoryMb, next.QuotaCpuMillis = q.Apps, q.MemoryMB, q.CPUMillis
-		next.QuotaDeploysPerHour, next.QuotaDomainsPerApp, next.QuotaVolumeMb = q.DeploysPerHour, q.DomainsPerApp, q.VolumeMB
+		next.QuotaDomainsPerApp, next.QuotaVolumeMb = q.DomainsPerApp, q.VolumeMB
 	}
 	if in.MaxParallelBuilds != nil {
 		v := *in.MaxParallelBuilds
@@ -323,7 +320,7 @@ func (s *Service) UpdateServerSettings(ctx context.Context, a Actor, in UpdateSe
 	if err := s.Q.UpdateServerSettings(ctx, db.UpdateServerSettingsParams{
 		Signups: next.Signups, ProjectInviteApps: next.ProjectInviteApps,
 		QuotaApps: next.QuotaApps, QuotaMemoryMb: next.QuotaMemoryMb, QuotaCpuMillis: next.QuotaCpuMillis,
-		QuotaDeploysPerHour: next.QuotaDeploysPerHour, QuotaDomainsPerApp: next.QuotaDomainsPerApp, QuotaVolumeMb: next.QuotaVolumeMb,
+		QuotaDomainsPerApp: next.QuotaDomainsPerApp, QuotaVolumeMb: next.QuotaVolumeMb,
 		MaxParallelBuilds: next.MaxParallelBuilds, BuilderCpuMillis: next.BuilderCpuMillis, BuilderMemoryMb: next.BuilderMemoryMb,
 		UpdatedAt: next.UpdatedAt,
 	}); err != nil {

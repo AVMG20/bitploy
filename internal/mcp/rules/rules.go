@@ -77,7 +77,7 @@ const RuntimeContract = `## Runtime contract
 - Zip upload: at most 95 MB compressed, 500 MB unpacked, 20,000 files. If everything sits in one top-level folder, that folder is stripped. Leave out node_modules, .git, .env and build output.
 - Git: shallow clone of one branch, at most 500 MB, HTTPS only. Public repositories work as is. A private GitHub repository needs the user to open the dashboard, go to Settings > GitHub, press Connect GitHub and give bitploy access to the repository; you cannot do that yourself, ask the user. If GitHub is not set up on this bitploy yet, only an admin can do that (Admin page); until then only public repositories work.
 - A build takes at most 30 minutes. The built image must be under 2 GB. Images (3 kept per app) and stored source count towards the account's storage; when it is full, new builds are refused with storage_full. Keep images small: a slim base image, and no big files (videos, datasets) in the source.
-- Deployments per hour, number of apps, memory, CPU, storage and custom domains per app are limited per account: whoami shows the numbers.
+- The number of apps, memory, CPU, storage and custom domains per app are limited per account: whoami shows the numbers. Deploys are not limited, but they wait in one build queue for the whole server: a new deploy of an app replaces its deploy that still waits, so after a deploy, follow it with get_deployment instead of deploying again.
 
 ## Updating an app later (also from a new session)
 
@@ -109,7 +109,6 @@ const RuntimeContract = `## Runtime contract
 - unhealthy and the app "stopped right after starting": the program crashed. The log_tail shows why. A missing environment variable (KeyError, "undefined", "is required") means: set_env, then deploy with only app=.
 - unhealthy and "ran out of memory": raise memory_mb with update_app (check whoami for the quota), then deploy; or make the app use less.
 - unhealthy and "did not answer GET /...": the app is too slow to start or returns 500 on that path. Point health_path at a cheap path that answers below 500 (for example /healthz) with update_app, then deploy. Or fix the route.
-- deploy_rate_limited: the account started as many deployments in the last hour as it may. whoami says when the next one is allowed (quotas.deploys_per_hour.resets_in_seconds). Tell the user and wait; do not retry in a loop.
 - apps_quota_exceeded: the account has as many apps as it may (the error lists them). Updating an existing app still works. For a new app, ask the user which app they no longer need, or to ask a bitploy admin for a higher limit.
 - memory_quota_exceeded / cpu_quota_exceeded: the user's running apps already take the memory or CPU this one needs (whoami shows what is left). If the app runs in less, lower memory_mb or cpu_millis with update_app; otherwise ask the user which app to stop, or to ask a bitploy admin for more.
 - domain_limit: the app has as many custom domains as it may. Ask the user which one to remove (remove_domain), or to ask a bitploy admin for a higher limit.

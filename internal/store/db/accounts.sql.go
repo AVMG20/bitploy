@@ -430,28 +430,27 @@ func (q *Queries) InsertToken(ctx context.Context, arg InsertTokenParams) error 
 const insertUser = `-- name: InsertUser :exec
 
 INSERT INTO users (id, email, name, password_hash, role, status,
-    quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb,
+    quota_apps, quota_memory_mb, quota_cpu_millis, quota_domains_per_app, quota_volume_mb,
     joined_via, joined_by, joined_project, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertUserParams struct {
-	ID                  string
-	Email               string
-	Name                string
-	PasswordHash        string
-	Role                string
-	QuotaApps           int64
-	QuotaMemoryMb       int64
-	QuotaCpuMillis      int64
-	QuotaDeploysPerHour int64
-	QuotaDomainsPerApp  int64
-	QuotaVolumeMb       int64
-	JoinedVia           string
-	JoinedBy            string
-	JoinedProject       string
-	CreatedAt           int64
-	UpdatedAt           int64
+	ID                 string
+	Email              string
+	Name               string
+	PasswordHash       string
+	Role               string
+	QuotaApps          int64
+	QuotaMemoryMb      int64
+	QuotaCpuMillis     int64
+	QuotaDomainsPerApp int64
+	QuotaVolumeMb      int64
+	JoinedVia          string
+	JoinedBy           string
+	JoinedProject      string
+	CreatedAt          int64
+	UpdatedAt          int64
 }
 
 // Users, sessions, invites, API tokens, audit reads. OWNER: auth-api agent.
@@ -466,7 +465,6 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 		arg.QuotaApps,
 		arg.QuotaMemoryMb,
 		arg.QuotaCpuMillis,
-		arg.QuotaDeploysPerHour,
 		arg.QuotaDomainsPerApp,
 		arg.QuotaVolumeMb,
 		arg.JoinedVia,
@@ -680,7 +678,7 @@ func (q *Queries) ListTokensOfUser(ctx context.Context, userID string) ([]ApiTok
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users ORDER BY created_at ASC
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users ORDER BY created_at ASC
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -702,7 +700,6 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.QuotaApps,
 			&i.QuotaMemoryMb,
 			&i.QuotaCpuMillis,
-			&i.QuotaDeploysPerHour,
 			&i.QuotaDomainsPerApp,
 			&i.QuotaVolumeMb,
 			&i.CreatedAt,
@@ -856,20 +853,19 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 
 const updateUserQuota = `-- name: UpdateUserQuota :exec
 UPDATE users SET quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?,
-    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
+    quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
 WHERE id = ?
 `
 
 type UpdateUserQuotaParams struct {
-	QuotaApps           int64
-	QuotaMemoryMb       int64
-	QuotaCpuMillis      int64
-	QuotaDeploysPerHour int64
-	QuotaDomainsPerApp  int64
-	QuotaVolumeMb       int64
-	Overallocate        int64
-	UpdatedAt           int64
-	ID                  string
+	QuotaApps          int64
+	QuotaMemoryMb      int64
+	QuotaCpuMillis     int64
+	QuotaDomainsPerApp int64
+	QuotaVolumeMb      int64
+	Overallocate       int64
+	UpdatedAt          int64
+	ID                 string
 }
 
 func (q *Queries) UpdateUserQuota(ctx context.Context, arg UpdateUserQuotaParams) error {
@@ -877,7 +873,6 @@ func (q *Queries) UpdateUserQuota(ctx context.Context, arg UpdateUserQuotaParams
 		arg.QuotaApps,
 		arg.QuotaMemoryMb,
 		arg.QuotaCpuMillis,
-		arg.QuotaDeploysPerHour,
 		arg.QuotaDomainsPerApp,
 		arg.QuotaVolumeMb,
 		arg.Overallocate,

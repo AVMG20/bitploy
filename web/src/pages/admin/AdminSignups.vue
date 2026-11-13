@@ -59,7 +59,6 @@ const form = useForm({
         apps: whole('Apps', 0),
         memory_gb: z.coerce.number({ invalid_type_error: 'Memory: enter a number.' }).min(0, 'Memory: at least 0.'),
         cpus: z.coerce.number({ invalid_type_error: 'CPU cores: enter a number.' }).min(0, 'CPU cores: at least 0.'),
-        deploys_per_hour: whole('Deploys per hour', 1),
         domains_per_app: whole('Domains', 0),
         volume_gb: z.coerce.number({ invalid_type_error: 'Storage: enter a number.' }).min(0.1, 'Storage: at least 0.1 GB.'),
       })
@@ -75,7 +74,6 @@ const form = useForm({
 
 const fields = [
   { name: 'apps', label: 'Apps', hint: '0: no apps of their own; they can still work in projects shared with them.' },
-  { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
   { name: 'domains_per_app', label: 'Custom domains per app', hint: '0: none, only the bitploy address.' },
   { name: 'volume_gb', label: 'Storage in total (GB)', hint: 'disk' },
   { name: 'memory_gb', label: 'Memory in total (GB)', hint: 'memory' },

@@ -44,7 +44,7 @@ func TestServerSettingsDefaultsAndAdminOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := NewAccountQuota{Apps: 10, MemoryMB: 2048, CPUMillis: 2000, DeploysPerHour: 20, DomainsPerApp: 5, VolumeMB: 25600}
+	want := NewAccountQuota{Apps: 10, MemoryMB: 2048, CPUMillis: 2000, DomainsPerApp: 5, VolumeMB: 25600}
 	if st.Signups != SignupAnyInvite || !st.ProjectInviteApps || st.NewAccountQuota != want || st.UpdatedAt != nil || st.Server.CPUMillis < 1000 {
 		t.Fatalf("defaults = %+v", st)
 	}
@@ -68,11 +68,10 @@ func TestServerSettingsDefaultsAndAdminOnly(t *testing.T) {
 		t.Errorf("empty patch: %v", err)
 	}
 	for name, q := range map[string]NewAccountQuota{
-		"negative":        {Apps: -1, MemoryMB: 1, CPUMillis: 1, DeploysPerHour: 1, VolumeMB: 1000},
-		"no deploys":      {Apps: 1, MemoryMB: 1, CPUMillis: 1, DeploysPerHour: 0, VolumeMB: 1000},
-		"tiny storage":    {Apps: 1, MemoryMB: 1, CPUMillis: 1, DeploysPerHour: 1, VolumeMB: 0},
-		"more cpu":        {Apps: 1, MemoryMB: 1, CPUMillis: st.Server.CPUMillis + 1, DeploysPerHour: 1, VolumeMB: 1000},
-		"more than int32": {Apps: 1 << 40, MemoryMB: 1, CPUMillis: 1, DeploysPerHour: 1, VolumeMB: 1000},
+		"negative":        {Apps: -1, MemoryMB: 1, CPUMillis: 1, VolumeMB: 1000},
+		"tiny storage":    {Apps: 1, MemoryMB: 1, CPUMillis: 1, VolumeMB: 0},
+		"more cpu":        {Apps: 1, MemoryMB: 1, CPUMillis: st.Server.CPUMillis + 1, VolumeMB: 1000},
+		"more than int32": {Apps: 1 << 40, MemoryMB: 1, CPUMillis: 1, VolumeMB: 1000},
 	} {
 		if _, err := s.UpdateServerSettings(ctx, admin, UpdateServerSettingsInput{NewAccountQuota: &q}); code(err) != "invalid_quota" {
 			t.Errorf("%s: %v", name, err)
@@ -167,7 +166,7 @@ func TestNewAccountLimits(t *testing.T) {
 	ac, _ := login(t, s, "admin@example.nl")
 	admin := sessionActor(t, s, ac)
 
-	q := NewAccountQuota{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DeploysPerHour: 7, DomainsPerApp: 2, VolumeMB: 4096}
+	q := NewAccountQuota{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DomainsPerApp: 2, VolumeMB: 4096}
 	if _, err := s.UpdateServerSettings(ctx, admin, UpdateServerSettingsInput{NewAccountQuota: &q}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +188,7 @@ func TestNewAccountLimits(t *testing.T) {
 	for _, u := range users {
 		switch u.ID {
 		case info.User.ID:
-			if got := (NewAccountQuota{u.Quota.Apps, u.Quota.MemoryMB, u.Quota.CPUMillis, u.Quota.DeploysPerHour, u.Quota.DomainsPerApp, u.Quota.VolumeMB}); got != q {
+			if got := (NewAccountQuota{u.Quota.Apps, u.Quota.MemoryMB, u.Quota.CPUMillis, u.Quota.DomainsPerApp, u.Quota.VolumeMB}); got != q {
 				t.Errorf("new account's limits = %+v", got)
 			}
 			if u.Joined == nil || u.Joined.Via != "admin_invite" || u.Joined.By == nil || u.Joined.By.ID != admin.UserID {
@@ -256,8 +255,8 @@ func TestProjectInviteSignupFollowsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.QuotaApps != 0 || u.QuotaMemoryMb != 0 || u.QuotaCpuMillis != 0 || u.QuotaVolumeMb != 25600 || u.QuotaDeploysPerHour != 20 {
-		t.Errorf("project invite account's limits = apps %d mem %d cpu %d vol %d deploys %d", u.QuotaApps, u.QuotaMemoryMb, u.QuotaCpuMillis, u.QuotaVolumeMb, u.QuotaDeploysPerHour)
+	if u.QuotaApps != 0 || u.QuotaMemoryMb != 0 || u.QuotaCpuMillis != 0 || u.QuotaVolumeMb != 25600 {
+		t.Errorf("project invite account's limits = apps %d mem %d cpu %d vol %d", u.QuotaApps, u.QuotaMemoryMb, u.QuotaCpuMillis, u.QuotaVolumeMb)
 	}
 	if u.JoinedVia != "project_invite" || u.JoinedBy != "usr_alice" || u.JoinedProject != m.shop.ID {
 		t.Errorf("joined = %q by %q project %q", u.JoinedVia, u.JoinedBy, u.JoinedProject)

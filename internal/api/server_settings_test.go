@@ -37,7 +37,7 @@ func TestServerSettingsEndpoints(t *testing.T) {
 	}
 	w = a.asSession("PATCH", "/api/v1/admin/settings", map[string]any{
 		"signups": "admin_invites", "project_invite_apps": false,
-		"new_account_quota": map[string]any{"apps": 2, "memory_mb": 512, "cpu_millis": 500, "deploys_per_hour": 5, "domains_per_app": 1, "volume_mb": 2048},
+		"new_account_quota": map[string]any{"apps": 2, "memory_mb": 512, "cpu_millis": 500, "domains_per_app": 1, "volume_mb": 2048},
 	})
 	if w.Code != 200 {
 		t.Fatalf("admin changes: %d %s", w.Code, w.Body)

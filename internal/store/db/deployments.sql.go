@@ -592,23 +592,6 @@ func (q *Queries) ListQueuedDeployments(ctx context.Context) ([]ListQueuedDeploy
 	return items, nil
 }
 
-const oldestUserDeploymentSince = `-- name: OldestUserDeploymentSince :one
-SELECT CAST(COALESCE(MIN(d.queued_at), 0) AS INTEGER) FROM deployments d JOIN apps a ON a.id = d.app_id
-WHERE a.user_id = ? AND d.queued_at >= ?
-`
-
-type OldestUserDeploymentSinceParams struct {
-	UserID   string
-	QueuedAt int64
-}
-
-func (q *Queries) OldestUserDeploymentSince(ctx context.Context, arg OldestUserDeploymentSinceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, oldestUserDeploymentSince, arg.UserID, arg.QueuedAt)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const setDeploymentBuildReads = `-- name: SetDeploymentBuildReads :exec
 UPDATE deployments SET build_reads = ? WHERE id = ?
 `

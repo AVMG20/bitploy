@@ -505,7 +505,7 @@ const projectInvites: Record<string, ProjectInvite[]> = {
 const settings: ServerSettings = {
   signups: 'any_invite',
   project_invite_apps: true,
-  new_account_quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 },
+  new_account_quota: { apps: 10, memory_mb: 2048, cpu_millis: 2000, domains_per_app: 5, volume_mb: 25600 },
   max_parallel_builds: 2,
   default_max_parallel_builds: 2,
   builder_cpu_millis: 2000,
@@ -547,7 +547,6 @@ function updateSettings(body: Record<string, unknown>): ServerSettings {
   if (q) {
     const s = settings.server
     if (Object.values(q).some((v) => typeof v !== 'number' || v < 0 || !Number.isInteger(v))) throw bad('invalid_quota', 'Limits must be zero or a positive whole number.')
-    if (q.deploys_per_hour < 1) throw bad('invalid_quota', 'Deploys per hour must be at least 1.')
     if (q.volume_mb < 100) throw bad('invalid_quota', 'Storage must be at least 100 MB.')
     if (q.memory_mb > s.memory_mb) throw bad('invalid_quota', `${q.memory_mb} MB of memory is more than this server has (${s.memory_mb} MB).`, 'Use at most what the server has.')
     if (q.cpu_millis > s.cpu_millis) throw bad('invalid_quota', `${q.cpu_millis} CPU millis is more than this server has (${s.cpu_millis}).`, 'Use at most what the server has.')
@@ -1439,7 +1438,7 @@ function composePreview(text: string): ComposeCheck {
 }
 
 // Room for the seeded apps and a few more, so the dashboard can add a database or deploy a site.
-const QUOTA = { apps: 30, memory_mb: 8192, cpu_millis: 8000, deploys_per_hour: 30, domains_per_app: 5, volume_mb: 20480 }
+const QUOTA = { apps: 30, memory_mb: 8192, cpu_millis: 8000, domains_per_app: 5, volume_mb: 20480 }
 
 function usedMemory(): number {
   return apps.reduce((n, a) => n + (a.static ? 0 : a.memory_mb), 0)

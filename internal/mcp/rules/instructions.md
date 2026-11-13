@@ -16,8 +16,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy (with package_json for a
    Node project), fix all errors and read every warning. Call whoami before
-   planning a deploy: it shows what is left of the quota (apps, memory, CPU,
-   storage, deploys this hour).
+   creating a new app: it shows what is left of the quota (apps, memory, CPU,
+   storage).
 4. Never put secrets in the Dockerfile or the source. Use set_env. A value
    the build bakes in (VITE_*, NEXT_PUBLIC_*) reaches the build too and
    applies on the next deploy.

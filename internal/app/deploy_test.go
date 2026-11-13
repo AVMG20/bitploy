@@ -644,31 +644,6 @@ func TestDeployFilesErrors(t *testing.T) {
 	}
 }
 
-func TestDeployRateLimit(t *testing.T) {
-	e := depTestSvc(t)
-	ctx := context.Background()
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 2 WHERE id = ?`, e.user.UserID)
-	app := e.mustApp(t, CreateAppInput{})
-	for i := 0; i < 2; i++ {
-		if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles())
-	var ae *apperr.Error
-	if !errors.As(err, &ae) || ae.Code != "deploy_rate_limited" || ae.HTTPStatus != 429 {
-		t.Fatalf("%v", err)
-	}
-	if secs, ok := ae.Details["retry_after_seconds"].(int64); !ok || secs < 1 || secs > 3600 {
-		t.Errorf("retry_after_seconds: %v", ae.Details)
-	}
-	// Deployments older than an hour do not count.
-	e.exec(t, `UPDATE deployments SET queued_at = ?`, time.Now().Add(-2*time.Hour).Unix())
-	if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); err != nil {
-		t.Errorf("after the hour: %v", err)
-	}
-}
-
 func makeZipBytes(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -844,12 +819,8 @@ func TestUploadLimits(t *testing.T) {
 	}
 	e.exec(t, `DELETE FROM uploads`)
 
-	// The deploy rate and the storage allowance are checked before an upload, as for deploy.
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 1 WHERE id = ?`, e.user.UserID)
-	if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); depCode(err) != "deploy_rate_limited" {
-		t.Errorf("rate: %v", err)
-	}
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 100, quota_volume_mb = 1 WHERE id = ?`, e.user.UserID)
+	// The storage allowance is checked before an upload, as for deploy.
+	e.exec(t, `UPDATE users SET quota_volume_mb = 1 WHERE id = ?`, e.user.UserID)
 	e.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, ?, 0, 1)`, app.ID, int64(10)<<20)
 	if _, err := e.s.CreateUpload(ctx, e.user, app.Slug); depCode(err) != "storage_full" {
 		t.Errorf("storage: %v", err)
@@ -1094,37 +1065,22 @@ func TestRollbackRules(t *testing.T) {
 	}
 }
 
-// A rollback is the way back after failed deploys used up the hourly limit,
-// and it builds nothing: neither the rate limit nor a full disk refuses it.
-func TestRollbackIgnoresDeployRateAndFullDisk(t *testing.T) {
+// A rollback builds nothing: a full disk does not refuse it.
+func TestRollbackIgnoresFullDisk(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 3 WHERE id = ?`, e.user.UserID)
 	app := e.mustApp(t, CreateAppInput{})
-	d1 := e.seedRunning(t, app, 1) // counts as one of the 3
-	for i := 0; i < 2; i++ {
-		if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); depCode(err) != "deploy_rate_limited" {
-		t.Fatalf("deploy over the limit: %v", err)
+	d1 := e.seedRunning(t, app, 1)
+	e.s.ops.diskHasRoom = func() (bool, error) { return false, nil }
+	if _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); depCode(err) != "server_disk_full" {
+		t.Fatalf("deploy with a full disk: %v", err)
 	}
 	d, err := e.s.Rollback(ctx, e.user, app.Slug, d1)
 	if err != nil {
-		t.Fatalf("rollback over the deploy limit: %v", err)
+		t.Fatalf("rollback with a full disk: %v", err)
 	}
 	if d.SourceKind != "rollback" || d.SourceRef != d1 {
 		t.Errorf("%+v", d)
-	}
-	e.s.ops.diskHasRoom = func() (bool, error) { return false, nil }
-	if _, err := e.s.Rollback(ctx, e.user, app.Slug, d1); err != nil {
-		t.Fatalf("rollback with a full disk: %v", err)
-	}
-	var queued int
-	_ = e.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'deployment.queue'`).Scan(&queued)
-	if queued != 4 {
-		t.Errorf("%d deployment.queue audit rows, want 4", queued)
 	}
 }
 

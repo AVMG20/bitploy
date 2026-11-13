@@ -130,7 +130,7 @@ func itSetup(t *testing.T) *itEnv {
 	s := New(cfg, st, crypto, dk, routes, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e := &itEnv{depEnv: &depEnv{s: s, dir: dir}, dk: dk, traefik: traefikName, webPort: pb(p8000), suffix: suffix}
 	e.user = e.addUser(t, "usr_it", "it@example.com", "user")
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 1000, quota_apps = 20, quota_memory_mb = 8192, quota_cpu_millis = 8000 WHERE id = 'usr_it'`)
+	e.exec(t, `UPDATE users SET quota_apps = 20, quota_memory_mb = 8192, quota_cpu_millis = 8000 WHERE id = 'usr_it'`)
 
 	healthTimeout, workerAliveFor, oldStopDelay = 12*time.Second, 3*time.Second, time.Second
 	t.Cleanup(func() { healthTimeout, workerAliveFor, oldStopDelay = 60*time.Second, 30*time.Second, 10*time.Second })

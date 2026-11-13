@@ -68,10 +68,10 @@ func (s *srv) rulesDoc(ctx context.Context, a app.Actor) (string, error) {
 	fmt.Fprintf(&b, "- Dashboard (API tokens, usage, and Settings > GitHub for private repos): %s\n", s.svc.Cfg.PublicURL)
 	if me, err := s.svc.Me(ctx, a); err == nil {
 		fmt.Fprintf(&b, "- Your token scope: %s (read can look only; deploy can change things).\n", me.Scope)
-		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d deployments per hour, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",
-			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DeploysPerHour, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
+		fmt.Fprintf(&b, "- Your quota: %d apps, %d MB memory and %d CPU millis across all apps, %d custom domains per app, %d MB storage for app files (kept images and source) plus the /data volumes (each app with a volume reserves its volume_mb, default 5120).\n",
+			me.Quota.Apps, me.Quota.MemoryMB, me.Quota.CPUMillis, me.Quota.DomainsPerApp, me.Quota.VolumeMB)
 		if me.Quota.Overallocate {
-			b.WriteString("- Overallocate is on for this user: memory and CPU are not checked, not against the quota above and not against the server's free memory. Apps may ask for more; the app count, storage and deploy rate still apply.\n")
+			b.WriteString("- Overallocate is on for this user: memory and CPU are not checked, not against the quota above and not against the server's free memory. Apps may ask for more; the app count and storage still apply.\n")
 		}
 		fmt.Fprintf(&b, "- You use %d apps, %d MB memory and %.0f MB of storage right now (%.0f MB app files, %d MB kept for /data).\n",
 			me.Usage.Apps, me.Usage.MemoryReservedMB, me.Usage.FilesMB+float64(me.Usage.VolumeReservedMB), me.Usage.FilesMB, me.Usage.VolumeReservedMB)
@@ -600,8 +600,6 @@ func failureSteps(d app.Deployment) []string {
 			"A migration in the code that fails: fix the code, then "+redo+".")
 	case "image_too_large":
 		out = append(out, "Shrink the image (smaller base, multi-stage build, a .dockerignore), then "+redo+".")
-	case "deploy_rate_limited":
-		out = append(out, "Wait as the hint says and tell the user; do not retry in a loop. whoami shows when the next deploy is allowed. Before the next deploy, fix and test as much as you can locally.")
 	case "server_full", "server_room_unknown", "server_app_limit", "server_disk_full", "disk_full", "disk_full_build_cancelled":
 		out = append(out, "The server is out of room; this is not the user's quota and not a problem in the code. Do not deploy again and do not stop or delete apps: tell the user the server is out of room and that the bitploy admin has to make space.")
 	case "memory_quota_exceeded", "cpu_quota_exceeded":

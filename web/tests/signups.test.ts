@@ -5,7 +5,7 @@ import { NO_OWN_APPS, noOwnApps } from '../src/lib/quota.ts'
 import { formToLimits, joinedText, limitsOverServer, limitsToForm, projectInviteCardText, SIGNUP_MODES } from '../src/lib/signups.ts'
 import type { NewAccountQuota, Quota, Usage } from '../src/lib/types.ts'
 
-const DEFAULTS: NewAccountQuota = { apps: 10, memory_mb: 2048, cpu_millis: 2000, deploys_per_hour: 20, domains_per_app: 5, volume_mb: 25600 }
+const DEFAULTS: NewAccountQuota = { apps: 10, memory_mb: 2048, cpu_millis: 2000, domains_per_app: 5, volume_mb: 25600 }
 
 test('the three signup modes, the middle one says project invites can create accounts', () => {
   assert.deepEqual(
@@ -23,7 +23,7 @@ test('the Members invite card follows whether project invites create accounts', 
 
 test('limits go to the form in GB and cores and back unchanged', () => {
   const f = limitsToForm(DEFAULTS)
-  assert.deepEqual(f, { apps: 10, memory_gb: 2, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_gb: 25 })
+  assert.deepEqual(f, { apps: 10, memory_gb: 2, cpus: 2, domains_per_app: 5, volume_gb: 25 })
   assert.deepEqual(formToLimits(f), DEFAULTS)
   assert.equal(formToLimits({ ...f, memory_gb: 0.5, cpus: 0.25 }).memory_mb, 512)
   assert.equal(formToLimits({ ...f, memory_gb: 0.5, cpus: 0.25 }).cpu_millis, 250)

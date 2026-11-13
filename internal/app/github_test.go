@@ -1204,10 +1204,11 @@ func TestWebhookRefusedPushNotifiesAndCanBeRedelivered(t *testing.T) {
 	g.linkApp(t, two, "https://github.com/alice/site", "main", true)
 	queued(g.s) // whatever creating the apps sent
 
-	// One deploy an hour: the first app is queued, the second refused.
-	g.exec(t, `UPDATE users SET quota_deploys_per_hour = 1 WHERE id = ?`, g.user.UserID)
+	// Storage full: both apps are refused, and the channel is told.
+	g.exec(t, `UPDATE users SET quota_volume_mb = 1 WHERE id = ?`, g.user.UserID)
+	g.exec(t, `INSERT INTO app_disk (app_id, image_bytes, volume_bytes, measured_at) VALUES (?, ?, 0, 1)`, one.ID, int64(10)<<20)
 	msg, err := g.deliver("push", "q1", pushBody("alice/site", "refs/heads/main", sha1a, 101))
-	if err != nil || !strings.Contains(msg, "1 deployment(s) queued") {
+	if err != nil || !strings.Contains(msg, "0 deployment(s) queued") {
 		t.Fatalf("first delivery: %q %v", msg, err)
 	}
 	sent := queued(g.s)
@@ -1220,10 +1221,10 @@ func TestWebhookRefusedPushNotifiesAndCanBeRedelivered(t *testing.T) {
 		}
 	}
 
-	// Redeliver: the refused app deploys now, the other one is not queued twice.
-	g.exec(t, `UPDATE users SET quota_deploys_per_hour = 100 WHERE id = ?`, g.user.UserID)
+	// Redeliver once there is room: both apps deploy now.
+	g.exec(t, `UPDATE users SET quota_volume_mb = 25600 WHERE id = ?`, g.user.UserID)
 	msg, err = g.deliver("push", "q1", pushBody("alice/site", "refs/heads/main", sha1a, 101))
-	if err != nil || !strings.Contains(msg, "1 deployment(s) queued") {
+	if err != nil || !strings.Contains(msg, "2 deployment(s) queued") {
 		t.Fatalf("redelivery: %q %v", msg, err)
 	}
 	if a, b := g.deployments(t, one), g.deployments(t, two); len(a) != 1 || len(b) != 1 {

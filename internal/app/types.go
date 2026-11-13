@@ -21,12 +21,11 @@ type User struct {
 }
 
 type Quota struct {
-	Apps           int64 `json:"apps"`
-	MemoryMB       int64 `json:"memory_mb"`
-	CPUMillis      int64 `json:"cpu_millis"` // 1000 = 1 CPU
-	DeploysPerHour int64 `json:"deploys_per_hour"`
-	DomainsPerApp  int64 `json:"domains_per_app"`
-	VolumeMB       int64 `json:"volume_mb"` // storage allowance, shared by the /data volumes of all apps
+	Apps          int64 `json:"apps"`
+	MemoryMB      int64 `json:"memory_mb"`
+	CPUMillis     int64 `json:"cpu_millis"` // 1000 = 1 CPU
+	DomainsPerApp int64 `json:"domains_per_app"`
+	VolumeMB      int64 `json:"volume_mb"` // storage allowance, shared by the /data volumes of all apps
 	// Overallocate: memory and CPU are not checked at all, not against this
 	// quota and not against the server's room. Admins set it, for themselves.
 	Overallocate bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have"`
@@ -36,13 +35,12 @@ type Quota struct {
 // and overallocate only to change it (left out keeps the switch as it is,
 // so a client that does not know it cannot turn it off).
 type QuotaInput struct {
-	Apps           int64 `json:"apps"`
-	MemoryMB       int64 `json:"memory_mb"`
-	CPUMillis      int64 `json:"cpu_millis"` // 1000 = 1 CPU
-	DeploysPerHour int64 `json:"deploys_per_hour"`
-	DomainsPerApp  int64 `json:"domains_per_app"`
-	VolumeMB       int64 `json:"volume_mb"`
-	Overallocate   *bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have. Left out: unchanged"`
+	Apps          int64 `json:"apps"`
+	MemoryMB      int64 `json:"memory_mb"`
+	CPUMillis     int64 `json:"cpu_millis"` // 1000 = 1 CPU
+	DomainsPerApp int64 `json:"domains_per_app"`
+	VolumeMB      int64 `json:"volume_mb"`
+	Overallocate  *bool `json:"overallocate,omitempty" doc:"Memory and CPU are not checked: apps may ask for more than the quota and the server have. Left out: unchanged"`
 }
 
 type Usage struct {
@@ -56,16 +54,13 @@ type Usage struct {
 	RunningHoursMonth float64 `json:"running_hours_month"`
 	DeploysMonth      int64   `json:"deploys_month"`
 	DeploysWeek       int64   `json:"deploys_week"`
-	// DeploysLastHour counts towards quota.deploys_per_hour (rollbacks too,
-	// though a rollback is never refused). DeploysResetAt is when the oldest
-	// of them leaves the hour, so one more deploy is allowed; nil without any.
-	DeploysLastHour  int64      `json:"deploys_last_hour"`
-	DeploysResetAt   *time.Time `json:"deploys_reset_at,omitempty" doc:"When the oldest deployment of the last hour leaves the window, so one more is allowed"`
-	DiskUsedMB       float64    `json:"disk_used_mb"`
-	VolumeReservedMB int64      `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
-	VolumeUsedMB     float64    `json:"volume_used_mb"`     // measured hourly
-	FilesMB          float64    `json:"files_mb"`           // images and stored source of all apps, measured hourly
-	BackupsMB        float64    `json:"backups_mb"`         // backups of all apps
+	// DeploysLastHour is a count only (rollbacks too): deploys are not limited.
+	DeploysLastHour  int64   `json:"deploys_last_hour"`
+	DiskUsedMB       float64 `json:"disk_used_mb"`
+	VolumeReservedMB int64   `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
+	VolumeUsedMB     float64 `json:"volume_used_mb"`     // measured hourly
+	FilesMB          float64 `json:"files_mb"`           // images and stored source of all apps, measured hourly
+	BackupsMB        float64 `json:"backups_mb"`         // backups of all apps
 }
 
 // Me is returned by whoami / GET /api/v1/me.
@@ -731,12 +726,11 @@ type ServerSettings struct {
 
 // NewAccountQuota are the limits a new account gets (the numbers of Quota).
 type NewAccountQuota struct {
-	Apps           int64 `json:"apps" minimum:"0"`
-	MemoryMB       int64 `json:"memory_mb" minimum:"0"`
-	CPUMillis      int64 `json:"cpu_millis" minimum:"0" doc:"1000 = 1 CPU"`
-	DeploysPerHour int64 `json:"deploys_per_hour" minimum:"1"`
-	DomainsPerApp  int64 `json:"domains_per_app" minimum:"0"`
-	VolumeMB       int64 `json:"volume_mb" minimum:"100" doc:"Storage in total"`
+	Apps          int64 `json:"apps" minimum:"0"`
+	MemoryMB      int64 `json:"memory_mb" minimum:"0"`
+	CPUMillis     int64 `json:"cpu_millis" minimum:"0" doc:"1000 = 1 CPU"`
+	DomainsPerApp int64 `json:"domains_per_app" minimum:"0"`
+	VolumeMB      int64 `json:"volume_mb" minimum:"100" doc:"Storage in total"`
 }
 
 // ServerCapacity is the server's memory, CPU and disk; 0 when not known.

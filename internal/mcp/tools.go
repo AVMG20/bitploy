@@ -262,10 +262,10 @@ func (s *srv) registerTools() {
 				}
 				domainsLine = " Other domains this user may use (pass domain= to create_app, update_app or deploy_catalog_app, only when the user asks): " + strings.Join(names, ", ") + "."
 			}
-			quotas, quotaLine := quotaReport(me, svc.Now())
+			quotas, quotaLine := quotaReport(me)
 			d["quotas"] = quotas
 			if me.Scope != app.ScopeRead {
-				next = append(next, quotaSteps(me, svc.Now())...)
+				next = append(next, quotaSteps(me)...)
 			}
 			return &result{
 				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s. %s Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",

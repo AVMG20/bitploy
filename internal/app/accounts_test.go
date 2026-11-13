@@ -580,8 +580,8 @@ func TestAdminQuotaUsersAndAudit(t *testing.T) {
 	if _, err := s.AdminListUsers(ctx, adminToken); code(err) != "admin_only" {
 		t.Fatalf("admin token: %v", err)
 	}
-	in := QuotaInput{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DeploysPerHour: 5, DomainsPerApp: 2, VolumeMB: 100}
-	q := Quota{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DeploysPerHour: 5, DomainsPerApp: 2, VolumeMB: 100}
+	in := QuotaInput{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DomainsPerApp: 2, VolumeMB: 100}
+	q := Quota{Apps: 3, MemoryMB: 1024, CPUMillis: 1000, DomainsPerApp: 2, VolumeMB: 100}
 	au, err := s.AdminSetQuota(ctx, admin, u.ID, in)
 	if err != nil || au.Quota != q {
 		t.Fatalf("set quota: %+v %v", au, err)

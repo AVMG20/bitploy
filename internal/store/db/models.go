@@ -444,7 +444,6 @@ type ServerSetting struct {
 	QuotaApps                 int64
 	QuotaMemoryMb             int64
 	QuotaCpuMillis            int64
-	QuotaDeploysPerHour       int64
 	QuotaDomainsPerApp        int64
 	QuotaVolumeMb             int64
 	UpdatedAt                 int64
@@ -573,24 +572,23 @@ type UsageDaily struct {
 }
 
 type User struct {
-	ID                  string
-	Email               string
-	Name                string
-	PasswordHash        string
-	Role                string
-	Status              string
-	QuotaApps           int64
-	QuotaMemoryMb       int64
-	QuotaCpuMillis      int64
-	QuotaDeploysPerHour int64
-	QuotaDomainsPerApp  int64
-	QuotaVolumeMb       int64
-	CreatedAt           int64
-	UpdatedAt           int64
-	Overallocate        int64
-	JoinedVia           string
-	JoinedBy            string
-	JoinedProject       string
+	ID                 string
+	Email              string
+	Name               string
+	PasswordHash       string
+	Role               string
+	Status             string
+	QuotaApps          int64
+	QuotaMemoryMb      int64
+	QuotaCpuMillis     int64
+	QuotaDomainsPerApp int64
+	QuotaVolumeMb      int64
+	CreatedAt          int64
+	UpdatedAt          int64
+	Overallocate       int64
+	JoinedVia          string
+	JoinedBy           string
+	JoinedProject      string
 }
 
 type UserAppDomain struct {

@@ -111,9 +111,10 @@ func TestDeployCatalogApp(t *testing.T) {
 func TestDeployCatalogAppFailureLeavesNothing(t *testing.T) {
 	e := depTestSvc(t)
 	ctx := context.Background()
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 0 WHERE id = ?`, e.user.UserID)
-	if _, err := e.s.DeployCatalogApp(ctx, e.user, "memos", CatalogDeployInput{}); depCode(err) != "deploy_rate_limited" {
-		t.Fatalf("want deploy_rate_limited, got %v", err)
+	// The app is made, then queueing its deploy is refused (disk full).
+	e.s.ops.diskHasRoom = func() (bool, error) { return false, nil }
+	if _, err := e.s.DeployCatalogApp(ctx, e.user, "memos", CatalogDeployInput{}); depCode(err) != "server_disk_full" {
+		t.Fatalf("want server_disk_full, got %v", err)
 	}
 	if n := e.countApps(t); n != 0 {
 		t.Errorf("the half-made app stayed: %d apps", n)
@@ -124,7 +125,8 @@ func TestDeployCatalogAppFailureLeavesNothing(t *testing.T) {
 		t.Errorf("env vars stayed: %d", envs)
 	}
 	// A refusal from CreateApp (quota) is passed on and creates nothing.
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 100, quota_apps = 0 WHERE id = ?`, e.user.UserID)
+	e.s.ops.diskHasRoom = func() (bool, error) { return true, nil }
+	e.exec(t, `UPDATE users SET quota_apps = 0 WHERE id = ?`, e.user.UserID)
 	if _, err := e.s.DeployCatalogApp(ctx, e.user, "memos", CatalogDeployInput{}); depCode(err) != "apps_quota_exceeded" {
 		t.Errorf("apps quota: %v", err)
 	}

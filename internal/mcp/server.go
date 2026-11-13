@@ -248,8 +248,6 @@ func defaultNextTool(tool string, ae *apperr.Error) string {
 		return "whoami"
 	case "app_busy":
 		return "list_deployments"
-	case "deploy_rate_limited":
-		return "whoami" // deploys left this hour and when the next one is allowed
 	case "domain_not_found", "domain_taken":
 		return "get_app"
 	case "no_container":

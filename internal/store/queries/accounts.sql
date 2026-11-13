@@ -3,9 +3,9 @@
 -- name: InsertUser :exec
 -- The limits come from the server settings (server_settings), not the column defaults.
 INSERT INTO users (id, email, name, password_hash, role, status,
-    quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb,
+    quota_apps, quota_memory_mb, quota_cpu_millis, quota_domains_per_app, quota_volume_mb,
     joined_via, joined_by, joined_project, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListUsers :many
 SELECT * FROM users ORDER BY created_at ASC;
@@ -21,7 +21,7 @@ UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?;
 
 -- name: UpdateUserQuota :exec
 UPDATE users SET quota_apps = ?, quota_memory_mb = ?, quota_cpu_millis = ?,
-    quota_deploys_per_hour = ?, quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
+    quota_domains_per_app = ?, quota_volume_mb = ?, overallocate = ?, updated_at = ?
 WHERE id = ?;
 
 -- name: UpdateUserStatus :exec

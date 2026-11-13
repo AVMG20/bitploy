@@ -163,26 +163,14 @@ func TestAppUploadQuotasAndGitLinked(t *testing.T) {
 		t.Errorf("app quota: %d %s", w.Code, w.Body)
 	}
 
-	// Deploys per hour.
-	if _, err := e.svc.Store.DB.Exec(`UPDATE users SET quota_deploys_per_hour = 1`); err != nil {
-		t.Fatal(err)
-	}
-	if w := e.sessionRaw("POST", "/api/v1/apps/one-app/upload", site, true); w.Code != 202 {
-		t.Fatalf("first upload: %d %s", w.Code, w.Body)
-	}
-	w = e.sessionRaw("POST", "/api/v1/apps/one-app/upload", site, true)
-	if w.Code != 429 || decode[errResp](t, w).Error.Code != "deploy_rate_limited" {
-		t.Errorf("deploy rate: %d %s", w.Code, w.Body)
-	}
-	w = e.sessionRaw("POST", "/api/v1/apps/two-app/upload", site, true)
-	if w.Code != 429 {
-		t.Errorf("the limit is per account: %d %s", w.Code, w.Body)
+	// Deploys are not limited per hour.
+	for i := 0; i < 3; i++ {
+		if w := e.sessionRaw("POST", "/api/v1/apps/one-app/upload", site, true); w.Code != 202 {
+			t.Fatalf("upload %d: %d %s", i+1, w.Code, w.Body)
+		}
 	}
 
 	// An app linked to git takes no uploads.
-	if _, err := e.svc.Store.DB.Exec(`UPDATE users SET quota_deploys_per_hour = 20`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := e.svc.Store.DB.Exec(`UPDATE apps SET git_repo_url = 'https://github.com/o/r', git_branch = 'main' WHERE slug = 'two-app'`); err != nil {
 		t.Fatal(err)
 	}

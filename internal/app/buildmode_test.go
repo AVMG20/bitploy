@@ -453,15 +453,6 @@ func TestUploadAndDeployRules(t *testing.T) {
 	if n != 0 {
 		t.Errorf("%d upload rows left by a bad upload", n)
 	}
-
-	// Deploys per hour, checked before the body is read.
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 1 WHERE id = ?`, e.user.UserID)
-	if _, err := e.s.UploadAndDeploy(ctx, e.user, mine.Slug, bytes.NewReader(zipOK)); err != nil {
-		t.Fatalf("first upload: %v", err)
-	}
-	if _, err := e.s.UploadAndDeploy(ctx, e.user, mine.Slug, bytes.NewReader(zipOK)); depCode(err) != "deploy_rate_limited" {
-		t.Errorf("second upload: %v", err)
-	}
 }
 
 func TestPipelineBuildsNodeProjectsWithoutDockerfile(t *testing.T) {

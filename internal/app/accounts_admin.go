@@ -59,7 +59,7 @@ func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q Q
 	if err := RequireAdmin(a); err != nil {
 		return AdminUser{}, err
 	}
-	for _, v := range []int64{q.Apps, q.MemoryMB, q.CPUMillis, q.DeploysPerHour, q.DomainsPerApp, q.VolumeMB} {
+	for _, v := range []int64{q.Apps, q.MemoryMB, q.CPUMillis, q.DomainsPerApp, q.VolumeMB} {
 		if v < 0 || v > math.MaxInt32 {
 			return AdminUser{}, apperr.BadRequest("invalid_quota", "Quota values must be zero or a positive number.",
 				"Send non-negative whole numbers for every quota field.")
@@ -77,14 +77,14 @@ func (s *Service) AdminSetQuota(ctx context.Context, a Actor, userID string, q Q
 	}
 	if err := s.Q.UpdateUserQuota(ctx, db.UpdateUserQuotaParams{
 		QuotaApps: q.Apps, QuotaMemoryMb: q.MemoryMB, QuotaCpuMillis: q.CPUMillis,
-		QuotaDeploysPerHour: q.DeploysPerHour, QuotaDomainsPerApp: q.DomainsPerApp, QuotaVolumeMb: q.VolumeMB,
+		QuotaDomainsPerApp: q.DomainsPerApp, QuotaVolumeMb: q.VolumeMB,
 		Overallocate: b2i(over), UpdatedAt: s.now(), ID: userID,
 	}); err != nil {
 		return AdminUser{}, apperr.Internal(err)
 	}
 	s.Audit(ctx, a, "admin.quota_set", "user", userID, map[string]any{
 		"apps": q.Apps, "memory_mb": q.MemoryMB, "cpu_millis": q.CPUMillis,
-		"deploys_per_hour": q.DeploysPerHour, "domains_per_app": q.DomainsPerApp, "volume_mb": q.VolumeMB,
+		"domains_per_app": q.DomainsPerApp, "volume_mb": q.VolumeMB,
 		"overallocate": over,
 	})
 	u, err := s.Q.GetUser(ctx, userID)

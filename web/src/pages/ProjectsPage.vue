@@ -10,7 +10,7 @@ import UsageCard from '@/components/UsageCard.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMe, useProjects, useServiceTemplates } from '@/composables/queries'
-import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB, relativeTime } from '@/lib/format'
+import { CPU_HINT, cpuFromPercent, formatCPU, formatCPUMillis, formatMB } from '@/lib/format'
 import { usageBar } from '@/lib/usage'
 
 // Home: every project as a card, with the apps inside it, in the order of
@@ -47,17 +47,12 @@ const storageAlert = computed(() =>
 const appsAlert = computed(() =>
   usage.value && quota.value && usage.value.apps > quota.value.apps ? overText('apps', 'Delete the apps you no longer need before adding one') : '',
 )
-// Deploys this hour against the hourly limit; near the limit, also when one more is allowed.
+// Deploys in the last hour: a count only, deploys are not limited.
 const deploysText = computed(() => {
-  const u = usage.value
-  const q = quota.value
-  if (!u || !q) return ''
-  const left = Math.max(q.deploys_per_hour - u.deploys_last_hour, 0)
-  let text = `${u.deploys_last_hour} of ${q.deploys_per_hour} deploys used this hour.`
-  if (left <= 2 && u.deploys_reset_at) text += ` One more is allowed ${relativeTime(u.deploys_reset_at)}.`
-  return text
+  const n = usage.value?.deploys_last_hour
+  if (n === undefined) return ''
+  return `${n} ${n === 1 ? 'deploy' : 'deploys'} in the last hour.`
 })
-const deploysFull = computed(() => !!usage.value && !!quota.value && usage.value.deploys_last_hour >= quota.value.deploys_per_hour)
 // A first visit with no projects: the cards would only show zeros.
 const showStats = computed(() => projects.isPending.value || all.value.length > 0)
 
@@ -181,7 +176,7 @@ function sourceTo(key: string) {
         hint="Databases and caches count as apps."
       />
     </div>
-    <p v-if="showStats && deploysText" :class="['-mt-3 text-xs', deploysFull ? 'font-medium text-destructive' : 'text-muted-foreground']" data-testid="deploys-hour">
+    <p v-if="showStats && deploysText" class="-mt-3 text-xs text-muted-foreground" data-testid="deploys-hour">
       {{ deploysText }}
     </p>
 

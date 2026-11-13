@@ -96,10 +96,6 @@ SELECT * FROM deployments WHERE state IN ('fetching', 'validating', 'building', 
 SELECT COUNT(*) FROM deployments d JOIN apps a ON a.id = d.app_id
 WHERE a.user_id = ? AND d.queued_at >= ?;
 
--- name: OldestUserDeploymentSince :one
-SELECT CAST(COALESCE(MIN(d.queued_at), 0) AS INTEGER) FROM deployments d JOIN apps a ON a.id = d.app_id
-WHERE a.user_id = ? AND d.queued_at >= ?;
-
 -- name: CountPendingDeploymentsByApp :one
 SELECT COUNT(*) FROM deployments
 WHERE app_id = ? AND state IN ('queued', 'fetching', 'validating', 'building', 'starting', 'health_check', 'swapping');

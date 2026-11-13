@@ -504,7 +504,7 @@ func (s *Service) insertUserHashed(ctx context.Context, q *db.Queries, p acctNew
 	err := q.InsertUser(ctx, db.InsertUserParams{
 		ID: id, Email: p.Email, Name: p.Name, PasswordHash: hash, Role: p.Role,
 		QuotaApps: p.Quota.Apps, QuotaMemoryMb: p.Quota.MemoryMB, QuotaCpuMillis: p.Quota.CPUMillis,
-		QuotaDeploysPerHour: p.Quota.DeploysPerHour, QuotaDomainsPerApp: p.Quota.DomainsPerApp, QuotaVolumeMb: p.Quota.VolumeMB,
+		QuotaDomainsPerApp: p.Quota.DomainsPerApp, QuotaVolumeMb: p.Quota.VolumeMB,
 		JoinedVia: p.JoinedVia, JoinedBy: p.JoinedBy, JoinedProject: p.JoinedProject,
 		CreatedAt: now, UpdatedAt: now,
 	})

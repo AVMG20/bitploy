@@ -196,7 +196,7 @@ func (q *Queries) GetDeployment(ctx context.Context, id string) (Deployment, err
 
 const getUser = `-- name: GetUser :one
 
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users WHERE id = ?
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users WHERE id = ?
 `
 
 // Shared queries used by several areas. Area-specific queries live in their own files.
@@ -213,7 +213,6 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 		&i.QuotaApps,
 		&i.QuotaMemoryMb,
 		&i.QuotaCpuMillis,
-		&i.QuotaDeploysPerHour,
 		&i.QuotaDomainsPerApp,
 		&i.QuotaVolumeMb,
 		&i.CreatedAt,
@@ -227,7 +226,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_deploys_per_hour, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users WHERE email = ?
+SELECT id, email, name, password_hash, role, status, quota_apps, quota_memory_mb, quota_cpu_millis, quota_domains_per_app, quota_volume_mb, created_at, updated_at, overallocate, joined_via, joined_by, joined_project FROM users WHERE email = ?
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -243,7 +242,6 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.QuotaApps,
 		&i.QuotaMemoryMb,
 		&i.QuotaCpuMillis,
-		&i.QuotaDeploysPerHour,
 		&i.QuotaDomainsPerApp,
 		&i.QuotaVolumeMb,
 		&i.CreatedAt,

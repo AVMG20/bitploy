@@ -157,7 +157,7 @@ Someone forgot their password? Admin → People → Reset password makes a link 
 
 A project owner can share a project with others (project → Members). Members deploy and change its apps, but only the owner deletes apps, files and backups or restores a backup.
 
-Admin → Signups decides who can create an account: only people an admin invites, also people a project owner invites (the default), or anyone. It also sets the limits new accounts get (apps, memory, CPU, storage, deploys per hour, domains per app) and whether an account made with a project invite can deploy apps of its own. Older versions read this from `BITPLOY_SIGNUP`; that variable is gone, so a server that had `BITPLOY_SIGNUP=open` needs "Anyone can sign up" picked there once.
+Admin → Signups decides who can create an account: only people an admin invites, also people a project owner invites (the default), or anyone. It also sets the limits new accounts get (apps, memory, CPU, storage, domains per app) and whether an account made with a project invite can deploy apps of its own. Older versions read this from `BITPLOY_SIGNUP`; that variable is gone, so a server that had `BITPLOY_SIGNUP=open` needs "Anyone can sign up" picked there once.
 
 **Back up `BITPLOY_SECRET_KEY` now, somewhere that is not this server** (a password manager). It encrypts every saved env var and the GitHub App's credentials. Without it a restored database is readable, but those secrets are gone for good.
 

@@ -35,7 +35,6 @@ interface QuotaForm {
   apps: number
   memory_gb: number
   cpus: number
-  deploys_per_hour: number
   domains_per_app: number
   volume_gb: number
   overallocate: boolean
@@ -59,19 +58,17 @@ const form = useForm({
       apps: whole('Apps', 0),
       memory_gb: z.coerce.number({ invalid_type_error: 'Memory: enter a number.' }).min(0, 'Memory: at least 0.'),
       cpus: z.coerce.number({ invalid_type_error: 'CPU cores: enter a number.' }).min(0, 'CPU cores: at least 0.'),
-      deploys_per_hour: whole('Deploys per hour', 1),
       domains_per_app: whole('Domains', 0),
       volume_gb: z.coerce.number({ invalid_type_error: 'Storage: enter a number.' }).min(0, 'Storage: at least 0.'),
       overallocate: z.boolean(),
     }),
   ),
-  initialValues: { apps: 10, memory_gb: 2, cpus: 2, deploys_per_hour: 20, domains_per_app: 5, volume_gb: 25, overallocate: false },
+  initialValues: { apps: 10, memory_gb: 2, cpus: 2, domains_per_app: 5, volume_gb: 25, overallocate: false },
 })
 
 // Memory and CPU come last, next to the switch that turns their check off.
 const fields = [
   { name: 'apps', label: 'Apps', hint: '0: no apps of their own; they can still work in projects shared with them.' },
-  { name: 'deploys_per_hour', label: 'Deploys per hour', hint: '' },
   { name: 'domains_per_app', label: 'Custom domains per app', hint: '0: none, only the bitploy address.' },
   { name: 'volume_gb', label: 'Storage in total (GB)', hint: '0: no limit.' },
   { name: 'memory_gb', label: 'Memory in total (GB)', hint: '0: no apps of their own.' },
@@ -86,7 +83,6 @@ function edit(u: AdminUser) {
       apps: u.quota.apps,
       memory_gb: mbToGB(u.quota.memory_mb),
       cpus: u.quota.cpu_millis / 1000,
-      deploys_per_hour: u.quota.deploys_per_hour,
       domains_per_app: u.quota.domains_per_app,
       volume_gb: mbToGB(u.quota.volume_mb),
       overallocate: !!u.quota.overallocate,
@@ -102,7 +98,6 @@ const saveQuota = useMutation({
         apps: v.values.apps,
         memory_mb: gbToMB(v.values.memory_gb, v.user.quota.memory_mb),
         cpu_millis: Math.round(v.values.cpus * 1000),
-        deploys_per_hour: v.values.deploys_per_hour,
         domains_per_app: v.values.domains_per_app,
         volume_mb: gbToMB(v.values.volume_gb, v.user.quota.volume_mb),
         overallocate: v.values.overallocate,

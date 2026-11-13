@@ -106,34 +106,6 @@ func TestServerAppLimitHoldsUnderParallelCalls(t *testing.T) {
 	}
 }
 
-// The deployments-per-hour quota must hold when deploy calls arrive in parallel.
-func TestDeployRateLimitHoldsUnderParallelCalls(t *testing.T) {
-	e := depTestSvc(t)
-	ctx := context.Background()
-	e.exec(t, `UPDATE users SET quota_deploys_per_hour = 3 WHERE id = ?`, e.user.UserID)
-	app := e.mustApp(t, CreateAppInput{})
-	var ok, limited atomic.Int32
-	var wg sync.WaitGroup
-	for i := 0; i < 12; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			switch _, err := e.s.DeployFiles(ctx, e.user, app.Slug, staticFiles()); depCode(err) {
-			case "":
-				ok.Add(1)
-			case "deploy_rate_limited":
-				limited.Add(1)
-			default:
-				t.Errorf("unexpected error: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
-	if ok.Load() != 3 || limited.Load() != 9 {
-		t.Fatalf("%d deployments queued (limit 3), %d refused", ok.Load(), limited.Load())
-	}
-}
-
 // With the disk almost full no new upload is written and no deployment is queued.
 func TestUploadsAndDeploysRefusedWhenDiskIsFull(t *testing.T) {
 	e := depTestSvc(t)
