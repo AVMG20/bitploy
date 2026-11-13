@@ -181,7 +181,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 		restart_app start_app stop_app rollback delete_app add_domain check_domain remove_domain get_metrics create_backup list_backups set_password_protection query_db cancel_deployment
 		list_projects get_project create_project list_service_templates add_service set_public_port
 		write_db list_env get_traffic set_backup_schedule update_catalog_app rename_project delete_project
-		get_storage delete_backup list_files get_dockerfile set_dockerfile`)
+		get_storage delete_backup list_files get_dockerfile set_dockerfile list_activity`)
 	for _, n := range wantTools {
 		if got[n] == nil {
 			t.Errorf("tool %s missing", n)
@@ -190,7 +190,7 @@ func TestInitializeInstructionsAndTools(t *testing.T) {
 	if len(got) != len(wantTools) {
 		t.Errorf("got %d tools, want %d", len(got), len(wantTools))
 	}
-	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile validate_compose list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups list_projects get_project list_service_templates query_db list_env get_traffic get_storage list_files get_dockerfile")
+	readOnly := strings.Fields("whoami get_deploy_rules get_template validate_dockerfile validate_compose list_catalog list_apps get_app get_deployment list_deployments get_logs get_metrics list_backups list_projects get_project list_service_templates query_db list_env get_traffic get_storage list_files get_dockerfile list_activity")
 	for _, n := range readOnly {
 		if a := got[n].Annotations; a == nil || !a.ReadOnlyHint {
 			t.Errorf("%s should be readOnly", n)

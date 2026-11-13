@@ -140,6 +140,12 @@ type cancelDeploymentIn struct {
 	App string `json:"app,omitempty" jsonschema:"Instead of id: an app slug or ID. Cancels that app's queued or in-progress deployment."`
 }
 
+type listActivityIn struct {
+	App    string `json:"app,omitempty" jsonschema:"Only the activity of this app (slug or ID). Leave out for all of the user's apps, projects and account."`
+	Limit  int    `json:"limit,omitempty" jsonschema:"How many to return, newest first. Default 20, max 100."`
+	Cursor string `json:"cursor,omitempty" jsonschema:"The next_cursor value of the previous page. Leave out for the first page."`
+}
+
 type listDeploymentsIn struct {
 	App    string `json:"app" jsonschema:"The app's slug or ID (app_...). Find it with list_apps."`
 	Limit  int    `json:"limit,omitempty" jsonschema:"How many to return, newest first. Default 10, max 100."`
@@ -663,6 +669,34 @@ func (s *srv) registerTools() {
 			}
 			return &result{
 				Summary: fmt.Sprintf("%d deployment(s) of %s.", len(page.Items), in.App),
+				Data:    toMap(page),
+				Next:    next,
+			}, nil
+		})
+
+	addTool(s, "list_activity", "List activity",
+		"What happened to the user's apps and projects, newest first: who did it (you, someone they share the project with, an admin or bitploy itself), what (action, like app.stop or deployment.failed), when, to which app, and the details. Use it when the user asks what changed, who stopped or changed an app, or what happened while they were away. Kept 90 days.",
+		readOnly(), false, nil,
+		func(ctx context.Context, a app.Actor, in listActivityIn) (*result, error) {
+			limit := in.Limit
+			if limit <= 0 {
+				limit = 20
+			}
+			page, err := svc.ListActivity(ctx, a, in.App, limit, in.Cursor)
+			if err != nil {
+				return nil, err
+			}
+			page.Items = nonNil(page.Items)
+			var next []string
+			if page.NextCursor != "" {
+				next = append(next, "Older entries exist: call list_activity again with cursor="+page.NextCursor+".")
+			}
+			what := "your apps and projects"
+			if in.App != "" {
+				what = in.App
+			}
+			return &result{
+				Summary: fmt.Sprintf("%d activity entries of %s.", len(page.Items), what),
 				Data:    toMap(page),
 				Next:    next,
 			}, nil
