@@ -236,7 +236,7 @@ func (s *srv) registerTools() {
 	adminURL := strings.TrimRight(svc.Cfg.PublicURL, "/") + "/admin"
 
 	addTool(s, "whoami", "Who am I",
-		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>) and app_domains (every domain this user may put apps on), quotas, current usage and hard limits (inline 2 MB/200 files, zip 95 MB). Next: list_apps.",
+		"Start here. Returns the signed-in user, the token scope (deploy can change things, read cannot), the base domain apps are served from (https://<slug>.<domain>) and app_domains (every domain this user may put apps on), quotas with what is used and left (apps, memory, CPU, storage, deploys this hour and when the next one is allowed, domains per app) and hard limits (inline 2 MB/200 files, zip 95 MB). Call it before planning a deploy. Next: list_apps.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			me, err := svc.Me(ctx, a)
@@ -262,13 +262,14 @@ func (s *srv) registerTools() {
 				}
 				domainsLine = " Other domains this user may use (pass domain= to create_app, update_app or deploy_catalog_app, only when the user asks): " + strings.Join(names, ", ") + "."
 			}
-			memLine := fmt.Sprintf("%d MB of %d MB memory reserved (static sites do not count)", me.Usage.MemoryReservedMB, me.Quota.MemoryMB)
-			if me.Quota.Overallocate {
-				memLine = fmt.Sprintf("%d MB memory reserved; memory and CPU are not checked for this user (overallocate is on), so apps may ask for more than the %d MB / %d CPU millis quota", me.Usage.MemoryReservedMB, me.Quota.MemoryMB, me.Quota.CPUMillis)
+			quotas, quotaLine := quotaReport(me, svc.Now())
+			d["quotas"] = quotas
+			if me.Scope != app.ScopeRead {
+				next = append(next, quotaSteps(me, svc.Now())...)
 			}
 			return &result{
-				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s; %d of %d apps used, %s. Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",
-					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), me.Usage.Apps, me.Quota.Apps, memLine, domainsLine),
+				Summary: fmt.Sprintf("Signed in as %s (%s), token scope %s; apps live at %s. %s Limits: deploy_files 200 files/2 MB, zip 95 MB. Env var changes need restart_app or deploy.%s",
+					me.User.Name, me.User.Email, me.Scope, svc.Cfg.AppURL("<slug>"), quotaLine, domainsLine),
 				Data: d,
 				Next: next,
 			}, nil

@@ -36,6 +36,10 @@ export interface Usage {
   running_hours_month: number
   deploys_month: number
   deploys_week: number
+  /** Deployments in the last hour; they count towards quota.deploys_per_hour. */
+  deploys_last_hour: number
+  /** When the oldest of them leaves the hour, so one more is allowed. */
+  deploys_reset_at?: string
   disk_used_mb: number
   volume_reserved_mb: number
   volume_used_mb: number

@@ -56,11 +56,16 @@ type Usage struct {
 	RunningHoursMonth float64 `json:"running_hours_month"`
 	DeploysMonth      int64   `json:"deploys_month"`
 	DeploysWeek       int64   `json:"deploys_week"`
-	DiskUsedMB        float64 `json:"disk_used_mb"`
-	VolumeReservedMB  int64   `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
-	VolumeUsedMB      float64 `json:"volume_used_mb"`     // measured hourly
-	FilesMB           float64 `json:"files_mb"`           // images and stored source of all apps, measured hourly
-	BackupsMB         float64 `json:"backups_mb"`         // backups of all apps
+	// DeploysLastHour counts towards quota.deploys_per_hour (rollbacks too,
+	// though a rollback is never refused). DeploysResetAt is when the oldest
+	// of them leaves the hour, so one more deploy is allowed; nil without any.
+	DeploysLastHour  int64      `json:"deploys_last_hour"`
+	DeploysResetAt   *time.Time `json:"deploys_reset_at,omitempty" doc:"When the oldest deployment of the last hour leaves the window, so one more is allowed"`
+	DiskUsedMB       float64    `json:"disk_used_mb"`
+	VolumeReservedMB int64      `json:"volume_reserved_mb"` // sum of the storage limits of apps with a volume
+	VolumeUsedMB     float64    `json:"volume_used_mb"`     // measured hourly
+	FilesMB          float64    `json:"files_mb"`           // images and stored source of all apps, measured hourly
+	BackupsMB        float64    `json:"backups_mb"`         // backups of all apps
 }
 
 // Me is returned by whoami / GET /api/v1/me.

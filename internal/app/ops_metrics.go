@@ -108,6 +108,21 @@ func (s *Service) Usage(ctx context.Context, userID string) (Usage, error) {
 	if u.DeploysWeek, err = q.OpsCountDeploymentsSince(ctx, db.OpsCountDeploymentsSinceParams{UserID: userID, QueuedAt: now.AddDate(0, 0, -7).Unix()}); err != nil {
 		return Usage{}, apperr.Internal(err)
 	}
+	// The same window and queries as checkDeployRate.
+	hourAgo := now.Unix() - 3600
+	if u.DeploysLastHour, err = q.CountUserDeploymentsSince(ctx, db.CountUserDeploymentsSinceParams{UserID: userID, QueuedAt: hourAgo}); err != nil {
+		return Usage{}, apperr.Internal(err)
+	}
+	if u.DeploysLastHour > 0 {
+		oldest, err := q.OldestUserDeploymentSince(ctx, db.OldestUserDeploymentSinceParams{UserID: userID, QueuedAt: hourAgo})
+		if err != nil {
+			return Usage{}, apperr.Internal(err)
+		}
+		if oldest > 0 {
+			at := time.Unix(oldest+3600, 0).UTC()
+			u.DeploysResetAt = &at
+		}
+	}
 	buildSecs, err := q.OpsBuildSecondsSince(ctx, db.OpsBuildSecondsSinceParams{UserID: userID, QueuedAt: monthStart.Unix()})
 	if err != nil {
 		return Usage{}, apperr.Internal(err)

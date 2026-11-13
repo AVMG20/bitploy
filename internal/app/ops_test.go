@@ -432,7 +432,12 @@ func TestUsage(t *testing.T) {
 		Apps: 2, AppsRunning: 1, MemoryReservedMB: 1024, CPUReservedMillis: 1000,
 		MemoryUsedMB: 64, CPUNowPercent: 12.3, BuildMinutesMonth: 3, RunningHoursMonth: 25,
 		DeploysMonth: 2, DeploysWeek: 2, DiskUsedMB: 170, FilesMB: 150,
+		DeploysLastHour: 1, // dep_1, exactly an hour ago: it leaves the window now
 	}
+	if u.DeploysResetAt == nil || !u.DeploysResetAt.Equal(time.Unix(now, 0)) {
+		t.Errorf("deploys reset at %v, want %v", u.DeploysResetAt, time.Unix(now, 0))
+	}
+	u.DeploysResetAt = nil
 	if u != want {
 		t.Errorf("usage =\n%+v\nwant\n%+v", u, want)
 	}

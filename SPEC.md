@@ -256,7 +256,9 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy (with package_json for a
-   Node project), fix all errors and read every warning.
+   Node project), fix all errors and read every warning. Call whoami before
+   planning a deploy: it shows what is left of the quota (apps, memory, CPU,
+   storage, deploys this hour).
 4. Never put secrets in the Dockerfile or the source. Use set_env. A value
    the build bakes in (VITE_*, NEXT_PUBLIC_*) reaches the build too and
    applies on the next deploy.
@@ -313,7 +315,7 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
 
 | Tool | Does | Scope | Hints |
 | --- | --- | --- | --- |
-| `whoami` | User, quotas, usage, base domain | read | read-only |
+| `whoami` | User, quotas with used, limit and what is left, base domain | read | read-only |
 | `get_deploy_rules` | The rules above plus the runtime contract | read | read-only |
 | `get_template(stack, file_list?)` | Dockerfile + .dockerignore for a stack, adapted to the lock files in `file_list` | read | read-only |
 | `validate_dockerfile(dockerfile, file_list?)` | Static checks below; no build | read | read-only |
@@ -670,7 +672,7 @@ How to collect it:
 - Tables: `metric_samples(app_id, ts, cpu, mem, rx, tx)` and `metric_rollups` with the same columns plus max values. A nightly job prunes and rolls up.
 - The server itself is sampled on the same 15 s tick from `/proc/stat` and `/proc/meminfo` (the source of the admin Server numbers): `host_samples(ts, cpu, mem_used, mem_total)` and `host_rollups` with max values, rolled up and pruned by the same rules. CPU is % of the whole server between two ticks; memory is used without reclaimable cache. `GET /api/v1/admin/server/metrics?window=1h|24h|7d` returns the series for the charts on the admin Server tab.
 
-Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, and disk used.
+Per-user usage (returned by `whoami`, `GET /api/v1/usage` and the Overview cards): apps, memory reserved against quota (static sites excluded), build minutes, running hours and deployments this calendar month, deployments in the last hour (with when the next one is allowed), and disk used.
 
 ## Security & limits
 

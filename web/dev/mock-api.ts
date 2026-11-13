@@ -1489,6 +1489,7 @@ function me(): Me {
       running_hours_month: 3100,
       deploys_month: 38,
       deploys_week: 9,
+      deploys_last_hour: 3,
       disk_used_mb: 4200,
       volume_reserved_mb: apps.reduce((n, a) => n + a.volumes.reduce((m, v) => m + v.size_mb, 0), 0),
       volume_used_mb: 520,
