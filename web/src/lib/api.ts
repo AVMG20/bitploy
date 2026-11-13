@@ -744,9 +744,9 @@ export const api = {
   },
   /** The builds per person that ended in the window, most build time first. */
   adminBuildStats: (window: BuildWindow) => request<BuildStats>('GET', paths.adminBuildStats, { query: { window } }),
-  /** One person's builds that ended in the window, newest first (at most 100). */
+  /** The builds that ended in the window, newest first (at most 100): one person's, or everyone's with an empty userId. */
   async adminBuilds(userId: string, window: BuildWindow): Promise<BuildRecord[]> {
-    return (await request<Page<BuildRecord>>('GET', paths.adminBuilds, { query: { user: userId, window, limit: 100 } })).items ?? []
+    return (await request<Page<BuildRecord>>('GET', paths.adminBuilds, { query: { user: userId || undefined, window, limit: 100 } })).items ?? []
   },
 }
 

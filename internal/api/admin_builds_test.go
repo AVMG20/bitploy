@@ -48,8 +48,8 @@ func TestAdminBuildEndpoints(t *testing.T) {
 	if len(pg.Items) != 1 || pg.Items[0].DeploymentID != "dep_1" || pg.Items[0].WaitSeconds != 10 || pg.Items[0].BuildSeconds != 90 || pg.Items[0].Result != "live" {
 		t.Errorf("list = %+v", pg)
 	}
-	if w := e.asSession("GET", "/api/v1/admin/builds", nil); w.Code != 400 || decode[errResp](t, w).Error.Code != "user_required" {
-		t.Errorf("no user: %d %s", w.Code, w.Body)
+	if w := e.asSession("GET", "/api/v1/admin/builds", nil); w.Code != 200 || len(decode[app.Page[app.BuildRecord]](t, w).Items) != 1 {
+		t.Errorf("everyone's: %d %s", w.Code, w.Body)
 	}
 
 	w = e.asSession("GET", "/api/v1/admin/server/metrics?window=1h", nil)

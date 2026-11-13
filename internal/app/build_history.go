@@ -288,7 +288,8 @@ func buildStatsPerPerson(rows []db.ListBuildHistorySinceRow) []BuildPersonStats 
 }
 
 // AdminListBuilds is the builds of one person (started by them, or a git push
-// to their app) that ended in the window, newest first, at most 100.
+// to their app) that ended in the window, newest first, at most 100; without
+// a person, everyone's.
 func (s *Service) AdminListBuilds(ctx context.Context, a Actor, userID, window string) ([]BuildRecord, error) {
 	if err := RequireAdmin(a); err != nil {
 		return nil, err
@@ -297,12 +298,21 @@ func (s *Service) AdminListBuilds(ctx context.Context, a Actor, userID, window s
 	if err != nil {
 		return nil, err
 	}
+	since := s.Now().Add(-dur).Unix()
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
-		return nil, apperr.BadRequest("user_required", "Say whose builds to list.", "Add ?user=<user id>, from GET /api/v1/admin/users or /admin/builds/stats.")
+		rows, err := s.Q.ListBuildHistoryLatest(ctx, db.ListBuildHistoryLatestParams{FinishedAt: since, Limit: maxPersonBuilds})
+		if err != nil {
+			return nil, apperr.Internal(err)
+		}
+		out := make([]BuildRecord, len(rows))
+		for i, r := range rows {
+			out[i] = buildRecord(r.BuildHistory, r.PersonName)
+		}
+		return out, nil
 	}
 	rows, err := s.Q.ListBuildHistoryByPerson(ctx, db.ListBuildHistoryByPersonParams{
-		PersonID: userID, FinishedAt: s.Now().Add(-dur).Unix(), Limit: maxPersonBuilds,
+		PersonID: userID, FinishedAt: since, Limit: maxPersonBuilds,
 	})
 	if err != nil {
 		return nil, apperr.Internal(err)

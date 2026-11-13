@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import { Hammer } from 'lucide-vue-next'
 import MetricChart from '@/components/MetricChart.vue'
 import QueryError from '@/components/QueryError.vue'
 import StatCard from '@/components/StatCard.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import AdminBuildSlots from './AdminBuildSlots.vue'
-import AdminBuildsByPerson from './AdminBuildsByPerson.vue'
+import AdminBuildsDialog from './AdminBuildsDialog.vue'
 import AdminPublicPorts from './AdminPublicPorts.vue'
 import { keys, REFRESH_MS, useServerMetrics } from '@/composables/queries'
 import { useQueryParam } from '@/composables/useQueryParam'
@@ -31,6 +33,8 @@ const points = computed(() => history.data.value?.points ?? [])
 const memTotalMB = computed(() => history.data.value?.mem_total_mb || s.value?.mem_total_mb || 0)
 // Builds are shaded behind the charts of 1 hour and 24 hours; on 7 days they would cover everything.
 const builds = computed(() => (windowSel.value === '7d' ? null : (history.data.value?.builds ?? null)))
+// The list of builds behind the bands, in a dialog.
+const buildsOpen = ref(false)
 
 // Free disk in %, and whether it is low enough to warn about (below 20%).
 const DISK_WARN_PERCENT = 20
@@ -116,11 +120,14 @@ const proxyDown = computed(() => system.value.some((c) => c.name === 'proxy' && 
     <Card class="mt-6">
       <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle>Usage over time</CardTitle>
-        <Tabs v-model="windowSel">
-          <TabsList>
-            <TabsTrigger v-for="w in windows" :key="w.value" :value="w.value">{{ w.label }}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" data-testid="open-builds" @click="buildsOpen = true"><Hammer /> Builds</Button>
+          <Tabs v-model="windowSel">
+            <TabsList>
+              <TabsTrigger v-for="w in windows" :key="w.value" :value="w.value">{{ w.label }}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </CardHeader>
       <CardContent>
         <QueryError v-if="history.isError.value && !history.data.value" :error="history.error.value" @retry="history.refetch()" />
@@ -151,7 +158,7 @@ const proxyDown = computed(() => system.value.some((c) => c.name === 'proxy' && 
       </CardContent>
     </Card>
 
-    <AdminBuildsByPerson class="mt-6" />
+    <AdminBuildsDialog v-model:open="buildsOpen" />
 
     <AdminBuildSlots class="mt-6" />
 

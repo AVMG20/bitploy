@@ -210,6 +210,67 @@ func (q *Queries) ListBuildHistoryByPerson(ctx context.Context, arg ListBuildHis
 	return items, nil
 }
 
+const listBuildHistoryLatest = `-- name: ListBuildHistoryLatest :many
+SELECT h.deployment_id, h.app_id, h.app_slug, h.app_name, h.owner_id, h.started_by, h.person_id, h.channel, h.source_kind, h.queued_at, h.started_at, h.built_at, h.finished_at, h.result, h.error_code, h.peak_cpu, h.peak_mem_mb, COALESCE(u.name, '') AS person_name
+FROM build_history h LEFT JOIN users u ON u.id = h.person_id
+WHERE h.finished_at >= ?
+ORDER BY h.started_at DESC
+LIMIT ?
+`
+
+type ListBuildHistoryLatestParams struct {
+	FinishedAt int64
+	Limit      int64
+}
+
+type ListBuildHistoryLatestRow struct {
+	BuildHistory BuildHistory
+	PersonName   string
+}
+
+// Everyone's builds that ended at or after the given time, newest first.
+func (q *Queries) ListBuildHistoryLatest(ctx context.Context, arg ListBuildHistoryLatestParams) ([]ListBuildHistoryLatestRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBuildHistoryLatest, arg.FinishedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBuildHistoryLatestRow{}
+	for rows.Next() {
+		var i ListBuildHistoryLatestRow
+		if err := rows.Scan(
+			&i.BuildHistory.DeploymentID,
+			&i.BuildHistory.AppID,
+			&i.BuildHistory.AppSlug,
+			&i.BuildHistory.AppName,
+			&i.BuildHistory.OwnerID,
+			&i.BuildHistory.StartedBy,
+			&i.BuildHistory.PersonID,
+			&i.BuildHistory.Channel,
+			&i.BuildHistory.SourceKind,
+			&i.BuildHistory.QueuedAt,
+			&i.BuildHistory.StartedAt,
+			&i.BuildHistory.BuiltAt,
+			&i.BuildHistory.FinishedAt,
+			&i.BuildHistory.Result,
+			&i.BuildHistory.ErrorCode,
+			&i.BuildHistory.PeakCpu,
+			&i.BuildHistory.PeakMemMb,
+			&i.PersonName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildHistoryOverlapping = `-- name: ListBuildHistoryOverlapping :many
 SELECT h.deployment_id, h.app_id, h.app_slug, h.app_name, h.owner_id, h.started_by, h.person_id, h.channel, h.source_kind, h.queued_at, h.started_at, h.built_at, h.finished_at, h.result, h.error_code, h.peak_cpu, h.peak_mem_mb, COALESCE(u.name, '') AS person_name
 FROM build_history h LEFT JOIN users u ON u.id = h.person_id

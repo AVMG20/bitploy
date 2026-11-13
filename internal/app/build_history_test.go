@@ -293,8 +293,15 @@ func TestAdminBuildStatsAndList(t *testing.T) {
 		list[0].BuildSeconds != 100 || list[0].Person != "usr_bob" || list[0].App != app.Slug {
 		t.Errorf("list = %+v, %v", list, err)
 	}
-	if _, err := e.s.AdminListBuilds(ctx, admin, "", "30d"); depCode(err) != "user_required" {
-		t.Errorf("no user: %v", err)
+	// Without a person: everyone's, newest first.
+	all, err := e.s.AdminListBuilds(ctx, admin, "", "30d")
+	if err != nil || len(all) < len(list) {
+		t.Fatalf("everyone's = %d builds, %v", len(all), err)
+	}
+	for i := 1; i < len(all); i++ {
+		if all[i].StartedAt.After(all[i-1].StartedAt) {
+			t.Errorf("not newest first: %v after %v", all[i].StartedAt, all[i-1].StartedAt)
+		}
 	}
 }
 

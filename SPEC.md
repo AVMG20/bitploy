@@ -478,7 +478,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET` `POST /api/v1/apps/{app}/backups`, `PUT …/backup-settings` | `list_backups`, `create_backup`, `set_backup_schedule` (restore, download and upload are dashboard and REST only) |
 | `GET /api/v1/apps/{app}/db?path=`, `POST …/db/rows`, `/db/cell`, `/db/insert`, `/db/update`, `/db/delete`, `/db/sql` | The SQLite viewer (see SQLite viewer). Reading and `sql` with `write: false` need the read scope, the rest the deploy scope. `query_db` is `/db/sql` with `write: false`, `write_db` with `write: true` |
 | `/api/v1/admin/users`, `/invites`, `/quotas`, `/server`, `/server/metrics` | Admin only |
-| `GET /api/v1/admin/builds/stats?window=`, `GET /api/v1/admin/builds?user=&window=` | Builds per person and one person's builds (admin, session; see Build history) |
+| `GET /api/v1/admin/builds/stats?window=`, `GET /api/v1/admin/builds?user=&window=` | Builds per person, and the latest builds of everyone or (with `user`) one person (admin, session; see Build history) |
 | `GET /api/v1/admin/audit?user=` | The audit log, newest first; `user` keeps only what that person did (admin, session) |
 | `GET` `PATCH /api/v1/admin/settings` | Who can create an account and the limits of new accounts (admin, session) |
 | `GET /api/v1/admin/project-invites`, `DELETE …/{id}` | Every user's open project invites; revoke any of them (admin, session) |

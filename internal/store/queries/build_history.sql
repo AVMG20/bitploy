@@ -30,6 +30,14 @@ FROM build_history h LEFT JOIN users u ON u.id = h.person_id
 WHERE h.finished_at >= ?
 ORDER BY h.finished_at;
 
+-- name: ListBuildHistoryLatest :many
+-- Everyone's builds that ended at or after the given time, newest first.
+SELECT sqlc.embed(h), COALESCE(u.name, '') AS person_name
+FROM build_history h LEFT JOIN users u ON u.id = h.person_id
+WHERE h.finished_at >= ?
+ORDER BY h.started_at DESC
+LIMIT ?;
+
 -- name: ListBuildHistoryByPerson :many
 SELECT sqlc.embed(h), COALESCE(u.name, '') AS person_name
 FROM build_history h LEFT JOIN users u ON u.id = h.person_id

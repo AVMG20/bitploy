@@ -2205,8 +2205,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       return send(res, 200, buildStats(q.get('window') ?? '24h'))
     case 'GET /admin/builds': {
       const who = q.get('user')
-      if (!who) throw new HttpError(400, 'user_required', 'Say whose builds to list.')
-      return send(res, 200, { items: buildsIn(q.get('window') ?? '30d').filter((b) => b.person_id === who).reverse().slice(0, 100) })
+      return send(res, 200, { items: buildsIn(q.get('window') ?? '30d').filter((b) => !who || b.person_id === who).reverse().slice(0, 100) })
     }
     case 'GET /admin/github':
       return send(res, 200, { configured: true, name: 'bitploy-ada', slug: 'bitploy-ada', html_url: 'https://github.com/apps/bitploy-ada', manage_url: 'https://github.com/settings/apps/bitploy-ada', owner: 'ada', webhook_url: 'https://bitploy.example.com/api/v1/github/webhook', push_events: true, created_at: ago(60 * 24 * 80) })

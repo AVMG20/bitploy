@@ -26,11 +26,10 @@ func (a *API) adminBuildRoutes() {
 	})
 	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminListBuilds", Method: http.MethodGet, Path: "/admin/builds", Tags: []string{"Admin"},
-		Summary: "The builds of one person",
-		Description: "Admin only. The builds of user (started by them, or a git push to their app) that ended in the window, newest first, at most 100. " +
-			"400 user_required.",
+		Summary:     "Recent builds, of everyone or one person",
+		Description: "Admin only. The builds that ended in the window, newest first, at most 100: everyone's, or with user only that person's (started by them, or a git push to their app).",
 	}, func(ctx context.Context, act app.Actor, in *struct {
-		User   string `query:"user" doc:"The person's user id (usr_...)"`
+		User   string `query:"user" doc:"The person's user id (usr_...); leave out for everyone's builds"`
 		Window string `query:"window" default:"30d" enum:"24h,7d,30d"`
 		PageParams
 	}) (*Out[app.Page[app.BuildRecord]], error) {
