@@ -1,4 +1,8 @@
 // The activity log in words: "Changed an app's settings" instead of app.update.
+// Only erasable TypeScript, so Node can run the file in a test (tests/audit.test.ts).
+
+import { channelLabel } from './format.ts'
+import type { ActivityEntry } from './types'
 
 export type AuditGroup = 'apps' | 'deploys' | 'data' | 'domains' | 'access' | 'github' | 'admin'
 
@@ -86,6 +90,35 @@ const LABELS: Record<string, string> = {
   'github_app.disconnect': 'Disconnected the GitHub app',
   'github.installation_link': 'Connected a GitHub account',
   'github.installation_unlink': 'Disconnected a GitHub account',
+  'app.project': 'Changed an app’s short name',
+  'app.git_repo_renamed': 'The repository was renamed',
+  'app.public_port_opened': 'Opened a public port',
+  'app.public_port_changed': 'Changed a public port',
+  'app.public_port_closed': 'Closed a public port',
+  'app.public_port_moved': 'A public port moved',
+  'app.public_port_revealed': 'Showed a public port',
+  'upload.receive': 'Received an upload',
+  'service.add': 'Added a service',
+  'domain.active': 'A domain is live',
+  'domain.failed': 'A domain could not be set up',
+  'project.create': 'Made a project',
+  'project.update': 'Renamed a project',
+  'project.delete': 'Deleted a project',
+  'project.invite_create': 'Invited someone to a project',
+  'project.invite_revoke': 'Revoked a project invite',
+  'project.member_add': 'Joined a project',
+  'project.member_remove': 'Removed someone from a project',
+  'project.leave': 'Left a project',
+  'notification_channel.create': 'Added a notification channel',
+  'notification_channel.update': 'Changed a notification channel',
+  'notification_channel.delete': 'Removed a notification channel',
+  'notification_channel.disable': 'Turned off a notification channel',
+  'user.create': 'Made an account',
+  'user.password_reset': 'Set a new password with a reset link',
+  'admin.user_suspend': 'Suspended an account',
+  'admin.user_reactivate': 'Reactivated an account',
+  'admin.password_reset_link': 'Made a password reset link',
+  'admin.user_app_domains': 'Changed someone’s domains',
 }
 
 /** "Changed app settings" for app.update; unknown actions in plain words from their code. */
@@ -144,4 +177,74 @@ export function auditDetails(d: Record<string, unknown> | null): string[] {
     out.push(`${k.replace(/_/g, ' ')}: ${val.length > 80 ? `${val.slice(0, 77)}...` : val}`)
   }
   return out
+}
+
+// ---------------------------------------------------------------- rows
+
+/**
+ * One row of an activity list, the same on Admin > Activity log and on the
+ * Activity page (components/ActivityLog.vue); each page makes its rows from
+ * what its endpoint returns.
+ */
+export interface AuditRow {
+  id: number
+  ts: string
+  /** Who did it, in words: a name, "You", "An admin", "bitploy". */
+  who: string
+  channel: string
+  action: string
+  /** What happened, when it reads better than auditLabel(action) for this viewer. */
+  label?: string
+  /** What it is about, the page for it when the viewer may open it, and where it is (an app's project). */
+  target: { text: string; to?: string; sub?: string } | null
+  details: string[]
+  /** Where it came from; empty when the viewer may not see it. */
+  ip: string
+}
+
+/** The rows of one kind that hold every word of the search, anywhere. */
+export function filterAuditRows(rows: AuditRow[], kind: string, search: string): AuditRow[] {
+  const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  return rows.filter((r) => {
+    if (kind !== 'all' && auditGroup(r.action) !== kind) return false
+    if (!words.length) return true
+    const hay = [r.label ?? auditLabel(r.action), r.action, r.who, r.target?.text ?? '', r.target?.sub ?? '', channelLabel(r.channel), r.ip, ...r.details]
+      .join(' ')
+      .toLowerCase()
+    return words.every((w) => hay.includes(w))
+  })
+}
+
+// What an admin did to the viewer's own account, said to them.
+const YOUR_ACCOUNT: Record<string, string> = {
+  'admin.quota_set': 'Changed your limits',
+  'admin.user_suspend': 'Suspended your account',
+  'admin.user_reactivate': 'Reactivated your account',
+  'admin.password_reset_link': 'Made a password reset link for you',
+  'admin.user_app_domains': 'Changed your domains',
+}
+
+/** An entry of GET /activity as a row: the server already says who, and which app. */
+export function activityRow(e: ActivityEntry): AuditRow {
+  let target: AuditRow['target'] = null
+  if (e.app) {
+    const text = e.app.name || e.app.slug || 'a deleted app'
+    target = e.app.gone || !e.app.slug ? { text } : { text, to: `/apps/${encodeURIComponent(e.app.slug)}` }
+    if (e.project?.name) target.sub = e.project.name
+  } else if (e.project) {
+    target = e.project.gone || !e.project.id ? { text: e.project.name } : { text: e.project.name, to: `/projects/${encodeURIComponent(e.project.id)}` }
+  } else if (e.target_type === 'domain' && typeof e.details?.hostname === 'string') {
+    target = { text: e.details.hostname }
+  }
+  return {
+    id: e.id,
+    ts: e.ts,
+    who: e.actor_name,
+    channel: e.channel,
+    action: e.action,
+    label: e.target_type === 'user' ? YOUR_ACCOUNT[e.action] : undefined,
+    target,
+    details: auditDetails(e.details),
+    ip: e.ip ?? '',
+  }
 }

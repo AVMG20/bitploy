@@ -52,6 +52,7 @@ export const keys = {
   adminApps: ['admin', 'apps'] as const,
   adminPublicPorts: ['admin', 'public-ports'] as const,
   adminAudit: ['admin', 'audit'] as const,
+  activity: ['activity'] as const,
   adminAppDomains: ['admin', 'app-domains'] as const,
 }
 

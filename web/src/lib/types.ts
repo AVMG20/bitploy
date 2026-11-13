@@ -846,6 +846,25 @@ export interface AuditEntry {
   details: Record<string, unknown> | null
 }
 
+/** An audit row as a user sees it on their Activity page (GET /activity). */
+export interface ActivityEntry {
+  id: number
+  ts: string
+  /** you; person: shares the project (by name); admin; other (not named); system: bitploy itself. */
+  actor: 'you' | 'person' | 'admin' | 'other' | 'system'
+  actor_name: string
+  channel: string
+  /** Only on what the user did themselves. */
+  ip?: string
+  action: string
+  target_type: string
+  target_id: string
+  /** gone: deleted, or no longer the user's to open; only the slug it had is known. */
+  app?: { id?: string; slug?: string; name?: string; project_id?: string; gone?: boolean }
+  project?: { id?: string; name: string; gone?: boolean }
+  details: Record<string, unknown> | null
+}
+
 export interface AdminUser extends User {
   quota: Quota
   usage: Usage

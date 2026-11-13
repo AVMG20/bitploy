@@ -123,6 +123,7 @@ export const router = createRouter({
         // Links and bookmarks from before projects: /apps/<slug>/<tab>.
         { path: 'apps/:slug/:rest(.*)*', name: 'legacy-app', component: () => import('./pages/NotFoundPage.vue'), beforeEnter: toProjectApp },
         { path: 'connect', name: 'connect', component: () => import('./pages/ConnectPage.vue'), meta: { title: 'Connect AI' } },
+        { path: 'activity', name: 'activity', component: () => import('./pages/ActivityPage.vue'), meta: { title: 'Activity' } },
         {
           path: 'settings',
           component: () => import('./pages/settings/SettingsLayout.vue'),

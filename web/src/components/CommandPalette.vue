@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import { Bell, Box, Boxes, CornerDownLeft, Github, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
+import { Bell, Box, Boxes, CornerDownLeft, Github, History, KeyRound, Monitor, Moon, Plus, Search, Settings, ShieldCheck, Sparkles, Sun } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
 import { useProjects } from '@/composables/queries'
@@ -164,6 +164,7 @@ const items = computed<Item[]>(() => {
     page('p-new', 'New project', Plus, 'create deploy upload app docker compose github repository', { name: 'new-app' }),
     page('p-ready', 'Ready-made apps and databases', Boxes, 'catalog postgres redis mysql template', { name: 'ready-made' }),
     page('p-connect', 'Connect AI', Sparkles, 'mcp assistant claude', '/connect'),
+    page('p-activity', 'Activity', History, 'log history audit who changed', { name: 'activity' }),
     page('p-settings', 'Settings', Settings, 'account profile password', { name: 'settings' }),
     page('p-tokens', 'API tokens', KeyRound, 'settings token', { name: 'settings-tokens' }),
     page('p-notifications', 'Notifications', Bell, 'settings alerts discord push', { name: 'settings-notifications' }),

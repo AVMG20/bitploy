@@ -11,6 +11,7 @@ import type {
   AppDomainList,
   ApiErrorBody,
   App,
+  ActivityEntry,
   AuditEntry,
   CreateAppInput,
   CreateTokenInput,
@@ -201,6 +202,7 @@ export const paths = {
   adminPublicPort: (slug: string) => `${V1}/admin/public-ports/${enc(slug)}`,
   adminAppStop: (slug: string) => `${V1}/admin/apps/${enc(slug)}/stop`,
   adminAudit: `${V1}/admin/audit`,
+  activity: `${V1}/activity`,
   adminAppDomains: `${V1}/admin/app-domains`,
   adminAppDomain: (id: string) => `${V1}/admin/app-domains/${enc(id)}`,
   adminAppDomainCert: (id: string) => `${V1}/admin/app-domains/${enc(id)}/certificate`,
@@ -729,6 +731,8 @@ export const api = {
     request<AdminUser>('PUT', paths.adminUserAppDomains(id), { body: { domain_ids: domainIds } }),
   audit: (cursor?: string) =>
     request<Page<AuditEntry>>('GET', paths.adminAudit, { query: { limit: 50, cursor } }),
+  activity: (cursor?: string) =>
+    request<Page<ActivityEntry>>('GET', paths.activity, { query: { limit: 50, cursor } }),
 }
 
 // ---------------------------------------------------------------------------

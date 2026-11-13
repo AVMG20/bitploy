@@ -29,6 +29,7 @@ import type {
   AppDomain,
   AppDomainChoice,
   AppVolume,
+  ActivityEntry,
   AuditEntry,
   Backup,
   BackupList,
@@ -1640,6 +1641,41 @@ const audit: AuditEntry[] = auditRows.map(([action, target_type, target_id, chan
   target_id: target_type === 'app' ? (findApp(target_id)?.id ?? target_id) : target_id,
   details,
 }))
+// Ada's Activity page (GET /activity): her own apps and the wiki Grace shares with her.
+type ActivityRowSpec = [ActivityEntry['actor'], string, string, string, string, string, Record<string, unknown> | null]
+const activityRows: ActivityRowSpec[] = [
+  // actor, name, channel, action, target type, app slug or project id, details
+  ['you', 'You', 'mcp', 'deployment.queue', 'deployment', 'mk-api', { app: 'mk-api', seq: 14, source: 'git' }],
+  ['system', 'bitploy', 'system', 'deployment.running', 'deployment', 'mk-api', { app: 'mk-api', seq: 14 }],
+  ['person', 'Grace', 'dashboard', 'env.set', 'app', 'wiki', { set: ['SMTP_HOST'], unset: null }],
+  ['you', 'You', 'dashboard', 'env.set', 'app', 'mk-store', { set: ['API_URL'], unset: null }],
+  ['admin', 'An admin', 'dashboard', 'app.stop', 'app', 'notes', { slug: 'notes' }],
+  ['system', 'bitploy', 'system', 'app.crashed', 'app', 'shop-api', { container: 'bp-shop-api-7' }],
+  ['you', 'You', 'dashboard', 'project.member_add', 'project', 'prj_wiki', { member: 'You' }],
+  ['you', 'You', 'dashboard', 'app.delete', 'app', 'old-blog', { slug: 'old-blog' }],
+  ['admin', 'An admin', 'dashboard', 'admin.quota_set', 'user', 'usr_ada', { apps: 20, memory_mb: 8192, cpu_millis: 4000 }],
+  ['you', 'You', 'dashboard', 'auth.login', 'user', 'usr_ada', null],
+]
+function activityEntries(): ActivityEntry[] {
+  return activityRows.map(([actor, actor_name, channel, action, target_type, ref, details], i) => {
+    const a = target_type === 'project' || target_type === 'user' ? undefined : findApp(ref)
+    const p = projects.find((x) => x.id === (target_type === 'project' ? ref : a?.project?.id))
+    return {
+      id: 800 - i,
+      ts: ago(i * 41 + 2),
+      actor,
+      actor_name,
+      channel,
+      ip: actor === 'you' ? '203.0.113.7' : undefined,
+      action,
+      target_type,
+      target_id: target_type === 'deployment' ? `dep_mock_${800 - i}` : (a?.id ?? ref),
+      app: a ? { id: a.id, slug: a.slug, name: a.name, project_id: a.project?.id } : target_type === 'app' || target_type === 'deployment' ? { slug: ref, name: ref, gone: true } : undefined,
+      project: p ? { id: p.id, name: p.name } : undefined,
+      details,
+    }
+  })
+}
 function serverStats(): ServerStats {
   return {
     cpu_percent: 23,
@@ -2022,6 +2058,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       })
     case 'GET /admin/audit':
       return send(res, 200, { items: audit })
+    case 'GET /activity':
+      return send(res, 200, { items: activityEntries() })
     case 'GET /admin/github':
       return send(res, 200, { configured: true, name: 'bitploy-ada', slug: 'bitploy-ada', html_url: 'https://github.com/apps/bitploy-ada', manage_url: 'https://github.com/settings/apps/bitploy-ada', owner: 'ada', webhook_url: 'https://bitploy.example.com/api/v1/github/webhook', push_events: true, created_at: ago(60 * 24 * 80) })
     case 'GET /admin/db':

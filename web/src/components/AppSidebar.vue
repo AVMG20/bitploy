@@ -2,7 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
-import { Box, Boxes, Clock, LoaderCircle, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
+import { Box, Boxes, Clock, History, LoaderCircle, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import BuildsCard from './BuildsCard.vue'
 import StatusDot from './StatusDot.vue'
@@ -45,6 +45,7 @@ const items = computed(() => {
     { title: 'Projects', to: '/', icon: Box, active: route.path === '/' || route.path === '/new' },
     { title: 'Ready-made', to: '/ready-made', icon: Boxes, active: route.path.startsWith('/ready-made') || route.name === 'new-catalog' },
     { title: 'Connect AI', to: '/connect', icon: Sparkles, active: route.path.startsWith('/connect') },
+    { title: 'Activity', to: '/activity', icon: History, active: route.path.startsWith('/activity') },
     { title: 'Settings', to: '/settings', icon: Settings, active: route.path.startsWith('/settings') },
   ]
   if (isAdmin.value) {
