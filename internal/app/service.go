@@ -137,8 +137,16 @@ func (s *Service) WaitDeployment(ctx context.Context, id string, d time.Duration
 	s.hub.wait(ctx, id, d)
 }
 
-// Audit writes one audit row. details must never contain secrets.
+// Audit writes one audit row. details must never contain secrets. The row
+// also notes the app, project and owner it is about (activity.go), so their
+// people see it on their Activity page.
 func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, targetID string, details map[string]any) {
+	s.auditAbout(ctx, a, s.auditScopeOf(ctx, a, targetType, targetID, details), action, targetType, targetID, details)
+}
+
+// auditAbout is Audit with the scope given, for a row about something that
+// is already gone (a deleted app or project).
+func (s *Service) auditAbout(ctx context.Context, a Actor, sc auditScope, action, targetType, targetID string, details map[string]any) {
 	d := "{}"
 	if len(details) > 0 {
 		if b, err := json.Marshal(details); err == nil {
@@ -155,6 +163,9 @@ func (s *Service) Audit(ctx context.Context, a Actor, action, targetType, target
 		TargetType: targetType,
 		TargetID:   targetID,
 		Details:    d,
+		AppID:      nullStr(sc.AppID),
+		ProjectID:  nullStr(sc.ProjectID),
+		OwnerID:    nullStr(sc.OwnerID),
 	})
 	if err != nil {
 		s.Log.Error("audit write failed", "action", action, "err", err)

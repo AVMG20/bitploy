@@ -239,4 +239,16 @@ func (a *API) accountRoutes() {
 		}
 		return &Empty{}, nil
 	})
+
+	reg(a, anyAuth, huma.Operation{
+		OperationID: "listActivity", Method: http.MethodGet, Path: "/activity", Tags: []string{"Account"},
+		Summary: "Activity on your apps, projects and account, newest first (list_activity)",
+		Description: "What happened to the apps and projects you own or share, and to your account: by you, the people you share a project with, an admin or bitploy itself. " +
+			"Other people show by name only when they share the project; IP addresses only on what you did yourself. Kept 90 days.",
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		PageParams
+		App string `query:"app" doc:"Only the activity of this app (slug or ID)."`
+	}) (*Out[app.Page[app.ActivityEntry]], error) {
+		return okOrNil(a.svc.ListActivity(ctx, act, in.App, pageLimit(in.Limit), in.Cursor))
+	})
 }

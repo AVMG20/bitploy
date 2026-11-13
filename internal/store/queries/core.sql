@@ -25,8 +25,8 @@ SELECT * FROM deployments WHERE id = ?;
 UPDATE apps SET status = ?, status_message = ?, updated_at = ? WHERE id = ?;
 
 -- name: InsertAudit :exec
-INSERT INTO audit_log (ts, user_id, channel, token_id, ip, action, target_type, target_id, details)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO audit_log (ts, user_id, channel, token_id, ip, action, target_type, target_id, details, app_id, project_id, owner_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountAllApps :one
 SELECT count(*) FROM apps;

@@ -255,8 +255,8 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const insertAudit = `-- name: InsertAudit :exec
-INSERT INTO audit_log (ts, user_id, channel, token_id, ip, action, target_type, target_id, details)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO audit_log (ts, user_id, channel, token_id, ip, action, target_type, target_id, details, app_id, project_id, owner_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuditParams struct {
@@ -269,6 +269,9 @@ type InsertAuditParams struct {
 	TargetType string
 	TargetID   string
 	Details    string
+	AppID      sql.NullString
+	ProjectID  sql.NullString
+	OwnerID    sql.NullString
 }
 
 func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error {
@@ -282,6 +285,9 @@ func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error 
 		arg.TargetType,
 		arg.TargetID,
 		arg.Details,
+		arg.AppID,
+		arg.ProjectID,
+		arg.OwnerID,
 	)
 	return err
 }

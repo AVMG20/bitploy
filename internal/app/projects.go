@@ -486,7 +486,7 @@ func (s *Service) DeleteProject(ctx context.Context, a Actor, ref, confirm strin
 	if len(apps) > 0 {
 		meta["apps"] = len(apps)
 	}
-	s.Audit(ctx, a, "project.delete", "project", p.ID, meta)
+	s.auditAbout(ctx, a, auditScope{ProjectID: p.ID, OwnerID: p.UserID}, "project.delete", "project", p.ID, meta)
 	return nil
 }
 

@@ -669,6 +669,52 @@ type AuditEntry struct {
 	Details    map[string]any `json:"details"`
 }
 
+// ActivityEntry is an audit row as a user sees it on their Activity page
+// (GET /activity): about their own apps, projects and account.
+type ActivityEntry struct {
+	ID int64     `json:"id"`
+	TS time.Time `json:"ts"`
+	// Actor is who did it: you, person (someone who shares the project; by
+	// name), admin (an admin, not named), other (someone else, not named) or
+	// system (bitploy itself). ActorName says it in words.
+	Actor     string `json:"actor" enum:"you,person,admin,other,system"`
+	ActorName string `json:"actor_name"`
+	Channel   string `json:"channel"`
+	// IP is set only on what the user did themselves.
+	IP         string           `json:"ip,omitempty"`
+	Action     string           `json:"action"`
+	TargetType string           `json:"target_type"`
+	TargetID   string           `json:"target_id"`
+	App        *ActivityApp     `json:"app,omitempty"`
+	Project    *ActivityProject `json:"project,omitempty"`
+	Details    map[string]any   `json:"details"`
+}
+
+// ActivityApp is the app an activity entry is about. Gone: deleted, or no
+// longer the user's to open; then only the slug it had is known.
+type ActivityApp struct {
+	ID        string `json:"id,omitempty"`
+	Slug      string `json:"slug,omitempty"`
+	Name      string `json:"name,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	Gone      bool   `json:"gone,omitempty"`
+}
+
+// ActivityProject is the project an activity entry is about.
+type ActivityProject struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	Gone bool   `json:"gone,omitempty"`
+}
+
+const (
+	actorYou    = "you"
+	actorPerson = "person"
+	actorAdmin  = "admin"
+	actorOther  = "other"
+	actorSystem = "system"
+)
+
 type AdminUser struct {
 	User
 	Quota    Quota `json:"quota"`

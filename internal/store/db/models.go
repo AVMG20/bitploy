@@ -163,6 +163,9 @@ type AuditLog struct {
 	TargetType string
 	TargetID   string
 	Details    string
+	AppID      sql.NullString
+	ProjectID  sql.NullString
+	OwnerID    sql.NullString
 }
 
 type Deployment struct {

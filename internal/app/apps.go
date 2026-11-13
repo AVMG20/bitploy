@@ -1028,7 +1028,7 @@ func (s *Service) deleteApp(ctx context.Context, a Actor, ref, confirmSlug strin
 	}
 	s.trafficMgr().Forget(row.ID)    // the stored stats went with the app row (foreign key cascade)
 	s.wireProject(bg, row.ProjectID) // one app left: the project network goes
-	s.Audit(ctx, a, "app.delete", "app", row.ID, map[string]any{"slug": row.Slug})
+	s.auditAbout(ctx, a, appScope(row), "app.delete", "app", row.ID, map[string]any{"slug": row.Slug})
 	s.metricsMgr().MeasureSoon()
 	return nil
 }
