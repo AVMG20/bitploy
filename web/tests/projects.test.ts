@@ -14,6 +14,8 @@ import {
   internalHostOf,
   isPublicApp,
   mainApp,
+  mayDestroy,
+  ownerOnlyTitle,
   parseReferences,
   pastedKind,
   placeId,
@@ -393,4 +395,11 @@ test('sortByIds follows the ids and puts the others first', () => {
   const items = [{ id: 'new' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
   assert.deepEqual(sortByIds(items, ['c', 'a', 'b']).map((p) => p.id), ['new', 'c', 'a', 'b'])
   assert.deepEqual(sortByIds(items, []).map((p) => p.id), ['new', 'a', 'b', 'c'])
+})
+
+test('mayDestroy leaves deleting and restoring in a shared project to its owner', () => {
+  assert.equal(mayDestroy({ shared: false }), true)
+  assert.equal(mayDestroy({}), true)
+  assert.equal(mayDestroy({ shared: true }), false)
+  assert.equal(ownerOnlyTitle('delete this app'), 'Only the project owner can delete this app.')
 })

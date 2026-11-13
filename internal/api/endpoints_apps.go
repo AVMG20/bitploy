@@ -130,7 +130,7 @@ func (a *API) appRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteApp", Method: http.MethodDelete, Path: "/apps/{app}", Tags: []string{"Apps"},
-		Summary: "Delete an app", Description: "Removes containers, images, routes and the volume. confirm_slug must equal the app's slug. 409 app_in_use while other apps of its project refer to its variables (${{<alias>.VAR}}); details.dependents lists them as [{slug, alias, vars}].",
+		Summary: "Delete an app", Description: "Removes containers, images, routes and the volume. confirm_slug must equal the app's slug. 409 app_in_use while other apps of its project refer to its variables (${{<alias>.VAR}}); details.dependents lists them as [{slug, alias, vars}]. In a project shared with you only its owner can do this (403 owner_only).",
 		DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef

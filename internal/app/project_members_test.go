@@ -245,7 +245,8 @@ func TestProjectMemberCanUseTheProject(t *testing.T) {
 		t.Errorf("alice sees bob's project: %v", err)
 	}
 
-	// The member deletes an app of the project (a deploy token could).
+	// Deleting apps is up to the owner, but the member may take back an app
+	// he made that never ran (project_owner_only_test.go has the rest).
 	if err := s.DeleteApp(ctx, m.bob, "shop-admin", "shop-admin"); err != nil {
 		t.Errorf("bob deletes the app he made: %v", err)
 	}

@@ -26,7 +26,7 @@ import { plainHint } from '@/lib/errors'
 import { toastError } from '@/lib/notify'
 import { deploymentStateInfo, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { isServerDb } from '@/lib/dbvalue'
-import { aliasOf, envReferences, internalHostOf, publicPortText, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
+import { aliasOf, envReferences, internalHostOf, mayDestroy, ownerOnlyTitle, publicPortText, roleTitle, talksTo, templateUpdate, usedBy } from '@/lib/projects'
 import CatalogUpdateDialog from '@/pages/app/CatalogUpdateDialog.vue'
 import PublicPort from '@/pages/app/PublicPort.vue'
 import UploadVersionButton from '@/pages/app/UploadVersionButton.vue'
@@ -328,7 +328,10 @@ watch(
         </nav>
 
         <div class="border-t pt-4">
-          <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10 hover:text-destructive" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
+          <Button v-if="mayDestroy(data)" variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10 hover:text-destructive" @click="deleteOpen = true"><Trash2 /> Delete app</Button>
+          <span v-else class="inline-block" :title="ownerOnlyTitle('delete this app')">
+            <Button variant="ghost" size="sm" disabled><Trash2 /> Delete app</Button>
+          </span>
         </div>
       </div>
     </div>

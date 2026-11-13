@@ -104,7 +104,7 @@ func (s *srv) registerProjectTools() {
 	svc := s.svc
 
 	addTool(s, "list_projects", "List projects",
-		"Lists the user's projects with their apps, and the projects other users shared with them (role member, owner says whose: their apps can be deployed and changed like the user's own, but only the owner renames or deletes the project). Every app is in one project. The apps of a project reach each other at their short name (alias, like postgres:5432) on a private network, and can use each other's variables as ${{<alias>.VAR}} in set_env, like DATABASE_URL=${{postgres.DATABASE_URL}}.",
+		"Lists the user's projects with their apps, and the projects other users shared with them (role member, owner says whose: their apps can be deployed and changed like the user's own, but only the owner renames or deletes the project and deletes its apps, files and backups). Every app is in one project. The apps of a project reach each other at their short name (alias, like postgres:5432) on a private network, and can use each other's variables as ${{<alias>.VAR}} in set_env, like DATABASE_URL=${{postgres.DATABASE_URL}}.",
 		readOnly(), false, nil,
 		func(ctx context.Context, a app.Actor, _ emptyIn) (*result, error) {
 			ps, err := svc.ListProjects(ctx, a)

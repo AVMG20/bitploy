@@ -43,6 +43,7 @@ import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole, sortServices } from '@/lib/services'
 import DeployCommands from './DeployCommands.vue'
 import { offersDeployCommands } from '@/lib/deployCommands'
+import { mayDestroy, ownerOnlyTitle } from '@/lib/projects'
 
 const props = defineProps<{ slug: string }>()
 const bar = provideSaveBar()
@@ -749,7 +750,10 @@ const deleteText = computed(() => {
           :title="`Delete ${app.data.value?.name ?? 'this app'}`"
           :description="deleteText"
         >
-          <Button variant="destructive" :disabled="!app.data.value" @click="deleteOpen = true"><Trash2 /> {{ app.data.value?.template ? 'Delete' : 'Delete app' }}</Button>
+          <Button v-if="mayDestroy(app.data.value)" variant="destructive" :disabled="!app.data.value" @click="deleteOpen = true"><Trash2 /> {{ app.data.value?.template ? 'Delete' : 'Delete app' }}</Button>
+          <span v-else class="inline-block" :title="ownerOnlyTitle(app.data.value?.template ? 'delete this service' : 'delete this app')">
+            <Button variant="destructive" disabled><Trash2 /> {{ app.data.value?.template ? 'Delete' : 'Delete app' }}</Button>
+          </span>
         </DangerRow>
       </DangerZone>
     </SettingsSection>

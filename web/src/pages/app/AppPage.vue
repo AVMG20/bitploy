@@ -38,7 +38,7 @@ import ServiceSheet from './ServiceSheet.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { useProject, useServiceTemplates } from '@/composables/queries'
 import { projectRoute } from '@/lib/appLinks'
-import { appRole, internalHostOf, projectIdOf, publicPortText, roleTitle, templateUpdate } from '@/lib/projects'
+import { appRole, internalHostOf, mayDestroy, ownerOnlyTitle, projectIdOf, publicPortText, roleTitle, templateUpdate } from '@/lib/projects'
 
 const props = defineProps<{ slug: string; projectId?: string }>()
 const route = useRoute()
@@ -229,7 +229,8 @@ const deleteOpen = ref(false)
               <DropdownMenuItem v-if="project" @click="router.push(projectRoute(project.id, { app: slug }))"><PanelRight /> Show on the canvas</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem @click="router.push({ name: 'app-settings', params: { slug } })"><Settings /> Settings</DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</DropdownMenuItem>
+              <DropdownMenuItem v-if="mayDestroy(data)" variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</DropdownMenuItem>
+              <DropdownMenuItem v-else disabled :title="ownerOnlyTitle('delete this app')"><Trash2 /> Delete app (owner only)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
       </PageHeader>

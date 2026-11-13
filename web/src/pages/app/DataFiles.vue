@@ -13,9 +13,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { keys } from '@/composables/queries'
+import { keys, useApp } from '@/composables/queries'
 import { ApiError, api } from '@/lib/api'
 import { isDbFileName } from '@/lib/dbvalue'
+import { mayDestroy, ownerOnlyTitle } from '@/lib/projects'
 import { formatBytes, formatDateTime } from '@/lib/format'
 import { toastError, toastOk } from '@/lib/notify'
 import type { DataFile } from '@/lib/types'
@@ -35,6 +36,9 @@ const props = defineProps<{
 const root = computed(() => props.mountPath || '/data')
 const vol = computed(() => props.volume || undefined)
 const qc = useQueryClient()
+// In a project shared with you, adding files is fine; deleting or replacing one is up to its owner.
+const app = useApp(() => props.slug)
+const owner = computed(() => mayDestroy(app.data.value))
 
 const path = ref('') // the open folder, relative to /data
 const crumbs = computed(() => {
@@ -126,6 +130,10 @@ async function uploadAll(chosen: File[]) {
         toastError(new Error(`There is a folder called ${file.name} here.`))
         continue
       }
+      if (existing && !owner.value) {
+        toastError(new Error(`There is a file called ${file.name} here already. ${ownerOnlyTitle('replace files')}`))
+        continue
+      }
       let overwrite = false
       if (existing) {
         if (!(await askOverwrite(file.name))) continue
@@ -138,7 +146,7 @@ async function uploadAll(chosen: File[]) {
           await api.uploadDataFile(props.slug, folder, file, overwrite, (f) => (progress.value = f), undefined, vol.value)
         } catch (e) {
           // The folder has more items than the list shows: the server knows.
-          if (!(e instanceof ApiError && e.code === 'file_exists' && !overwrite && (await askOverwrite(file.name)))) throw e
+          if (!(e instanceof ApiError && e.code === 'file_exists' && !overwrite && owner.value && (await askOverwrite(file.name)))) throw e
           await api.uploadDataFile(props.slug, folder, file, true, (f) => (progress.value = f), undefined, vol.value)
         }
         done++
@@ -355,8 +363,8 @@ const remove = useMutation({
                       size="icon-sm"
                       variant="ghost"
                       class="text-muted-foreground hover:text-destructive"
-                      :disabled="busy || loadingFolder"
-                      title="Delete"
+                      :disabled="busy || loadingFolder || !owner"
+                      :title="owner ? 'Delete' : ownerOnlyTitle('delete files')"
                       aria-label="Delete"
                       @click="toDelete = { ...f, path: child(f.name) }"
                     >

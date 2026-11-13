@@ -522,3 +522,17 @@ export function templateUpdate(app: Pick<App, 'template_version' | 'template_lat
 export function ownerName(p: Pick<Project, 'owner'>): string {
   return p.owner?.name || p.owner?.email || 'someone'
 }
+
+/**
+ * Whether you may do what cannot be undone to the app: delete it, delete or
+ * replace files in /data, delete or restore backups. In a project shared with
+ * you that is up to its owner (the server answers 403 owner_only).
+ */
+export function mayDestroy(app: Pick<App, 'shared'> | null | undefined): boolean {
+  return !app?.shared
+}
+
+/** The tooltip on a button only the owner of a shared project can use, like ownerOnlyTitle('delete this app'). */
+export function ownerOnlyTitle(what: string): string {
+  return `Only the project owner can ${what}.`
+}

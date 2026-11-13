@@ -47,7 +47,7 @@ func (a *API) backupRoutes() {
 	})
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteBackup", Method: http.MethodDelete, Path: "/apps/{app}/backups/{id}", Tags: []string{"Backups"},
-		Summary: "Delete a backup", DefaultStatus: http.StatusNoContent,
+		Summary: "Delete a backup", Description: "Cannot be undone. In a project shared with you only its owner can do this (403 owner_only).", DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, act app.Actor, in *backupRef) (*Empty, error) {
 		if err := a.svc.DeleteBackup(ctx, act, in.App, in.ID); err != nil {
 			return nil, err
@@ -59,7 +59,7 @@ func (a *API) backupRoutes() {
 		Summary: "Restore a backup into /data",
 		Description: "Makes a backup of the current data first, stops the app, replaces the files and starts the app again. " +
 			"A dump (format dump) is replayed into the running database instead: its databases are dropped and made again from the dump, with a dump of the current ones made first; the app is not stopped and must run (database_not_running). " +
-			"Returns at once; follow it in `restore` of the backup list.",
+			"Returns at once; follow it in `restore` of the backup list. In a project shared with you only its owner can do this (403 owner_only).",
 		DefaultStatus: http.StatusAccepted,
 	}, func(ctx context.Context, act app.Actor, in *backupRef) (*Out[app.BackupRestore], error) {
 		return okOrNil(a.svc.RestoreBackup(ctx, act, in.App, in.ID))

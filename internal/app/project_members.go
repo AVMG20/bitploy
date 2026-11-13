@@ -88,6 +88,31 @@ func projectOwnerOnly() *apperr.Error {
 		"The project was shared with you: you can deploy and change its apps, but renaming or deleting the project and managing its members is up to its owner (get_project shows who that is).").WithNext("get_project")
 }
 
+// requireAppOwner lets only the owner of the app's project (the app's
+// user_id) or the system through. A member of a shared project may deploy
+// and change its apps, but what cannot be undone stays with the owner:
+// deleting apps, files in /data and backups, replacing a file, restoring a
+// backup over the live data. what completes "Only the project owner (Ann)
+// can ... in this project.", like "delete apps". The caller has loaded the
+// app with LoadApp(write=true), so a caller who is not the owner is a member.
+func (s *Service) requireAppOwner(ctx context.Context, a Actor, row db.App, what string) error {
+	if a.Channel == ChannelSystem || (a.UserID != "" && a.UserID == row.UserID) {
+		return nil
+	}
+	return s.ownerOnlyErr(ctx, row, what)
+}
+
+func (s *Service) ownerOnlyErr(ctx context.Context, row db.App, what string) *apperr.Error {
+	owner := "the person who shared it with you"
+	if u, err := s.Q.GetUser(ctx, row.UserID); err == nil {
+		owner = u.Name
+	}
+	return apperr.Forbidden("owner_only",
+		"Only the project owner ("+owner+") can "+what+" in this project.",
+		"This project was shared with you: you can deploy and change its apps, but deleting apps, files and backups and restoring backups is up to its owner. Ask "+owner+" to do it.").
+		WithNext("get_app")
+}
+
 func projectOwnerSuspended() *apperr.Error {
 	return apperr.Forbidden("project_owner_suspended", "The owner of this project is suspended, so nothing can be added to it.",
 		"Ask a bitploy admin, or the project's owner.")

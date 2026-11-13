@@ -28,7 +28,7 @@ func (a *API) filesRoutes() {
 		Summary: "List a folder of /data",
 		Description: "`path` is relative to /data; leave it out for /data itself. Folders first, then by name, at most 1000 items (`truncated` says there are more). " +
 			"Needs /data turned on and created (the app has started once). A file is downloaded with GET /apps/{app}/files/download?path=... and uploaded as the raw body of " +
-			"POST /apps/{app}/files/upload?path=<folder>&name=<file>[&overwrite=true] (up to 100 MB).",
+			"POST /apps/{app}/files/upload?path=<folder>&name=<file>[&overwrite=true] (up to 100 MB). In a project shared with you only its owner can replace a file that is there already (403 owner_only); new files and folders are fine.",
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef
 		Path   string `query:"path" doc:"Folder, relative to /data (default: /data itself)"`
@@ -54,7 +54,7 @@ func (a *API) filesRoutes() {
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "deleteFile", Method: http.MethodDelete, Path: "/apps/{app}/files", Tags: []string{"Files"},
 		Summary:       "Delete a file or folder in /data",
-		Description:   "A folder goes with everything in it. A symbolic link is removed, not what it points to. /data itself cannot be deleted. This cannot be undone: make a backup first if unsure.",
+		Description:   "A folder goes with everything in it. A symbolic link is removed, not what it points to. /data itself cannot be deleted. This cannot be undone: make a backup first if unsure. In a project shared with you only its owner can do this (403 owner_only).",
 		DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, act app.Actor, in *struct {
 		AppRef

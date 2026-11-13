@@ -83,7 +83,7 @@ type updateAppIn struct {
 	DockerfilePath *string `json:"dockerfile_path,omitempty" jsonschema:"Path of the Dockerfile in the code, default Dockerfile. Example: docker/Dockerfile.prod."`
 	ContextDir     *string `json:"context_dir,omitempty" jsonschema:"Folder used as the build context, default . (the top folder of the code). Example: backend."`
 	Volume         *bool   `json:"volume,omitempty" jsonschema:"true turns on the /data volume, kept across deploys (call restart_app afterwards). false turns it off at once and deletes its files and backups (see delete_data). Not for static sites."`
-	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: confirms deleting the files in /data and all backups. Needed when there is anything to delete, else volume_has_data is returned. Ask the user first: this cannot be undone."`
+	DeleteData     *bool   `json:"delete_data,omitempty" jsonschema:"Only with volume=false: confirms deleting the files in /data and all backups. Needed when there is anything to delete, else volume_has_data is returned. Ask the user first: this cannot be undone. In a project shared with the user only its owner can (owner_only)."`
 	VolumeMB       *int64  `json:"volume_mb,omitempty" jsonschema:"Storage limit of /data in MB, like 10240 for 10 GB (default 5120, minimum 100), within the account's storage allowance (whoami). Applies at once, no restart. bitploy checks /data hourly and stops an app that is over its limit."`
 	MemoryMB       *int64  `json:"memory_mb,omitempty" jsonschema:"Memory limit in MB, like 1024 (default 512, minimum 64), within the account quota. A static site has a fixed size and refuses changes. Call restart_app afterwards."`
 	CPUMillis      *int64  `json:"cpu_millis,omitempty" jsonschema:"CPU limit in thousandths of a CPU: 500 is half a CPU (default), 1000 is one. Call restart_app afterwards."`
@@ -885,7 +885,7 @@ func (s *srv) registerTools() {
 		})
 
 	addTool(s, "delete_app", "Delete an app",
-		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): the message names those apps and variables. Tell the user, and only with their go-ahead change those variables with set_env or delete those apps, then call delete_app again.",
+		"Permanently deletes an app: containers, images, address and its /data volume. Cannot be undone. Needs confirm_slug equal to the app's slug. Ask the user first, and only delete an app they named. Refused with app_in_use while other apps in its project use its variables (like a database their DATABASE_URL points at): the message names those apps and variables. Tell the user, and only with their go-ahead change those variables with set_env or delete those apps, then call delete_app again. In a project shared with the user only its owner can delete apps (owner_only).",
 		destructive(), true, nil,
 		func(ctx context.Context, a app.Actor, in deleteAppIn) (*result, error) {
 			if strings.TrimSpace(in.ConfirmSlug) == "" {

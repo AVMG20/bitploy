@@ -67,4 +67,21 @@ func TestSharedProjectsInLists(t *testing.T) {
 	if res := call(t, ds, "get_app", map[string]any{"app": "private"}); !res.IsError {
 		t.Fatalf("ada sees bob's other app: %s", text(res))
 	}
+	// Deleting apps and backups is up to the owner; the error says who that is.
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"delete_app", map[string]any{"app": "shop", "confirm_slug": "shop"}},
+		{"delete_backup", map[string]any{"app": "shop", "id": "bak_x"}},
+	} {
+		res := call(t, ds, c.tool, c.args)
+		m := structured(t, res)
+		if !res.IsError || m["code"] != "owner_only" || m["next_tool"] != "get_app" || !strings.Contains(text(res), "Only the project owner (Bob)") {
+			t.Errorf("%s: %s", c.tool, text(res))
+		}
+	}
+	if res := call(t, ds, "get_app", map[string]any{"app": "shop"}); res.IsError {
+		t.Fatalf("shop is gone: %s", text(res))
+	}
 }

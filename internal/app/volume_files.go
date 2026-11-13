@@ -347,6 +347,13 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 	if err != nil {
 		return FileEntry{}, err
 	}
+	// A member of a shared project may add files but not replace one: their
+	// overwrite becomes a plain upload, and a file that is there already is
+	// refused with owner_only (a new file with overwrite=true is fine).
+	memberOverwrite := false
+	if overwrite && s.requireAppOwner(ctx, a, row, "replace files") != nil {
+		overwrite, memberOverwrite = false, true
+	}
 	if ok, err := s.DiskHasRoom(); err == nil && !ok {
 		return FileEntry{}, apperr.Unavailable("server_disk_full", "The server is almost out of disk space, so nothing can be uploaded.",
 			"Tell the bitploy admin that the server disk is full. Your apps are not affected.")
@@ -393,7 +400,11 @@ func (s *Service) UploadFile(ctx context.Context, a Actor, ref, dir, name string
 	}
 
 	err = s.withFilesLock(row, func() error {
-		return filesErr(fs.PutFile(ctx, vol.VolumeName, rel, name, size, tmp, overwrite))
+		perr := fs.PutFile(ctx, vol.VolumeName, rel, name, size, tmp, overwrite)
+		if memberOverwrite && errors.Is(perr, dockerx.ErrExists) {
+			return s.ownerOnlyErr(ctx, row, "replace files")
+		}
+		return filesErr(perr)
 	})
 	if err != nil {
 		return FileEntry{}, err
@@ -441,6 +452,9 @@ func (s *Service) DeleteFile(ctx context.Context, a Actor, ref, target string, v
 	}
 	row, _, fs, vol, err := s.filesTarget(ctx, a, ref, true, firstOpt(volume))
 	if err != nil {
+		return err
+	}
+	if err := s.requireAppOwner(ctx, a, row, "delete files"); err != nil {
 		return err
 	}
 	dir, name := path.Split(rel)

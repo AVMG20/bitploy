@@ -126,7 +126,7 @@ const removeText = computed(() => {
     <SettingsSection
       v-if="isOwner"
       title="Invite someone"
-      description="Members can deploy the project's apps and change their settings, variables and data. Only you can invite and remove people, and delete the project."
+      description="Members can deploy the project's apps and change their settings, variables and data. Only you can invite and remove people, delete apps, files and backups, restore backups, and delete the project."
     >
       <Card>
         <CardHeader>

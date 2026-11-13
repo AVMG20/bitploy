@@ -114,7 +114,7 @@ func (s *srv) registerStorageTools() {
 		})
 
 	addTool(s, "delete_backup", "Delete a backup",
-		"Permanently deletes one backup of an app's /data (or one database dump) and frees its space in the storage allowance. Cannot be undone. Only with the user's go-ahead, for a backup they agreed to; find ids and sizes with get_storage or list_backups. Refused with backup_busy while a backup or restore of the app runs.",
+		"Permanently deletes one backup of an app's /data (or one database dump) and frees its space in the storage allowance. Cannot be undone. Only with the user's go-ahead, for a backup they agreed to; find ids and sizes with get_storage or list_backups. Refused with backup_busy while a backup or restore of the app runs, and with owner_only in a project shared with the user (only its owner deletes backups).",
 		destructive(), true, nil,
 		func(ctx context.Context, a app.Actor, in deleteBackupIn) (*result, error) {
 			size := ""

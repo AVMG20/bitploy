@@ -33,6 +33,7 @@ import type { Backup, BackupKind, BackupSchedule } from '@/lib/types'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { isMulti, serviceRole } from '@/lib/services'
 import { isServerDb } from '@/lib/dbvalue'
+import { mayDestroy, ownerOnlyTitle } from '@/lib/projects'
 
 const props = defineProps<{ slug: string }>()
 const qc = useQueryClient()
@@ -172,6 +173,9 @@ const backupCount = computed(() => list.value?.items.length ?? 0)
 function onSwitch(on: boolean) {
   if (on) {
     turnOn.mutate()
+  } else if (!mayDestroy(data.value)) {
+    // A member may turn off an empty /data; the server answers owner_only when there is something to delete.
+    turnOff.mutate(false)
   } else if (backupCount.value > 0 || (data.value?.volume_used_mb ?? 0) > 0) {
     confirmOffOpen.value = true
   } else {
@@ -421,7 +425,10 @@ const restoringDump = computed(() => {
   const id = list.value?.restore?.backup_id
   return !!id && list.value?.items.find((b) => b.id === id)?.format === 'dump'
 })
+// In a project shared with you, making and downloading backups is fine; restoring and deleting them is up to its owner.
+const owner = computed(() => mayDestroy(data.value))
 function restoreTitle(b: Backup) {
+  if (!owner.value) return ownerOnlyTitle('restore backups')
   if (!hasData.value) return 'Turn on saved files to restore'
   if (b.format === 'dump' && !dbRunning.value) return 'Start the database to restore a dump'
   return undefined
@@ -708,8 +715,8 @@ const restoreText = computed(() => {
                 size="icon-sm"
                 variant="ghost"
                 class="text-muted-foreground hover:text-destructive"
-                :disabled="working"
-                title="Delete"
+                :disabled="working || !owner"
+                :title="owner ? 'Delete' : ownerOnlyTitle('delete backups')"
                 :aria-label="`Delete the backup from ${formatDateTime(b.created_at)}`"
                 @click="toDelete = b"
               >

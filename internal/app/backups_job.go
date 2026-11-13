@@ -230,6 +230,10 @@ func (s *Service) RestoreBackup(ctx context.Context, a Actor, ref, id string) (B
 	if err != nil {
 		return BackupRestore{}, err
 	}
+	// A restore replaces the live data: the owner's call, like deleting it.
+	if err := s.requireAppOwner(ctx, a, row, "restore backups"); err != nil {
+		return BackupRestore{}, err
+	}
 	b, err := s.Q.GetBackup(ctx, db.GetBackupParams{ID: id, AppID: row.ID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return BackupRestore{}, backupNotFound()
@@ -710,6 +714,9 @@ func (s *Service) restoreSafeIsDump(ctx context.Context, app db.App) bool {
 func (s *Service) DeleteBackup(ctx context.Context, a Actor, ref, id string) error {
 	row, _, err := s.backupApp(ctx, a, ref, true)
 	if err != nil {
+		return err
+	}
+	if err := s.requireAppOwner(ctx, a, row, "delete backups"); err != nil {
 		return err
 	}
 	lock := s.backupLock(row.ID)

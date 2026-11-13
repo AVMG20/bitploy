@@ -619,7 +619,14 @@ func (s *Service) UpdateApp(ctx context.Context, a Actor, ref string, in UpdateA
 			return App{}, backupBusyErr()
 		}
 		defer bl.Unlock()
-		if err := s.checkVolumeOff(ctx, row, in.DeleteData != nil && *in.DeleteData); err != nil {
+		deleteData := in.DeleteData != nil && *in.DeleteData
+		// A member of a shared project may turn off an empty /data, but
+		// deleting what is in it (files and backups) is up to the owner.
+		member := s.requireAppOwner(ctx, a, row, "delete files and backups") != nil
+		if err := s.checkVolumeOff(ctx, row, deleteData && !member); err != nil {
+			if member && apperr.As(err).Code == "volume_has_data" {
+				return App{}, s.ownerOnlyErr(ctx, row, "delete files and backups")
+			}
 			return App{}, err
 		}
 	}
@@ -898,9 +905,25 @@ func (s *Service) renameApp(ctx context.Context, row db.App, p db.UpdateAppSetti
 // DeleteApp requires confirmSlug == the app's slug.
 // DeleteApp deletes an app with its containers, images, volumes and
 // backups. It is refused with 409 app_in_use while other apps of its project
-// refer to its variables (${{<alias>.VAR}}): they would fail to start.
+// refer to its variables (${{<alias>.VAR}}): they would fail to start. Only
+// the project's owner deletes apps (also database services); a member of a
+// shared project gets 403 owner_only, except for an app they made that never
+// ran: taking back what they just made (the dashboard does when the first
+// deploy of a new app cannot start) loses nothing.
 func (s *Service) DeleteApp(ctx context.Context, a Actor, ref, confirmSlug string) error {
-	return s.deleteApp(ctx, a, ref, confirmSlug, true)
+	row, err := s.LoadApp(ctx, a, ref, true)
+	if err != nil {
+		return err
+	}
+	if err := s.requireAppOwner(ctx, a, row, "delete apps"); err != nil && !neverRanOwnApp(a, row) {
+		return err
+	}
+	return s.deleteApp(ctx, a, row.ID, confirmSlug, true)
+}
+
+// neverRanOwnApp: the actor made the app and no version of it ever went live.
+func neverRanOwnApp(a Actor, row db.App) bool {
+	return a.UserID != "" && row.CreatedBy == a.UserID && !row.CurrentDeploymentID.Valid
 }
 
 // deleteApp is DeleteApp; checkUse false skips the app_in_use check, for
