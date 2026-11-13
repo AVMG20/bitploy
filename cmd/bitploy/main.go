@@ -5,6 +5,7 @@
 //	bitploy migrate
 //	bitploy admin create-user --email you@x.nl [--name You] [--admin]
 //	bitploy admin invite [--email someone@x.nl] [--admin]
+//	bitploy admin reset-link --email you@x.nl
 package main
 
 import (
@@ -80,7 +81,8 @@ func usage() {
   bitploy serve
   bitploy migrate
   bitploy admin create-user --email you@x.nl [--name You] [--admin]
-  bitploy admin invite [--email someone@x.nl] [--admin]`)
+  bitploy admin invite [--email someone@x.nl] [--admin]
+  bitploy admin reset-link --email you@x.nl`)
 }
 
 func open(ctx context.Context) (*config.Config, *store.Store, error) {
@@ -277,6 +279,28 @@ func admin(log *slog.Logger, args []string) error {
 			return describe(err)
 		}
 		fmt.Printf("Invite link (valid until %s):\n%s\n", inv.ExpiresAt.Format(time.RFC3339), inv.URL)
+		return nil
+	case "reset-link":
+		// For when nobody can log in to Admin > People, like the only admin
+		// who forgot their password.
+		fs := flag.NewFlagSet("reset-link", flag.ExitOnError)
+		email := fs.String("email", "", "email address of the account")
+		_ = fs.Parse(args[1:])
+		if *email == "" {
+			return errors.New("--email is required")
+		}
+		svc, err := newService(ctx, log, false)
+		if err != nil {
+			return err
+		}
+		a := app.System
+		a.Scope = app.ScopeSession
+		r, err := svc.PasswordResetForEmail(ctx, a, *email)
+		if err != nil {
+			return describe(err)
+		}
+		fmt.Printf("Password reset link for %s (%s), works once, until %s:\n%s\n",
+			r.User.Name, r.User.Email, r.ExpiresAt.Format(time.RFC3339), r.URL)
 		return nil
 	}
 	usage()

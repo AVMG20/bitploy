@@ -86,6 +86,20 @@ func (q *Queries) DeleteOldInvites(ctx context.Context, arg DeleteOldInvitesPara
 	return err
 }
 
+const deleteOldPasswordResets = `-- name: DeleteOldPasswordResets :exec
+DELETE FROM password_resets WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)
+`
+
+type DeleteOldPasswordResetsParams struct {
+	ExpiresAt int64
+	UsedAt    sql.NullInt64
+}
+
+func (q *Queries) DeleteOldPasswordResets(ctx context.Context, arg DeleteOldPasswordResetsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOldPasswordResets, arg.ExpiresAt, arg.UsedAt)
+	return err
+}
+
 const deleteOtherSessionsOfUser = `-- name: DeleteOtherSessionsOfUser :exec
 DELETE FROM sessions WHERE user_id = ? AND id_hash != ?
 `
@@ -147,6 +161,15 @@ func (q *Queries) DeleteUnusedInvite(ctx context.Context, id string) (int64, err
 	return result.RowsAffected()
 }
 
+const deleteUnusedPasswordResetsOfUser = `-- name: DeleteUnusedPasswordResetsOfUser :exec
+DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL
+`
+
+func (q *Queries) DeleteUnusedPasswordResetsOfUser(ctx context.Context, userID string) error {
+	_, err := q.db.ExecContext(ctx, deleteUnusedPasswordResetsOfUser, userID)
+	return err
+}
+
 const getInviteByHash = `-- name: GetInviteByHash :one
 SELECT id, code_hash, email, role, created_by, expires_at, used_at, used_by, created_at FROM invites WHERE code_hash = ?
 `
@@ -184,6 +207,25 @@ func (q *Queries) GetInviteByID(ctx context.Context, id string) (Invite, error) 
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.UsedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getPasswordResetByHash = `-- name: GetPasswordResetByHash :one
+SELECT id, user_id, code_hash, created_by, expires_at, used_at, created_at FROM password_resets WHERE code_hash = ?
+`
+
+func (q *Queries) GetPasswordResetByHash(ctx context.Context, codeHash string) (PasswordReset, error) {
+	row := q.db.QueryRowContext(ctx, getPasswordResetByHash, codeHash)
+	var i PasswordReset
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CodeHash,
+		&i.CreatedBy,
+		&i.ExpiresAt,
+		&i.UsedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -284,6 +326,34 @@ func (q *Queries) InsertInvite(ctx context.Context, arg InsertInviteParams) erro
 		arg.CodeHash,
 		arg.Email,
 		arg.Role,
+		arg.CreatedBy,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const insertPasswordReset = `-- name: InsertPasswordReset :exec
+
+INSERT INTO password_resets (id, user_id, code_hash, created_by, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertPasswordResetParams struct {
+	ID        string
+	UserID    string
+	CodeHash  string
+	CreatedBy sql.NullString
+	ExpiresAt int64
+	CreatedAt int64
+}
+
+// password reset links
+func (q *Queries) InsertPasswordReset(ctx context.Context, arg InsertPasswordResetParams) error {
+	_, err := q.db.ExecContext(ctx, insertPasswordReset,
+		arg.ID,
+		arg.UserID,
+		arg.CodeHash,
 		arg.CreatedBy,
 		arg.ExpiresAt,
 		arg.CreatedAt,
@@ -667,6 +737,24 @@ type MarkInviteUsedParams struct {
 
 func (q *Queries) MarkInviteUsed(ctx context.Context, arg MarkInviteUsedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markInviteUsed, arg.UsedAt, arg.UsedBy, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markPasswordResetUsed = `-- name: MarkPasswordResetUsed :execrows
+UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?
+`
+
+type MarkPasswordResetUsedParams struct {
+	UsedAt    sql.NullInt64
+	ID        string
+	ExpiresAt int64
+}
+
+func (q *Queries) MarkPasswordResetUsed(ctx context.Context, arg MarkPasswordResetUsedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markPasswordResetUsed, arg.UsedAt, arg.ID, arg.ExpiresAt)
 	if err != nil {
 		return 0, err
 	}

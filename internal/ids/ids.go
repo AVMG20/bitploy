@@ -17,6 +17,8 @@ const (
 	Deployment = "dep"
 	Token      = "tok"
 	Invite     = "inv"
+	// PasswordReset is a one-time password reset link (password_resets).
+	PasswordReset = "prs"
 	// ProjectInvite is an invite to someone else's project (project_invites).
 	ProjectInvite = "pin"
 	Upload        = "upl"

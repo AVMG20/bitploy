@@ -55,6 +55,8 @@ import type {
   TrafficWindow,
   Page,
   Project,
+  PasswordReset,
+  PasswordResetInfo,
   ProjectInvite,
   ProjectInviteInfo,
   ProjectMember,
@@ -91,6 +93,8 @@ export const paths = {
   logout: `${V1}/auth/logout`,
   session: `${V1}/session`,
   acceptInvite: (code: string) => `${V1}/invites/${enc(code)}/accept`,
+  passwordReset: (code: string) => `${V1}/password-resets/${enc(code)}`,
+  usePasswordReset: (code: string) => `${V1}/password-resets/${enc(code)}/use`,
   signupRules: `${V1}/signup-rules`,
   me: `${V1}/me`,
   meProfile: `${V1}/me`, // PATCH
@@ -180,6 +184,7 @@ export const paths = {
   adminUsers: `${V1}/admin/users`,
   adminUser: (id: string) => `${V1}/admin/users/${enc(id)}`,
   adminInvites: `${V1}/admin/invites`,
+  adminPasswordReset: (id: string) => `${V1}/admin/users/${enc(id)}/password-reset`,
   adminInvite: (id: string) => `${V1}/admin/invites/${enc(id)}`,
   adminProjectInvites: `${V1}/admin/project-invites`,
   adminProjectInvite: (id: string) => `${V1}/admin/project-invites/${enc(id)}`,
@@ -424,6 +429,14 @@ export const api = {
   signupRules: () => request<SignupRules>('GET', paths.signupRules, { noRedirect: true }),
   acceptInvite(code: string, input: { name: string; email: string; password: string }): Promise<unknown> {
     return request('POST', paths.acceptInvite(code), { body: input, noRedirect: true })
+  },
+  /** Whose account a password reset link is for; works without a login. */
+  passwordResetInfo: (code: string) => request<PasswordResetInfo>('GET', paths.passwordReset(code), { noRedirect: true }),
+  /** Sets the new password, signs out every other session and logs in. */
+  async usePasswordReset(code: string, password: string): Promise<SessionInfo> {
+    const s = await request<SessionInfo>('POST', paths.usePasswordReset(code), { body: { password }, noRedirect: true })
+    setCsrfToken(s.csrf_token)
+    return s
   },
 
   // account
@@ -678,6 +691,8 @@ export const api = {
     return listAll<Invite>(paths.adminInvites)
   },
   createInvite: (input: { email?: string; role?: string }) => request<Invite>('POST', paths.adminInvites, { body: input }),
+  /** A one-time link (24 hours) for the user to pick a new password; older unused links stop working. */
+  createPasswordReset: (userId: string) => request<PasswordReset>('POST', paths.adminPasswordReset(userId)),
   revokeInvite: (id: string) => request<void>('DELETE', paths.adminInvite(id)),
   /** The open project invites of every user. */
   async adminProjectInvites(): Promise<AdminProjectInvite[]> {

@@ -524,7 +524,8 @@ func (s *Service) insertUserHashed(ctx context.Context, q *db.Queries, p acctNew
 
 // ---- background upkeep ----
 
-// RunAccountsMaintenance prunes expired sessions, invites, idempotency keys
+// RunAccountsMaintenance prunes expired sessions, invites, password reset
+// links, idempotency keys
 // and audit rows older than 90 days. It returns when ctx ends.
 func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 	run := func() {
@@ -535,6 +536,7 @@ func (s *Service) RunAccountsMaintenance(ctx context.Context) {
 			s.Q.DeleteExpiredSessions(ctx, db.DeleteExpiredSessionsParams{ExpiresAt: now, AbsoluteExpiresAt: now}),
 			s.Q.DeleteOldInvites(ctx, db.DeleteOldInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)}),
 			s.Q.DeleteOldProjectInvites(ctx, db.DeleteOldProjectInvitesParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)}),
+			s.Q.DeleteOldPasswordResets(ctx, db.DeleteOldPasswordResetsParams{ExpiresAt: now - 30*86400, UsedAt: nullInt(now-30*86400, true)}),
 			s.Q.DeleteOldIdempotencyKeys(ctx, now-86400),
 			s.Q.DeleteOldAudit(ctx, now-90*86400),
 			s.Q.PruneGitHubDeliveries(ctx, now-7*86400),

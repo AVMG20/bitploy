@@ -5,6 +5,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import CopyButton from '@/components/CopyButton.vue'
 import QueryError from '@/components/QueryError.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,7 @@ import { formatMB } from '@/lib/format'
 import { gbToMB, mbToGB } from '@/lib/quota'
 import { toastError, toastOk } from '@/lib/notify'
 import { joinedText } from '@/lib/signups'
-import type { AdminUser } from '@/lib/types'
+import type { AdminUser, PasswordReset } from '@/lib/types'
 import UserDomainsSelect from './UserDomainsSelect.vue'
 
 // The server does not let an admin suspend their own account, so that row has no Suspend.
@@ -135,6 +136,28 @@ const setStatus = useMutation({
   },
   onError: (e) => toastError(e),
 })
+
+// A one-time link to pick a new password. There is no email: the admin sends
+// it. A new link makes the older unused ones of that person stop working.
+const resetting = ref<AdminUser | null>(null)
+const resetLink = ref<PasswordReset | null>(null)
+const resetOpen = computed({
+  get: () => resetting.value !== null || resetLink.value !== null,
+  set: (v) => {
+    if (!v) {
+      resetting.value = null
+      resetLink.value = null
+    }
+  },
+})
+const createReset = useMutation({
+  mutationFn: (u: AdminUser) => api.createPasswordReset(u.id),
+  onSuccess: (r) => {
+    resetting.value = null
+    resetLink.value = r
+  },
+  onError: (e) => toastError(e),
+})
 </script>
 
 <template>
@@ -182,6 +205,7 @@ const setStatus = useMutation({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem @select="edit(u)">Limits</DropdownMenuItem>
+                    <DropdownMenuItem @select="resetting = u">Reset password</DropdownMenuItem>
                     <DropdownMenuItem v-if="u.id !== self?.id" :variant="u.status === 'suspended' ? 'default' : 'destructive'" @select="toggling = u">
                       {{ u.status === 'suspended' ? 'Reactivate' : 'Suspend' }}
                     </DropdownMenuItem>
@@ -225,6 +249,38 @@ const setStatus = useMutation({
           <Button variant="outline" @click="editing = null">Cancel</Button>
           <Button type="submit" form="quota-form" :disabled="saveQuota.isPending.value">{{ saveQuota.isPending.value ? 'Saving...' : 'Save limits' }}</Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="resetOpen">
+      <DialogContent>
+        <template v-if="resetLink">
+          <DialogHeader>
+            <DialogTitle>Reset link for {{ resetLink.user.name }}</DialogTitle>
+            <DialogDescription>Send this link to {{ resetLink.user.name }} yourself; it works once and expires in 24 hours.</DialogDescription>
+          </DialogHeader>
+          <div class="flex items-center gap-1 rounded-lg border bg-muted/40 p-3">
+            <code class="min-w-0 flex-1 font-mono text-xs break-all">{{ resetLink.url }}</code>
+            <CopyButton :value="resetLink.url" what="Reset link copied" label="Copy" variant="secondary" />
+          </div>
+          <p class="text-xs text-muted-foreground">It is shown only now. Using it signs {{ resetLink.user.name }} out everywhere; their API tokens keep working.</p>
+          <DialogFooter>
+            <Button @click="resetOpen = false">Done</Button>
+          </DialogFooter>
+        </template>
+        <template v-else>
+          <DialogHeader>
+            <DialogTitle>Reset the password of {{ resetting?.name }}?</DialogTitle>
+            <DialogDescription>
+              This makes a link where {{ resetting?.name }} ({{ resetting?.email }}) picks a new password. Their current password keeps working until the link is used. A link you made for them before stops working.
+            </DialogDescription>
+          </DialogHeader>
+          <p v-if="resetting?.status === 'suspended'" class="text-sm text-muted-foreground">This person is suspended: the link only works once you reactivate them.</p>
+          <DialogFooter>
+            <Button variant="outline" @click="resetOpen = false">Cancel</Button>
+            <Button :disabled="createReset.isPending.value" @click="resetting && createReset.mutate(resetting)">{{ createReset.isPending.value ? 'Making link...' : 'Make reset link' }}</Button>
+          </DialogFooter>
+        </template>
       </DialogContent>
     </Dialog>
 

@@ -122,3 +122,21 @@ DELETE FROM audit_log WHERE ts < ?;
 
 -- name: UpdateUserEmail :exec
 UPDATE users SET email = ?, updated_at = ? WHERE id = ?;
+
+-- password reset links
+
+-- name: InsertPasswordReset :exec
+INSERT INTO password_resets (id, user_id, code_hash, created_by, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: DeleteUnusedPasswordResetsOfUser :exec
+DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL;
+
+-- name: GetPasswordResetByHash :one
+SELECT * FROM password_resets WHERE code_hash = ?;
+
+-- name: MarkPasswordResetUsed :execrows
+UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?;
+
+-- name: DeleteOldPasswordResets :exec
+DELETE FROM password_resets WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?);

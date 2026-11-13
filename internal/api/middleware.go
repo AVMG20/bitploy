@@ -137,9 +137,19 @@ func logRequests(log *slog.Logger, cfg *config.Config, next http.Handler) http.H
 }
 
 // logPath hides the upload ID: for POST /u/{id} the ID is the credential.
+// The code of a password reset link is one too (it sets the password).
 func logPath(p string) string {
 	if strings.HasPrefix(p, "/u/") {
 		return "/u/[id]"
+	}
+	if strings.HasPrefix(p, "/reset/") {
+		return "/reset/[code]"
+	}
+	if rest, ok := strings.CutPrefix(p, prefix+"/password-resets/"); ok {
+		if strings.HasSuffix(rest, "/use") {
+			return prefix + "/password-resets/[code]/use"
+		}
+		return prefix + "/password-resets/[code]"
 	}
 	return p
 }

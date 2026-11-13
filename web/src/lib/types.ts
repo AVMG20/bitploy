@@ -577,6 +577,22 @@ export interface ProjectInvite {
   url?: string
 }
 
+/** A one-time password reset link an admin made (POST /admin/users/{id}/password-reset). */
+export interface PasswordReset {
+  id: string
+  user: UserBrief
+  expires_at: string
+  /** https://<bitploy>/reset/<code>; shown only once. */
+  url: string
+}
+
+/** Whose account a reset link is for (GET /password-resets/{code}), shown before the new password is set. */
+export interface PasswordResetInfo {
+  name: string
+  email: string
+  expires_at: string
+}
+
 /** What an invite link is for (GET /project-invites/{code}), shown before it is accepted. */
 export interface ProjectInviteInfo {
   project_name: string

@@ -55,6 +55,17 @@ func (a *API) adminRoutes() {
 		return nil, apperr.NotFound("user_not_found", "There is no user with that ID.", "List users with GET /api/v1/admin/users.")
 	})
 	reg(a, sessionOnly, huma.Operation{
+		OperationID: "adminCreatePasswordReset", Method: http.MethodPost, Path: "/admin/users/{id}/password-reset", Tags: []string{"Admin"},
+		Summary: "Make a password reset link for a user",
+		Description: "Admin only (also for your own account). The link works once and for 24 hours; the url is returned once and is not sent anywhere: give it to the person yourself. " +
+			"A new link makes older unused links of the user stop working. Using it signs out every session of the user; their API tokens keep working. 404 user_not_found.",
+		DefaultStatus: http.StatusCreated,
+	}, func(ctx context.Context, act app.Actor, in *struct {
+		ID string `path:"id"`
+	}) (*Out[app.PasswordReset], error) {
+		return okOrNil(a.svc.CreatePasswordReset(ctx, act, in.ID))
+	})
+	reg(a, sessionOnly, huma.Operation{
 		OperationID: "adminSetQuota", Method: http.MethodPut, Path: "/admin/quotas/{user_id}", Tags: []string{"Admin"},
 		Summary: "Set a user's quota", Description: "Admin only. Replaces all quota values; overallocate left out stays as it is.",
 	}, func(ctx context.Context, act app.Actor, in *struct {

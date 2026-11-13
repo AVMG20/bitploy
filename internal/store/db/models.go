@@ -380,6 +380,16 @@ type NotificationChannel struct {
 	UpdatedAt     int64
 }
 
+type PasswordReset struct {
+	ID        string
+	UserID    string
+	CodeHash  string
+	CreatedBy sql.NullString
+	ExpiresAt int64
+	UsedAt    sql.NullInt64
+	CreatedAt int64
+}
+
 type Project struct {
 	ID        string
 	UserID    string

@@ -77,6 +77,7 @@ const submit = handleSubmit(async (values) => {
       <Button type="submit" :disabled="busy" class="w-full">{{ busy ? 'Logging in...' : 'Log in' }}</Button>
       <p v-if="rules.data.value?.open_signup" class="text-center text-xs text-muted-foreground">No account yet? <RouterLink to="/invite/open" class="text-foreground underline underline-offset-4">Make one</RouterLink>.</p>
       <p v-else class="text-center text-xs text-muted-foreground">No account yet? Ask an admin for an invite link.</p>
+      <p class="text-center text-xs text-muted-foreground">Forgot your password? Ask an admin of this server for a reset link.</p>
     </form>
   </AuthShell>
 </template>

@@ -120,6 +120,23 @@ type Invite struct {
 	URL string `json:"url,omitempty"`
 }
 
+// PasswordReset is a one-time link that lets a user pick a new password,
+// made by an admin. URL holds the code and is only returned on creation.
+type PasswordReset struct {
+	ID        string    `json:"id"`
+	User      UserBrief `json:"user" doc:"Whose password the link resets"`
+	ExpiresAt time.Time `json:"expires_at"`
+	URL       string    `json:"url" doc:"https://<bitploy>/reset/<code>; shown once"`
+}
+
+// PasswordResetInfo is what a reset link is for (GET /password-resets/{code}),
+// so the person can see whose account it is before they pick a password.
+type PasswordResetInfo struct {
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 // GitSource is what you send to link a repository to an app.
 type GitSource struct {
 	RepoURL    string `json:"repo_url"`

@@ -27,6 +27,14 @@ type acceptRequest struct {
 	Password string `json:"password" doc:"At least 10 characters"`
 }
 
+type resetCode struct {
+	Code string `path:"code" doc:"The code from the reset link (https://<bitploy>/reset/<code>)"`
+}
+
+type resetRequest struct {
+	Password string `json:"password" doc:"The new password, at least 10 characters"`
+}
+
 type profileRequest struct {
 	Name  string `json:"name,omitempty" doc:"Display name, 1 to 80 characters"`
 	Email string `json:"email,omitempty" doc:"New login email address; needs current_password"`
@@ -93,6 +101,31 @@ func (a *API) accountRoutes() {
 		cookie, info, err := a.svc.AcceptInvite(ctx, in.Code, app.AcceptInviteInput{
 			Name: in.Body.Name, Email: in.Body.Email, Password: in.Body.Password,
 		}, m.IP, m.UserAgent)
+		if err != nil {
+			return nil, err
+		}
+		return &sessionOut{SetCookie: auth.NewSessionCookie(a.cfg, cookie).String(), Body: info}, nil
+	})
+
+	reg(a, public, huma.Operation{
+		OperationID: "getPasswordReset", Method: http.MethodGet, Path: "/password-resets/{code}", Tags: []string{"Auth"},
+		Summary:     "Whose account a password reset link is for",
+		Description: "The name and email of the account, so the person can check it is theirs. No login needed: the code is the credential. 404 or 410 reset_link_invalid (wrong, used or expired), 403 account_suspended. Wrong codes count towards 5 per hour per IP (429).",
+	}, func(ctx context.Context, _ app.Actor, in *resetCode) (*Out[app.PasswordResetInfo], error) {
+		return okOrNil(a.svc.GetPasswordReset(ctx, in.Code, metaFrom(ctx).IP))
+	})
+
+	reg(a, public, huma.Operation{
+		OperationID: "usePasswordReset", Method: http.MethodPost, Path: "/password-resets/{code}/use", Tags: []string{"Auth"},
+		Summary: "Set a new password with a reset link",
+		Description: "Sets the password (at least 10 characters), uses up the link, signs out every session of the account (API tokens keep working) and logs in. " +
+			"404 or 410 reset_link_invalid, 403 account_suspended (the link does not reactivate an account). At most 5 attempts per hour per IP.",
+	}, func(ctx context.Context, _ app.Actor, in *struct {
+		Code string `path:"code" doc:"The code from the reset link (https://<bitploy>/reset/<code>)"`
+		Body resetRequest
+	}) (*sessionOut, error) {
+		m := metaFrom(ctx)
+		cookie, info, err := a.svc.UsePasswordReset(ctx, in.Code, in.Body.Password, m.IP, m.UserAgent)
 		if err != nil {
 			return nil, err
 		}

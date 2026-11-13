@@ -55,6 +55,13 @@ export const router = createRouter({
       meta: { public: true, title: 'Join bitploy' },
     },
     {
+      // A one-time password reset link an admin made (Admin > People).
+      path: '/reset/:code',
+      name: 'reset-password',
+      component: () => import('./pages/ResetPasswordPage.vue'),
+      meta: { public: true, title: 'New password' },
+    },
+    {
       // An invite to someone's project: join it when logged in, else log in or sign up first.
       path: '/join/:code',
       name: 'join',
