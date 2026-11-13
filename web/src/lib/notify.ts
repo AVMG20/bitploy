@@ -74,3 +74,8 @@ export async function copyText(text: string, what = 'Copied'): Promise<boolean> 
     return ok
   }
 }
+
+/** A warning: it partly worked (the description says what did not). */
+export function toastWarn(message: string, description?: string) {
+  toast.warning(message, { description })
+}

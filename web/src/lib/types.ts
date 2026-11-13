@@ -525,6 +525,16 @@ export interface ProjectRef {
   name: string
 }
 
+/** What start all or stop all did to a project's apps (POST /projects/{id}/start or /stop). */
+export interface ProjectPowerResult {
+  project: Project
+  /** Slugs of the apps that were started or stopped. */
+  changed: string[]
+  skipped: { app: string; reason: 'already_running' | 'already_stopped' | 'not_deployed' }[]
+  /** Apps that could not be started or stopped; the others still were. */
+  failed: { app: string; code: string; message: string; hint?: string }[]
+}
+
 /** A space that holds apps: a website, its API, its database (GET /projects). */
 export interface Project {
   /** prj_... */

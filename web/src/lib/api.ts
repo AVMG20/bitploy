@@ -1,5 +1,6 @@
 import type {
   AddServiceInput,
+  ProjectPowerResult,
   BuildRecord,
   BuildStats,
   BuildWindow,
@@ -130,6 +131,8 @@ export const paths = {
   projectOrder: `${V1}/project-order`,
   project: (id: string) => `${V1}/projects/${enc(id)}`,
   projectServices: (id: string) => `${V1}/projects/${enc(id)}/services`,
+  projectStart: (id: string) => `${V1}/projects/${enc(id)}/start`,
+  projectStop: (id: string) => `${V1}/projects/${enc(id)}/stop`,
   projectMembers: (id: string) => `${V1}/projects/${enc(id)}/members`,
   projectMember: (id: string, user: string) => `${V1}/projects/${enc(id)}/members/${enc(user)}`,
   projectInvites: (id: string) => `${V1}/projects/${enc(id)}/invites`,
@@ -511,6 +514,10 @@ export const api = {
   project: (id: string) => request<Project>('GET', paths.project(id)),
   createProject: (input: { name: string }) => request<Project>('POST', paths.projects, { body: input }),
   updateProject: (id: string, input: { name: string }) => request<Project>('PATCH', paths.project(id), { body: input }),
+  /** Starts every stopped app of the project, databases and services first. */
+  startProject: (id: string) => request<ProjectPowerResult>('POST', paths.projectStart(id)),
+  /** Stops every running app of the project, databases and services last. */
+  stopProject: (id: string) => request<ProjectPowerResult>('POST', paths.projectStop(id)),
   /** Refused while the project has apps, unless withApps (which deletes them too). */
   deleteProject: (id: string, name: string, withApps = false) =>
     request<void>('DELETE', paths.project(id), { query: { confirm: name, with_apps: withApps || undefined } }),

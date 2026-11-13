@@ -456,6 +456,7 @@ The REST API mirrors the MCP tools one to one under `/api/v1`: same service call
 | `GET /api/v1/signup-rules` | No login: `{open_signup, project_invite_signup}` for the login, invite and Members pages |
 | `GET /api/v1/service-templates` | `list_service_templates` (any scope) |
 | `POST /api/v1/projects/{id}/services` | `add_service` (`{template, name?, connect_to?, memory_mb?, volume_mb?}`; 202 with the App; accepts `Idempotency-Key`) |
+| `POST /api/v1/projects/{id}/start`, `POST /api/v1/projects/{id}/stop` | Start or stop every app of a project (owner and members, deploy scope): databases and services first on start, last on stop; apps that never ran are skipped; `{project, changed, skipped, failed}`, one app that fails does not stop the others. Dashboard only, no MCP tool |
 | `GET` `POST /api/v1/apps` | `list_apps`, `create_app` |
 | `GET` `PATCH` `DELETE /api/v1/apps/{app}` | `get_app`, `update_app`, `delete_app` |
 | `POST /api/v1/apps/{app}/files` | `deploy_files` |

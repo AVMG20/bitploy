@@ -75,6 +75,25 @@ func (a *API) projectRoutes() {
 		}
 		return &Empty{}, nil
 	})
+	for _, pw := range []struct {
+		name, path, summary, desc string
+		fn                        func(context.Context, app.Actor, string) (app.ProjectPowerResult, error)
+	}{
+		{"startProject", "start", "Start every app of a project",
+			"Starts the stopped apps, databases and services first. Apps that never ran are skipped. An app that cannot start (quota, busy) is listed in failed; the others still start.",
+			a.svc.StartProject},
+		{"stopProject", "stop", "Stop every app of a project",
+			"Stops the running apps, then the databases and services they use. An app that cannot stop is listed in failed; the others still stop.",
+			a.svc.StopProject},
+	} {
+		fn := pw.fn
+		reg(a, anyAuth, huma.Operation{
+			OperationID: pw.name, Method: http.MethodPost, Path: "/projects/{id}/" + pw.path, Tags: []string{"Projects"},
+			Summary: pw.summary, Description: pw.desc,
+		}, func(ctx context.Context, act app.Actor, in *ProjectRef) (*Out[app.ProjectPowerResult], error) {
+			return okOrNil(fn(ctx, act, in.ID))
+		})
+	}
 	reg(a, anyAuth, huma.Operation{
 		OperationID: "listServiceTemplates", Method: http.MethodGet, Path: "/service-templates", Tags: []string{"Projects"},
 		Summary:     "List the service templates",

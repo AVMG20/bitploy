@@ -2263,6 +2263,26 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
       }
       return send(res, 200, projectOf(row))
     }
+    case 'POST /projects/:id/start':
+    case 'POST /projects/:id/stop': {
+      // Like the server: services first when starting, last when stopping.
+      const row = needProject(id, true)
+      const start = route.endsWith('start')
+      const own = apps.filter((a) => a.project?.id === row.id).sort((x, y) => Number(!!y.template === start) - Number(!!x.template === start))
+      const changed: string[] = []
+      const skipped: { app: string; reason: string }[] = []
+      for (const a of own) {
+        if (start && !a.current_deployment) skipped.push({ app: a.slug, reason: 'not_deployed' })
+        else if (a.desired_state === (start ? 'running' : 'stopped')) skipped.push({ app: a.slug, reason: start ? 'already_running' : 'already_stopped' })
+        else {
+          a.desired_state = start ? 'running' : 'stopped'
+          a.status = start ? 'running' : 'stopped'
+          a.live = start ? liveOf(a.slug, a.memory_mb, a.cpu_millis) : null
+          changed.push(a.slug)
+        }
+      }
+      return send(res, 200, { project: projectOf(row), changed, skipped, failed: [] })
+    }
     case 'GET /service-templates':
       return send(res, 200, items(templates))
     case 'POST /projects/:id/services': {
@@ -2469,6 +2489,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, noProjects: boo
     case 'POST /apps/:id/stop': {
       const a = needApp(id)
       a.status = route.endsWith('stop') ? 'stopped' : 'running'
+      a.desired_state = a.status === 'stopped' ? 'stopped' : 'running'
       a.live = a.status === 'running' ? liveOf(a.slug, a.memory_mb, a.cpu_millis) : null
       return send(res, 200, a)
     }

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { ArrowUpRight, Plus, Settings2, Users } from 'lucide-vue-next'
+import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { ArrowUpRight, Play, Plus, Settings2, Square, Users } from 'lucide-vue-next'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -10,12 +12,15 @@ import StatusDot from '@/components/StatusDot.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useActiveBuilds } from '@/composables/queries'
+import { keys, useActiveBuilds } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
 import { useProjectData } from '@/composables/useProjectData'
+import { api } from '@/lib/api'
 import { appRoute } from '@/lib/appLinks'
 import { appStatusInfo, formatMB, hostOf } from '@/lib/format'
+import { toastError, toastOk, toastWarn } from '@/lib/notify'
 import { aliasOf, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, projectUsage } from '@/lib/projects'
+import type { ProjectPowerResult } from '@/lib/types'
 
 // A project: its name and health on top, then the canvas of its apps, the
 // variables and connections of all of them, and its settings.
@@ -42,6 +47,35 @@ const TABS = [
   { name: 'project-members', label: 'Members' },
   { name: 'project-settings', label: 'Settings' },
 ]
+
+// Start all / stop all. Stop all asks first (visitors see the stopped page);
+// start all starts the databases first, the server keeps that order.
+// An admin looking at someone else's project gets neither.
+const qc = useQueryClient()
+const canPower = computed(() => !!project.value && project.value.role !== 'admin' && !fallback.value)
+const runningCount = computed(() => apps.value.filter((a) => a.desired_state === 'running').length)
+const startableCount = computed(() => apps.value.filter((a) => a.desired_state !== 'running' && a.current_deployment).length)
+const confirmStop = ref(false)
+const plural = (n: number) => (n === 1 ? '1 app' : `${n} apps`)
+const power = useMutation({
+  mutationFn: (start: boolean) => (start ? api.startProject(props.projectId) : api.stopProject(props.projectId)),
+  onSuccess: (r: ProjectPowerResult, start) => {
+    const verb = start ? 'Started' : 'Stopped'
+    if (r.failed.length) {
+      const what = r.failed.map((f) => `${f.app}: ${f.message}`).join(' ')
+      toastWarn(`${verb} ${plural(r.changed.length)}; ${plural(r.failed.length)} did not ${start ? 'start' : 'stop'}`, what)
+    } else if (r.changed.length) {
+      toastOk(`${verb} ${plural(r.changed.length)}`)
+    } else {
+      toastOk(start ? 'Nothing to start' : 'Nothing to stop')
+    }
+  },
+  onError: (e) => toastError(e),
+  onSettled: () => {
+    confirmStop.value = false
+    void qc.invalidateQueries({ queryKey: keys.apps })
+  },
+})
 
 const projectForAi = computed(() => {
   const p = project.value
@@ -92,6 +126,14 @@ const projectForAi = computed(() => {
           <span v-else>No web address yet</span>
           <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, up to {{ formatMB(usage.memoryMB) }} memory</template></span>
         </template>
+        <template v-if="canPower">
+          <Button v-if="startableCount" variant="outline" :disabled="power.isPending.value" data-testid="project-start-all" @click="power.mutate(true)">
+            <Play /> {{ power.isPending.value && power.variables.value ? 'Starting...' : 'Start all' }}
+          </Button>
+          <Button v-if="runningCount" variant="outline" :disabled="power.isPending.value" data-testid="project-stop-all" @click="confirmStop = true">
+            <Square /> Stop all
+          </Button>
+        </template>
         <CopyForAiButton v-if="apps.length" :text="projectForAi" />
         <Button v-if="fallback && main" variant="outline" as-child><RouterLink :to="appRoute(main, 'app-settings')"><Settings2 /> Settings</RouterLink></Button>
         <Button :disabled="fallback" :title="fallback ? 'This server keeps one app per project.' : undefined" @click="openAdd(project.id)"><Plus /> Add</Button>
@@ -108,6 +150,15 @@ const projectForAi = computed(() => {
       </Tabs>
 
       <RouterView :project-id="project.id" />
+
+      <ConfirmDialog
+        v-model:open="confirmStop"
+        :title="`Stop all apps of ${project.name}?`"
+        :description="`${plural(runningCount)} stop, the databases and services last. Visitors see a page that says the app is stopped until you start it again. Their data stays.`"
+        confirm-label="Stop all"
+        :loading="power.isPending.value"
+        @confirm="power.mutate(false)"
+      />
     </template>
   </div>
 </template>
