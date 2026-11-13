@@ -153,6 +153,10 @@ sudo deploy/probe-test.sh     # must end with "All checks passed."
 
 Open your domain, log in, and invite colleagues from the Admin page. Under Connect AI they find the MCP setup for their assistant.
 
+Someone forgot their password? Admin → People → Reset password makes a link that works once for 24 hours; bitploy sends no email, so you pass it on. Using it signs that person out everywhere (their API tokens keep working) and logs them in. When you are the only admin and forgot your own: `docker exec bitploy bitploy admin reset-link --email you@example.com` prints one.
+
+A project owner can share a project with others (project → Members). Members deploy and change its apps, but only the owner deletes apps, files and backups or restores a backup.
+
 Admin → Signups decides who can create an account: only people an admin invites, also people a project owner invites (the default), or anyone. It also sets the limits new accounts get (apps, memory, CPU, storage, deploys per hour, domains per app) and whether an account made with a project invite can deploy apps of its own. Older versions read this from `BITPLOY_SIGNUP`; that variable is gone, so a server that had `BITPLOY_SIGNUP=open` needs "Anyone can sign up" picked there once.
 
 **Back up `BITPLOY_SECRET_KEY` now, somewhere that is not this server** (a password manager). It encrypts every saved env var and the GitHub App's credentials. Without it a restored database is readable, but those secrets are gone for good.
@@ -373,7 +377,7 @@ Cloudflare changes its IP ranges now and then: run `deploy/update-cloudflare-ips
 
 | Path | Contents |
 | --- | --- |
-| `cmd/bitploy` | `serve`, `migrate`, `admin create-user`, `admin invite` |
+| `cmd/bitploy` | `serve`, `migrate`, `admin create-user`, `admin invite`, `admin reset-link` |
 | `internal/app` | service layer |
 | `internal/auth`, `internal/api`, `internal/mcp` | the three doors |
 | `internal/deploy`, `internal/dockerx`, `internal/proxy` | builds, Docker wrapper, Traefik route files |
