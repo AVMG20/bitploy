@@ -41,13 +41,11 @@ func (s *Service) auditScopeOf(ctx context.Context, a Actor, targetType, targetI
 	case "app":
 		return s.appAuditScope(ctx, targetID)
 	case "deployment":
+		// No fallback by slug: a deleted app's slug may belong to a new
+		// app by now. Callers that may outlive the deployment row pass the
+		// scope themselves (auditAbout).
 		if d, err := s.Q.GetDeployment(ctx, targetID); err == nil {
 			return s.appAuditScope(ctx, d.AppID)
-		}
-		if slug := str("app"); slug != "" {
-			if row, err := s.Q.GetAppBySlug(ctx, slug); err == nil {
-				return auditScope{AppID: row.ID, ProjectID: row.ProjectID, OwnerID: row.UserID}
-			}
 		}
 	case "domain":
 		if appID, err := s.Q.GetDomainAppID(ctx, targetID); err == nil {
@@ -257,16 +255,26 @@ func (v *activityView) person(ctx context.Context, r db.AuditLog, userID string)
 
 func (v *activityView) entry(ctx context.Context, r db.AuditLog) ActivityEntry {
 	e := ActivityEntry{ID: r.ID, TS: ts(r.Ts), Action: r.Action, Channel: r.Channel, TargetType: r.TargetType, TargetID: r.TargetID}
+	// A token (an AI assistant, a script) reads less than a dashboard
+	// session: no IP addresses and no session or token ids, which only a
+	// session could list before.
+	session := v.a.Scope == ScopeSession
 	switch {
+	case r.Action == "auth.login_failed":
+		// Written with the account's user id, but typed by whoever tried.
+		e.Actor, e.ActorName = actorOther, "Someone"
+		if session {
+			e.IP = r.Ip
+		}
 	case r.Channel == string(ChannelSystem) || !r.UserID.Valid:
 		e.Actor, e.ActorName = actorSystem, "bitploy"
 	default:
 		e.Actor, e.ActorName = v.person(ctx, r, r.UserID.String)
 	}
-	if e.Actor == actorYou {
+	if e.Actor == actorYou && session {
 		e.IP = r.Ip // never anyone else's
 	}
-	if r.TargetType == "user" && r.TargetID != v.a.UserID {
+	if (r.TargetType == "user" && r.TargetID != v.a.UserID) || (!session && (r.TargetType == "session" || r.TargetType == "token")) {
 		e.TargetID = ""
 	}
 	d := map[string]any{}
@@ -310,7 +318,9 @@ func (v *activityView) details(ctx context.Context, r db.AuditLog, own bool, d m
 		switch {
 		case strings.HasSuffix(k, "_id"), k == "ip", k == "token", k == "by", k == "created_by", k == "invited_by", k == "owner":
 			continue
-		case k == "email" && !own && !ownAccount:
+		case (k == "email" || k == "old_email" || k == "new_email" || k == "from" || k == "to") && r.Action == "user.email_change" && v.a.Scope != ScopeSession:
+			continue // addresses stay with the dashboard
+		case k == "email" && (!own && !ownAccount || v.a.Scope != ScopeSession):
 			continue
 		case k == "user":
 			id, _ := val.(string)

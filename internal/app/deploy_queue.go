@@ -1146,7 +1146,7 @@ func (s *Service) CancelDeployment(ctx context.Context, a Actor, id string) (Dep
 				continue
 			}
 			_ = os.Remove(s.sourceZip(id))
-			s.auditCancel(ctx, a, app.Slug, id, d.Seq, "queued")
+			s.auditCancel(ctx, a, app, id, d.Seq, "queued")
 			s.NotifyDeployment(id)
 			s.settleStatusAfterCancel(ctx, app.ID)
 			if err := reload(); err != nil {
@@ -1208,8 +1208,10 @@ func (s *Service) CancelAppDeployment(ctx context.Context, a Actor, ref string) 
 	return s.CancelDeployment(ctx, a, id)
 }
 
-func (s *Service) auditCancel(ctx context.Context, a Actor, slug, depID string, seq int64, was string) {
-	s.Audit(ctx, a, "deployment.cancelled", "deployment", depID, map[string]any{"app": slug, "seq": seq, "was": was})
+// auditCancel is given the app: the deployment row may already be gone with
+// a deleted app, so the scope cannot be looked up from it.
+func (s *Service) auditCancel(ctx context.Context, a Actor, app db.App, depID string, seq int64, was string) {
+	s.auditAbout(ctx, a, appScope(app), "deployment.cancelled", "deployment", depID, map[string]any{"app": app.Slug, "seq": seq, "was": was})
 	s.publishDeployment(depID)
 }
 

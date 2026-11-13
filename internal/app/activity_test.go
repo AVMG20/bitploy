@@ -239,3 +239,42 @@ func TestActivityDeploymentRows(t *testing.T) {
 		t.Error("carol sees the deploy")
 	}
 }
+
+// A token (an AI assistant) reads less than the dashboard: no IP addresses
+// and no session or token ids. A failed login on the account is "Someone",
+// not the owner, whoever typed it.
+func TestActivityForTokensAndFailedLogins(t *testing.T) {
+	m := newMembersEnv(t)
+	ctx := context.Background()
+	s := m.s
+	alice := withIP(m.alice, "198.51.100.1")
+	if _, err := s.UpdateApp(ctx, alice, "shop", UpdateAppInput{Name: strp("Shop front")}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.loginFailed(ctx, alice.UserID, "alice@example.com", "203.0.113.9")
+	s.Audit(ctx, alice, "session.revoke", "session", "ses_secret", nil)
+
+	asSession := activityOf(t, s, alice, "")
+	if e := findActivity(asSession, "app.update", nil); e == nil || e.IP != "198.51.100.1" || e.Actor != actorYou {
+		t.Fatalf("own update in the dashboard: %+v", e)
+	}
+	failed := findActivity(asSession, "auth.login_failed", nil)
+	if failed == nil || failed.Actor != actorOther || failed.ActorName != "Someone" || failed.IP != "203.0.113.9" {
+		t.Fatalf("failed login in the dashboard: %+v", failed)
+	}
+
+	token := alice
+	token.Scope = ScopeRead
+	token.Channel = ChannelMCP
+	for _, e := range activityOf(t, s, token, "") {
+		if e.IP != "" {
+			t.Errorf("%s shows IP %q to a token", e.Action, e.IP)
+		}
+		if (e.TargetType == "session" || e.TargetType == "token") && e.TargetID != "" {
+			t.Errorf("%s shows target id %q to a token", e.Action, e.TargetID)
+		}
+		if _, ok := e.Details["email"]; ok {
+			t.Errorf("%s shows an email to a token: %v", e.Action, e.Details)
+		}
+	}
+}

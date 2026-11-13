@@ -1358,7 +1358,7 @@ func (p *pipeline) swap(ctx context.Context) *apperr.Error {
 	}
 	p.logf("Live: %s", s.appURL(p.app))
 	s.NotifyDeployment(p.dep.ID)
-	s.Audit(ctx, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.running", "deployment", p.dep.ID, map[string]any{"app": p.app.Slug, "seq": p.dep.Seq})
+	s.auditAbout(ctx, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, appScope(p.app), "deployment.running", "deployment", p.dep.ID, map[string]any{"app": p.app.Slug, "seq": p.dep.Seq})
 	return nil
 }
 
@@ -1447,7 +1447,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 			})
 			p.logf("%s", cancelledMessage(who))
 			s.settleStatusAfterCancel(bg, p.app.ID)
-			s.auditCancel(bg, who, p.app.Slug, p.dep.ID, p.dep.Seq, p.dep.State)
+			s.auditCancel(bg, who, p.app, p.dep.ID, p.dep.Seq, p.dep.State)
 			p.recordBuild(bg, "cancelled", "")
 			s.metricsMgr().MeasureSoon() // the image of the build is gone
 			s.notifyDeployment(bg, p.dep.ID, EventDeploymentCancelled)
@@ -1478,7 +1478,7 @@ func (p *pipeline) finish(ctx context.Context, ae *apperr.Error) {
 	}
 	s.settleStatusAfterFailure(bg, p.app.ID, apperr.Redact(ae.Message))
 	p.recordBuild(bg, "failed", ae.Code)
-	s.Audit(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, "deployment.failed", "deployment", p.dep.ID,
+	s.auditAbout(bg, Actor{UserID: p.app.UserID, Channel: ChannelSystem, Scope: ScopeDeploy}, appScope(p.app), "deployment.failed", "deployment", p.dep.ID,
 		map[string]any{"app": p.app.Slug, "seq": p.dep.Seq, "code": ae.Code})
 	s.notifyDeployment(bg, p.dep.ID, EventDeploymentFailed)
 	s.pruneApp(bg, p.app.ID)
