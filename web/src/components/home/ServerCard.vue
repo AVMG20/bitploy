@@ -61,18 +61,20 @@ const deploysText = computed(() => {
   if (n === undefined) return ''
   return `${n} ${n === 1 ? 'deploy' : 'deploys'} in the last hour.`
 })
+const intro = computed(() => [sentence.value, deploysText.value].filter(Boolean).join(' '))
 </script>
 
 <template>
-  <div class="rounded-xl border bg-card p-4 shadow-card">
-    <h2 class="text-sm font-semibold">Your server</h2>
-    <template v-if="me.isPending.value">
-      <Skeleton class="mt-2 h-10 w-full" />
-      <Skeleton class="mt-4 h-24 w-full" />
-    </template>
+  <section class="rounded-xl border bg-card p-4 shadow-card" aria-label="Your server" data-testid="server-card">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <h2 class="text-sm font-semibold">Your server</h2>
+      <p v-if="rows.length" class="text-xs text-muted-foreground">
+        {{ intro }}
+      </p>
+    </div>
+    <Skeleton v-if="me.isPending.value" class="mt-4 h-16 w-full" />
     <template v-else-if="rows.length">
-      <p class="mt-1 text-xs text-muted-foreground">{{ sentence }}</p>
-      <ul class="mt-4 grid gap-3.5">
+      <ul class="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
         <li v-for="r in rows" :key="r.key" class="grid gap-1.5">
           <component :is="r.key === 'storage' ? 'button' : 'div'" :type="r.key === 'storage' ? 'button' : undefined" :class="['flex items-baseline justify-between gap-2 text-left text-sm', r.key === 'storage' && 'hover:underline']" :title="r.key === 'storage' ? 'See storage per app' : r.hint" @click="r.key === 'storage' && emit('storage')">
             <span class="font-medium">{{ r.label }}</span>
@@ -86,7 +88,6 @@ const deploysText = computed(() => {
           </p>
         </li>
       </ul>
-      <p v-if="deploysText" class="mt-4 text-xs text-muted-foreground" data-testid="deploys-hour">{{ deploysText }}</p>
     </template>
-  </div>
+  </section>
 </template>

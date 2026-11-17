@@ -7,7 +7,8 @@ test('with a max the bar is the max', () => {
 })
 
 test('near and at the max warn', () => {
-  assert.equal(usageBar(0, 6144, 8192).level, 'warn')
+  assert.equal(usageBar(0, 6144, 8192).level, 'ok')
+  assert.equal(usageBar(0, 7168, 8192).level, 'warn')
   assert.equal(usageBar(0, 8192, 8192).level, 'full')
 })
 

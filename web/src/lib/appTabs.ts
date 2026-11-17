@@ -1,4 +1,4 @@
-import { Database, Globe, HardDrive, KeyRound, SlidersHorizontal } from 'lucide-vue-next'
+import { Globe, HardDrive, KeyRound, SlidersHorizontal } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 /** One page of an app. Shared by the page and the quick switcher. */
@@ -46,9 +46,8 @@ export const CONFIG_SECTIONS: ConfigSection[] = [
   { name: 'app-variables', label: 'Variables', icon: KeyRound },
   { name: 'app-domains', label: 'Domains', icon: Globe, webOnly: true },
   { name: 'app-storage', label: 'Storage & backups', icon: HardDrive },
-  { name: 'app-database-default', label: 'Database', icon: Database, database: true },
 ]
 
-/** Pages that belong under the Configure tab. */
-const CONFIG_NAMES = new Set(['app-settings', 'app-variables', 'app-domains', 'app-storage', 'app-database-default', 'app-database'])
+/** Pages that belong under the Configure tab. The database viewer is a page of its own, opened from the Overview. */
+const CONFIG_NAMES = new Set(['app-settings', 'app-variables', 'app-domains', 'app-storage'])
 export const isConfigRoute = (name: unknown): boolean => CONFIG_NAMES.has(String(name ?? ''))

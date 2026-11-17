@@ -115,7 +115,7 @@ export const router = createRouter({
               name: 'app-database',
               component: () => import('./pages/app/database/DatabasePage.vue'),
               props: slugProp,
-              meta: { title: 'Database', tab: 'app-storage', wide: true },
+              meta: { title: 'Database', wide: true },
             },
             { path: 'settings', name: 'app-settings', component: () => import('./pages/app/SettingsTab.vue'), props: slugProp },
           ],

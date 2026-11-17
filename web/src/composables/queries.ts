@@ -31,6 +31,21 @@ export function useMe() {
   return useQuery({ queryKey: keys.me, queryFn: api.me, refetchInterval: livePoll(REFRESH_MS) })
 }
 
+/**
+ * Whether an AI assistant is set up: one of your tokens that still works was
+ * used at least once (MCP takes bearer tokens only, so a used token is the
+ * sign). Undefined while it loads, so nothing flickers away.
+ */
+export function useAiConnected() {
+  const tokens = useQuery({ queryKey: keys.tokens, queryFn: api.tokens, staleTime: 60_000 })
+  return computed(() => {
+    const list = tokens.data.value
+    if (!list) return undefined
+    const now = Date.now()
+    return list.some((t) => !t.revoked_at && !!t.last_used_at && (!t.expires_at || new Date(t.expires_at).getTime() > now))
+  })
+}
+
 /** Who can make an account here (no login needed): the login, invite and Members pages follow it. */
 export function useSignupRules() {
   return useQuery({ queryKey: keys.signupRules, queryFn: api.signupRules, staleTime: 60_000 })

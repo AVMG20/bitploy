@@ -4,31 +4,21 @@ import { RouterLink, useRouter } from 'vue-router'
 import { ArrowUpRight, Lock } from 'lucide-vue-next'
 import RelativeTime from '@/components/RelativeTime.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
-import Sparkline from '@/components/Sparkline.vue'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import { TableCell, TableRow } from '@/components/ui/table'
 import AppVisitorsToday from '@/components/project/AppVisitorsToday.vue'
-import { useAppMetrics } from '@/composables/queries'
 import { appRoute } from '@/lib/appLinks'
-import { channelLabel, cpuFromPercent, formatCPU, formatMB, hostOf } from '@/lib/format'
+import { channelLabel, hostOf } from '@/lib/format'
 import { aliasOf, internalHostOf, isPublicApp } from '@/lib/projects'
 import type { AppRole } from '@/lib/projects'
 import type { App } from '@/lib/types'
 
-// One row of the table under the project map. It asks for the same hour of
-// CPU and memory as the app's card on the map (same query key), so nothing is
-// fetched twice.
+// One row of the table under the project map; CPU and memory are on the map's cards.
 const props = defineProps<{ app: App; role: AppRole; visitors?: boolean }>()
 const router = useRouter()
 
-const running = computed(() => props.app.status === 'running')
 const publicApp = computed(() => isPublicApp(props.app))
 const host = computed(() => internalHostOf(props.app))
-const metrics = useAppMetrics(() => props.app.slug, '1h', running, '', true)
-const points = computed(() => metrics.data.value?.points ?? [])
-const latest = computed(() => (running.value ? (metrics.data.value?.latest ?? props.app.live ?? points.value.at(-1) ?? null) : null))
-const cpu = computed(() => points.value.map((p) => cpuFromPercent(p.cpu)))
-const memory = computed(() => points.value.map((p) => p.memory_mb))
 const dep = computed(() => props.app.current_deployment)
 
 // The whole row opens the app; links and buttons inside keep their own click.
@@ -56,18 +46,6 @@ function open(e: MouseEvent) {
       </a>
       <span v-else-if="host" class="inline-flex items-center gap-1.5 font-mono text-muted-foreground"><Lock class="size-3" /> {{ host }}</span>
       <span v-else class="text-muted-foreground">No address</span>
-    </TableCell>
-    <TableCell>
-      <div class="flex items-center gap-2">
-        <Sparkline class="w-16 shrink-0" :values="cpu" :max="app.cpu_millis / 1000" color="var(--chart-1)" :format="formatCPU" :label="`CPU of ${app.name} in the last hour`" />
-        <span class="w-14 font-mono text-xs tabular-nums" :class="!latest && 'text-muted-foreground'">{{ latest ? formatCPU(cpuFromPercent(latest.cpu)) : '-' }}</span>
-      </div>
-    </TableCell>
-    <TableCell>
-      <div class="flex items-center gap-2">
-        <Sparkline class="w-16 shrink-0" :values="memory" :max="app.memory_mb" color="var(--chart-2)" :format="formatMB" :label="`Memory of ${app.name} in the last hour`" />
-        <span class="font-mono text-xs whitespace-nowrap tabular-nums" :class="!latest && 'text-muted-foreground'">{{ latest ? `${formatMB(latest.memory_mb)} / ${formatMB(app.memory_mb)}` : '-' }}</span>
-      </div>
     </TableCell>
     <TableCell v-if="visitors" class="text-right font-mono text-xs tabular-nums">
       <AppVisitorsToday v-if="publicApp" :slug="app.slug" />

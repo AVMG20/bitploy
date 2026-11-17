@@ -92,7 +92,7 @@ const BUSY: Record<string, { icon: Component; title: string; description: string
 }
 // A database server has databases where SQLite has files.
 const SERVER: Record<string, Info> = {
-  db_not_found: { icon: FileQuestion, title: 'There is no such database on this server.', description: 'Pick another one, or open the Database tab again for the main one.', retry: false },
+  db_not_found: { icon: FileQuestion, title: 'There is no such database on this server.', description: 'Pick another one, or open the database again from the Overview.', retry: false },
   db_helper_unavailable: {
     icon: DatabaseZap,
     title: "The server's database helper is not available.",

@@ -27,7 +27,7 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { keys, useActiveBuilds, useProjects, useServiceTemplates } from '@/composables/queries'
+import { keys, useActiveBuilds, useAiConnected, useProjects, useServiceTemplates } from '@/composables/queries'
 import type { ProjectList } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { modKey, paletteOpen } from '@/composables/useShortcuts'
@@ -40,9 +40,11 @@ const { setOpenMobile } = useSidebar()
 const projects = useProjects()
 const templates = useServiceTemplates()
 const { buildOf, phaseOf } = useActiveBuilds()
+// Connect AI leaves the footer once an assistant used one of your tokens (the command palette still has it).
+const aiConnected = useAiConnected()
 
 // Settings and Admin live in the user menu (and Settings as a gear next to it);
-// Connect AI is a highlighted item in the footer.
+// Connect AI is a highlighted item in the footer until an assistant is connected.
 const items = computed(() => [
   { title: 'Home', to: '/', icon: House, active: route.path === '/' || route.path === '/new' },
   { title: 'Ready-made', to: '/ready-made', icon: Boxes, active: route.path.startsWith('/ready-made') || route.name === 'new-catalog' },
@@ -255,7 +257,7 @@ function subApps(p: (typeof list.value)[number]) {
     </SidebarContent>
     <SidebarFooter>
       <StatusDock />
-      <SidebarMenu>
+      <SidebarMenu v-if="aiConnected === false">
         <SidebarMenuItem>
           <SidebarMenuButton as-child :is-active="route.path.startsWith('/connect')" tooltip="Connect AI" class="bg-primary/10 font-medium text-primary-text hover:bg-primary/15 hover:text-primary-text data-[active=true]:bg-primary/15 data-[active=true]:text-primary-text">
             <RouterLink to="/connect" @click="setOpenMobile(false)"><Sparkles /><span>Connect AI</span></RouterLink>

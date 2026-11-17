@@ -4,20 +4,8 @@ import { formatCPUMillis, formatMB } from '@/lib/format'
 import { usageBar } from '@/lib/usage'
 import type { UsageBar } from '@/lib/usage'
 
-// What the apps take of the account's limits, worked out once for the sidebar
-// dock and the Home page, so both say the same thing at the same moment.
-
-export interface Meter {
-  key: 'memory' | 'apps'
-  label: string
-  /** "1.5 GB / 2 GB"; just the number without a limit. */
-  text: string
-  bar: UsageBar
-  /** Whether there is a limit to draw a bar against. */
-  hasMax: boolean
-  /** How full the bar is, in percent of the limit. */
-  pct: number
-}
+// What the apps take of the account's limits, worked out once for the Home
+// page's server card and its attention list, so both say the same thing.
 
 export interface Attention {
   key: string
@@ -60,35 +48,6 @@ export function useServerUsage() {
     usage.value && quota.value && usage.value.apps > quota.value.apps ? overText('apps', 'Delete the apps you no longer need before adding one') : '',
   )
 
-  // The two meters of the sidebar: what the apps reserve against what may be reserved.
-  const meters = computed<Meter[]>(() => {
-    const u = usage.value
-    const q = quota.value
-    if (!u || !q) return []
-    const memMax = unlimited.value ? null : q.memory_mb
-    const mem = usageBar(u.memory_used_mb, u.memory_reserved_mb, memMax)
-    const apps = usageBar(u.apps_running, u.apps, q.apps)
-    const pct = (n: number, max: number | null) => (max && max > 0 ? Math.min(100, (n / max) * 100) : 0)
-    return [
-      {
-        key: 'memory',
-        label: 'Memory reserved',
-        text: memMax && memMax > 0 ? `${formatMB(u.memory_reserved_mb)} / ${formatMB(memMax)}` : formatMB(u.memory_reserved_mb),
-        bar: mem,
-        hasMax: !!memMax && memMax > 0,
-        pct: pct(u.memory_reserved_mb, memMax),
-      },
-      {
-        key: 'apps',
-        label: 'Apps',
-        text: q.apps > 0 ? `${u.apps} / ${q.apps}` : String(u.apps),
-        bar: apps,
-        hasMax: q.apps > 0,
-        pct: pct(u.apps, q.apps),
-      },
-    ]
-  })
-
   // Things that need a person on the Home page: over a limit (red) or close to it (amber).
   const attention = computed<Attention[]>(() => {
     const u = usage.value
@@ -106,5 +65,5 @@ export function useServerUsage() {
     return out
   })
 
-  return { me, usage, quota, isAdmin, unlimited, storageTaken, storageUsed, memAlert, cpuAlert, storageAlert, appsAlert, meters, attention }
+  return { me, usage, quota, isAdmin, unlimited, storageTaken, storageUsed, memAlert, cpuAlert, storageAlert, appsAlert, attention }
 }

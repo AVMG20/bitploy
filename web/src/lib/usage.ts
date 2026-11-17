@@ -8,7 +8,7 @@ export interface UsageBar {
   allocatedPct: number
   /** Where the max sits when allocated goes past it, in percent; null otherwise. */
   maxMarkPct: number | null
-  /** Allocated against the max: ok, near it (75%), at it (90%) or over it. No max is always ok. */
+  /** Allocated against the max: ok, near it (85%), at it (90%) or over it. No max is always ok. */
   level: 'ok' | 'warn' | 'full' | 'over'
 }
 
@@ -26,6 +26,6 @@ export function usageBar(used: number, allocated: number, max: number | null): U
   const allocatedPct = Math.max(usedPct, p(allocated))
   if (!hasMax) return { usedPct, allocatedPct, maxMarkPct: null, level: 'ok' }
   const frac = allocated / max
-  const level = frac > 1 ? 'over' : frac >= 0.9 ? 'full' : frac >= 0.75 ? 'warn' : 'ok'
+  const level = frac > 1 ? 'over' : frac >= 0.9 ? 'full' : frac >= 0.85 ? 'warn' : 'ok'
   return { usedPct, allocatedPct, maxMarkPct: allocated > max ? p(max) : null, level }
 }

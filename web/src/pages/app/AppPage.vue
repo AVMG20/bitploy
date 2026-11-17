@@ -22,13 +22,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useApp, useDataRoot } from '@/composables/queries'
+import { useApp } from '@/composables/queries'
 import { useAppControls } from '@/composables/useAppControls'
 import { useSession } from '@/composables/useSession'
 import { nowMs } from '@/composables/useNow'
 import { ApiError } from '@/lib/api'
 import { APP_TABS, CONFIG_SECTIONS, MAIN_TABS, isConfigRoute } from '@/lib/appTabs'
-import { isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { copyText } from '@/lib/notify'
@@ -67,12 +66,6 @@ watch(
   },
 )
 
-// The Database tab shows when the saved files hold a SQLite file at the top. A failed or empty look shows no tab and no error.
-// A PostgreSQL, MariaDB or MySQL app always has it: the tab opens its server.
-const root = useDataRoot(() => props.slug, () => !!data.value?.volume && !isServerDb(data.value))
-// On a database page the tab stays while the app or its files load, so the highlighted tab does not vanish.
-const onDatabase = computed(() => String(route.name ?? '').startsWith('app-database') && route.meta.tab !== 'app-storage')
-const hasDatabase = computed(() => onDatabase.value || isServerDb(data.value) || !!pickDatabase(root.data.value?.items ?? [], props.slug))
 const openPort = computed(() => (data.value ? publicPortText(data.value, nowMs.value) : null))
 // Background workers have no visitors and no web address. A static site has
 // no container to open a terminal in, and an admin may not open one in
@@ -83,14 +76,19 @@ const hasTerminal = computed(() => terminalOffered(data.value, user.value?.id ??
 const shownTabs = computed(() => MAIN_TABS.map((t) => (multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t)))
 const onConfigure = computed(() => isConfigRoute(route.name))
 const onTerminal = computed(() => route.name === 'app-terminal')
-// The page below a tab (the database viewer) names the tab that stays highlighted. The terminal lights none.
-const current = computed(() => (onConfigure.value ? 'configure' : onTerminal.value ? '' : String(route.meta.tab ?? route.name)))
+// The terminal and the database viewer are pages of their own: they light no tab and lead back to where they open from.
+const onDbViewer = computed(() => String(route.name ?? '').startsWith('app-database'))
+const current = computed(() => (onConfigure.value ? 'configure' : onTerminal.value || onDbViewer.value ? '' : String(route.name)))
+const back = computed(() =>
+  onTerminal.value || route.name === 'app-database-default'
+    ? { to: 'app', label: `Back to ${data.value?.name ?? 'the app'}` }
+    : route.name === 'app-database'
+      ? { to: 'app-storage', label: 'Back to Storage & backups' }
+      : null,
+)
 // The side menu of Configure: only the pages this app has.
-const configSections = computed(() => CONFIG_SECTIONS.filter((c) => (!c.webOnly || isWeb.value) && (!c.database || hasDatabase.value)))
-// The database of a SQLite file lives under Storage; its own tab is the viewer.
-const configCurrent = computed(() => (route.name === 'app-database' ? 'app-storage' : String(route.name)))
-// The database viewer needs the whole width: its menu becomes a row above it.
-const wide = computed(() => !!route.meta.wide)
+const configSections = computed(() => CONFIG_SECTIONS.filter((c) => !c.webOnly || isWeb.value))
+const configCurrent = computed(() => String(route.name))
 const notFound = computed(() => app.error.value instanceof ApiError && app.error.value.status === 404)
 
 // The browser tab says which app this is.
@@ -279,13 +277,13 @@ const deleteOpen = ref(false)
         </div>
       </Tabs>
 
-      <RouterLink v-if="onTerminal" :to="{ name: 'app', params: { slug } }" class="-mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft class="size-4" aria-hidden="true" /> Back to {{ data?.name ?? 'the app' }}
+      <RouterLink v-if="back" :to="{ name: back.to, params: { slug } }" class="-mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft class="size-4" aria-hidden="true" /> {{ back.label }}
       </RouterLink>
 
-      <!-- Configure: one topic per page, a menu on the left (a row on a phone, and above the database viewer, which needs the width). -->
-      <div v-if="onConfigure" :class="cn('grid min-w-0 gap-6', !wide && 'md:grid-cols-[200px_minmax(0,1fr)]')">
-        <nav aria-label="Configure" :class="cn('scrollbar-none -mx-4 flex content-start gap-0.5 overflow-x-auto px-4', wide ? '' : 'md:mx-0 md:grid md:overflow-visible md:px-0')">
+      <!-- Configure: one topic per page, a menu on the left (a row on a phone). -->
+      <div v-if="onConfigure" class="grid min-w-0 gap-6 md:grid-cols-[200px_minmax(0,1fr)]">
+        <nav aria-label="Configure" class="scrollbar-none -mx-4 flex content-start gap-0.5 overflow-x-auto px-4 md:mx-0 md:grid md:overflow-visible md:px-0">
           <RouterLink
             v-for="c in configSections"
             :key="c.name"

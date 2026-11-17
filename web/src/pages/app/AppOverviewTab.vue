@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
-import { ArrowRight, Lock, LockOpen, Plus, Rocket, Sparkles, Undo2 } from 'lucide-vue-next'
+import { ArrowRight, Database, Lock, LockOpen, Plus, Rocket, Sparkles, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import LogLines from '@/components/LogLines.vue'
@@ -18,10 +18,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import CopyForAiButton from '@/components/CopyForAiButton.vue'
-import { keys, livePoll, REFRESH_MS, useApp, useAppMetrics, useBackups, useProject, useProjectEnv, useServiceTemplates } from '@/composables/queries'
+import { keys, livePoll, REFRESH_MS, useApp, useAppMetrics, useBackups, useDataRoot, useProject, useProjectEnv, useServiceTemplates } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { api, fetchLogLines } from '@/lib/api'
-import { appStatusInfo, cpuFromPercent, deploymentStateInfo, describeSource, formatCPU, formatMB, hostOf, pct, uptime, versionLabel } from '@/lib/format'
+import { appStatusInfo, cpuFromPercent, formatBytes, deploymentStateInfo, describeSource, formatCPU, formatMB, hostOf, pct, uptime, versionLabel } from '@/lib/format'
+import { engineName, isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { plainHint } from '@/lib/errors'
 import { aliasOf, appRole, projectIdOf, projectLinks, talksTo } from '@/lib/projects'
 import { aboutService, isMulti } from '@/lib/services'
@@ -44,6 +45,17 @@ const multi = computed(() => isMulti(data.value))
 const isWeb = computed(() => data.value?.type === 'web')
 const dep = computed(() => data.value?.current_deployment ?? null)
 const running = computed(() => data.value?.status === 'running')
+// The database card: a PostgreSQL, MariaDB or MySQL app always has one; any
+// other app when its saved files hold a SQLite file at the top. A failed or
+// empty look shows no card and no error.
+const serverDb = computed(() => isServerDb(data.value))
+const dataRoot = useDataRoot(() => props.slug, () => !!data.value?.volume && !serverDb.value)
+const dbFile = computed(() => {
+  const items = dataRoot.data.value?.items ?? []
+  const name = pickDatabase(items, props.slug)
+  return name ? { name, size: items.find((f) => f.name === name)?.size ?? 0 } : null
+})
+const dbEngine = computed(() => engineName(data.value?.template === 'pgvector' ? 'postgres' : (data.value?.template ?? undefined)))
 // A project with several services has its own numbers per service (ProjectServices).
 const single = computed(() => !!dep.value && !multi.value)
 
@@ -278,6 +290,17 @@ const schedule = computed(() => SCHEDULE[backups.data.value?.settings.schedule ?
 
           <div class="grid min-w-0 content-start gap-4">
             <ConnectCard v-if="data.template" :app="data" />
+
+            <Card v-if="serverDb || dbFile" data-testid="database-card">
+              <CardContent class="flex items-center gap-3">
+                <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40"><Database class="size-4" aria-hidden="true" /></span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-medium">Database</span>
+                  <span class="block truncate font-mono text-xs text-muted-foreground">{{ dbFile ? `${dbFile.name} · ${formatBytes(dbFile.size)}` : dbEngine }}</span>
+                </span>
+                <Button as-child size="sm" variant="outline"><RouterLink :to="{ name: 'app-database-default', params: { slug } }">Open</RouterLink></Button>
+              </CardContent>
+            </Card>
 
             <Card v-if="isWeb">
               <CardHeader class="flex flex-row items-center justify-between gap-2">

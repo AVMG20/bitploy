@@ -539,7 +539,7 @@ const restoreText = computed(() => {
             </FormField>
             <div class="flex flex-wrap gap-2">
               <Button v-if="serverDb" as-child variant="outline" size="sm">
-                <RouterLink :to="{ name: 'app-database-default', params: { slug } }"><Database /> Open the Database tab</RouterLink>
+                <RouterLink :to="{ name: 'app-database-default', params: { slug } }"><Database /> Open the database</RouterLink>
               </Button>
               <Button v-if="!noBackupsText" type="button" variant="outline" size="sm" @click="scrollToBackups"><Archive /> Backups</Button>
             </div>

@@ -12,16 +12,17 @@ import StorageAppsDialog from '@/components/StorageAppsDialog.vue'
 import ProjectCard from '@/components/project/ProjectCard.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useProjects, useServiceTemplates } from '@/composables/queries'
+import { useAiConnected, useProjects, useServiceTemplates } from '@/composables/queries'
 import { useSession } from '@/composables/useSession'
 
-// Home: what needs you first, then every project as a card in the order of the
-// sidebar (dragged there; a new project on top), with the latest activity and
-// the server's limits beside them.
+// Home: the server's limits on top, what needs you, then every project as a
+// card in the order of the sidebar (dragged there; a new project on top), with
+// the latest activity beside them.
 const projects = useProjects()
 const templates = useServiceTemplates()
 const { user } = useSession()
 const { me, attention, storageUsed } = useServerUsage()
+const aiConnected = useAiConnected()
 
 const all = computed(() => projects.data.value?.projects ?? [])
 const apps = computed(() => all.value.flatMap((p) => p.apps))
@@ -48,10 +49,12 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: '
           <h1 class="mt-0.5 text-2xl font-semibold tracking-tight">{{ greeting }}</h1>
         </div>
         <div class="flex gap-2">
-          <Button variant="outline" as-child><RouterLink :to="{ name: 'connect' }"><Sparkles /> Connect AI</RouterLink></Button>
+          <Button v-if="aiConnected === false" variant="outline" as-child><RouterLink :to="{ name: 'connect' }"><Sparkles /> Connect AI</RouterLink></Button>
           <Button as-child><RouterLink :to="{ name: 'new-app' }"><Plus /> New project</RouterLink></Button>
         </div>
       </header>
+
+      <ServerCard @storage="storageOpen = true" />
 
       <AttentionList :apps="apps" :resources="attention" @storage="storageOpen = true" />
 
@@ -85,9 +88,8 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: '
           </template>
         </section>
 
-        <aside class="grid content-start gap-4" aria-label="Activity and your server">
+        <aside class="grid content-start gap-4" aria-label="Activity">
           <ActivityRail />
-          <ServerCard @storage="storageOpen = true" />
         </aside>
       </div>
     </template>
