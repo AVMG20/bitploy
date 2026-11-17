@@ -62,35 +62,38 @@ const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: '
 
       <QueryError v-if="projects.isError.value && !projects.data.value" :error="projects.error.value" @retry="projects.refetch()" />
 
-      <div v-else class="grid gap-8 xl:grid-cols-[minmax(0,1fr)_19rem]">
-        <section class="grid content-start gap-3" aria-label="Projects">
-          <h2 class="text-sm font-semibold">Projects</h2>
-          <div v-if="projects.isPending.value" class="grid gap-4 md:grid-cols-2">
-            <Skeleton v-for="i in 3" :key="i" class="h-56 rounded-xl" />
-          </div>
-          <template v-else>
-            <div class="grid gap-4 md:grid-cols-2">
-              <ProjectCard v-for="p in all" :key="p.id" :project="p" :templates="templates.data.value ?? []" />
-              <RouterLink
-                :to="{ name: 'new-app' }"
-                class="grid min-h-48 place-items-center rounded-xl border border-dashed p-4 text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-              >
-                <span class="grid justify-items-center gap-2 text-center">
-                  <span class="flex size-9 items-center justify-center rounded-lg border bg-card"><Plus class="size-4" /></span>
-                  New project
-                  <span class="text-xs">From GitHub, a folder, an image or your AI</span>
-                </span>
-              </RouterLink>
+      <div v-else class="grid gap-3">
+        <!-- The heading sits above both columns, so the first project cards and the activity card start level. -->
+        <h2 class="text-sm font-semibold">Projects</h2>
+        <div class="grid gap-8 xl:grid-cols-[minmax(0,1fr)_19rem]">
+          <section class="grid content-start gap-3" aria-label="Projects">
+            <div v-if="projects.isPending.value" class="grid gap-4 md:grid-cols-2">
+              <Skeleton v-for="i in 3" :key="i" class="h-56 rounded-xl" />
             </div>
-            <p v-if="projects.data.value?.fallback" class="text-xs text-muted-foreground">
-              <Container class="mr-1 inline size-3.5 align-[-2px]" />This server shows each app as its own project. It cannot put several apps in one project.
-            </p>
-          </template>
-        </section>
+            <template v-else>
+              <div class="grid gap-4 md:grid-cols-2">
+                <ProjectCard v-for="p in all" :key="p.id" :project="p" :templates="templates.data.value ?? []" />
+                <RouterLink
+                  :to="{ name: 'new-app' }"
+                  class="grid min-h-48 place-items-center rounded-xl border border-dashed p-4 text-sm text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+                >
+                  <span class="grid justify-items-center gap-2 text-center">
+                    <span class="flex size-9 items-center justify-center rounded-lg border bg-card"><Plus class="size-4" /></span>
+                    New project
+                    <span class="text-xs">From GitHub, a folder, an image or your AI</span>
+                  </span>
+                </RouterLink>
+              </div>
+              <p v-if="projects.data.value?.fallback" class="text-xs text-muted-foreground">
+                <Container class="mr-1 inline size-3.5 align-[-2px]" />This server shows each app as its own project. It cannot put several apps in one project.
+              </p>
+            </template>
+          </section>
 
-        <aside class="grid content-start gap-4" aria-label="Activity">
-          <ActivityRail />
-        </aside>
+          <aside class="grid content-start gap-4" aria-label="Activity">
+            <ActivityRail />
+          </aside>
+        </div>
       </div>
     </template>
   </div>
