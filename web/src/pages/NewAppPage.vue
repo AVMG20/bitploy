@@ -508,7 +508,8 @@ const submit = form.handleSubmit(run)
 </script>
 
 <template>
-  <div class="grid gap-6">
+  <!-- The header lines up with the narrow column of the first step. -->
+  <div class="grid gap-6" :class="!chosenSource && 'mx-auto w-full max-w-[860px]'">
     <PageHeader
       :title="project ? `Add an app to ${project.name}` : 'New project'"
       :description="noOwn ? undefined : chosenSource ? `Name the ${thing} and press Deploy.` : 'Pick how. You can add a database or more apps to the project afterwards.'"
@@ -529,7 +530,7 @@ const submit = form.handleSubmit(run)
     </Alert>
 
     <!-- Step 1: how to put it online. -->
-    <div v-else-if="!chosenSource" class="mx-auto grid w-full max-w-[860px] gap-4" data-testid="source-picker">
+    <div v-else-if="!chosenSource" class="grid gap-4" data-testid="source-picker">
       <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="How do you want to do it?">
         <button
           v-for="r in [
@@ -611,8 +612,20 @@ const submit = form.handleSubmit(run)
         </CardContent>
       </Card>
 
-      <!-- The self road: GitHub, files, ready-made, and more ways. -->
+      <!-- The self road: ready-made, GitHub, files, and more ways. -->
       <div v-else class="grid gap-3" data-testid="road-self">
+        <RouterLink
+          :to="readyMadeTo"
+          class="group flex items-center gap-3.5 rounded-xl border bg-card p-4 shadow-card transition-colors hover:border-foreground/25"
+          data-testid="start-ready-made"
+        >
+          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-muted-foreground"><LayoutGrid class="size-4" /></span>
+          <span class="grid min-w-0 flex-1">
+            <span class="text-sm font-medium">A ready-made app</span>
+            <span class="text-[13px] text-muted-foreground">Uptime Kuma, Vaultwarden, n8n, Ghost and more, with their database.</span>
+          </span>
+          <ArrowRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </RouterLink>
         <!-- GitHub connected: the repositories, right here. -->
         <Card v-if="canPick" data-testid="start-github">
           <CardContent class="grid gap-4">
@@ -644,19 +657,6 @@ const submit = form.handleSubmit(run)
         </button>
 
         <SourceDropZone v-model="dropped" />
-
-        <RouterLink
-          :to="readyMadeTo"
-          class="group flex items-center gap-3.5 rounded-xl border bg-card p-4 shadow-card transition-colors hover:border-foreground/25"
-          data-testid="start-ready-made"
-        >
-          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-muted-foreground"><LayoutGrid class="size-4" /></span>
-          <span class="grid min-w-0 flex-1">
-            <span class="text-sm font-medium">A ready-made app</span>
-            <span class="text-[13px] text-muted-foreground">Uptime Kuma, Vaultwarden, n8n, Ghost and more, with their database.</span>
-          </span>
-          <ArrowRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-        </RouterLink>
 
         <details class="group/more mt-1 text-sm">
           <summary class="cursor-pointer text-muted-foreground select-none hover:text-foreground">More ways: a Dockerfile, a compose file, a Docker image{{ !intoProject && !fallback ? ', an empty project' : '' }}</summary>

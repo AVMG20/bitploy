@@ -2,7 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
-import { Boxes, CircleAlert, Clock, History, House, LoaderCircle, Plus, Search, Settings, Sparkles, Users } from 'lucide-vue-next'
+import { CircleAlert, Clock, History, House, LoaderCircle, Plus, Search, Settings, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import StatusDock from './shell/StatusDock.vue'
 import StatusDot from './StatusDot.vue'
@@ -46,8 +46,14 @@ const aiConnected = useAiConnected()
 // Settings and Admin live in the user menu (and Settings as a gear next to it);
 // Connect AI is a highlighted item in the footer until an assistant is connected.
 const items = computed(() => [
-  { title: 'Home', to: '/', icon: House, active: route.path === '/' || route.path === '/new' },
-  { title: 'Ready-made', to: '/ready-made', icon: Boxes, active: route.path.startsWith('/ready-made') || route.name === 'new-catalog' },
+  { title: 'Home', to: '/', icon: House, active: route.path === '/' },
+  // Ready-made apps are one of the ways on the New project page.
+  {
+    title: 'New project',
+    to: '/new',
+    icon: Plus,
+    active: !route.query.project && (route.name === 'new-app' || route.name === 'ready-made' || route.name === 'new-catalog'),
+  },
   { title: 'Activity', to: '/activity', icon: History, active: route.path.startsWith('/activity') },
 ])
 
