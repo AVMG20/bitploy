@@ -26,7 +26,7 @@ import { engineName, isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { plainHint } from '@/lib/errors'
 import { aliasOf, appRole, projectIdOf, projectLinks, talksTo } from '@/lib/projects'
 import { aboutService, isMulti } from '@/lib/services'
-import { change, formatSeconds, timeChange } from '@/lib/traffic'
+import { formatSeconds, timeChange } from '@/lib/traffic'
 import type { Deployment, Domain, DomainStatus } from '@/lib/types'
 import ConnectCard from './ConnectCard.vue'
 import DeploymentWarnings from './DeploymentWarnings.vue'
@@ -87,10 +87,16 @@ const metrics = useAppMetrics(() => props.slug, '1h', () => single.value)
 const live = computed(() => (running.value ? (metrics.data.value?.latest ?? data.value?.live ?? null) : null))
 const cpuLimit = computed(() => (data.value?.cpu_millis ?? 0) / 1000)
 const memoryPct = computed(() => (live.value ? pct(live.value.memory_mb, data.value?.memory_mb ?? 0) : 0))
-const cpuPct = computed(() => (live.value ? pct(cpuFromPercent(live.value.cpu), cpuLimit.value) : 0))
+// CPU as the average of the last 24 hours (5-minute buckets): a reading of one moment says little.
+const metricsDay = useAppMetrics(() => props.slug, '24h', () => single.value)
+const cpuAvg = computed(() => {
+  const pts = metricsDay.data.value?.points ?? []
+  return pts.length ? pts.reduce((sum, p) => sum + cpuFromPercent(p.cpu), 0) / pts.length : null
+})
+const cpuPct = computed(() => (cpuAvg.value !== null ? pct(cpuAvg.value, cpuLimit.value) : 0))
 const OVER = 75
 
-// Visitors, answer time and errors of the last 24 hours; only websites have them.
+// Answer time and errors of the last 24 hours; only websites have them.
 const traffic = useQuery({
   queryKey: computed(() => keys.traffic(props.slug, '24h')),
   queryFn: () => api.traffic(props.slug, '24h'),
@@ -98,7 +104,6 @@ const traffic = useQuery({
   refetchInterval: 10_000,
 })
 const t = computed(() => traffic.data.value ?? null)
-const visitorChange = computed(() => change(t.value?.totals.visitors ?? null, t.value?.previous?.visitors))
 const timeDiff = computed(() => timeChange(t.value?.totals.median_ms ?? null, t.value?.previous?.median_ms))
 
 // ---------------------------------------------------------------- latest logs
@@ -188,21 +193,28 @@ const schedule = computed(() => SCHEDULE[backups.data.value?.settings.schedule ?
       <ProjectServices v-if="multi" :app="data" />
 
       <template v-else>
-        <!-- Four numbers: how the site does for a website, how the process does for a worker or database. -->
+        <!-- Four numbers: CPU and memory, then how the site answers for a website or how the process does for a worker or database. -->
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            compact
+            title="CPU, 24 h avg"
+            :loading="metricsDay.isPending.value"
+            :value="cpuAvg !== null ? formatCPU(cpuAvg).replace(' CPU', '') : '-'"
+            :suffix="`of ${formatCPU(cpuLimit)}`"
+            :progress="cpuPct"
+            :to="{ name: 'app-traffic', params: { slug } }"
+          />
+
+          <StatCard
+            compact
+            title="Memory now"
+            :value="live ? formatMB(live.memory_mb) : running ? '...' : '0 MB'"
+            :suffix="`of ${formatMB(data.memory_mb)}`"
+            :progress="memoryPct"
+            :to="{ name: 'app-traffic', params: { slug } }"
+          />
+
           <template v-if="isWeb">
-            <StatCard
-              compact
-              title="Visitors, 24 h"
-              :to="{ name: 'app-traffic', params: { slug } }"
-              :loading="traffic.isPending.value"
-              :value="t ? t.totals.visitors.toLocaleString() : '-'"
-              :change="visitorChange"
-            >
-              <template #aside>
-                <Sparkline v-if="t && t.points.length > 1" :values="t.points.map((p) => p.visitors)" color="var(--chart-1)" :format="(v) => `${Math.round(v)}`" label="Visitors per hour" />
-              </template>
-            </StatCard>
             <StatCard
               compact
               title="Response time"
@@ -217,36 +229,15 @@ const schedule = computed(() => SCHEDULE[backups.data.value?.settings.schedule ?
                 <Sparkline v-if="t && t.points.length > 1" :values="t.points.map((p) => p.median_ms ?? 0)" color="var(--muted-foreground)" :format="(v) => `${Math.round(v)} ms`" label="Answer time per hour" />
               </template>
             </StatCard>
-          </template>
-          <template v-else>
             <StatCard
               compact
-              title="CPU now"
-              :value="live ? formatCPU(cpuFromPercent(live.cpu)).replace(' CPU', '') : running ? '...' : '0'"
-              :suffix="`of ${formatCPU(cpuLimit)}`"
-              :progress="cpuPct"
-              :to="{ name: 'app-traffic', params: { slug } }"
+              title="Errors, 24 h"
+              :loading="traffic.isPending.value"
+              :value="t ? t.totals.errors.toLocaleString() : '-'"
+              suffix="server errors"
+              :to="{ name: 'app-logs', params: { slug } }"
             />
           </template>
-
-          <StatCard
-            compact
-            title="Memory now"
-            :value="live ? formatMB(live.memory_mb) : running ? '...' : '0 MB'"
-            :suffix="`of ${formatMB(data.memory_mb)}`"
-            :progress="memoryPct"
-            :to="{ name: 'app-traffic', params: { slug } }"
-          />
-
-          <StatCard
-            v-if="isWeb"
-            compact
-            title="Errors, 24 h"
-            :loading="traffic.isPending.value"
-            :value="t ? t.totals.errors.toLocaleString() : '-'"
-            suffix="server errors"
-            :to="{ name: 'app-logs', params: { slug } }"
-          />
           <template v-else>
             <StatCard compact title="Running for" :value="running ? uptime(data.started_at, nowMs) : appStatusInfo(data.status).label" />
             <StatCard compact title="Automatic restarts" :value="String(data.restart_count)" :sub="data.restart_count ? 'The app stopped by itself and bitploy started it again.' : undefined" />

@@ -23,7 +23,8 @@ import type { DataFile } from '@/lib/types'
 
 // A small file browser for /data: look around, download a file (a database, a
 // JSON file), upload a file into a folder, make a folder, delete.
-const props = defineProps<{
+// canOpenDatabase defaults to true: Vue reads a missing boolean prop as false.
+const props = withDefaults(defineProps<{
   slug: string
   running: boolean
   /** One volume of a project with several; empty for the first (the only one of a normal project). */
@@ -32,7 +33,7 @@ const props = defineProps<{
   canOpenDatabase?: boolean
   /** Where the service sees the volume. */
   mountPath?: string
-}>()
+}>(), { canOpenDatabase: true, volume: '', mountPath: '' })
 const root = computed(() => props.mountPath || '/data')
 const vol = computed(() => props.volume || undefined)
 const qc = useQueryClient()
@@ -77,7 +78,7 @@ const hasDatabase = computed(() => !!list.value?.items.some(isDatabase))
 
 // A SQLite file opens in the database viewer.
 function isDatabase(f: DataFile) {
-  return f.type === 'file' && isDbFileName(f.name) && props.canOpenDatabase !== false
+  return f.type === 'file' && isDbFileName(f.name) && props.canOpenDatabase
 }
 const viewerTo = (f: DataFile) => ({ name: 'app-database', params: { slug: props.slug }, query: { path: child(f.name) } })
 

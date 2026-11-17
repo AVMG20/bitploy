@@ -79,13 +79,8 @@ const onTerminal = computed(() => route.name === 'app-terminal')
 // The terminal and the database viewer are pages of their own: they light no tab and lead back to where they open from.
 const onDbViewer = computed(() => String(route.name ?? '').startsWith('app-database'))
 const current = computed(() => (onConfigure.value ? 'configure' : onTerminal.value || onDbViewer.value ? '' : String(route.name)))
-const back = computed(() =>
-  onTerminal.value || route.name === 'app-database-default'
-    ? { to: 'app', label: `Back to ${data.value?.name ?? 'the app'}` }
-    : route.name === 'app-database'
-      ? { to: 'app-storage', label: 'Back to Storage & backups' }
-      : null,
-)
+// A file opened from Storage has its own way back in the viewer.
+const back = computed(() => (onTerminal.value || route.name === 'app-database-default' ? { to: 'app', label: `Back to ${data.value?.name ?? 'the app'}` } : null))
 // The side menu of Configure: only the pages this app has.
 const configSections = computed(() => CONFIG_SECTIONS.filter((c) => !c.webOnly || isWeb.value))
 const configCurrent = computed(() => String(route.name))
