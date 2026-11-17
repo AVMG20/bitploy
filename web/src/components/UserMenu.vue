@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun } from 'lucide-vue-next'
+import { ChevronsUpDown, LogOut, Monitor, Moon, Settings, ShieldCheck, Sun } from 'lucide-vue-next'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +22,7 @@ import { toastError } from '@/lib/notify'
 import { setTheme, theme, type ThemeChoice } from '@/lib/theme'
 
 const router = useRouter()
-const { user } = useSession()
+const { user, isAdmin } = useSession()
 
 const initials = computed(() => {
   const n = user.value?.name || user.value?.email || '?'
@@ -66,6 +66,7 @@ async function logout() {
     </DropdownMenuTrigger>
     <DropdownMenuContent side="top" align="start" class="w-(--reka-dropdown-menu-trigger-width) min-w-56">
       <DropdownMenuItem @click="router.push('/settings')"><Settings /> Settings</DropdownMenuItem>
+      <DropdownMenuItem v-if="isAdmin" @click="router.push('/admin')"><ShieldCheck /> Admin</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuLabel class="text-xs font-normal text-muted-foreground">Theme</DropdownMenuLabel>
       <DropdownMenuRadioGroup :model-value="theme" @update:model-value="(v) => setTheme(v as ThemeChoice)">

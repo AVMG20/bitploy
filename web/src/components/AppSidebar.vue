@@ -2,11 +2,13 @@
 import { computed, nextTick, ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { RouterLink, useRoute } from 'vue-router'
-import { Box, Boxes, Clock, History, LoaderCircle, Plus, Settings, ShieldCheck, Sparkles, Users } from 'lucide-vue-next'
+import { Boxes, CircleAlert, Clock, History, House, LoaderCircle, Plus, Search, Settings, Sparkles, Users } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
-import BuildsCard from './BuildsCard.vue'
+import StatusDock from './shell/StatusDock.vue'
 import StatusDot from './StatusDot.vue'
 import UserMenu from './UserMenu.vue'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
 import {
   Sidebar,
   SidebarContent,
@@ -28,31 +30,27 @@ import {
 import { keys, useActiveBuilds, useProjects, useServiceTemplates } from '@/composables/queries'
 import type { ProjectList } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { useSession } from '@/composables/useSession'
+import { modKey, paletteOpen } from '@/composables/useShortcuts'
 import { appRoute, projectRoute } from '@/lib/appLinks'
 import { toastError } from '@/lib/notify'
 import { aliasOf, ownerName, placeId, projectHealth, sortByIds, sortProjectApps } from '@/lib/projects'
 
 const route = useRoute()
-const { isAdmin } = useSession()
 const { setOpenMobile } = useSidebar()
 const projects = useProjects()
 const templates = useServiceTemplates()
 const { buildOf, phaseOf } = useActiveBuilds()
 
-const items = computed(() => {
-  const list = [
-    { title: 'Projects', to: '/', icon: Box, active: route.path === '/' || route.path === '/new' },
-    { title: 'Ready-made', to: '/ready-made', icon: Boxes, active: route.path.startsWith('/ready-made') || route.name === 'new-catalog' },
-    { title: 'Connect AI', to: '/connect', icon: Sparkles, active: route.path.startsWith('/connect') },
-    { title: 'Activity', to: '/activity', icon: History, active: route.path.startsWith('/activity') },
-    { title: 'Settings', to: '/settings', icon: Settings, active: route.path.startsWith('/settings') },
-  ]
-  if (isAdmin.value) {
-    list.push({ title: 'Admin', to: '/admin', icon: ShieldCheck, active: route.path.startsWith('/admin') })
-  }
-  return list
-})
+// Settings and Admin live in the user menu (and Settings as a gear next to it);
+// Connect AI is a highlighted item in the footer.
+const items = computed(() => [
+  { title: 'Home', to: '/', icon: House, active: route.path === '/' || route.path === '/new' },
+  { title: 'Ready-made', to: '/ready-made', icon: Boxes, active: route.path.startsWith('/ready-made') || route.name === 'new-catalog' },
+  { title: 'Activity', to: '/activity', icon: History, active: route.path.startsWith('/activity') },
+])
+
+/** A project with an app that failed or crashed shows a small alert. */
+const hasFailed = (apps: readonly { status: string }[]) => apps.some((a) => a.status === 'failed' || a.status === 'crashed')
 
 // Your projects and the ones shared with you, in the order the server keeps
 // for you (a new one on top); the one you are in shows its apps.
@@ -159,10 +157,23 @@ function subApps(p: (typeof list.value)[number]) {
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            tooltip="Search or jump to…"
+            class="border bg-card text-muted-foreground shadow-card hover:bg-card hover:text-foreground"
+            aria-keyshortcuts="Meta+K Control+K"
+            @click="paletteOpen = true"
+          >
+            <Search />
+            <span class="flex-1 text-left">Search or jump to…</span>
+            <Kbd class="group-data-[collapsible=icon]:hidden">{{ modKey }} K</Kbd>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
     </SidebarHeader>
-    <SidebarContent>
-      <SidebarGroup>
-        <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+    <SidebarContent class="justify-start">
+      <SidebarGroup class="flex-none">
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem v-for="item in items" :key="item.to">
@@ -177,13 +188,13 @@ function subApps(p: (typeof list.value)[number]) {
         </SidebarGroupContent>
       </SidebarGroup>
 
-      <SidebarGroup v-if="list.length" class="group-data-[collapsible=icon]:hidden">
+      <SidebarGroup v-if="list.length" class="flex-none group-data-[collapsible=icon]:hidden">
         <SidebarGroupLabel>Your projects</SidebarGroupLabel>
         <SidebarGroupAction as-child title="New project">
           <RouterLink :to="{ name: 'new-app' }" @click="setOpenMobile(false)"><Plus /><span class="sr-only">New project</span></RouterLink>
         </SidebarGroupAction>
         <SidebarGroupContent>
-          <SidebarMenu @dragover="dragId && $event.preventDefault()" @drop="onDrop">
+          <SidebarMenu class="content-start" @dragover="dragId && $event.preventDefault()" @drop="onDrop">
             <SidebarMenuItem
               v-for="p in list"
               :key="p.id"
@@ -207,7 +218,8 @@ function subApps(p: (typeof list.value)[number]) {
                   <StatusDot :status="projectHealth(p.apps).status === 'empty' ? 'new' : projectHealth(p.apps).status" :building="phaseOf(p.apps)" class="mx-1" />
                   <span class="truncate">{{ p.name }}</span>
                   <!-- Not a span: the button truncates its last span, which cut the count off next to a long name. -->
-                  <small v-if="p.shared || (p.apps.length > 1 && !expanded(p))" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
+                  <small v-if="p.shared || hasFailed(p.apps) || (p.apps.length > 1 && !expanded(p))" class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground tabular-nums">
+                    <CircleAlert v-if="hasFailed(p.apps)" class="size-3.5! text-destructive" aria-label="An app failed" />
                     <span v-if="p.shared" class="inline-flex" :title="`Shared by ${ownerName(p)}`"><Users class="size-3.5!" aria-hidden="true" /><span class="sr-only">Shared by {{ ownerName(p) }}</span></span>
                     <template v-if="p.apps.length > 1 && !expanded(p)">{{ p.apps.length }}</template>
                   </small>
@@ -242,8 +254,20 @@ function subApps(p: (typeof list.value)[number]) {
       </SidebarGroup>
     </SidebarContent>
     <SidebarFooter>
-      <BuildsCard />
-      <UserMenu />
+      <StatusDock />
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton as-child :is-active="route.path.startsWith('/connect')" tooltip="Connect AI" class="bg-primary/10 font-medium text-primary-text hover:bg-primary/15 hover:text-primary-text data-[active=true]:bg-primary/15 data-[active=true]:text-primary-text">
+            <RouterLink to="/connect" @click="setOpenMobile(false)"><Sparkles /><span>Connect AI</span></RouterLink>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+      <div class="flex items-center gap-1">
+        <div class="min-w-0 flex-1"><UserMenu /></div>
+        <Button as-child variant="ghost" size="icon" class="size-8 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" title="Settings">
+          <RouterLink to="/settings" aria-label="Settings" @click="setOpenMobile(false)"><Settings /></RouterLink>
+        </Button>
+      </div>
     </SidebarFooter>
     <SidebarRail />
   </Sidebar>

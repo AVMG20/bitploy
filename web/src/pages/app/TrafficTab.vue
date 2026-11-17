@@ -16,9 +16,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useApp, useAppTraffic } from '@/composables/queries'
+import { useQuery } from '@tanstack/vue-query'
+import { keys, useApp, useAppMetrics } from '@/composables/queries'
 import { api } from '@/lib/api'
-import { countryName } from '@/lib/format'
+import { CPU_HINT, countryName, formatCPU, formatMB } from '@/lib/format'
+import { isMulti } from '@/lib/services'
+import MetricChart from '@/components/MetricChart.vue'
+import type { MetricWindow } from '@/lib/types'
 import { change, formatSeconds, pointChange, share, timeChange } from '@/lib/traffic'
 import type { Change } from '@/lib/traffic'
 import { cn } from '@/lib/utils'
@@ -26,6 +30,14 @@ import type { Traffic, TrafficCountry, TrafficItem, TrafficListName, TrafficWind
 
 const props = defineProps<{ slug: string }>()
 
+// Metrics: what the app uses (every app) and who visits it (websites). The two
+// have their own period, in their own address parameter.
+const usageSel = useQueryParam<MetricWindow>('usage', '1h', ['1h', '24h', '7d'])
+const usageWindows: { value: MetricWindow; label: string }[] = [
+  { value: '1h', label: '1 hour' },
+  { value: '24h', label: '24 hours' },
+  { value: '7d', label: '7 days' },
+]
 const windowSel = useQueryParam<TrafficWindow>('window', '7d', ['24h', '7d', '30d'])
 const windows: { value: TrafficWindow; label: string; period: string; previous: string; lists: string }[] = [
   { value: '24h', label: '24 hours', period: 'the last 24 hours', previous: 'the 24 hours before', lists: 'Today and yesterday (UTC)' },
@@ -33,10 +45,24 @@ const windows: { value: TrafficWindow; label: string; period: string; previous: 
   { value: '30d', label: '30 days', period: 'the last 30 days', previous: 'the 30 days before', lists: 'Last 30 days' },
 ]
 const windowInfo = computed(() => windows.find((w) => w.value === windowSel.value) ?? windows[1]!)
-const traffic = useAppTraffic(() => props.slug, windowSel)
-const data = computed(() => traffic.data.value)
 const app = useApp(() => props.slug)
+const traffic = useQuery({
+  queryKey: computed(() => keys.traffic(props.slug, windowSel.value)),
+  queryFn: () => api.traffic(props.slug, windowSel.value),
+  // A worker or database has no visitors to count.
+  enabled: computed(() => app.data.value?.type === 'web'),
+  refetchInterval: 5_000,
+})
+const data = computed(() => traffic.data.value)
 const appUrl = computed(() => app.data.value?.url?.replace(/\/+$/, '') ?? '')
+const isWeb = computed(() => app.data.value?.type === 'web')
+// A project with several services shows its numbers per service on the Overview.
+const multi = computed(() => isMulti(app.data.value))
+const hasRun = computed(() => !!app.data.value?.current_deployment)
+const metrics = useAppMetrics(() => props.slug, usageSel, () => hasRun.value && !multi.value)
+const usage = computed(() => metrics.data.value?.points ?? [])
+const cpuLimit = computed(() => (app.data.value?.cpu_millis ?? 0) / 1000)
+const memoryLimit = computed(() => metrics.data.value?.memory_limit_mb ?? app.data.value?.memory_mb ?? 0)
 
 const field = ref<TrafficField>('visitors')
 
@@ -210,13 +236,62 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
 
 <template>
   <div class="grid gap-4">
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <Card>
+      <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
+        <CardTitle>Usage</CardTitle>
+        <Tabs v-model="usageSel">
+          <TabsList aria-label="Period of the usage">
+            <TabsTrigger v-for="w in usageWindows" :key="w.value" :value="w.value">{{ w.label }}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </CardHeader>
+      <CardContent>
+        <p v-if="multi" class="py-10 text-center text-sm text-muted-foreground">
+          Each service has its own numbers on the
+          <RouterLink :to="{ name: 'app', params: { slug } }" class="underline">Services</RouterLink> tab.
+        </p>
+        <p v-else-if="!hasRun" class="py-10 text-center text-sm text-muted-foreground">Nothing runs yet. Usage shows here once the first deploy is live.</p>
+        <QueryError v-else-if="metrics.isError.value && !metrics.data.value" :error="metrics.error.value" @retry="metrics.refetch()" />
+        <Skeleton v-else-if="metrics.isPending.value" class="h-48 w-full" />
+        <p v-else-if="usage.length < 2" class="py-10 text-center text-sm text-muted-foreground">
+          No data yet. Charts fill in about a minute after the app starts running.
+        </p>
+        <div v-else class="grid gap-6 md:grid-cols-2">
+          <div class="min-w-0">
+            <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
+              <span class="font-medium">CPU</span>
+              <span class="text-xs text-muted-foreground" :title="CPU_HINT">limit {{ formatCPU(cpuLimit) }}</span>
+            </p>
+            <MetricChart :points="usage" field="cpu" label="CPU" unit="CPU" :scale="0.01" :window="usageSel" :limit="cpuLimit" color="var(--chart-1)" />
+          </div>
+          <div class="min-w-0">
+            <p class="mb-2 flex items-baseline justify-between gap-2 text-sm">
+              <span class="font-medium">Memory</span>
+              <span class="text-xs text-muted-foreground">MB, limit {{ formatMB(memoryLimit) }}</span>
+            </p>
+            <MetricChart :points="usage" field="memory_mb" label="Memory" unit="MB" :window="usageSel" :limit="memoryLimit" color="var(--chart-2)" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <p v-if="app.data.value && !isWeb" class="text-sm text-muted-foreground">
+      This app has no web address, so there are no visitors to count. Its output is on the
+      <RouterLink :to="{ name: 'app-logs', params: { slug } }" class="underline">Logs</RouterLink> tab.
+    </p>
+
+    <template v-if="isWeb">
+    <!-- Visitors have periods of their own (up to 30 days), so the section has its own heading and switch. -->
+    <div class="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div>
+        <h2 class="text-base font-semibold">Visitors</h2>
+        <p class="text-xs text-muted-foreground">No cookies, no tracking scripts, no IP addresses stored.</p>
+      </div>
       <Tabs v-model="windowSel">
-        <TabsList aria-label="Period">
+        <TabsList aria-label="Period of the visitor numbers">
           <TabsTrigger v-for="w in windows" :key="w.value" :value="w.value">{{ w.label }}</TabsTrigger>
         </TabsList>
       </Tabs>
-      <p class="text-xs text-muted-foreground">No cookies, no tracking scripts, no IP addresses stored.</p>
     </div>
 
     <QueryError v-if="traffic.isError.value && !data" :error="traffic.error.value" @retry="traffic.refetch()" />
@@ -355,6 +430,7 @@ const value = 'mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-semibold 
           <TrafficSplit :rows="splits" />
         </CardContent>
       </Card>
+    </template>
     </template>
   </div>
 </template>

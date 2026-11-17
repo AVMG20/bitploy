@@ -569,7 +569,8 @@ const deleteText = computed(() => {
         <FormScope :form="generalForm">
           <form novalidate @submit.prevent>
             <FormCard :title="isPrivate ? 'Name and ID' : 'Name and address'">
-              <div class="grid gap-4 sm:grid-cols-2 sm:items-start">
+              <!-- Side by side only when wide: next to the Configure menu the address needs the room. -->
+              <div class="grid gap-4 xl:grid-cols-2 xl:items-start">
                 <FormField v-slot="{ componentField }" name="name">
                   <FormItem>
                     <FormLabel>Name</FormLabel>

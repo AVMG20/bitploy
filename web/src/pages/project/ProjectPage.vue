@@ -8,7 +8,7 @@ import CopyForAiButton from '@/components/CopyForAiButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import QueryError from '@/components/QueryError.vue'
-import StatusDot from '@/components/StatusDot.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -42,9 +42,9 @@ watch(
 )
 
 const TABS = [
-  { name: 'project', label: 'Canvas' },
-  { name: 'project-variables', label: 'Variables' },
-  { name: 'project-members', label: 'Members' },
+  { name: 'project', label: 'Map' },
+  { name: 'project-variables', label: 'Shared variables' },
+  { name: 'project-members', label: 'People' },
   { name: 'project-settings', label: 'Settings' },
 ]
 
@@ -112,22 +112,17 @@ const projectForAi = computed(() => {
 
     <template v-else>
       <PageHeader :title="project.name">
-        <template v-if="health.total || project.shared" #badges>
-          <span v-if="health.total" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
-            <StatusDot :status="health.status === 'empty' ? 'new' : health.status" :building="phaseOf(apps)" aria-hidden="true" />
-            {{ projectHealthText(apps) }}
-          </span>
-          <span v-if="project.shared" class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs text-muted-foreground" :title="`${ownerName(project)} shared this project with you`">
-            <Users class="size-3" aria-hidden="true" />
-            Shared by {{ ownerName(project) }}
-          </span>
+        <template v-if="health.total" #badges>
+          <StatusBadge :label="projectHealthText(apps)" :tone="appStatusInfo(health.status).tone" :pulse="phaseOf(apps) ? true : undefined" />
         </template>
         <template v-if="apps.length" #meta>
           <a v-if="main && isPublicApp(main)" :href="main.url" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-mono text-[13px] text-foreground hover:underline">
             {{ hostOf(main.url) }} <ArrowUpRight class="size-3 text-muted-foreground" />
           </a>
           <span v-else>No web address yet</span>
-          <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, up to {{ formatMB(usage.memoryMB) }} memory</template></span>
+          <span>{{ apps.length === 1 ? '1 app' : `${apps.length} apps` }}<template v-if="usage.memoryMB">, {{ formatMB(usage.memoryMB) }} reserved</template></span>
+          <span v-if="project.shared" class="inline-flex items-center gap-1"><Users class="size-3.5" aria-hidden="true" /> Shared by {{ ownerName(project) }}</span>
+          <span v-else-if="project.member_count" class="inline-flex items-center gap-1"><Users class="size-3.5" aria-hidden="true" /> You and {{ project.member_count === 1 ? '1 other' : `${project.member_count} others` }}</span>
         </template>
         <template v-if="canPower">
           <Button v-if="startableCount" variant="outline" :disabled="power.isPending.value" data-testid="project-start-all" @click="power.mutate(true)">
@@ -143,7 +138,7 @@ const projectForAi = computed(() => {
       </PageHeader>
 
       <Tabs v-if="!fallback" :model-value="String(route.name)" class="min-w-0">
-        <div class="overflow-x-auto overflow-y-hidden border-b">
+        <div class="overflow-x-auto overflow-y-hidden border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList variant="line" class="-ml-1.5">
             <TabsTrigger v-for="t in TABS" :key="t.name" :value="t.name" as-child>
               <RouterLink :to="{ name: t.name, params: { projectId: project.id } }">{{ t.label }}</RouterLink>

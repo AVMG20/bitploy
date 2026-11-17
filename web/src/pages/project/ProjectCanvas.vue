@@ -6,6 +6,7 @@ import { PanelLeftClose, Plus } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import AppPanel from '@/components/project/AppPanel.vue'
 import ProjectAppCard from '@/components/project/ProjectAppCard.vue'
+import ProjectAppsTable from '@/components/project/ProjectAppsTable.vue'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { openAdd } from '@/composables/useAddToProject'
@@ -20,7 +21,8 @@ import type { Lane } from '@/lib/projects'
 // The canvas: the apps of a project as cards in three lanes (what visitors
 // open, what runs in the background, what keeps data), with lines from each
 // app to the apps whose variables it reads. A card opens the app's page; its
-// eye opens a quick look in a panel over the canvas (?app=<slug>).
+// eye opens a quick look in a panel over the canvas (?app=<slug>). With several
+// apps a table under the map lines them up to compare.
 const props = defineProps<{ projectId: string }>()
 const route = useRoute()
 const router = useRouter()
@@ -281,6 +283,11 @@ const quickPicks = computed(() => {
         </g>
       </svg>
 
+      <!-- What the lines mean: the apps' own private network, which the internet cannot reach. -->
+      <p v-if="lanes.length > 1" class="relative mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-1.5"><span class="h-px w-4 bg-foreground/35" /> private network: the app reads variables of the other</span>
+        <span class="inline-flex items-center gap-1.5"><span class="h-px w-4 bg-primary" /> lit when you hover an app</span>
+      </p>
       <!-- Lanes too narrow to sit side by side: one under the other, and no lines. -->
       <p v-if="sidebarHint" class="relative mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border bg-card/80 px-3 py-2 text-sm text-muted-foreground">
         The lines between the apps show when the lanes fit side by side.
@@ -333,6 +340,8 @@ const quickPicks = computed(() => {
         ><span v-for="(t, k) in lb.lines" :key="k" class="block whitespace-nowrap">{{ t }}</span></span>
       </div>
     </div>
+
+    <ProjectAppsTable v-if="apps.length > 1" :apps="apps" :role-of="roleOf" />
 
     <AppPanel v-if="selectedApp" :slug="selectedApp.slug" :project-id="project.id" :side="panelSide" @close="closePanel" />
   </div>

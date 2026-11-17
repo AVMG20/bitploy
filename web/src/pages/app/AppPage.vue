@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useEventListener, useResizeObserver } from '@vueuse/core'
-import { ArrowUpCircle, ExternalLink, GitBranch, Globe, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowUpCircle, ExternalLink, GitBranch, Globe, Link, Lock, MoreHorizontal, PanelRight, Play, RefreshCw, RotateCw, Settings, Square, SquareTerminal, Trash2 } from 'lucide-vue-next'
 import AppStatusBadge from '@/components/AppStatusBadge.vue'
 import BuildingBadge from '@/components/BuildingBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -27,12 +27,14 @@ import { useAppControls } from '@/composables/useAppControls'
 import { useSession } from '@/composables/useSession'
 import { nowMs } from '@/composables/useNow'
 import { ApiError } from '@/lib/api'
-import { APP_TABS } from '@/lib/appTabs'
+import { APP_TABS, CONFIG_SECTIONS, MAIN_TABS, isConfigRoute } from '@/lib/appTabs'
 import { isServerDb, pickDatabase } from '@/lib/dbvalue'
 import { commitUrl, deployedVia, hostOf, shortSha } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { copyText } from '@/lib/notify'
 import { terminalOffered } from '@/lib/terminal'
 import CatalogUpdateDialog from './CatalogUpdateDialog.vue'
+import PendingChanges from './PendingChanges.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 import ServiceSheet from './ServiceSheet.vue'
 import ServiceIcon from '@/components/ServiceIcon.vue'
@@ -77,17 +79,22 @@ const openPort = computed(() => (data.value ? publicPortText(data.value, nowMs.v
 // another user's app.
 const { user } = useSession()
 const hasTerminal = computed(() => terminalOffered(data.value, user.value?.id ?? ''))
-const shownTabs = computed(() =>
-  APP_TABS.filter((t) => (!t.webOnly || isWeb.value) && (!t.database || hasDatabase.value) && (!t.terminal || hasTerminal.value)).map((t) =>
-    multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t,
-  ),
-)
-// A page below a tab (the database viewer) names the tab that stays highlighted.
-const current = computed(() => String(route.meta.tab ?? route.name))
+// Overview, Deployments, Logs, Metrics and Configure. Configure stays lit on every page below it.
+const shownTabs = computed(() => MAIN_TABS.map((t) => (multi.value && t.name === 'app' ? { ...t, label: 'Services' } : t)))
+const onConfigure = computed(() => isConfigRoute(route.name))
+const onTerminal = computed(() => route.name === 'app-terminal')
+// The page below a tab (the database viewer) names the tab that stays highlighted. The terminal lights none.
+const current = computed(() => (onConfigure.value ? 'configure' : onTerminal.value ? '' : String(route.meta.tab ?? route.name)))
+// The side menu of Configure: only the pages this app has.
+const configSections = computed(() => CONFIG_SECTIONS.filter((c) => (!c.webOnly || isWeb.value) && (!c.database || hasDatabase.value)))
+// The database of a SQLite file lives under Storage; its own tab is the viewer.
+const configCurrent = computed(() => (route.name === 'app-database' ? 'app-storage' : String(route.name)))
+// The database viewer needs the whole width: its menu becomes a row above it.
+const wide = computed(() => !!route.meta.wide)
 const notFound = computed(() => app.error.value instanceof ApiError && app.error.value.status === 404)
 
 // The browser tab says which app this is.
-const tabLabel = computed(() => (route.meta.title as string | undefined) ?? APP_TABS.find((t) => t.name === current.value && t.name !== 'app')?.label ?? '')
+const tabLabel = computed(() => (route.meta.title as string | undefined) ?? APP_TABS.find((t) => t.name === String(route.name) && t.name !== 'app')?.label ?? '')
 // route.fullPath too: the router's own title (set after every navigation, also
 // within a tab, like the Data and SQL views of the Database tab) would drop the app name.
 watch(
@@ -178,19 +185,21 @@ const deleteOpen = ref(false)
             <Lock class="size-3.5" aria-hidden="true" /> Private, at <span class="font-mono text-[13px] text-foreground">{{ internalHostOf(data) }}</span>
           </span>
           <span v-else>Runs in the background, no web address</span>
+          <span v-if="data.git_source || dep?.commit_sha || dep?.commit_message" class="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span v-if="data.git_source" class="inline-flex items-center gap-1"><GitBranch class="size-3.5" aria-hidden="true" /> {{ data.git_source.branch }}</span>
+            <template v-if="dep?.commit_sha">
+              <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-[13px] text-foreground hover:underline">{{ shortSha(dep.commit_sha) }}</a>
+              <span v-else class="font-mono text-[13px] text-foreground">{{ shortSha(dep.commit_sha) }}</span>
+            </template>
+            <span v-if="dep?.commit_message" class="max-w-[18rem] truncate" :title="dep.commit_message">{{ dep.commit_message.split('\n')[0] }}</span>
+          </span>
           <span v-if="dep">Deployed <RelativeTime :date="dep.finished_at ?? dep.queued_at" /> {{ deployedVia(dep.channel) }}</span>
           <span v-else-if="data.status !== 'deploying'">Not deployed yet</span>
-          <template v-if="data.git_source">
-            <span class="inline-flex items-center gap-1.5">
-              <span class="inline-flex items-center gap-1"><GitBranch class="size-3.5" /> {{ data.git_source.branch }}</span>
-              <template v-if="dep?.commit_sha">
-                <a v-if="commitUrl(data, dep.commit_sha)" :href="commitUrl(data, dep.commit_sha)" target="_blank" rel="noopener noreferrer" class="font-mono text-[13px] text-foreground hover:underline">{{ shortSha(dep.commit_sha) }}</a>
-                <span v-else class="font-mono text-[13px] text-foreground">{{ shortSha(dep.commit_sha) }}</span>
-              </template>
-            </span>
-          </template>
         </template>
 
+          <Button v-if="hasTerminal" as-child :variant="onTerminal ? 'secondary' : 'outline'" size="icon" title="Open a terminal in the app">
+            <RouterLink :to="{ name: 'app-terminal', params: { slug } }" aria-label="Terminal"><SquareTerminal /></RouterLink>
+          </Button>
           <template v-if="isWeb && primary !== 'open'">
             <!-- On a phone it is the icon alone, so the header's buttons fit on one row. -->
             <Button v-if="dep" as-child variant="outline" class="max-sm:px-2.5">
@@ -229,7 +238,7 @@ const deleteOpen = ref(false)
               <DropdownMenuItem v-if="isWeb" @click="copyText(data.url, 'Link copied')"><Link /> Copy link</DropdownMenuItem>
               <DropdownMenuItem v-if="project" @click="router.push(projectRoute(project.id, { app: slug }))"><PanelRight /> Show on the canvas</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem @click="router.push({ name: 'app-settings', params: { slug } })"><Settings /> Settings</DropdownMenuItem>
+              <DropdownMenuItem @click="router.push({ name: 'app-settings', params: { slug } })"><Settings /> Configure</DropdownMenuItem>
               <DropdownMenuItem v-if="mayDestroy(data)" variant="destructive" @click="deleteOpen = true"><Trash2 /> Delete app</DropdownMenuItem>
               <DropdownMenuItem v-else disabled :title="ownerOnlyTitle('delete this app')"><Trash2 /> Delete app (owner only)</DropdownMenuItem>
             </DropdownMenuContent>
@@ -240,26 +249,18 @@ const deleteOpen = ref(false)
         <Skeleton class="h-4 w-96 max-w-full" />
       </div>
 
-      <!-- Saved changes that the running app does not use yet. -->
-      <div
-        v-if="pending.reasons.value.length"
-        role="status"
-        class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm"
-      >
-        <RotateCw class="size-4 shrink-0 text-warning-text" aria-hidden="true" />
-        <p class="min-w-0 flex-1">
-          <span class="font-medium">{{ pending.needsBuild.value ? 'Deploy again to apply your changes.' : 'Restart to apply your changes.' }}</span>
-          <span class="text-muted-foreground">
-            Your changes to {{ pending.text.value }} are saved, but the running {{ thing }} does not use them yet.
-          </span>
-        </p>
-        <Button v-if="pending.needsBuild.value" size="sm" :disabled="busy || !canRebuild" @click="rebuild">
-          <RefreshCw :class="actions.redeploy.isPending.value && 'animate-spin'" /> Deploy again
-        </Button>
-        <Button v-else size="sm" :disabled="busy" @click="restart">
-          <RotateCw :class="actions.restart.isPending.value && 'animate-spin'" /> {{ actions.restart.isPending.value ? 'Restarting...' : 'Restart now' }}
-        </Button>
-      </div>
+      <!-- Saved changes that the running app does not use yet. On the other tabs the bar stays here; on Configure it sticks to the bottom (below). -->
+      <PendingChanges
+        v-if="pending.reasons.value.length && !onConfigure"
+        :text="pending.text.value"
+        :needs-build="pending.needsBuild.value"
+        :busy="busy"
+        :can-rebuild="canRebuild"
+        :restarting="actions.restart.isPending.value"
+        :redeploying="actions.redeploy.isPending.value"
+        @rebuild="rebuild"
+        @restart="restart"
+      />
 
       <Tabs :model-value="current" class="min-w-0">
         <div
@@ -272,16 +273,55 @@ const deleteOpen = ref(false)
         >
           <TabsList variant="line" class="-ml-1.5">
             <TabsTrigger v-for="t in shownTabs" :key="t.name" :value="t.name" as-child>
-              <RouterLink :to="{ name: t.name, params: { slug } }">{{ t.label }}</RouterLink>
+              <RouterLink :to="{ name: t.to, params: { slug } }">{{ t.label }}</RouterLink>
             </TabsTrigger>
           </TabsList>
         </div>
       </Tabs>
 
+      <RouterLink v-if="onTerminal" :to="{ name: 'app', params: { slug } }" class="-mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft class="size-4" aria-hidden="true" /> Back to {{ data?.name ?? 'the app' }}
+      </RouterLink>
+
+      <!-- Configure: one topic per page, a menu on the left (a row on a phone, and above the database viewer, which needs the width). -->
+      <div v-if="onConfigure" :class="cn('grid min-w-0 gap-6', !wide && 'md:grid-cols-[200px_minmax(0,1fr)]')">
+        <nav aria-label="Configure" :class="cn('scrollbar-none -mx-4 flex content-start gap-0.5 overflow-x-auto px-4', wide ? '' : 'md:mx-0 md:grid md:overflow-visible md:px-0')">
+          <RouterLink
+            v-for="c in configSections"
+            :key="c.name"
+            :to="{ name: c.name, params: { slug } }"
+            :aria-current="configCurrent === c.name ? 'page' : undefined"
+            :class="cn(
+              'inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+              configCurrent === c.name && 'bg-accent text-foreground',
+            )"
+          >
+            <component :is="c.icon" class="size-4 shrink-0" aria-hidden="true" /> {{ c.label }}
+          </RouterLink>
+        </nav>
+        <div class="min-w-0">
+          <RouterView v-slot="{ Component }">
+            <component :is="Component" :key="slug" />
+          </RouterView>
+        </div>
+      </div>
       <!-- Keyed on the app: switching apps recreates the tab, so no edit or open form carries over to the other app. -->
-      <RouterView v-slot="{ Component }">
+      <RouterView v-else v-slot="{ Component }">
         <component :is="Component" :key="slug" />
       </RouterView>
+
+      <PendingChanges
+        v-if="pending.reasons.value.length && onConfigure"
+        sticky
+        :text="pending.text.value"
+        :needs-build="pending.needsBuild.value"
+        :busy="busy"
+        :can-rebuild="canRebuild"
+        :restarting="actions.restart.isPending.value"
+        :redeploying="actions.redeploy.isPending.value"
+        @rebuild="rebuild"
+        @restart="restart"
+      />
     </template>
 
     <ConfirmDialog

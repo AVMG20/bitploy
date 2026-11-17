@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useQuery } from '@tanstack/vue-query'
 import { ChevronRight, History, Loader2, ScrollText, Undo2 } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import LogLines from '@/components/LogLines.vue'
@@ -16,17 +16,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { keys, livePoll, REFRESH_MS, useApp } from '@/composables/queries'
 import { api } from '@/lib/api'
 import { commitUrl, deployedVia, deploymentStateInfo, describeSource, formatDuration, shortSha, versionLabel } from '@/lib/format'
-import { toastError, toastLoading } from '@/lib/notify'
 import type { Deployment, DeploymentService } from '@/lib/types'
 import ServiceIcon from '@/components/ServiceIcon.vue'
 import { isMulti, serviceRole } from '@/lib/services'
+import { useRollback } from './useRollback'
 import CancelBuildButton from './CancelBuildButton.vue'
 import DeployFailure from './DeployFailure.vue'
 import DeploymentWarnings from './DeploymentWarnings.vue'
 import UploadVersionButton from './UploadVersionButton.vue'
 
 const props = defineProps<{ slug: string }>()
-const qc = useQueryClient()
 const app = useApp(() => props.slug)
 const list = useQuery({
   queryKey: computed(() => keys.deployments(props.slug)),
@@ -34,42 +33,7 @@ const list = useQuery({
   refetchInterval: livePoll(REFRESH_MS),
 })
 
-const target = ref<Deployment | null>(null)
-const confirmOpen = computed({
-  get: () => target.value !== null,
-  set: (v) => {
-    if (!v) target.value = null
-  },
-})
-
-const rollback = useMutation({
-  mutationFn: (d: Deployment) => api.rollback(props.slug, d.id),
-  onMutate: (d) => {
-    target.value = null
-    return toastLoading(`Going back to ${versionLabel(d.seq).toLowerCase()}...`)
-  },
-  onSuccess: (_r, d, t) => {
-    t.ok(
-      `Going back to ${versionLabel(d.seq).toLowerCase()}`,
-      app.data.value?.volume ? 'The app is offline for a few seconds while it switches.' : undefined,
-    )
-    void qc.invalidateQueries({ queryKey: keys.deployments(props.slug) })
-    void qc.invalidateQueries({ queryKey: keys.app(props.slug) })
-    void qc.invalidateQueries({ queryKey: keys.apps })
-  },
-  onError: (e, _d, t) => (t ? t.fail(e) : toastError(e)),
-})
-
-// What going back does, and that a push to the linked branch builds the newest code again.
-const goBackText = computed(() => {
-  const gs = app.data.value?.git_source
-  let text = `Your app runs ${versionLabel(target.value?.seq).toLowerCase()} again.`
-  // Migrations are not undone: the older version must work with the database as it is now.
-  if (app.data.value?.before_deploy_command || app.data.value?.after_deploy_command)
-    text += ' Your deploy commands do not run when you go back, so changes they made, like database migrations, stay.'
-  if (gs?.auto_deploy) text += ` The next push to ${gs.branch} on GitHub builds and deploys your newest code again.`
-  return text
-})
+const { target, confirmOpen, rollback, goBackText, canRollback } = useRollback(() => props.slug)
 
 // Every new version shows up here; how you send one depends on where the code is.
 const emptyText = computed(() => {
@@ -78,11 +42,6 @@ const emptyText = computed(() => {
   if (a?.catalog_id) return 'The first version is being prepared.'
   return 'Upload your files, or ask your AI assistant to deploy to this app.'
 })
-
-function canRollback(d: Deployment): boolean {
-  const built = !!d.image || !!d.services?.some((s) => !!s.image)
-  return d.state === 'superseded' && built && !d.image_removed && d.id !== app.data.value?.current_deployment?.id
-}
 
 // ---------------------------------------------------------------- the services of one deployment (projects with several)
 const multi = computed(() => isMulti(app.data.value))

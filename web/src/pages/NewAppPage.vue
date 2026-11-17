@@ -2,14 +2,16 @@
 import { appPath, appRoute, projectRoute } from '@/lib/appLinks'
 import { computed, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, LayoutGrid, Lock, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowRight, Boxes, Container, FileCode, FolderPlus, Github, KeyRound, LayoutGrid, LoaderCircle, Lock, MousePointerClick, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import BuildTypeFields from '@/components/BuildTypeFields.vue'
 import CatalogPicker from '@/components/CatalogPicker.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
+import McpSnippets from '@/components/McpSnippets.vue'
 import DomainSelect from '@/components/DomainSelect.vue'
 import DockerfileEditor from '@/components/DockerfileEditor.vue'
 import SourceDropZone from '@/components/SourceDropZone.vue'
@@ -28,7 +30,8 @@ import { api } from '@/lib/api'
 import { detectSource, outputDirError } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
-import { toastError } from '@/lib/notify'
+import { connectToken, rememberToken } from '@/lib/mcp'
+import { toastError, toastOk } from '@/lib/notify'
 import { composeFit, NO_OWN_APPS, noOwnApps } from '@/lib/quota'
 import { addressParts as toAddressParts, freeSlug, slugify, slugSchema } from '@/lib/slug'
 import type { BuildMode, ComposeCheck, DockerfileFinding, GitHubRepo, GitSourceInput } from '@/lib/types'
@@ -296,6 +299,69 @@ const waitingFor = computed(() => {
   return upload.value ? '' : 'Add your files to continue.'
 })
 
+// ---------------------------------------------------------------- the two roads
+// Most deploys come from an AI assistant, so that road comes first. Adding to a
+// project, or arriving with a source chosen, means the person is doing it by
+// hand; otherwise the last choice is remembered (a browser that blocks
+// storage just starts on the AI road each time).
+type Road = 'ai' | 'self'
+const savedRoad = (() => {
+  try {
+    return localStorage.getItem('bitploy.newRoad') === 'self' ? 'self' : 'ai'
+  } catch {
+    return 'ai'
+  }
+})()
+const road = ref<Road>(chosenSource.value || intoProject.value ? 'self' : savedRoad)
+function chooseRoad(r: Road) {
+  road.value = r
+  try {
+    localStorage.setItem('bitploy.newRoad', r)
+  } catch {
+    // Remembering the choice is a courtesy.
+  }
+}
+
+// The AI road: a token for the assistant (the same one the Connect page makes).
+const mcpUrl = computed(() => `${me.data.value?.public_url ?? window.location.origin}/mcp`)
+const makeToken = useMutation({
+  mutationFn: () => api.createToken({ name: 'Connect AI', scope: 'deploy' }),
+  onSuccess: (t) => {
+    rememberToken(t.value)
+    toastOk('Token created', 'It is filled in below.')
+    void qc.invalidateQueries({ queryKey: keys.tokens })
+  },
+  onError: (e) => toastError(e),
+})
+// Waiting for the assistant: the first list that loads is the starting point,
+// and any project or app that is not in it was made by the assistant. The list
+// refreshes by itself.
+const knownApps = ref<Set<string> | null>(null)
+watch(
+  () => projects.data.value,
+  (d) => {
+    if (d && !knownApps.value) knownApps.value = new Set(d.projects.flatMap((p) => p.apps.map((a) => a.id)))
+  },
+  { immediate: true },
+)
+const arrived = computed(() => {
+  const known = knownApps.value
+  if (!known || road.value !== 'ai') return null
+  const all = (projects.data.value?.projects ?? []).flatMap((p) => p.apps.map((a) => ({ p, a })))
+  return all.filter((x) => !known.has(x.a.id)).sort((x, y) => y.a.created_at.localeCompare(x.a.created_at))[0] ?? null
+})
+
+// A folder, zip or page dropped on the first step goes straight on to the
+// second: the files carry over, and the drop zone there shows what was found.
+const dropped = ref<UploadChoice | null>(null)
+watch(dropped, (u) => {
+  if (!u) return
+  upload.value = u
+  dropped.value = null
+  pick('upload')
+})
+const readyMadeTo = computed(() => ({ name: 'ready-made', query: intoProject.value ? { project: intoProject.value } : undefined }))
+
 // ---------------------------------------------------------------- the first step: where is the code?
 interface Tile {
   id: Source
@@ -304,10 +370,8 @@ interface Tile {
   icon: typeof Github
 }
 const TILES: Tile[] = [
-  { id: 'upload', title: 'Upload', text: 'A folder, a .zip or one .html page from your computer.', icon: Upload },
   { id: 'dockerfile', title: 'Dockerfile or compose', text: 'Paste a Dockerfile, or a compose file for several services.', icon: FileCode },
   { id: 'image', title: 'Docker image', text: 'A published image, like nginx:1.27 or ghcr.io/owner/app.', icon: Container },
-  { id: 'ready-made', title: 'Ready-made', text: 'Uptime Kuma, Vaultwarden, PocketBase and more.', icon: LayoutGrid },
 ]
 const SOURCE_LABEL: Record<Source, string> = {
   github: 'From GitHub',
@@ -447,7 +511,7 @@ const submit = form.handleSubmit(run)
   <div class="grid gap-6">
     <PageHeader
       :title="project ? `Add an app to ${project.name}` : 'New project'"
-      :description="noOwn ? undefined : chosenSource ? `Name the ${thing} and press Deploy.` : 'Where is your code? bitploy builds it and puts it online.'"
+      :description="noOwn ? undefined : chosenSource ? `Name the ${thing} and press Deploy.` : 'Pick how. You can add a database or more apps to the project afterwards.'"
     />
 
     <Alert v-if="noOwn" data-testid="no-own-apps">
@@ -464,75 +528,174 @@ const submit = form.handleSubmit(run)
       </AlertDescription>
     </Alert>
 
-    <!-- Step 1: where the code is. -->
-    <div v-else-if="!chosenSource" class="grid gap-3" data-testid="source-picker">
-      <!-- GitHub connected: the repositories, right here. -->
-      <Card v-if="canPick" data-testid="start-github">
-        <CardContent class="grid gap-4">
-          <div class="flex items-start gap-3">
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
-            <span class="grid gap-0.5">
-              <span class="flex items-center gap-2 text-base font-semibold">
-                Deploy from GitHub
-                <span class="inline-flex items-center gap-1.5 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success"><span class="size-1.5 rounded-full bg-success" aria-hidden="true" />Connected</span>
-              </span>
-              <span class="text-sm text-muted-foreground">Pick a repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.</span>
-            </span>
-          </div>
-          <RepoPicker compact :show-folder="false" id-prefix="start" @picked="startFromRepo" />
-        </CardContent>
-      </Card>
-      <button
-        v-else
-        type="button"
-        class="group relative grid gap-3 overflow-hidden rounded-xl border bg-card p-5 text-left transition-colors hover:border-primary/50 sm:grid-cols-[auto_1fr_auto] sm:items-center"
-        @click="pick('github')"
-      >
-        <span class="flex size-11 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
-        <span class="grid gap-1">
-          <span class="text-base font-semibold">Deploy from GitHub</span>
-          <span class="text-sm text-muted-foreground">
-            Any repository. bitploy finds a Dockerfile, a compose file, a website or a Node.js app, and deploys again on every push.
-          </span>
-          <span class="pt-1 text-xs text-muted-foreground">Connect GitHub on the next step</span>
-        </span>
-        <ArrowRight class="hidden size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground sm:block" />
-      </button>
-
-      <h2 class="pt-3 text-sm font-medium text-muted-foreground">Or start from</h2>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <!-- Step 1: how to put it online. -->
+    <div v-else-if="!chosenSource" class="mx-auto grid w-full max-w-[860px] gap-4" data-testid="source-picker">
+      <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="How do you want to do it?">
         <button
-          v-for="t in TILES"
-          :key="t.id"
+          v-for="r in [
+            { id: 'ai', title: 'My AI assistant does it', text: 'Claude Code, Cursor, Codex: say \u201cdeploy this\u201d and it is live.', icon: Sparkles },
+            { id: 'self', title: 'I\u2019ll do it myself', text: 'From GitHub, a folder on your computer, or a ready-made app.', icon: MousePointerClick },
+          ] as const"
+          :key="r.id"
           type="button"
-          class="group grid content-start gap-2 rounded-xl border bg-card p-4 text-left transition-colors hover:border-foreground/25"
-          @click="pick(t.id)"
+          role="radio"
+          :aria-checked="road === r.id"
+          :data-testid="`road-${r.id}`"
+          class="flex gap-3.5 rounded-xl border bg-card p-4 text-left shadow-card transition-[border-color,box-shadow] hover:border-foreground/25 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none aria-checked:border-primary aria-checked:ring-3 aria-checked:ring-primary/20"
+          @click="chooseRoad(r.id)"
         >
-          <component :is="t.icon" class="size-4.5 text-muted-foreground group-hover:text-foreground" />
-          <span class="text-sm font-medium">{{ t.title }}</span>
-          <span class="text-xs text-muted-foreground">{{ t.text }}</span>
+          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border" :class="road === r.id ? 'border-primary/30 bg-primary/10 text-primary-text' : 'bg-muted/60 text-muted-foreground'"><component :is="r.icon" class="size-4" /></span>
+          <span class="grid min-w-0 gap-1">
+            <span class="flex flex-wrap items-center gap-2 font-medium">
+              {{ r.title }}
+              <span v-if="r.id === 'ai'" class="rounded-md border border-primary/30 bg-primary/10 px-1.5 text-[11px] leading-5 text-primary-text">Easiest</span>
+            </span>
+            <span class="text-[13px] text-muted-foreground">{{ r.text }}</span>
+          </span>
         </button>
       </div>
 
-      <div v-if="!intoProject && !fallback && projects.data.value" class="rounded-xl border border-dashed p-4">
-        <div v-if="!emptyOpen" class="flex flex-wrap items-center justify-between gap-3">
-          <span class="flex items-center gap-3">
-            <FolderPlus class="size-4.5 text-muted-foreground" />
-            <span class="grid">
-              <span class="text-sm font-medium">Empty project</span>
-              <span class="text-xs text-muted-foreground">Add a database, a cache or an app to it after creating it.</span>
-            </span>
+      <!-- The AI road: three steps. -->
+      <Card v-if="road === 'ai'" data-testid="road-ai-steps">
+        <CardContent>
+          <ol class="grid gap-6">
+            <li class="flex gap-3.5">
+              <span class="grid size-6 shrink-0 place-items-center rounded-full bg-foreground text-xs font-semibold text-background">1</span>
+              <div class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-3">
+                <div class="font-medium">Add bitploy to your assistant</div>
+                <div class="flex flex-wrap items-center gap-2 text-sm">
+                  <template v-if="connectToken">
+                    <KeyRound class="size-4 text-success" /> <span>A token is filled in below.</span>
+                    <Button type="button" size="sm" variant="ghost" @click="rememberToken('')">Forget it</Button>
+                  </template>
+                  <template v-else>
+                    <Button type="button" size="sm" variant="outline" :disabled="makeToken.isPending.value" @click="makeToken.mutate()">
+                      <KeyRound /> {{ makeToken.isPending.value ? 'Creating...' : 'Create a token for me' }}
+                    </Button>
+                    <span class="text-xs text-muted-foreground">The token lets your assistant use bitploy as you.</span>
+                  </template>
+                </div>
+                <McpSnippets :mcp-url="mcpUrl" :token="connectToken" />
+              </div>
+            </li>
+            <li class="flex gap-3.5">
+              <span class="grid size-6 shrink-0 place-items-center rounded-full border bg-muted text-xs font-semibold">2</span>
+              <div class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2">
+                <div class="font-medium">Ask it to deploy</div>
+                <p class="text-[13px] text-muted-foreground">In your project folder, say this. It picks a name, writes a Dockerfile if needed and gives you the link.</p>
+                <CodeBlock code="Deploy this to bitploy." what="Prompt copied" wrap />
+              </div>
+            </li>
+            <li class="flex gap-3.5">
+              <span class="grid size-6 shrink-0 place-items-center rounded-full border bg-muted text-xs font-semibold">3</span>
+              <div class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2">
+                <div class="font-medium">Watch it arrive here</div>
+                <RouterLink
+                  v-if="arrived"
+                  :to="arrived.p.apps.length > 1 ? projectRoute(arrived.p.id) : appRoute(arrived.a)"
+                  class="flex items-center gap-2.5 rounded-lg border border-success/30 bg-success/10 px-3 py-2.5 text-[13px] hover:bg-success/15"
+                  role="status"
+                  data-testid="road-ai-arrived"
+                >
+                  <span class="size-2 shrink-0 rounded-full bg-success" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate"><span class="font-medium">{{ arrived.a.name }}</span> arrived. Open it.</span>
+                  <ArrowRight class="size-4 shrink-0" />
+                </RouterLink>
+                <p v-else class="flex items-center gap-2.5 rounded-lg bg-muted/50 px-3 py-2.5 text-[13px] text-muted-foreground" role="status">
+                  <LoaderCircle class="size-4 shrink-0 animate-spin" /> Waiting for your assistant to put something online...
+                </p>
+                <p class="text-xs text-muted-foreground">More about this on the <RouterLink :to="{ name: 'connect' }" class="underline underline-offset-2 hover:text-foreground">Connect page</RouterLink>.</p>
+              </div>
+            </li>
+          </ol>
+        </CardContent>
+      </Card>
+
+      <!-- The self road: GitHub, files, ready-made, and more ways. -->
+      <div v-else class="grid gap-3" data-testid="road-self">
+        <!-- GitHub connected: the repositories, right here. -->
+        <Card v-if="canPick" data-testid="start-github">
+          <CardContent class="grid gap-4">
+            <div class="flex items-start gap-3">
+              <span class="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background"><Github class="size-5" /></span>
+              <span class="grid gap-0.5">
+                <span class="flex items-center gap-2 text-base font-semibold">
+                  A GitHub repository
+                  <span class="inline-flex items-center gap-1.5 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success"><span class="size-1.5 rounded-full bg-success" aria-hidden="true" />Connected</span>
+                </span>
+                <span class="text-sm text-muted-foreground">Pick a repository. It goes live again on every push. bitploy finds out how to build it.</span>
+              </span>
+            </div>
+            <RepoPicker compact :show-folder="false" id-prefix="start" @picked="startFromRepo" />
+          </CardContent>
+        </Card>
+        <button
+          v-else
+          type="button"
+          class="group flex items-center gap-3.5 rounded-xl border bg-card p-4 text-left shadow-card transition-colors hover:border-foreground/25"
+          @click="pick('github')"
+        >
+          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-muted-foreground"><Github class="size-4" /></span>
+          <span class="grid min-w-0 flex-1">
+            <span class="text-sm font-medium">A GitHub repository</span>
+            <span class="text-[13px] text-muted-foreground">Goes live again on every push. bitploy finds out how to build it. You connect GitHub on the next step.</span>
           </span>
-          <Button variant="outline" size="sm" @click="emptyOpen = true">Create empty project</Button>
-        </div>
-        <form v-else class="flex flex-wrap items-end gap-2" @submit.prevent="startEmpty">
-          <div class="grid gap-1.5">
-            <Label for="empty-name">Project name</Label>
-            <Input id="empty-name" v-model="emptyName" class="w-64" placeholder="Shop" autocomplete="off" :disabled="emptyBusy" />
+          <ArrowRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </button>
+
+        <SourceDropZone v-model="dropped" />
+
+        <RouterLink
+          :to="readyMadeTo"
+          class="group flex items-center gap-3.5 rounded-xl border bg-card p-4 shadow-card transition-colors hover:border-foreground/25"
+          data-testid="start-ready-made"
+        >
+          <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-muted-foreground"><LayoutGrid class="size-4" /></span>
+          <span class="grid min-w-0 flex-1">
+            <span class="text-sm font-medium">A ready-made app</span>
+            <span class="text-[13px] text-muted-foreground">Uptime Kuma, Vaultwarden, n8n, Ghost and more, with their database.</span>
+          </span>
+          <ArrowRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </RouterLink>
+
+        <details class="group/more mt-1 text-sm">
+          <summary class="cursor-pointer text-muted-foreground select-none hover:text-foreground">More ways: a Dockerfile, a compose file, a Docker image{{ !intoProject && !fallback ? ', an empty project' : '' }}</summary>
+          <div class="mt-3 grid gap-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <button
+                v-for="t in TILES"
+                :key="t.id"
+                type="button"
+                class="group grid content-start gap-2 rounded-xl border bg-card p-4 text-left transition-colors hover:border-foreground/25"
+                @click="pick(t.id)"
+              >
+                <component :is="t.icon" class="size-4.5 text-muted-foreground group-hover:text-foreground" />
+                <span class="text-sm font-medium">{{ t.title }}</span>
+                <span class="text-xs text-muted-foreground">{{ t.text }}</span>
+              </button>
+            </div>
+            <div v-if="!intoProject && !fallback && projects.data.value" class="rounded-xl border border-dashed p-4">
+              <div v-if="!emptyOpen" class="flex flex-wrap items-center justify-between gap-3">
+                <span class="flex items-center gap-3">
+                  <FolderPlus class="size-4.5 text-muted-foreground" />
+                  <span class="grid">
+                    <span class="text-sm font-medium">Empty project</span>
+                    <span class="text-xs text-muted-foreground">Add a database, a cache or an app to it after creating it.</span>
+                  </span>
+                </span>
+                <Button variant="outline" size="sm" @click="emptyOpen = true">Create empty project</Button>
+              </div>
+              <form v-else class="flex flex-wrap items-end gap-2" @submit.prevent="startEmpty">
+                <div class="grid gap-1.5">
+                  <Label for="empty-name">Project name</Label>
+                  <Input id="empty-name" v-model="emptyName" class="w-64" placeholder="Shop" autocomplete="off" :disabled="emptyBusy" />
+                </div>
+                <Button type="submit" :disabled="!emptyName.trim() || emptyBusy">{{ emptyBusy ? 'Creating...' : 'Create project' }}</Button>
+                <Button type="button" variant="ghost" :disabled="emptyBusy" @click="emptyOpen = false">Cancel</Button>
+              </form>
+            </div>
           </div>
-          <Button type="submit" :disabled="!emptyName.trim() || emptyBusy">{{ emptyBusy ? 'Creating...' : 'Create project' }}</Button>
-          <Button type="button" variant="ghost" :disabled="emptyBusy" @click="emptyOpen = false">Cancel</Button>
-        </form>
+        </details>
       </div>
     </div>
 

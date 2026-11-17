@@ -15,7 +15,7 @@ const snippets = computed(() => clientSnippets(props.mcpUrl, props.token))
         <TabsTrigger v-for="s in snippets" :key="s.id" :value="s.id">{{ s.label }}</TabsTrigger>
       </TabsList>
     </div>
-    <TabsContent v-for="s in snippets" :key="s.id" :value="s.id" class="grid gap-2">
+    <TabsContent v-for="s in snippets" :key="s.id" :value="s.id" class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <p class="text-sm text-muted-foreground">{{ s.where }}</p>
       <CodeBlock :code="s.code" :what="`${s.label} setup copied`" />
       <p v-if="s.note" class="text-xs text-muted-foreground">{{ s.note }}</p>

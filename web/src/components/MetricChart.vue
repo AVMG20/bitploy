@@ -54,9 +54,44 @@ const maxY = computed(() => {
 const x = (d: Datum) => d.date.getTime()
 const y = (d: Datum) => d[props.field] as number
 
+// The axis picked its own ticks, and over a short span they came out a few
+// seconds apart: every label read the same minute. These are round times,
+// at most 5 of them, never closer than a minute (a day once the range is days).
+const STEPS_MIN = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880]
+const MAX_TICKS = 5
+const tickStepMs = computed(() => {
+  const d = data.value
+  if (d.length < 2) return 0
+  const span = d[d.length - 1]!.date.getTime() - d[0]!.date.getTime()
+  const step = STEPS_MIN.find((m) => span / (m * 60_000) <= MAX_TICKS - 1) ?? STEPS_MIN[STEPS_MIN.length - 1]!
+  return step * 60_000
+})
+const xTicks = computed<number[] | undefined>(() => {
+  const step = tickStepMs.value
+  const d = data.value
+  if (!step) return undefined
+  const from = d[0]!.date.getTime()
+  const to = d[d.length - 1]!.date.getTime()
+  const out: number[] = []
+  if (step >= 86_400_000) {
+    // Local midnights: a day is not always 24 hours.
+    const t = new Date(from)
+    t.setHours(0, 0, 0, 0)
+    for (let i = 0; i < 400 && t.getTime() <= to; i++) {
+      if (t.getTime() >= from) out.push(t.getTime())
+      t.setDate(t.getDate() + step / 86_400_000)
+    }
+  } else {
+    // Multiples of the step on the local clock.
+    const offset = -new Date(from).getTimezoneOffset() * 60_000
+    for (let t = Math.ceil((from + offset) / step) * step - offset; t <= to; t += step) out.push(t)
+  }
+  return out.length >= 2 ? out : undefined
+})
+
 function fmtTime(ms: number | Date): string {
   const d = ms instanceof Date ? ms : new Date(ms)
-  return props.window === '7d'
+  return tickStepMs.value >= 86_400_000
     ? d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })
     : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
@@ -104,7 +139,7 @@ function template(d: Datum, x: number | Date): string {
       />
       <VisArea :x="x" :y="y" :color="`var(--color-${field})`" :opacity="0.15" />
       <VisLine :x="x" :y="y" :color="`var(--color-${field})`" />
-      <VisAxis type="x" :x="x" :num-ticks="4" :tick-format="(t: number) => fmtTime(t)" :grid-line="false" />
+      <VisAxis type="x" :x="x" :num-ticks="4" :tick-values="xTicks" :tick-format="(t: number | Date) => fmtTime(t)" :grid-line="false" />
       <VisAxis type="y" :num-ticks="4" :tick-format="(t: number) => `${field === 'cpu' ? Math.round(t * 100) / 100 : Math.round(t * 10) / 10}`" :domain-line="false" />
       <ChartCrosshair :x="x" :y="[y]" :template="template" :color="`var(--color-${field})`" />
       <ChartTooltip />

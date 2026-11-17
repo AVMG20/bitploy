@@ -72,7 +72,7 @@ export const router = createRouter({
       path: '/',
       component: () => import('./components/AppLayout.vue'),
       children: [
-        { path: '', name: 'overview', component: () => import('./pages/ProjectsPage.vue'), meta: { title: 'Projects' } },
+        { path: '', name: 'overview', component: () => import('./pages/ProjectsPage.vue'), meta: { title: 'Home' } },
         // ?project=<id> adds the new app to that project; ?source= opens one source.
         { path: 'new', name: 'new-app', component: () => import('./pages/NewAppPage.vue'), meta: { title: 'New project' } },
         { path: 'new/:catalogId', name: 'new-catalog', component: () => import('./pages/NewCatalogPage.vue'), props: true, meta: { title: 'Ready-made app' } },
@@ -96,7 +96,7 @@ export const router = createRouter({
           props: true,
           children: [
             { path: '', name: 'app', component: () => import('./pages/app/AppOverviewTab.vue'), props: slugProp },
-            { path: 'traffic', name: 'app-traffic', component: () => import('./pages/app/TrafficTab.vue'), props: slugProp },
+            { path: 'traffic', name: 'app-traffic', component: () => import('./pages/app/TrafficTab.vue'), props: slugProp, meta: { title: 'Metrics' } },
             { path: 'deployments', name: 'app-deployments', component: () => import('./pages/app/DeploymentsTab.vue'), props: slugProp },
             { path: 'logs', name: 'app-logs', component: () => import('./pages/app/LogsTab.vue'), props: slugProp },
             { path: 'terminal', name: 'app-terminal', component: () => import('./pages/app/TerminalTab.vue'), props: slugProp },

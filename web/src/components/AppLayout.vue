@@ -4,7 +4,6 @@ import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { Check, ChevronRight, ChevronsUpDown, Plus, Search } from 'lucide-vue-next'
 import StatusDot from '@/components/StatusDot.vue'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Kbd } from '@/components/ui/kbd'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { useActiveBuilds, useApp, useProject, useServiceTemplates } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
@@ -12,7 +11,7 @@ import { appRoute, projectRoute } from '@/lib/appLinks'
 import { aliasOf, sortProjectApps } from '@/lib/projects'
 import type { App } from '@/lib/types'
 import { useEvents } from '@/composables/useEvents'
-import { modKey, paletteOpen, usePaletteShortcut } from '@/composables/useShortcuts'
+import { paletteOpen, usePaletteShortcut } from '@/composables/useShortcuts'
 import AppSidebar from './AppSidebar.vue'
 import CommandPalette from './CommandPalette.vue'
 import AddToProjectDialog from './project/AddToProjectDialog.vue'
@@ -22,7 +21,7 @@ const route = useRoute()
 useEvents()
 usePaletteShortcut()
 
-// Where you are, shown next to the sidebar toggle: "Projects › Shop › web".
+// Where you are, shown next to the sidebar toggle: "Home › Shop › web".
 // The pages ask for the same app and projects, so this costs no extra request.
 const slug = computed(() => (typeof route.params.slug === 'string' ? route.params.slug : ''))
 // Adding to a project (/new?project=, /ready-made?project=) shows that project in the crumbs too.
@@ -36,18 +35,18 @@ const crumbs = computed(() => {
   const appName = app.data.value?.slug === slug.value ? app.data.value.name : slug.value
   if (projectId.value) {
     const name = project.value?.name ?? (app.data.value?.slug === slug.value ? app.data.value.project?.name : '') ?? ''
-    const list: { label: string; to?: ReturnType<typeof projectRoute> | string }[] = [{ label: 'Projects', to: '/' }]
+    const list: { label: string; to?: ReturnType<typeof projectRoute> | string }[] = [{ label: 'Home', to: '/' }]
     if (slug.value) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: appName })
     else if (!route.params.projectId) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: route.name === 'new-app' ? 'Add an app' : String(route.meta.title ?? '') })
     else if (route.meta.title) list.push({ label: name || 'Project', to: projectRoute(projectId.value) }, { label: String(route.meta.title) })
     else list.push({ label: name || 'Project' })
     return list
   }
-  if (slug.value) return [{ label: 'Projects', to: '/' }, { label: appName }]
+  if (slug.value) return [{ label: 'Home', to: '/' }, { label: appName }]
   if (route.path.startsWith('/settings/')) return [{ label: 'Settings', to: '/settings' }, { label: String(route.meta.title ?? '') }]
   if (route.name === 'admin-database') return [{ label: 'Admin', to: '/admin' }, { label: String(route.meta.title ?? '') }]
-  if (route.name === 'new-app') return [{ label: 'Projects', to: '/' }, { label: String(route.meta.title ?? '') }]
-  // Ready-made sits next to Projects in the sidebar, not under it.
+  if (route.name === 'new-app') return [{ label: 'Home', to: '/' }, { label: String(route.meta.title ?? '') }]
+  // Ready-made sits next to Home in the sidebar, not under it.
   if (route.name === 'ready-made') return [{ label: String(route.meta.title ?? '') }]
   if (route.name === 'new-catalog') return [{ label: 'Ready-made', to: '/ready-made' }, { label: String(route.meta.title ?? '') }]
   return [{ label: String(route.meta.title ?? '') }]
@@ -111,16 +110,14 @@ watch(
             <span v-else class="truncate font-medium" aria-current="page">{{ c.label }}</span>
           </template>
         </nav>
+        <!-- The wide search box moved to the sidebar; a phone has no room for it, so just the icon. -->
         <button
           type="button"
-          class="ml-auto inline-flex h-8 shrink-0 items-center gap-2 rounded-md border bg-card px-2 text-sm text-muted-foreground shadow-card transition-colors hover:bg-accent hover:text-foreground sm:w-56 sm:px-2.5"
-          aria-label="Go to a project or a page"
-          aria-keyshortcuts="Meta+K Control+K"
+          class="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
+          aria-label="Search or jump to"
           @click="paletteOpen = true"
         >
-          <Search class="size-4 shrink-0" />
-          <span class="hidden flex-1 text-left sm:inline">Go to...</span>
-          <Kbd class="hidden sm:inline-flex">{{ modKey }} K</Kbd>
+          <Search class="size-4" />
         </button>
       </header>
       <main :class="['mx-auto w-full flex-1 px-4 py-6 md:px-8 md:py-8', route.meta.wide ? 'max-w-[110rem]' : 'max-w-6xl']">
