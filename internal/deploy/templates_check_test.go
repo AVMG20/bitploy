@@ -30,7 +30,8 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 		"go":             {"go.mod", "go.sum", "main.go"},
 		"go, no go.sum":  {"go.mod", "main.go"},
 	}
-	stacks := append(append([]string{}, templates.Stacks...), "node+build", "node+build, dev kept", "nuxt")
+	stacks := append(append([]string{}, templates.Stacks...), "node+build", "node+build, dev kept", "nuxt",
+		"go in cmd/server", "fastapi", "flask factory", "django adapted")
 	for _, stack := range stacks {
 		for name, files := range variants {
 			tpl, ok := templates.ForFiles(stack, files)
@@ -46,6 +47,15 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 					t.Errorf("%s / %s: NuxtServer did not apply", stack, name)
 					continue
 				}
+			// Auto mode's templates for Go, Python and Django projects.
+			case "go in cmd/server":
+				tpl, ok = templates.GoProgram(files, "cmd/server")
+			case "fastapi":
+				tpl, ok = templates.PythonApp(files, templates.PyServerUvicorn, "app.main:app", []string{"uvicorn"})
+			case "flask factory":
+				tpl, ok = templates.PythonApp(files, templates.PyServerGunicorn, "app:create_app()", nil)
+			case "django adapted":
+				tpl, ok = templates.Django(files, "config", false, []string{"gunicorn"})
 			}
 			if !ok {
 				t.Fatalf("%s: unknown stack", stack)

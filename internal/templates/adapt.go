@@ -29,6 +29,8 @@ func ForFiles(stack string, files []string) (Template, bool) {
 		adaptPython(&tpl, top)
 	case "go":
 		adaptGo(&tpl, top)
+	case "php":
+		adaptPHP(&tpl, top)
 	case "laravel":
 		if !top["package.json"] {
 			dropLaravelAssets(&tpl)
@@ -264,6 +266,34 @@ func adaptGo(t *Template, top map[string]bool) {
 	}
 	t.Dockerfile = replaceLine(t.Dockerfile, goBuildLine, "RUN go mod tidy\n"+goBuildLine)
 	t.Readme += "\n- No `go.sum` was found, so the Dockerfile runs `go mod tidy` before the build. It picks the newest version of every module `go.mod` does not pin, so builds can change by themselves. Run `go mod tidy` on your computer, ship `go.mod` and `go.sum`, and remove the `go mod tidy` line.\n"
+}
+
+// Lines of the php template that adaptPHP swaps.
+const (
+	phpFrom     = "FROM php:8.4-apache\n"
+	phpCopyLine = "COPY . /var/www/html/\n"
+	// phpVendorStage installs the Composer packages, like stage 1 of the
+	// laravel template.
+	phpVendorStage = "# Stage 1: PHP packages (commit composer.lock so versions stay the same).\n" +
+		"FROM composer:2 AS vendor\n" +
+		"WORKDIR /app\n" +
+		"COPY composer.json composer.lock* ./\n" +
+		"RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader --ignore-platform-reqs\n" +
+		"COPY . .\n" +
+		"RUN composer dump-autoload --no-dev --no-scripts --optimize\n\n" +
+		"# Stage 2: Apache with PHP.\n"
+)
+
+// adaptPHP adds a Composer stage for a project with composer.json: vendor/ is
+// left out of the source (.dockerignore), so the packages are installed in the
+// build and copied into the image with the code.
+func adaptPHP(t *Template, top map[string]bool) {
+	if !top["composer.json"] || strings.Count(t.Dockerfile, phpFrom) != 1 || strings.Count(t.Dockerfile, phpCopyLine) != 1 {
+		return
+	}
+	df := strings.Replace(t.Dockerfile, phpFrom, phpVendorStage+phpFrom, 1)
+	t.Dockerfile = strings.Replace(df, phpCopyLine, "COPY --from=vendor /app /var/www/html/\n", 1)
+	t.Readme += "\n- `composer.json` was found, so the Dockerfile installs the Composer packages in a first stage and copies the code with `vendor/` from there.\n"
 }
 
 // dropLaravelAssets removes the Vite stage for projects without package.json.

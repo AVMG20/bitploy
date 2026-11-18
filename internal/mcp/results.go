@@ -328,7 +328,7 @@ func gitFirstDeployStep(ap app.App) string {
 	step := "Call deploy with app=" + ap.Slug + " once to build the latest commit now. "
 	switch ap.BuildMode {
 	case "auto":
-		return step + "Build mode auto: a Dockerfile in the repository is built; without one bitploy builds a Node.js app, a front end or plain HTML by itself."
+		return step + "Build mode auto: a Dockerfile in the repository is built; without one bitploy builds a Node.js app, a front end, plain HTML, or a Go, Python, PHP or Laravel app by itself."
 	case "compose":
 		return step + "The repository must have the compose file and every Dockerfile it builds."
 	}

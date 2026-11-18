@@ -11,8 +11,12 @@ import (
 )
 
 // detectCase is one row of testdata/detect_cases.json: every rule of auto mode's
-// Node detection and of the modes node and static_build. web/tests/detect.test.ts
-// reads the same file for the preview in the browser, so the two stay in agreement.
+// detection (Node projects, plain websites next to a package.json, and the Go,
+// Python, Django, PHP and Laravel templates) and of the modes node and
+// static_build. web/tests/detect.test.ts reads the same file for the preview in
+// the browser, so the two stay in agreement. The browser reads only
+// package.json: a case whose answer depends on other files (contents) and that
+// the preview cannot give is go_only.
 type detectCase struct {
 	Name    string   `json:"name"`
 	Mode    string   `json:"mode"`
@@ -24,8 +28,10 @@ type detectCase struct {
 	} `json:"package"`
 	RawPackage string `json:"raw_package"`
 	NextConfig string `json:"next_config"`
-	Output     string `json:"output"`
-	Expect     struct {
+	// Contents are other files of the source as the server reads them (manage.py, main.py).
+	Contents map[string]string `json:"contents"`
+	Output   string            `json:"output"`
+	Expect   struct {
 		Type       string `json:"type"`
 		Output     string `json:"output"`
 		SPA        bool   `json:"spa"`
@@ -35,9 +41,17 @@ type detectCase struct {
 		Code       string `json:"code"`
 		Dockerfile bool   `json:"dockerfile"`
 	} `json:"expect"`
-	DF     []string `json:"df"`
-	NotDF  []string `json:"not_df"`
-	WhyHas string   `json:"why_has"`
+	DF         []string `json:"df"`
+	NotDF      []string `json:"not_df"`
+	WhyHas     string   `json:"why_has"`
+	MessageHas string   `json:"message_has"`
+}
+
+// templateKinds are the expected types of the shared table that are a build
+// kind of their own: a plain website and the stacks besides Node.
+var templateKinds = map[string]string{
+	"static": BuildKindStatic, "go": BuildKindGo, "python": BuildKindPython,
+	"django": BuildKindDjango, "php": BuildKindPHP, "laravel": BuildKindLaravel,
 }
 
 func (c detectCase) packageJSON(t *testing.T) []byte {
@@ -86,7 +100,7 @@ func TestPlanBuildNodeDetection(t *testing.T) {
 			for _, n := range NextConfigNames {
 				extra[n] = c.NextConfig
 			}
-			read := readOf(nil, c.packageJSON(t), extra)
+			read := readOf(nil, c.packageJSON(t), extra, c.Contents)
 			plan, perr := PlanBuild(c.Mode, "Dockerfile", "", c.Output, c.Files, read)
 			want := c.Expect
 			switch {
@@ -96,6 +110,12 @@ func TestPlanBuildNodeDetection(t *testing.T) {
 				}
 				if perr.Message == "" || perr.Hint == "" {
 					t.Errorf("error needs a message and a hint: %+v", perr)
+				}
+				if c.MessageHas != "" && !strings.Contains(perr.Message, c.MessageHas) {
+					t.Errorf("message lacks %q: %s", c.MessageHas, perr.Message)
+				}
+				if perr.Code == CodeNothingToBuild && (perr.Next != "get_template" || perr.Details["dockerfile"] == "") {
+					t.Errorf("an AI assistant needs the template: %+v", perr)
 				}
 				return
 			case perr != nil:
@@ -107,12 +127,18 @@ func TestPlanBuildNodeDetection(t *testing.T) {
 				return
 			}
 			isStatic := plan.Kind == BuildKindNodeSPA || plan.Kind == BuildKindNodeStatic
-			got := BuildModeNode
-			if isStatic {
-				got = BuildModeStaticBuild
-			}
-			if (plan.Kind != BuildKindNode && !isStatic) || got != want.Type {
-				t.Fatalf("kind = %q, want type %s (%s)", plan.Kind, want.Type, plan.Why)
+			if kind, ok := templateKinds[want.Type]; ok {
+				if plan.Kind != kind {
+					t.Fatalf("kind = %q, want %s (%s)", plan.Kind, kind, plan.Why)
+				}
+			} else {
+				got := BuildModeNode
+				if isStatic {
+					got = BuildModeStaticBuild
+				}
+				if (plan.Kind != BuildKindNode && !isStatic) || got != want.Type {
+					t.Fatalf("kind = %q, want type %s (%s)", plan.Kind, want.Type, plan.Why)
+				}
 			}
 			if plan.Unsure != want.Unsure {
 				t.Errorf("unsure = %v, want %v", plan.Unsure, want.Unsure)

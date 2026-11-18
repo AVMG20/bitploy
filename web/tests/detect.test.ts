@@ -40,6 +40,9 @@ test('the shared table is there', () => {
   assert.ok(cases.length >= 50)
 })
 
+// The kinds the server builds from the template of a stack other than Node.
+const STACKS = ['go', 'python', 'django', 'php', 'laravel']
+
 for (const c of cases.filter((x) => !x.go_only)) {
   test(`detection: ${c.name}`, () => {
     const hasConfig = NEXT_CONFIG_NAMES.some((n) => c.files.includes(n))
@@ -52,6 +55,16 @@ for (const c of cases.filter((x) => !x.go_only)) {
     }
     if (want.dockerfile) {
       assert.equal(d.kind, 'dockerfile')
+      return
+    }
+    if (want.type === 'static') {
+      assert.equal(d.kind, 'static', JSON.stringify(d))
+      assert.equal(d.kind === 'static' && !!d.unsure, !!want.unsure)
+      return
+    }
+    if (STACKS.includes(want.type ?? '')) {
+      assert.equal(d.kind === 'app' && d.stack, want.type, JSON.stringify(d))
+      assert.equal(d.kind === 'app' && !!d.unsure, !!want.unsure)
       return
     }
     assert.equal(d.kind, 'template', JSON.stringify(d))
@@ -112,8 +125,32 @@ test('vite without index.html at the top is not a site', () => {
 
 test('Laravel and Django are not Node projects, as on the server', () => {
   const laravel = JSON.stringify({ scripts: { build: 'vite build' }, devDependencies: { vite: '^7' } })
-  assert.equal(detect(['artisan', 'composer.json', 'index.html', ...files], laravel).kind, 'none')
-  assert.equal(detect(['manage.py', 'requirements.txt', ...files], start).kind, 'none')
+  const l = detect(['artisan', 'composer.json', 'index.html', ...files], laravel)
+  assert.equal(l.kind === 'app' && l.stack, 'laravel')
+  assert.ok(l.kind === 'app' && l.warn?.includes('APP_KEY'))
+  const d = detect(['manage.py', 'requirements.txt', ...files], start)
+  assert.equal(d.kind === 'app' && d.stack, 'django')
+  assert.equal(d.kind === 'app' && d.unsure, true)
+})
+
+test('Go, Python and PHP projects are built from their templates, as on the server', () => {
+  assert.equal(detectedType(detect(['go.mod', 'cmd/server/main.go'], null)), 'Go app')
+  const go = detect(['go.mod', 'cmd/server/main.go'], null)
+  assert.equal(go.kind === 'app' && go.description, 'Builds it as a Go app from cmd/server.')
+  const several = detect(['go.mod', 'cmd/api/main.go', 'cmd/worker/main.go'], null)
+  assert.equal(several.kind === 'none' && several.assistant, true)
+  assert.ok(several.kind === 'none' && several.message.includes('(api, worker)'))
+  const py = detect(['requirements.txt', 'main.py'], null)
+  assert.equal(py.kind === 'app' && py.unsure, true)
+  assert.equal(detect(['index.php', 'style.css'], null).kind, 'app')
+})
+
+test('a plain website with a package.json for tools is a website', () => {
+  const tools = JSON.stringify({ scripts: { format: 'prettier -w .' }, devDependencies: { prettier: '^3' } })
+  assert.deepEqual(detect(['index.html', 'package.json'], tools), { kind: 'static', label: 'Static site' })
+  const serve = detect(['index.html', 'package.json'], JSON.stringify({ scripts: { start: 'npx serve -l 3000' } }))
+  assert.equal(serve.kind === 'static' && serve.unsure, true)
+  assert.equal(detect(['index.html', 'package.json'], JSON.stringify({ scripts: { start: 'serve; node x' } })).kind, 'template')
 })
 
 test('neither script is still a dead end, with the assistant line', () => {
@@ -124,7 +161,7 @@ test('neither script is still a dead end, with the assistant line', () => {
 })
 
 test('a Node project with a page at the top that cannot be run says it needs a build', () => {
-  const d = detect([...files, 'index.html'], neither)
+  const d = detect([...files, 'index.html'], JSON.stringify({ scripts: { build: 'webpack' } }))
   assert.equal(d.kind === 'none' && d.label, 'Needs a build first')
   assert.equal(d.kind === 'none' && d.assistant, true)
 })
@@ -145,6 +182,8 @@ test('dockerfile mode is unaffected', () => {
 
 test('go.mod wins over package.json, as on the server', () => {
   assert.equal(detect(['go.mod', ...files], start).kind, 'none')
+  const d = detect(['go.mod', 'main.go', ...files], start)
+  assert.equal(d.kind === 'app' && d.stack, 'go')
 })
 
 test('plain websites are unchanged', () => {

@@ -20,7 +20,8 @@ const (
 	BuildModeDockerfile = "dockerfile"
 	// BuildModeAuto builds the Dockerfile when there is one, else serves a plain
 	// website (index.html at the top, or another single page) with the static
-	// template.
+	// template, or builds a Node, Go, Python, Django, PHP or Laravel project
+	// with the template of its stack.
 	BuildModeAuto = "auto"
 	// BuildModeStatic always serves the source as a plain website with the
 	// static template, even when the source holds a Dockerfile of its own.
@@ -52,6 +53,8 @@ const (
 	BuildKindNode       = "node"
 	// BuildKindCompose is a deployment of the services of a compose file.
 	BuildKindCompose = "compose"
+	// BuildKindGo, BuildKindPython, BuildKindDjango, BuildKindPHP and
+	// BuildKindLaravel are in stacks.go.
 )
 
 // IsStaticKind reports whether a build kind runs only bitploy's own nginx
@@ -97,7 +100,7 @@ func ValidBuildMode(m string) bool {
 
 // BuildPlan is the outcome of PlanBuild.
 type BuildPlan struct {
-	Kind string // BuildKindDockerfile, BuildKindStatic, BuildKindNodeSPA or BuildKindNode
+	Kind string // one of the BuildKind constants
 	// DockerfilePath is the injected Dockerfile of a template build (not set for BuildKindDockerfile).
 	DockerfilePath string
 	// For every kind but BuildKindDockerfile: the files to add to the source before building, as
@@ -247,6 +250,9 @@ func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []s
 				return plan, nil
 			}
 		}
+		if plan, err, ok := stackPlan(stack, files, has, dockerignore, read); ok {
+			return plan, err
+		}
 		if !hasIndex && stack == "static" {
 			page, ok, herr := homePage(has, homePageChoice)
 			if herr != nil {
@@ -350,16 +356,12 @@ func nothingToBuild(files []string, hasPage bool) *apperr.Error {
 	return e
 }
 
+// stackLanguage names the language of a project that auto mode could not
+// build and that has a page at the top: only a Node project gets here (the
+// other stacks have errors of their own, see stackPlan).
 func stackLanguage(stack string) string {
-	switch stack {
-	case "node":
+	if stack == "node" {
 		return "Node.js"
-	case "python":
-		return "Python"
-	case "go":
-		return "Go"
-	case "php":
-		return "PHP"
 	}
 	return ""
 }

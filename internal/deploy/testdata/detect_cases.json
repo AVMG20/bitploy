@@ -1187,7 +1187,7 @@
   }
  },
  {
-  "name": "laravel is not a node project",
+  "name": "laravel with a package.json is a Laravel app, not a node project",
   "mode": "auto",
   "files": [
    "artisan",
@@ -1207,9 +1207,14 @@
    ]
   },
   "expect": {
-   "none": true,
-   "code": "nothing_to_build"
-  }
+   "type": "laravel",
+   "unsure": false
+  },
+  "df": [
+   "COPY --from=assets /app/public/build ./public/build",
+   "RUN npm run build"
+  ],
+  "why_has": "APP_KEY"
  },
  {
   "name": "scripts is not an object",
@@ -1639,6 +1644,920 @@
   "expect": {
    "none": true,
    "code": "output_dir_invalid"
+  }
+ },
+ {
+  "name": "plain website with prettier and eslint",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "raw_package": "{\"scripts\":{\"format\":\"prettier -w .\"},\"devDependencies\":{\"prettier\":\"^3\",\"eslint\":\"^9\"}}",
+  "df": [
+   "nginx",
+   "COPY . /usr/share/nginx/html"
+  ],
+  "why_has": "plain website files",
+  "expect": {
+   "type": "static",
+   "unsure": false
+  }
+ },
+ {
+  "name": "plain website with only a dev script",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "raw_package": "{\"scripts\":{\"dev\":\"live-server\"},\"devDependencies\":{\"live-server\":\"^1\"}}",
+  "expect": {
+   "type": "static",
+   "unsure": false
+  }
+ },
+ {
+  "name": "plain website with the package.json of npm init",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "raw_package": "{\"name\":\"site\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"scripts\":{\"test\":\"echo \\\"Error: no test specified\\\" && exit 1\"}}",
+  "expect": {
+   "type": "static",
+   "unsure": false
+  }
+ },
+ {
+  "name": "plain website with dependencies but no scripts is a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [
+    "bootstrap"
+   ]
+  },
+  "why_has": "add a start script",
+  "expect": {
+   "type": "static",
+   "unsure": true
+  }
+ },
+ {
+  "name": "start script serve is a website, a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "serve"
+   },
+   "deps": [
+    "serve"
+   ]
+  },
+  "why_has": "file server",
+  "expect": {
+   "type": "static",
+   "unsure": true
+  }
+ },
+ {
+  "name": "start script npx serve . is a website, a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "npx serve ."
+   },
+   "deps": []
+  },
+  "expect": {
+   "type": "static",
+   "unsure": true
+  }
+ },
+ {
+  "name": "start script http-server with flags is a website, a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "http-server -p 8080 -c-1"
+   },
+   "deps": [
+    "http-server"
+   ]
+  },
+  "expect": {
+   "type": "static",
+   "unsure": true
+  }
+ },
+ {
+  "name": "start script live-server --port=8080 is a website, a guess",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "live-server --port=8080"
+   },
+   "deps": []
+  },
+  "expect": {
+   "type": "static",
+   "unsure": true
+  }
+ },
+ {
+  "name": "start script that serves another folder is a node app",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "serve dist"
+   },
+   "deps": [
+    "serve"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "start script that chains a file server is a node app",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "node build.js && serve"
+   },
+   "deps": []
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "start script with a real server next to index.html is a node app",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "start": "node server.js"
+   },
+   "deps": []
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "express next to index.html with a main is a node app",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [
+    "express"
+   ],
+   "main": "server.js"
+  },
+  "df": [
+   "CMD [\"node\", \"server.js\"]"
+  ],
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "file server with a build script is a node app",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "package": {
+   "scripts": {
+    "build": "webpack",
+    "start": "serve"
+   },
+   "deps": []
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "file server without index.html is a node app",
+  "mode": "auto",
+  "files": [
+   "package.json",
+   "package-lock.json",
+   "public/index.html"
+  ],
+  "package": {
+   "scripts": {
+    "start": "serve"
+   },
+   "deps": [
+    "serve"
+   ]
+  },
+  "expect": {
+   "type": "node",
+   "unsure": false,
+   "warn": false
+  }
+ },
+ {
+  "name": "plain website with a package.json and a Dockerfile builds the Dockerfile",
+  "mode": "auto",
+  "files": [
+   "Dockerfile",
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "raw_package": "{\"devDependencies\":{\"prettier\":\"^3\"}}",
+  "expect": {
+   "dockerfile": true
+  }
+ },
+ {
+  "name": "dockerfile mode serves a plain website with a package.json",
+  "mode": "dockerfile",
+  "files": [
+   "index.html",
+   "style.css",
+   "package.json",
+   "package-lock.json"
+  ],
+  "go_only": true,
+  "raw_package": "{\"devDependencies\":{\"prettier\":\"^3\"}}",
+  "expect": {
+   "type": "static",
+   "unsure": false
+  }
+ },
+ {
+  "name": "go app at the top",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go"
+  ],
+  "df": [
+   "go build -trimpath -ldflags=\"-s -w\" -o /out/app .\n",
+   "EXPOSE 8080"
+  ],
+  "not_df": [
+   "go mod tidy"
+  ],
+  "why_has": "Go app, built from the top folder.",
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go app in cmd/server",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "cmd/server/main.go",
+   "internal/store/store.go"
+  ],
+  "df": [
+   "-o /out/app ./cmd/server\n"
+  ],
+  "why_has": "Go app, built from cmd/server.",
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go main package in another file at the top",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "server.go",
+   "handlers.go"
+  ],
+  "contents": {
+   "server.go": "// Server.\npackage main\n\nfunc main() {}\n",
+   "handlers.go": "package main\n"
+  },
+  "df": [
+   "-o /out/app .\n"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go library at the top with one program in cmd",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "lib.go",
+   "cmd/api/main.go"
+  ],
+  "contents": {
+   "lib.go": "package lib\n"
+  },
+  "df": [
+   "-o /out/app ./cmd/api\n"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go without go.sum tidies first",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "main.go"
+  ],
+  "df": [
+   "RUN go mod tidy\n"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go with several programs in cmd",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "cmd/api/main.go",
+   "cmd/worker/main.go"
+  ],
+  "message_has": "several programs in cmd (api, worker)",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "go without a program",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "pkg/x/x.go"
+  ],
+  "message_has": "no program to build",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "go with a Dockerfile builds the Dockerfile",
+  "mode": "auto",
+  "files": [
+   "Dockerfile",
+   "go.mod",
+   "main.go"
+  ],
+  "expect": {
+   "dockerfile": true
+  }
+ },
+ {
+  "name": "dockerfile mode still wants a Dockerfile for a go app",
+  "mode": "dockerfile",
+  "files": [
+   "go.mod",
+   "main.go"
+  ],
+  "go_only": true,
+  "expect": {
+   "dockerfile": true
+  }
+ },
+ {
+  "name": "fastapi in main.py",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "main.py"
+  ],
+  "contents": {
+   "requirements.txt": "fastapi==0.115.0\nuvicorn[standard]==0.32.0\n",
+   "main.py": "from fastapi import FastAPI\n\napp = FastAPI()\n"
+  },
+  "df": [
+   "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}",
+   "pip install -r requirements.txt"
+  ],
+  "not_df": [
+   "pip install uvicorn"
+  ],
+  "why_has": "FastAPI app in main.py",
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "fastapi without uvicorn gets it installed",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "main.py"
+  ],
+  "contents": {
+   "requirements.txt": "fastapi>=0.110 # the API\n",
+   "main.py": "import fastapi\napp = fastapi.FastAPI(title='x')\n"
+  },
+  "df": [
+   "RUN pip install uvicorn\n"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "fastapi[standard] brings uvicorn",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "main.py"
+  ],
+  "contents": {
+   "requirements.txt": "fastapi[standard]>=0.115\n",
+   "main.py": "from fastapi import FastAPI\napp = FastAPI()\n"
+  },
+  "not_df": [
+   "pip install uvicorn"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "fastapi with uv, a typed variable in app/main.py",
+  "mode": "auto",
+  "files": [
+   "pyproject.toml",
+   "uv.lock",
+   "app/__init__.py",
+   "app/main.py"
+  ],
+  "contents": {
+   "pyproject.toml": "[project]\nname = \"api\"\ndependencies = [\n  \"fastapi>=0.110\",\n  \"uvicorn>=0.30\",\n]\n",
+   "app/main.py": "import fastapi\n\napi: fastapi.FastAPI = fastapi.FastAPI()\n"
+  },
+  "df": [
+   "uvicorn app.main:api",
+   "uv sync --frozen --no-dev"
+  ],
+  "not_df": [
+   "uv pip install"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "flask in app.py",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "app.py",
+   "templates/index.html"
+  ],
+  "contents": {
+   "requirements.txt": "Flask==3.0.3\ngunicorn==23.0.0\n",
+   "app.py": "from flask import Flask\napp = Flask(__name__)\n"
+  },
+  "df": [
+   "gunicorn --bind 0.0.0.0:${PORT:-8000}",
+   "'app:app'"
+  ],
+  "not_df": [
+   "pip install gunicorn"
+  ],
+  "why_has": "Flask app in app.py",
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "flask app factory in the app package",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "app/__init__.py",
+   "app/routes.py"
+  ],
+  "contents": {
+   "requirements.txt": "flask\n",
+   "app/__init__.py": "from flask import Flask\n\ndef create_app():\n    app = Flask(__name__)\n    return app\n"
+  },
+  "df": [
+   "'app:create_app()'",
+   "RUN pip install gunicorn\n"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "flask with poetry in server.py",
+  "mode": "auto",
+  "files": [
+   "pyproject.toml",
+   "poetry.lock",
+   "server.py"
+  ],
+  "contents": {
+   "pyproject.toml": "[tool.poetry.dependencies]\npython = \"^3.12\"\nFlask = \"^3.0\"\n",
+   "server.py": "import flask\nserver = flask.Flask(__name__)\n"
+  },
+  "df": [
+   "poetry install --only main",
+   "RUN pip install gunicorn\n",
+   "'server:server'"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "python without a web framework",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "bot.py"
+  ],
+  "go_only": true,
+  "contents": {
+   "requirements.txt": "requests\n",
+   "bot.py": "print('hi')\n"
+  },
+  "message_has": "no file that starts the web app",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "flask without an app object",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "main.py"
+  ],
+  "go_only": true,
+  "contents": {
+   "requirements.txt": "flask\n",
+   "main.py": "def run():\n    app = Flask(__name__)\n"
+  },
+  "message_has": "no file that starts the web app",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "python with a Dockerfile builds the Dockerfile",
+  "mode": "auto",
+  "files": [
+   "Dockerfile",
+   "requirements.txt",
+   "main.py"
+  ],
+  "expect": {
+   "dockerfile": true
+  }
+ },
+ {
+  "name": "django project",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "mysite/__init__.py",
+   "mysite/settings.py",
+   "mysite/wsgi.py",
+   "polls/views.py"
+  ],
+  "contents": {
+   "manage.py": "import os\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n",
+   "requirements.txt": "Django>=5.1\ngunicorn\nwhitenoise\n",
+   "mysite/settings.py": "STATIC_ROOT = BASE_DIR / 'staticfiles'\n"
+  },
+  "df": [
+   "gunicorn mysite.wsgi:application --bind 0.0.0.0:${PORT:-8000}",
+   "collectstatic"
+  ],
+  "not_df": [
+   "myproject",
+   "pip install gunicorn"
+  ],
+  "why_has": "Django app (mysite)",
+  "expect": {
+   "type": "django",
+   "unsure": true
+  }
+ },
+ {
+  "name": "django settings package",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "config/__init__.py",
+   "config/settings/base.py",
+   "config/settings/production.py",
+   "config/wsgi.py"
+  ],
+  "contents": {
+   "manage.py": "os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"config.settings.production\")\n",
+   "requirements.txt": "django\ngunicorn\n",
+   "config/settings/production.py": "from .base import *\nDEBUG = False\n"
+  },
+  "df": [
+   "config.wsgi:application",
+   "collectstatic"
+  ],
+  "expect": {
+   "type": "django",
+   "unsure": true
+  }
+ },
+ {
+  "name": "django without STATIC_ROOT or gunicorn",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "mysite/settings.py",
+   "mysite/wsgi.py"
+  ],
+  "contents": {
+   "manage.py": "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n",
+   "requirements.txt": "django\n",
+   "mysite/settings.py": "DEBUG = True\n"
+  },
+  "df": [
+   "RUN pip install gunicorn\n",
+   "mysite.wsgi:application"
+  ],
+  "not_df": [
+   "collectstatic"
+  ],
+  "why_has": "STATIC_ROOT",
+  "expect": {
+   "type": "django",
+   "unsure": true
+  }
+ },
+ {
+  "name": "django without the settings line finds the one wsgi.py",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "proj/settings.py",
+   "proj/wsgi.py"
+  ],
+  "df": [
+   "proj.wsgi:application"
+  ],
+  "expect": {
+   "type": "django",
+   "unsure": true
+  }
+ },
+ {
+  "name": "django without wsgi.py",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "mysite/settings.py"
+  ],
+  "go_only": true,
+  "contents": {
+   "manage.py": "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')\n"
+  },
+  "message_has": "no wsgi.py",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "django without requirements.txt",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "mysite/settings.py",
+   "mysite/wsgi.py"
+  ],
+  "message_has": "no requirements.txt",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "php site",
+  "mode": "auto",
+  "files": [
+   "index.php",
+   "style.css",
+   "contact.php"
+  ],
+  "df": [
+   "FROM php:8.4-apache",
+   "COPY . /var/www/html/"
+  ],
+  "not_df": [
+   "composer"
+  ],
+  "why_has": "PHP site",
+  "expect": {
+   "type": "php"
+  }
+ },
+ {
+  "name": "php site with composer",
+  "mode": "auto",
+  "files": [
+   "index.php",
+   "composer.json",
+   "composer.lock"
+  ],
+  "df": [
+   "FROM composer:2 AS vendor",
+   "COPY --from=vendor /app /var/www/html/"
+  ],
+  "why_has": "Composer",
+  "expect": {
+   "type": "php"
+  }
+ },
+ {
+  "name": "php site with an index.html too",
+  "mode": "auto",
+  "files": [
+   "index.php",
+   "index.html"
+  ],
+  "expect": {
+   "type": "php"
+  }
+ },
+ {
+  "name": "composer.json without index.php",
+  "mode": "auto",
+  "files": [
+   "composer.json",
+   "src/App.php"
+  ],
+  "message_has": "no index.php",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "laravel without package.json",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "composer.json",
+   "composer.lock",
+   "routes/web.php"
+  ],
+  "not_df": [
+   "FROM node",
+   "npm"
+  ],
+  "expect": {
+   "type": "laravel",
+   "unsure": false
+  }
+ },
+ {
+  "name": "laravel whose package.json has no build script",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "composer.json",
+   "package.json"
+  ],
+  "package": {
+   "scripts": [
+    "dev"
+   ],
+   "deps": [
+    "vite"
+   ]
+  },
+  "not_df": [
+   "FROM node",
+   "npm run build"
+  ],
+  "expect": {
+   "type": "laravel",
+   "unsure": false
+  }
+ },
+ {
+  "name": "laravel without composer.json",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "routes/web.php"
+  ],
+  "message_has": "no composer.json",
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
   }
  }
 ]

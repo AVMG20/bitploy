@@ -6,8 +6,16 @@ import type { BuildMode } from './types'
 
 export type Detected =
   | { kind: 'dockerfile'; label: string }
-  /** home: the page served at "/" when it is not index.html. choices: the pages to pick it from, when there are several. */
-  | { kind: 'static'; label: string; home?: string; choices?: string[] }
+  /**
+   * home: the page served at "/" when it is not index.html. choices: the pages to pick it from, when there are several.
+   * unsure: website files next to a package.json that may be a server app after all.
+   */
+  | { kind: 'static'; label: string; home?: string; choices?: string[]; unsure?: boolean }
+  /**
+   * A Go, Python, Django, PHP or Laravel project that bitploy builds from the template of its stack.
+   * description: one plain sentence on what happens. unsure: a guess (Python; the server reads the code when you deploy). warn: something to set first.
+   */
+  | { kind: 'app'; stack: AppStack; label: string; description: string; unsure?: boolean; warn?: string }
   /**
    * A Node project without a Dockerfile that bitploy builds from its own template.
    * type: a Node.js app, or a static build served with nginx; unknown when package.json was not read here (the server looks at it when you deploy).
@@ -35,16 +43,90 @@ function cleanRel(p: string): string {
   return p.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '')
 }
 
+export type AppStack = 'go' | 'python' | 'django' | 'php' | 'laravel'
+type Stack = AppStack | 'node' | ''
+
 // The order of the server's DetectStack (internal/deploy/dockerfile.go): a
 // Laravel or Django project is not a Node project, even with a package.json.
-function language(top: Set<string>): string {
-  if (top.has('go.mod')) return 'Go'
-  if (top.has('artisan')) return 'PHP'
-  if (top.has('manage.py')) return 'Python'
-  if (top.has('package.json')) return 'Node.js'
-  if (top.has('requirements.txt') || top.has('pyproject.toml')) return 'Python'
-  if (top.has('composer.json') || top.has('index.php')) return 'PHP'
+function stackOf(top: Set<string>): Stack {
+  if (top.has('go.mod')) return 'go'
+  if (top.has('artisan')) return 'laravel'
+  if (top.has('manage.py')) return 'django'
+  if (top.has('package.json')) return 'node'
+  if (top.has('requirements.txt') || top.has('pyproject.toml')) return 'python'
+  if (top.has('composer.json') || top.has('index.php')) return 'php'
   return ''
+}
+
+function cannot(label: string, message: string, hint: string): Detected {
+  return { kind: 'none', label, message, hint, assistant: true }
+}
+
+/**
+ * The server's stackPlan (internal/deploy/stacks.go) as far as file names tell:
+ * the server also reads main.py, manage.py and the .go files when you deploy,
+ * so a Python or Django project is shown as a guess.
+ */
+function appStack(stack: AppStack, files: Set<string>): Detected {
+  switch (stack) {
+    case 'go': {
+      const cmds = [...new Set([...files].map((f) => /^cmd\/([^/]+)\/main\.go$/.exec(f)?.[1]).filter((x): x is string => !!x))].sort()
+      const topGo = [...files].some((f) => !f.includes('/') && f.endsWith('.go') && !f.endsWith('_test.go'))
+      if (files.has('main.go') || (cmds.length !== 1 && topGo)) {
+        return { kind: 'app', stack, label: 'Go app', description: 'Builds it as a Go app from the top folder.' }
+      }
+      if (cmds.length === 1) return { kind: 'app', stack, label: 'Go app', description: `Builds it as a Go app from cmd/${cmds[0]}.` }
+      if (cmds.length > 1) {
+        return cannot(
+          'Several Go programs',
+          `Found a Go project with several programs in cmd (${cmds.join(', ')}), so it is not clear which one is the web app.`,
+          'Add a Dockerfile that builds the right one (your AI assistant can write it), or keep only that program in cmd.',
+        )
+      }
+      return cannot(
+        'No Go program',
+        'Found a Go project, but no program to build (like main.go at the top, or cmd/server/main.go).',
+        'Put the main package in main.go at the top or in cmd/<name>/main.go, or add a Dockerfile (your AI assistant can write one).',
+      )
+    }
+    case 'python':
+      return {
+        kind: 'app',
+        stack,
+        label: 'Python app',
+        description: 'Runs it as a FastAPI or Flask app. bitploy finds the file that starts it when you deploy.',
+        unsure: true,
+      }
+    case 'django':
+      if (!files.has('requirements.txt') && !files.has('pyproject.toml')) {
+        return cannot(
+          'No requirements.txt',
+          'Found a Django project, but no requirements.txt that lists its packages.',
+          'Add requirements.txt with django and the other packages it needs (pip freeze > requirements.txt), or add a Dockerfile: your AI assistant can write one.',
+        )
+      }
+      return { kind: 'app', stack, label: 'Django app', description: 'Runs it as a Django app with gunicorn. Migrations run on every start.', unsure: true }
+    case 'php':
+      if (!files.has('index.php')) {
+        return cannot('No index.php', 'Found a PHP project, but no index.php at the top to open.', 'Put index.php in the top folder, or add a Dockerfile: your AI assistant can write one.')
+      }
+      return { kind: 'app', stack, label: 'PHP site', description: 'Serves it with PHP and Apache.' }
+    case 'laravel':
+      if (!files.has('composer.json')) {
+        return cannot(
+          'No composer.json',
+          'Found a Laravel project, but no composer.json that lists its packages.',
+          'Add composer.json and composer.lock from your project, or add a Dockerfile: your AI assistant can write one.',
+        )
+      }
+      return {
+        kind: 'app',
+        stack,
+        label: 'Laravel app',
+        description: 'Builds it as a Laravel app and serves it with Apache. Migrations run on every start.',
+        warn: "Set APP_KEY in the app's variables before it opens (php artisan key:generate --show makes one).",
+      }
+  }
 }
 
 // A file whose name differs only in upper and lower case ("Index.html"): the
@@ -63,6 +145,8 @@ interface Project {
   scripts: Set<string>
   start: string
   deps: Set<string>
+  /** dependencies is not empty: packages the site may run with, not only tools. */
+  runtime: boolean
   main: string
   hasIndex: boolean
   nextExport: boolean
@@ -103,6 +187,7 @@ function readProject(packageJson: string, nextConfig: string | null, hasIndex: b
     scripts: names,
     start,
     deps: new Set([...Object.keys(deps), ...Object.keys(devDeps)]),
+    runtime: Object.keys(deps).length > 0,
     main: typeof obj.main === 'string' ? obj.main : '',
     hasIndex,
     nextExport: nextConfig !== null && /output\s*:\s*['"`]export['"`]/.test(nextConfig.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')),
@@ -150,6 +235,19 @@ function viteDevStart(start: string): boolean {
   return VITE_DEV_CMD.test(s) && !/[&|;<>$`()]/.test(s)
 }
 
+/**
+ * A start script that only runs a static file server on the top folder (serve, serve ., http-server -p 8080,
+ * npx live-server): its arguments may only be flags, port numbers and . or ./. "serve dist" does not match.
+ */
+const FILE_SERVER_CMD =
+  /^(?:(?:npx|bunx|pnpx)\s+(?:(?:--yes|-y)\s+)?|pnpm\s+(?:exec\s+|dlx\s+)?|yarn\s+(?:exec\s+|dlx\s+)?)?(?:serve|http-server|live-server)(?:@\S+)?((?:\s+\S+)*)$/
+function fileServerStart(start: string): boolean {
+  const s = start.trim()
+  const m = FILE_SERVER_CMD.exec(s)
+  if (!m || /[&|;<>$`()]/.test(s)) return false
+  return m[1].split(/\s+/).every((arg) => arg === '' || /^(?:-\S*|\.|\.\/|[0-9]+)$/.test(arg))
+}
+
 /** Where a framework writes its site, and whether it is a single-page app. */
 function staticDefaults(fw: Framework): { output: string; spa: boolean } {
   switch (fw) {
@@ -189,6 +287,7 @@ function canStart(p: Project, fw: Framework): boolean {
 const SVELTE_ADAPTER = 'Add @sveltejs/adapter-node to package.json and use it in svelte.config.js, or the app will not start.'
 
 type Template = Extract<Detected, { kind: 'template' }>
+type Static = Extract<Detected, { kind: 'static' }>
 
 function nodeApp(fw: Framework, build: boolean, extra: Partial<Template> = {}): Template {
   return { kind: 'template', type: 'node', label: 'Node.js app', known: true, framework: FRAMEWORK_NAME[fw], build, ...extra }
@@ -203,9 +302,15 @@ function staticBuild(fw: Framework, output?: string): Template {
  * The server's Detection.detect (nodeproject.go): what auto mode makes of a
  * Node project without a Dockerfile. null: nothing it can build.
  */
-function autoNode(p: Project): Template | null {
+function autoNode(p: Project): Template | Static | null {
   const fw = framework(p)
   const build = p.scripts.has('build')
+  // A plain website with a package.json for tools (prettier, eslint) or a dev
+  // server: no framework, nothing to build and no server of its own.
+  if (fw === '' && !build && p.hasIndex) {
+    if (!p.scripts.has('start')) return { kind: 'static', label: 'Static site', ...(p.runtime ? { unsure: true } : {}) }
+    if (fileServerStart(p.start)) return { kind: 'static', label: 'Static site', unsure: true }
+  }
   switch (fw) {
     case 'sveltekit':
       if (p.deps.has('@sveltejs/adapter-static') && build) return staticBuild(fw)
@@ -370,26 +475,27 @@ export function detectSource(
     }
   }
   // auto: the same rule as the server. A project with a package.json and so on
-  // is not shown as a plain website, because its index.html is usually unbuilt.
-  const lang = language(top)
-  if (hasIndex && lang === '') return { kind: 'static', label: 'Static site' }
+  // is not shown as a plain website by the page rule: it is built as a project.
+  const stack = stackOf(top)
+  if (hasIndex && stack === '') return { kind: 'static', label: 'Static site' }
   const otherDockerfile = otherCase(files, dockerfilePath)
   if (otherDockerfile) return renamed(otherDockerfile, dockerfilePath)
-  if (lang === 'Node.js' && files.has('package.json')) {
+  if (stack === 'node' && files.has('package.json')) {
     if (packageJson === null) return { kind: 'template', type: 'unknown', label: 'Node.js app', known: false }
     const project = readProject(packageJson, nextConfig, hasIndex)
     const node = project && autoNode(project)
     if (node) return node
   }
-  if (lang === '') {
+  if (stack === '') {
     const home = homePageOf(files, homePage)
     if (home) return home
   }
-  if (lang && rootPages(files).length) {
+  if (stack !== '' && stack !== 'node') return appStack(stack, files)
+  if (stack === 'node' && rootPages(files).length) {
     return {
       kind: 'none',
       label: 'Needs a build first',
-      message: `No Dockerfile found. This is a ${lang} app, so it has to be built before it can be shown.`,
+      message: 'No Dockerfile found. This is a Node.js app, so it has to be built before it can be shown.',
       hint: 'Add a Dockerfile (your AI assistant can write one), or upload the built website instead, usually the dist or build folder.',
       assistant: true,
     }
@@ -402,6 +508,7 @@ export function detectedType(d: Detected | null): string {
   if (!d || d.kind === 'none') return ''
   if (d.kind === 'dockerfile') return 'Own Dockerfile'
   if (d.kind === 'static') return 'Plain website'
+  if (d.kind === 'app') return d.label
   return d.type === 'static_build' ? 'Static build' : d.type === 'node' ? 'Node.js app' : ''
 }
 

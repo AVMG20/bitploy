@@ -64,6 +64,29 @@ func viteDevStart(start string) bool {
 	return viteDevCmd.MatchString(s) && !shellControl.MatchString(s)
 }
 
+// fileServerCmd matches a start script that only runs a static file server on
+// the top folder: serve, serve ., http-server -p 8080, npx live-server. Its
+// arguments may only be flags, port numbers and the top folder (. or ./):
+// "serve dist" serves another folder and does not match.
+var (
+	fileServerCmd = regexp.MustCompile(`^(?:(?:npx|bunx|pnpx)\s+(?:(?:--yes|-y)\s+)?|pnpm\s+(?:exec\s+|dlx\s+)?|yarn\s+(?:exec\s+|dlx\s+)?)?(?:serve|http-server|live-server)(?:@\S+)?((?:\s+\S+)*)$`)
+	fileServerArg = regexp.MustCompile(`^(?:-\S*|\.|\./|[0-9]+)$`)
+)
+
+func fileServerStart(start string) bool {
+	s := strings.TrimSpace(start)
+	m := fileServerCmd.FindStringSubmatch(s)
+	if m == nil || shellControl.MatchString(s) {
+		return false
+	}
+	for _, arg := range strings.Fields(m[1]) {
+		if !fileServerArg.MatchString(arg) {
+			return false
+		}
+	}
+	return true
+}
+
 // project is what the planner reads from package.json.
 type project struct {
 	scripts  map[string]bool // names of the scripts that are not empty
@@ -188,8 +211,9 @@ func (p *project) framework() string {
 	return fwNone
 }
 
-// Detection is what auto mode makes of a Node project. Type is BuildModeNode
-// or BuildModeStaticBuild; empty means there is no answer.
+// Detection is what auto mode makes of a Node project. Type is BuildModeNode,
+// BuildModeStaticBuild or BuildModeStatic (plain website files next to a
+// package.json that builds and runs nothing); empty means there is no answer.
 type Detection struct {
 	Type      string
 	Framework string
@@ -306,6 +330,22 @@ func (p *project) detect() Detection {
 				return d
 			}
 			return static("package.json has a build script and uses Vite: building the site and serving the dist folder with nginx.")
+		}
+	}
+	// A plain website with a package.json for tools (prettier, eslint) or a
+	// dev server: index.html at the top, no framework, nothing to build and
+	// no server of its own.
+	if fw == fwNone && !hasBuild && p.hasIndex {
+		switch {
+		case !p.scripts["start"] && len(p.deps) > len(p.devDeps):
+			return Detection{Type: BuildModeStatic, Unsure: true,
+				Why: "package.json lists packages but has no build or start script: serving the files as a static site with nginx. If this is a server app, add a start script to package.json."}
+		case !p.scripts["start"]:
+			return Detection{Type: BuildModeStatic,
+				Why: "package.json has no build or start script, so these are plain website files: serving them as a static site with nginx."}
+		case fileServerStart(p.start):
+			return Detection{Type: BuildModeStatic, Unsure: true,
+				Why: "The start script only runs a file server: serving the files as a static site with nginx instead. If this is a server app, choose Node.js app as the type."}
 		}
 	}
 	switch {
@@ -430,6 +470,10 @@ func autoNodePlan(files []string, hasIndex bool, userIgnore []byte, userOutput s
 	}
 	d := p.detect()
 	switch d.Type {
+	case BuildModeStatic:
+		plan := staticPlan(userIgnore, d.Why)
+		plan.Unsure = d.Unsure
+		return plan, true
 	case BuildModeStaticBuild:
 		out := d.Output
 		if userOutput != "" {
