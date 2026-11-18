@@ -27,7 +27,7 @@ import { Switch } from '@/components/ui/switch'
 import { keys, useApps, useMe, useProject } from '@/composables/queries'
 import { openAdd } from '@/composables/useAddToProject'
 import { api } from '@/lib/api'
-import { detectSource, outputDirError } from '@/lib/detect'
+import { detectSource, outputDirError, sqliteStack } from '@/lib/detect'
 import { friendlyError } from '@/lib/errors'
 import type { FriendlyError } from '@/lib/errors'
 import { connectToken, rememberToken } from '@/lib/mcp'
@@ -269,6 +269,12 @@ const detected = computed(() =>
   source.value === 'upload' && upload.value?.paths
     ? detectSource(upload.value.paths, mode.value, homePage.value, 'Dockerfile', upload.value.packageJson, upload.value.nextConfig)
     : null,
+)
+// Laravel and Django keep their SQLite database in /data: Keep saved files goes on for them, unless the person set it.
+const volumeSet = ref(false)
+watch(
+  () => sqliteStack(detected.value),
+  (db) => db && !volumeSet.value && (volume.value = true),
 )
 // The type is chosen once there is something to build; the files are read later for GitHub and for a zip this page cannot open.
 const showType = computed(() => source.value === 'github' || (source.value === 'upload' && !!upload.value && !(uploadCompose.value && useUploadCompose.value)))
@@ -890,7 +896,7 @@ const submit = form.handleSubmit(run)
                 For an app with a database or uploads. Files in <span class="font-mono">/data</span>, like a SQLite database, are kept between deploys. Each deploy then takes the app offline for a few seconds.
               </p>
             </div>
-            <Switch id="new-volume" v-model="volume" :disabled="busy" />
+            <Switch id="new-volume" v-model="volume" :disabled="busy" @update:model-value="volumeSet = true" />
           </div>
         </CardContent>
       </Card>

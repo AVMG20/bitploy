@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { detectedType, detectSource, NEXT_CONFIG_NAMES, outputDirError } from '../src/lib/detect.ts'
+import { detectedType, detectSource, NEXT_CONFIG_NAMES, outputDirError, sqliteStack } from '../src/lib/detect.ts'
 import type { Detected } from '../src/lib/detect.ts'
 import { listZipNames, readZipText, zipNameAtTop } from '../src/lib/zip.ts'
 import type { BuildMode } from '../src/lib/types.ts'
@@ -130,7 +130,8 @@ test('Laravel and Django are not Node projects, as on the server', () => {
   const laravel = JSON.stringify({ scripts: { build: 'vite build' }, devDependencies: { vite: '^7' } })
   const l = detect(['artisan', 'composer.json', 'index.html', ...files], laravel)
   assert.equal(l.kind === 'app' && l.stack, 'laravel')
-  assert.ok(l.kind === 'app' && l.warn?.includes('APP_KEY'))
+  assert.ok(l.kind === 'app' && !l.warn && l.description.includes('/data'))
+  assert.equal(sqliteStack(l), true)
   const d = detect(['manage.py', 'requirements.txt', ...files], start)
   assert.equal(d.kind === 'app' && d.stack, 'django')
   assert.equal(d.kind === 'app' && d.unsure, true)

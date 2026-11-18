@@ -427,7 +427,7 @@ func (s *srv) registerTools() {
 			}
 			dockerfileStep := "A static site (plain HTML, or a front end that builds to files) needs no Dockerfile. Other code without one: call get_template and add one. Then call validate_dockerfile."
 			if ap.BuildMode == "auto" {
-				dockerfileStep = "Build mode auto: a Dockerfile in the code is built; without one bitploy builds a Node.js app, a front end, plain HTML, or a Go, Python, PHP or Laravel app by itself. Values the build needs (VITE_*, NEXT_PUBLIC_*): set_env before the first deploy."
+				dockerfileStep = "Build mode auto: a Dockerfile in the code is built; without one bitploy builds a Node.js app, a front end, plain HTML, or a Go, Python, PHP or Laravel app by itself. Values the build needs (VITE_*, NEXT_PUBLIC_*): set_env before the first deploy." + autoVolumeNote(ap)
 			}
 			return &result{
 				Summary: fmt.Sprintf("Created app %s (%s) at %s; nothing is deployed yet.", ap.Slug, ap.Name, url),

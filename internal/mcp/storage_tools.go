@@ -179,7 +179,7 @@ func (s *srv) registerStorageTools() {
 			summary := "Dockerfile of " + in.App + " (" + v.Path + ")."
 			if !v.Editable {
 				summary = "The Dockerfile of " + in.App + " cannot be changed here: " + v.Reason
-				next = []string{"Change it in the code and send it as usual (a push for an app linked to a repository, else deploy_files)."}
+				next = []string{"Change it in the code and send the new version: push to the branch for an app linked to a repository, else deploy_files."}
 			}
 			return &result{Summary: summary, Data: toMap(v), Next: next}, nil
 		})

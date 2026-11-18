@@ -14,6 +14,7 @@ export type Detected =
   /**
    * A Go, Python, Django, PHP or Laravel project that bitploy builds from the template of its stack.
    * description: one plain sentence on what happens. unsure: a guess (Python; the server reads the code when you deploy). warn: something to set first.
+   * Laravel and Django keep a SQLite database in /data (see sqliteStack).
    */
   | { kind: 'app'; stack: AppStack; label: string; description: string; unsure?: boolean; warn?: string }
   /**
@@ -44,6 +45,11 @@ function cleanRel(p: string): string {
 }
 
 export type AppStack = 'go' | 'python' | 'django' | 'php' | 'laravel'
+
+/** The stacks whose template keeps a SQLite database in /data: they need Keep saved files. */
+export function sqliteStack(d: Detected | null): boolean {
+  return d?.kind === 'app' && (d.stack === 'laravel' || d.stack === 'django')
+}
 type Stack = AppStack | 'node' | ''
 
 // The order of the server's DetectStack (internal/deploy/dockerfile.go): a
@@ -105,7 +111,13 @@ function appStack(stack: AppStack, files: Set<string>): Detected {
           'Add requirements.txt with django and the other packages it needs (pip freeze > requirements.txt), or add a Dockerfile: your AI assistant can write one.',
         )
       }
-      return { kind: 'app', stack, label: 'Django app', description: 'Runs it as a Django app with gunicorn. Migrations run on every start.', unsure: true }
+      return {
+        kind: 'app',
+        stack,
+        label: 'Django app',
+        description: 'Runs it as a Django app with gunicorn, with its SQLite database in /data. Migrations run on every start.',
+        unsure: true,
+      }
     case 'php':
       if (!files.has('index.php')) {
         return cannot('No index.php', 'Found a PHP project, but no index.php at the top to open.', 'Put index.php in the top folder, or add a Dockerfile: your AI assistant can write one.')
@@ -123,8 +135,7 @@ function appStack(stack: AppStack, files: Set<string>): Detected {
         kind: 'app',
         stack,
         label: 'Laravel app',
-        description: 'Builds it as a Laravel app and serves it with Apache. Migrations run on every start.',
-        warn: "Set APP_KEY in the app's variables before it opens (php artisan key:generate --show makes one).",
+        description: 'Builds it as a Laravel app and serves it with Apache, with its SQLite database in /data. Migrations run on every start.',
       }
   }
 }

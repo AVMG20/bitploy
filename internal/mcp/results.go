@@ -322,13 +322,22 @@ func gitStatusNext(ap app.App, settingsURL, adminURL string) []string {
 	return []string{"Pushes do not deploy by themselves yet: " + g.PushMessage + " Tell the user to open Settings > GitHub (" + settingsURL + "). Until then call deploy with app=" + ap.Slug + " after each push."}
 }
 
+// autoVolumeNote tells an assistant that auto mode's Laravel and Django
+// builds keep their SQLite database in /data, which only lasts with a volume.
+func autoVolumeNote(ap app.App) string {
+	if ap.Volume {
+		return ""
+	}
+	return " A Laravel or Django app gets its SQLite database in /data: call update_app volume=true before the first deploy, or the database is emptied on every deploy."
+}
+
 // gitFirstDeployStep is what set_git_source says about the first deploy:
 // what the repository must hold depends on the build mode.
 func gitFirstDeployStep(ap app.App) string {
 	step := "Call deploy with app=" + ap.Slug + " once to build the latest commit now. "
 	switch ap.BuildMode {
 	case "auto":
-		return step + "Build mode auto: a Dockerfile in the repository is built; without one bitploy builds a Node.js app, a front end, plain HTML, or a Go, Python, PHP or Laravel app by itself."
+		return step + "Build mode auto: a Dockerfile in the repository is built; without one bitploy builds a Node.js app, a front end, plain HTML, or a Go, Python, PHP or Laravel app by itself." + autoVolumeNote(ap)
 	case "compose":
 		return step + "The repository must have the compose file and every Dockerfile it builds."
 	}
