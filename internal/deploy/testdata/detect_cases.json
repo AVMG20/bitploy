@@ -1212,9 +1212,83 @@
   },
   "df": [
    "COPY --from=assets /app/public/build ./public/build",
-   "RUN npm run build"
+   "RUN npm run build",
+   "SetEnvIf X-Forwarded-Proto \"^https$\" HTTPS=on"
   ],
-  "why_has": "APP_KEY"
+  "why_has": "APP_KEY",
+  "not_df": [
+   "FROM php:8.4-cli AS assets"
+  ]
+ },
+ {
+  "name": "laravel starter kit with wayfinder builds its assets with PHP next to Node",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "composer.json",
+   "composer.lock",
+   "package.json",
+   "package-lock.json",
+   "vite.config.ts",
+   "resources/js/app.ts"
+  ],
+  "package": {
+   "scripts": [
+    "build",
+    "dev"
+   ],
+   "deps": [
+    "vite",
+    "laravel-vite-plugin",
+    "@laravel/vite-plugin-wayfinder"
+   ]
+  },
+  "expect": {
+   "type": "laravel",
+   "unsure": false
+  },
+  "df": [
+   "# The Vite build runs php artisan (Laravel Wayfinder), so this stage has PHP and Node.\nFROM php:8.4-cli AS assets\nCOPY --from=node:22-bookworm-slim /usr/local/bin /usr/local/bin\n",
+   "RUN npm run build",
+   "COPY --from=assets /app/public/build ./public/build"
+  ],
+  "not_df": [
+   "FROM node:22-bookworm-slim AS assets"
+  ],
+  "why_has": "PHP next to Node"
+ },
+ {
+  "name": "laravel whose vite config runs wayfinder builds its assets with PHP",
+  "mode": "auto",
+  "files": [
+   "artisan",
+   "composer.json",
+   "package.json",
+   "pnpm-lock.yaml",
+   "vite.config.js"
+  ],
+  "package": {
+   "scripts": [
+    "build"
+   ],
+   "deps": [
+    "vite",
+    "laravel-vite-plugin"
+   ]
+  },
+  "contents": {
+   "vite.config.js": "import { wayfinder } from '@laravel/vite-plugin-wayfinder'\nexport default { plugins: [wayfinder({ formVariants: true })] }\n"
+  },
+  "expect": {
+   "type": "laravel",
+   "unsure": false
+  },
+  "df": [
+   "FROM php:8.4-cli AS assets",
+   "RUN corepack enable && pnpm install --frozen-lockfile",
+   "RUN pnpm build"
+  ],
+  "why_has": "PHP next to Node"
  },
  {
   "name": "scripts is not an object",
@@ -2330,7 +2404,11 @@
   },
   "df": [
    "gunicorn mysite.wsgi:application --bind 0.0.0.0:${PORT:-8000}",
-   "collectstatic"
+   "collectstatic",
+   "COPY <<'PYSETTINGS' /app/bitploy_settings.py",
+   "importlib.import_module(\"mysite.settings\")",
+   "ENV DJANGO_SETTINGS_MODULE=bitploy_settings",
+   "--forwarded-allow-ips '*'"
   ],
   "not_df": [
    "myproject",

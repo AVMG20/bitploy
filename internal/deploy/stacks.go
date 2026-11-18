@@ -465,7 +465,7 @@ func djangoPlan(files []string, has map[string]bool, userIgnore []byte, read fun
 	if !pythonDeps(read)["gunicorn"] {
 		install = []string{"gunicorn"}
 	}
-	tpl, ok := templates.Django(files, module, collect, install)
+	tpl, ok := templates.Django(files, module, settings, collect, install)
 	if !ok {
 		return BuildPlan{}, cannotAdapt("django", files, "a Django app")
 	}
@@ -474,7 +474,12 @@ func djangoPlan(files []string, has map[string]bool, userIgnore []byte, read fun
 	if !collect {
 		why += " The settings have no STATIC_ROOT, so static files are not collected."
 	}
-	why += " The settings must keep the database in /data and allow the app's address (ALLOWED_HOSTS)." + assistantTail
+	if settings != "" {
+		why += " The image runs " + settings + " with the app's address added to ALLOWED_HOSTS and a SQLite file in the code folder moved to /data (" + templates.DjangoSettingsFile + "). The database survives deploys only with Keep saved files (the /data volume) on."
+	} else {
+		why += " manage.py names no settings module, so the settings must allow the app's address (ALLOWED_HOSTS) and keep the SQLite database in /data."
+	}
+	why += assistantTail
 	plan := templatePlan(BuildKindDjango, stackDockerfilePath(BuildKindDjango), tpl, userIgnore, why)
 	plan.Unsure = true
 	return plan, nil
@@ -499,6 +504,25 @@ func phpPlan(files []string, has map[string]bool, userIgnore []byte) (BuildPlan,
 	return templatePlan(BuildKindPHP, stackDockerfilePath(BuildKindPHP), tpl, userIgnore, why), nil
 }
 
+// viteArtisan matches a Vite config that runs php artisan during the build,
+// like the Wayfinder plugin of the Laravel starter kits.
+var viteArtisan = regexp.MustCompile(`vite-plugin-wayfinder|\bwayfinder\(|php artisan`)
+
+// viteRunsArtisan reports whether the Vite build of a Laravel project runs
+// php artisan: package.json lists the Wayfinder plugin, or the Vite config
+// names it or php artisan.
+func viteRunsArtisan(has map[string]bool, read func(string) []byte, p *project) bool {
+	if p != nil && p.deps["@laravel/vite-plugin-wayfinder"] {
+		return true
+	}
+	for _, name := range []string{"vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"} {
+		if has[name] && viteArtisan.MatchString(readText(read, name)) {
+			return true
+		}
+	}
+	return false
+}
+
 func laravelPlan(files []string, has map[string]bool, userIgnore []byte, read func(string) []byte) (BuildPlan, *apperr.Error) {
 	if !has["composer.json"] {
 		return BuildPlan{}, stackErr("laravel", files,
@@ -507,11 +531,13 @@ func laravelPlan(files []string, has map[string]bool, userIgnore []byte, read fu
 	}
 	// The template builds the assets with the build script of package.json;
 	// without one there is nothing to build, so the stage is left out.
-	assets := has["package.json"]
+	assets, phpAssets := has["package.json"], false
 	if assets {
-		if p, ok := readProject(files, false, read); ok && !p.scripts["build"] {
+		p, ok := readProject(files, false, read)
+		if ok && !p.scripts["build"] {
 			assets = false
 		}
+		phpAssets = assets && viteRunsArtisan(has, read, p)
 	}
 	tplFiles := files
 	if !assets {
@@ -522,11 +548,18 @@ func laravelPlan(files []string, has map[string]bool, userIgnore []byte, read fu
 			}
 		}
 	}
-	tpl, _ := templates.ForFiles("laravel", tplFiles)
-	why := "Laravel app: installing its Composer packages and serving it with Apache. Migrations run on every start."
-	if assets {
-		why = "Laravel app: installing its Composer packages, building its assets and serving it with Apache. Migrations run on every start."
+	tpl, ok := templates.Laravel(tplFiles, phpAssets)
+	if !ok {
+		return BuildPlan{}, cannotAdapt("laravel", files, "a Laravel app")
 	}
-	why += " Set APP_KEY in the app's variables before it opens (php artisan key:generate --show makes one)."
+	why := "Laravel app: installing its Composer packages and serving it with Apache."
+	switch {
+	case phpAssets:
+		why = "Laravel app: installing its Composer packages, building its assets with PHP next to Node (the Vite build runs php artisan) and serving it with Apache."
+	case assets:
+		why = "Laravel app: installing its Composer packages, building its assets and serving it with Apache."
+	}
+	why += " The database is SQLite in /data and migrations run on every start. The database survives deploys only with Keep saved files (the /data volume) on." +
+		" Without APP_KEY in the app's variables, bitploy makes one and keeps it in /data."
 	return templatePlan(BuildKindLaravel, stackDockerfilePath(BuildKindLaravel), tpl, userIgnore, why), nil
 }

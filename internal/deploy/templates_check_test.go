@@ -31,7 +31,7 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 		"go, no go.sum":  {"go.mod", "main.go"},
 	}
 	stacks := append(append([]string{}, templates.Stacks...), "node+build", "node+build, dev kept", "nuxt",
-		"go in cmd/server", "go with cgo and folders", "fastapi", "flask factory", "django adapted", "php site")
+		"go in cmd/server", "go with cgo and folders", "fastapi", "flask factory", "django adapted", "php site", "laravel wayfinder")
 	for _, stack := range stacks {
 		for name, files := range variants {
 			tpl, ok := templates.ForFiles(stack, files)
@@ -57,11 +57,15 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 			case "flask factory":
 				tpl, ok = templates.PythonApp(files, templates.PyServerGunicorn, "app:create_app()", nil)
 			case "django adapted":
-				if tpl, ok = templates.Django(files, "config", false, []string{"gunicorn"}); ok {
+				if tpl, ok = templates.Django(files, "config", "config.settings.prod", false, []string{"gunicorn"}); ok {
 					tpl, ok = templates.WithPython(tpl, "3.12")
 				}
 			case "php site":
 				tpl, ok = templates.PHPSite(files)
+			case "laravel wayfinder":
+				if tpl, ok = templates.Laravel(append([]string{"artisan"}, files...), true); !ok && !strings.Contains(strings.Join(files, " "), "package.json") {
+					tpl, ok = templates.ForFiles("laravel", files) // no Vite stage to change
+				}
 			}
 			if !ok {
 				t.Fatalf("%s: unknown stack", stack)

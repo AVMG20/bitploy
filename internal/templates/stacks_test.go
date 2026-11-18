@@ -148,17 +148,31 @@ func TestPythonApp(t *testing.T) {
 }
 
 func TestDjango(t *testing.T) {
-	tpl, ok := Django([]string{"requirements.txt", "manage.py"}, "mysite", true, nil)
+	tpl, ok := Django([]string{"requirements.txt", "manage.py"}, "mysite", "", true, nil)
 	parses(t, "django", tpl.Dockerfile)
 	if !ok || !strings.Contains(tpl.Dockerfile, "exec gunicorn mysite.wsgi:application --bind 0.0.0.0:${PORT:-8000}") ||
 		strings.Contains(tpl.Dockerfile, "myproject") || !strings.Contains(tpl.Dockerfile, "collectstatic") || strings.Contains(tpl.Dockerfile, "pip install gunicorn") {
 		t.Errorf("django: %v\n%s", ok, tpl.Dockerfile)
 	}
-	tpl, ok = Django([]string{"requirements.txt", "manage.py"}, "config", false, []string{"gunicorn"})
+	if strings.Contains(tpl.Dockerfile, DjangoSettingsFile) || strings.Contains(tpl.Dockerfile, "DJANGO_SETTINGS_MODULE") {
+		t.Errorf("django without a settings module must not override it:\n%s", tpl.Dockerfile)
+	}
+	tpl, ok = Django([]string{"requirements.txt", "manage.py"}, "mysite", "mysite.settings", true, nil)
+	parses(t, "django with settings", tpl.Dockerfile)
+	if !ok || !strings.Contains(tpl.Dockerfile, "COPY . .\n\n# The project's settings") ||
+		!strings.Contains(tpl.Dockerfile, `importlib.import_module("mysite.settings")`) ||
+		!strings.Contains(tpl.Dockerfile, "ENV DJANGO_SETTINGS_MODULE=bitploy_settings\n") ||
+		strings.Index(tpl.Dockerfile, "DJANGO_SETTINGS_MODULE=bitploy_settings") > strings.Index(tpl.Dockerfile, "collectstatic") {
+		t.Errorf("django with settings: %v\n%s", ok, tpl.Dockerfile)
+	}
+	if _, ok := Django(nil, "mysite", "mysite.settings; rm", true, nil); ok {
+		t.Error("an unsafe settings module must be refused")
+	}
+	tpl, ok = Django([]string{"requirements.txt", "manage.py"}, "config", "", false, []string{"gunicorn"})
 	if !ok || strings.Contains(tpl.Dockerfile, "collectstatic") || !strings.Contains(tpl.Dockerfile, "RUN pip install gunicorn\n") || !strings.Contains(tpl.Dockerfile, "config.wsgi") {
 		t.Errorf("django without collectstatic: %v\n%s", ok, tpl.Dockerfile)
 	}
-	if _, ok := Django(nil, "my-site", true, nil); ok {
+	if _, ok := Django(nil, "my-site", "", true, nil); ok {
 		t.Error("an unsafe module must be refused")
 	}
 }

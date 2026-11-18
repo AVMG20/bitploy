@@ -29,8 +29,11 @@ ENV APP_ENV=production \
 RUN a2enmod rewrite \
  && sed -ri 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
  && sed -ri 's!<VirtualHost \*:80>!<VirtualHost *:8080>!; s!/var/www/html!/var/www/html/public!' /etc/apache2/sites-available/000-default.conf
+# bitploy's proxy ends HTTPS and passes X-Forwarded-Proto: HTTPS=on makes Laravel
+# build https:// links and asset URLs without trusting the proxy in bootstrap/app.php.
 COPY <<'APACHECONF' /etc/apache2/conf-available/laravel.conf
 ServerName localhost
+SetEnvIf X-Forwarded-Proto "^https$" HTTPS=on
 <Directory /var/www/html/public>
     AllowOverride All
     Require all granted
@@ -42,11 +45,22 @@ WORKDIR /var/www/html
 COPY --from=vendor /app ./
 COPY --from=assets /app/public/build ./public/build
 
-# Start script: create the database file, migrate, cache the config, run Apache.
+# Start script: make an app key if none is set, create the database file, migrate,
+# cache the config, run Apache.
 COPY --chmod=755 <<'STARTSCRIPT' /usr/local/bin/start
 #!/bin/sh
 set -e
 cd /var/www/html
+# No APP_KEY in the app's variables: make one once and keep it in /data next to the
+# database it encrypts.
+if [ -z "$APP_KEY" ]; then
+  [ -s /data/app-key ] || (umask 077 && php -r 'echo "base64:", base64_encode(random_bytes(32));' > /data/app-key)
+  export APP_KEY="$(cat /data/app-key)"
+fi
+# Links in emails and queued jobs use APP_URL: default to the app's address.
+if [ -z "$APP_URL" ] && [ -n "$BITPLOY_URL" ]; then
+  export APP_URL="$BITPLOY_URL"
+fi
 touch /data/database.sqlite
 php artisan migrate --force
 php artisan config:cache

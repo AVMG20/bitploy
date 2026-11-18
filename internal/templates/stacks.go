@@ -198,6 +198,7 @@ func WithPython(tpl Template, version string) (Template, bool) {
 
 const (
 	djangoProject      = "myproject.wsgi:application"
+	djangoCopyCode     = "COPY . .\n"
 	djangoCollect      = "RUN DJANGO_SECRET_KEY=build-only python manage.py collectstatic --noinput\n"
 	djangoCollectNote  = "# Collect static files into STATIC_ROOT (served by whitenoise). The key is only used during the build.\n"
 	djangoCollectBlock = djangoCollectNote + djangoCollect
@@ -205,18 +206,67 @@ const (
 	djangoUserMarker   = "# Run as an unprivileged user. The SQLite database lives in /data.\n"
 )
 
+// DjangoSettingsFile is the settings module Django gives the project's
+// settings with the changes running on bitploy needs (djangoOverride).
+const DjangoSettingsFile = "bitploy_settings.py"
+
+// djangoOverride is the settings module that loads the project's settings
+// (SETTINGS) and changes only what a project made with startproject gets
+// wrong on bitploy: an empty ALLOWED_HOSTS, which refuses every address but
+// localhost, and a SQLite file in the code folder, which is not writable and
+// would be replaced on every deploy. Other settings stay as they are.
+const djangoOverride = `# Made by bitploy: the project's settings (SETTINGS), with the changes it needs
+# to run on bitploy. A Dockerfile of your own replaces this file.
+import importlib
+import os
+from urllib.parse import urlsplit
+
+_project = importlib.import_module("SETTINGS")
+globals().update({k: v for k, v in vars(_project).items() if k.isupper()})
+
+# Requests only reach the app through bitploy's proxy, which routes the app's
+# own addresses to it: an empty list allows all, a list of the project's own
+# gets the app's address added.
+ALLOWED_HOSTS = list(globals().get("ALLOWED_HOSTS") or ["*"])
+_host = urlsplit(os.environ.get("BITPLOY_URL", "")).hostname
+if _host and "*" not in ALLOWED_HOSTS and _host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_host)
+
+# A SQLite file in the code folder (BASE_DIR / "db.sqlite3") moves to /data,
+# the folder that is kept between deploys.
+_db = (globals().get("DATABASES") or {}).get("default") or {}
+_name = str(_db.get("NAME") or "")
+if (_db.get("ENGINE") == "django.db.backends.sqlite3" and _name not in ("", ":memory:")
+        and not _name.startswith("file:") and os.path.abspath(_name).startswith("/app/")):
+    _db["NAME"] = os.path.join("/data", os.path.basename(_name))
+`
+
 // Django is the django template, adapted with ForFiles, for the project whose
 // wsgi.py is in module (mysite, or config for config/wsgi.py). collect false
 // leaves out collectstatic, which fails without STATIC_ROOT in the settings.
-// install are server packages the dependency files lack. ok is false for an
-// unsafe module or when the template's lines are gone.
-func Django(files []string, module string, collect bool, install []string) (Template, bool) {
+// install are server packages the dependency files lack. settings is the
+// settings module manage.py names (mysite.settings); when it is known the
+// image runs with djangoOverride on top of it. ok is false for an unsafe
+// module or settings or when the template's lines are gone.
+func Django(files []string, module, settings string, collect bool, install []string) (Template, bool) {
 	tpl, _ := ForFiles("django", files)
 	if !pyModule.MatchString(module) || strings.Count(tpl.Dockerfile, djangoProject) != 1 || strings.Count(tpl.Dockerfile, djangoCollectBlock) != 1 {
 		return tpl, false
 	}
+	if settings != "" && (!pyModule.MatchString(settings) || strings.Count(tpl.Dockerfile, djangoCopyCode) != 1) {
+		return tpl, false
+	}
 	df := strings.Replace(tpl.Dockerfile, djangoProject, module+".wsgi:application", 1)
 	df = strings.Replace(df, djangoReplaceNote, "", 1)
+	if settings != "" {
+		override := strings.ReplaceAll(djangoOverride, "SETTINGS", settings)
+		df = strings.Replace(df, djangoCopyCode, djangoCopyCode+"\n"+
+			"# The project's settings with the app's address allowed and a SQLite file\n"+
+			"# in the code folder moved to /data.\n"+
+			"COPY <<'PYSETTINGS' /app/"+DjangoSettingsFile+"\n"+override+"PYSETTINGS\n"+
+			"ENV DJANGO_SETTINGS_MODULE="+strings.TrimSuffix(DjangoSettingsFile, ".py")+"\n", 1)
+		tpl.Readme += "\n- `" + DjangoSettingsFile + "` loads `" + settings + "`, allows the app's address when `ALLOWED_HOSTS` is empty or misses it, and moves a SQLite file in the code folder to `/data`. `DJANGO_SETTINGS_MODULE` points at it.\n"
+	}
 	if !collect {
 		df = strings.Replace(df, djangoCollectBlock+"\n", "", 1)
 		tpl.Readme += "\n- The settings have no `STATIC_ROOT`, so `collectstatic` was left out.\n"
@@ -241,5 +291,31 @@ func PHPSite(files []string) (Template, bool) {
 	}
 	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, phpChown, "RUN mkdir /data \\\n && chown -R www-data:www-data /data /var/www/html ", 1)
 	tpl.Readme += "\n- `/data` is made in the image and owned by `www-data`, so the site can keep its SQLite file there.\n"
+	return tpl, true
+}
+
+// laravelPHPAssets is the start of the assets stage for a Vite build that
+// runs php artisan: PHP from the cli image, Node copied in from its image.
+// The two images keep their programs under different names in /usr/local/bin.
+const laravelPHPAssets = "# The Vite build runs php artisan (Laravel Wayfinder), so this stage has PHP and Node.\n" +
+	"FROM php:8.4-cli AS assets\n" +
+	"COPY --from=node:22-bookworm-slim /usr/local/bin /usr/local/bin\n" +
+	"COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules\n" +
+	"COPY --from=node:22-bookworm-slim /opt /opt\n"
+
+// Laravel is the laravel template, adapted with ForFiles. phpAssets builds the
+// assets in a stage with PHP next to Node, for a Vite build that runs
+// php artisan (the Wayfinder plugin of the starter kits). ok is false when
+// the template's lines are gone.
+func Laravel(files []string, phpAssets bool) (Template, bool) {
+	tpl, _ := ForFiles("laravel", files)
+	if !phpAssets {
+		return tpl, true
+	}
+	if strings.Count(tpl.Dockerfile, nodeFromAssets+"\n") != 1 {
+		return tpl, false
+	}
+	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, nodeFromAssets+"\n", laravelPHPAssets, 1)
+	tpl.Readme += "\n- The Vite build runs `php artisan` (Laravel Wayfinder), so stage 2 is `php:8.4-cli` with Node copied in.\n"
 	return tpl, true
 }

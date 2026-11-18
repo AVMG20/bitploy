@@ -23,5 +23,6 @@ USER app
 EXPOSE 8000
 
 # Replace "myproject" with the folder that contains settings.py and wsgi.py.
-# Migrations run on every start, before the server.
-CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn myproject.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2"]
+# Migrations run on every start, before the server. --forwarded-allow-ips makes gunicorn
+# trust X-Forwarded-Proto from bitploy's proxy, so Django sees HTTPS (CSRF checks, links).
+CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn myproject.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --forwarded-allow-ips '*'"]
