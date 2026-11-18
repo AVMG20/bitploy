@@ -2276,7 +2276,7 @@
    "requirements.txt": "requests\n",
    "bot.py": "print('hi')\n"
   },
-  "message_has": "no file that starts the web app",
+  "message_has": "lists neither FastAPI nor Flask",
   "expect": {
    "none": true,
    "code": "nothing_to_build"
@@ -2558,6 +2558,291 @@
   "expect": {
    "none": true,
    "code": "nothing_to_build"
+  }
+ },
+ {
+  "name": "go with go-sqlite3 builds with cgo",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go"
+  ],
+  "contents": {
+   "go.mod": "module example.com/x\n\ngo 1.24\n\nrequire (\n\tgithub.com/mattn/go-sqlite3 v1.14.24\n)\n",
+   "main.go": "package main\n"
+  },
+  "df": [
+   "FROM golang:1.26-bookworm AS build",
+   "RUN CGO_ENABLED=1 go build",
+   "FROM gcr.io/distroless/base-debian12:nonroot"
+  ],
+  "not_df": [
+   "CGO_ENABLED=0",
+   "alpine"
+  ],
+  "why_has": "C compiler",
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go with gorm's sqlite driver, an indirect go-sqlite3, builds with cgo",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go"
+  ],
+  "contents": {
+   "go.mod": "module example.com/x\n\ngo 1.24\n\nrequire (\n\tgorm.io/driver/sqlite v1.5.7\n\tgithub.com/mattn/go-sqlite3 v1.14.22 // indirect\n)\n",
+   "main.go": "package main\n"
+  },
+  "df": [
+   "RUN CGO_ENABLED=1 go build"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go with modernc sqlite needs no cgo",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go"
+  ],
+  "contents": {
+   "go.mod": "module example.com/x\n\ngo 1.24\n\nrequire (\n\tmodernc.org/sqlite v1.34.1\n)\n",
+   "main.go": "package main\n"
+  },
+  "df": [
+   "RUN CGO_ENABLED=0 go build",
+   "FROM gcr.io/distroless/static-debian12:nonroot"
+  ],
+  "not_df": [
+   "CGO_ENABLED=1"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go copies its templates and static folders and owns /data",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go",
+   "templates/index.html",
+   "static/app.css",
+   "index.html"
+  ],
+  "df": [
+   "RUN mkdir /data\n",
+   "COPY --from=build --chown=nonroot:nonroot /data /data\n",
+   "WORKDIR /srv\nCOPY --from=build /src/templates ./templates\nCOPY --from=build /src/static ./static\n"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "go library with a generator of package main at the top builds the one program in cmd",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "lib.go",
+   "gen.go",
+   "cmd/server/main.go"
+  ],
+  "contents": {
+   "lib.go": "package lib\n",
+   "gen.go": "//go:build ignore\n\npackage main\n"
+  },
+  "df": [
+   "-o /out/app ./cmd/server\n"
+  ],
+  "expect": {
+   "type": "go"
+  }
+ },
+ {
+  "name": "flask app factory in a package of its own",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "flaskr/__init__.py",
+   "flaskr/db.py",
+   "tests/__init__.py"
+  ],
+  "contents": {
+   "requirements.txt": "flask\n",
+   "flaskr/__init__.py": "from flask import Flask\n\ndef create_app(test_config=None):\n    app = Flask(__name__)\n    return app\n"
+  },
+  "df": [
+   "'flaskr:create_app()'",
+   "RUN pip install gunicorn"
+  ],
+  "why_has": "Flask app in flaskr/__init__.py",
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "requirements.txt that includes another file",
+  "mode": "auto",
+  "files": [
+   "requirements.txt",
+   "requirements/base.txt",
+   "main.py"
+  ],
+  "contents": {
+   "requirements.txt": "-r requirements/base.txt\n",
+   "requirements/base.txt": "fastapi\nuvicorn\n",
+   "main.py": "from fastapi import FastAPI\napp = FastAPI()\n"
+  },
+  "df": [
+   "uvicorn main:app"
+  ],
+  "not_df": [
+   "pip install uvicorn"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "python on the version of .python-version, with /data for its user",
+  "mode": "auto",
+  "files": [
+   "pyproject.toml",
+   "uv.lock",
+   ".python-version",
+   "main.py"
+  ],
+  "contents": {
+   "pyproject.toml": "[project]\nname = \"hello\"\nrequires-python = \">=3.12\"\ndependencies = [\n    \"fastapi[standard]>=0.115.0\",\n]\n",
+   ".python-version": "3.12\n",
+   "main.py": "from fastapi import FastAPI\n\napp = FastAPI()\n"
+  },
+  "df": [
+   "FROM python:3.12-slim\n",
+   "uv sync --frozen --no-dev",
+   "&& mkdir /data && chown app /data\nUSER app\n"
+  ],
+  "not_df": [
+   "python:3.14",
+   "uv pip install"
+  ],
+  "expect": {
+   "type": "python",
+   "unsure": true
+  }
+ },
+ {
+  "name": "django with a package.json for its assets is a Django app",
+  "mode": "auto",
+  "files": [
+   "manage.py",
+   "requirements.txt",
+   "package.json",
+   "mysite/settings.py",
+   "mysite/wsgi.py",
+   "runtime.txt"
+  ],
+  "package": {
+   "scripts": {
+    "build": "tailwindcss -o static/app.css"
+   },
+   "deps": [
+    "tailwindcss"
+   ]
+  },
+  "contents": {
+   "manage.py": "os.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \"mysite.settings\")\n",
+   "requirements.txt": "Django==4.2\ngunicorn\n",
+   "runtime.txt": "python-3.11.9\n"
+  },
+  "df": [
+   "FROM python:3.11-slim\n",
+   "gunicorn mysite.wsgi:application"
+  ],
+  "expect": {
+   "type": "django",
+   "unsure": true
+  }
+ },
+ {
+  "name": "php site owns /data",
+  "mode": "auto",
+  "files": [
+   "index.php"
+  ],
+  "df": [
+   "RUN mkdir /data \\\n && chown -R www-data:www-data /data /var/www/html "
+  ],
+  "expect": {
+   "type": "php"
+  }
+ },
+ {
+  "name": "a page with socket.io in package.json is a server, not a website",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "server.js",
+   "package.json"
+  ],
+  "package": {
+   "scripts": {
+    "dev": "node server.js"
+   },
+   "deps": [
+    "socket.io"
+   ]
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  },
+  "message_has": "no start script"
+ },
+ {
+  "name": "a page whose main is server.js is a server, not a website",
+  "mode": "auto",
+  "files": [
+   "index.html",
+   "server.js",
+   "package.json"
+  ],
+  "package": {
+   "scripts": [],
+   "deps": [],
+   "main": "server.js"
+  },
+  "expect": {
+   "none": true,
+   "code": "nothing_to_build"
+  },
+  "message_has": "no start script"
+ },
+ {
+  "name": "a Dockerfile in another folder is named in the explanation",
+  "mode": "auto",
+  "files": [
+   "go.mod",
+   "go.sum",
+   "main.go",
+   "docker/Dockerfile"
+  ],
+  "why_has": "set the app's Dockerfile path to docker/Dockerfile",
+  "expect": {
+   "type": "go"
   }
  }
 ]

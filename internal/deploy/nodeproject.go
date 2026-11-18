@@ -164,6 +164,27 @@ func readProject(files []string, hasIndex bool, read func(string) []byte) (*proj
 	return p, true
 }
 
+// nodeServerDeps are packages that only run on a server (web sockets,
+// databases, mail, chat bots): a package.json that lists one is not only
+// there for the tools of a plain website. The same list is in
+// web/src/lib/detect.ts.
+var nodeServerDeps = []string{
+	"socket.io", "ws", "polka", "restify", "micro", "h3", "elysia", "dotenv",
+	"pg", "mysql", "mysql2", "sqlite3", "better-sqlite3", "mongodb", "mongoose", "@prisma/client", "sequelize", "knex",
+	"nodemailer", "discord.js", "telegraf", "node-telegram-bot-api",
+}
+
+// serverOnly reports whether package.json lists a package that only runs on a
+// server, or its main file is named server (server.js).
+func (p *project) serverOnly() bool {
+	for _, d := range nodeServerDeps {
+		if p.deps[d] {
+			return true
+		}
+	}
+	return strings.HasPrefix(path.Base(p.main), "server.")
+}
+
 func (p *project) hasDepPrefix(prefix string) bool {
 	for d := range p.deps {
 		if strings.HasPrefix(d, prefix) && d != "@remix-run/router" { // react-router-dom 6 depends on it
@@ -335,7 +356,7 @@ func (p *project) detect() Detection {
 	// A plain website with a package.json for tools (prettier, eslint) or a
 	// dev server: index.html at the top, no framework, nothing to build and
 	// no server of its own.
-	if fw == fwNone && !hasBuild && p.hasIndex {
+	if fw == fwNone && !hasBuild && p.hasIndex && !p.serverOnly() {
 		switch {
 		case !p.scripts["start"] && len(p.deps) > len(p.devDeps):
 			return Detection{Type: BuildModeStatic, Unsure: true,

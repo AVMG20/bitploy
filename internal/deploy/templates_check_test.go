@@ -31,7 +31,7 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 		"go, no go.sum":  {"go.mod", "main.go"},
 	}
 	stacks := append(append([]string{}, templates.Stacks...), "node+build", "node+build, dev kept", "nuxt",
-		"go in cmd/server", "fastapi", "flask factory", "django adapted")
+		"go in cmd/server", "go with cgo and folders", "fastapi", "flask factory", "django adapted", "php site")
 	for _, stack := range stacks {
 		for name, files := range variants {
 			tpl, ok := templates.ForFiles(stack, files)
@@ -49,13 +49,19 @@ func TestTemplatesPassTheChecks(t *testing.T) {
 				}
 			// Auto mode's templates for Go, Python and Django projects.
 			case "go in cmd/server":
-				tpl, ok = templates.GoProgram(files, "cmd/server")
+				tpl, ok = templates.GoProgram(files, "cmd/server", false)
+			case "go with cgo and folders":
+				tpl, ok = templates.GoProgram(append([]string{"templates/index.html", "static/app.css"}, files...), ".", true)
 			case "fastapi":
 				tpl, ok = templates.PythonApp(files, templates.PyServerUvicorn, "app.main:app", []string{"uvicorn"})
 			case "flask factory":
 				tpl, ok = templates.PythonApp(files, templates.PyServerGunicorn, "app:create_app()", nil)
 			case "django adapted":
-				tpl, ok = templates.Django(files, "config", false, []string{"gunicorn"})
+				if tpl, ok = templates.Django(files, "config", false, []string{"gunicorn"}); ok {
+					tpl, ok = templates.WithPython(tpl, "3.12")
+				}
+			case "php site":
+				tpl, ok = templates.PHPSite(files)
 			}
 			if !ok {
 				t.Fatalf("%s: unknown stack", stack)

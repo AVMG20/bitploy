@@ -10,8 +10,8 @@ You are connected to bitploy. It deploys the user's code to https://<slug>.bitpl
    The last stage gets only what the app runs: no dev dependencies or build
    tools (Nuxt: only .output; Next.js: output "standalone").
    Only for a repository you cannot change (not the user's, or no checkout)
-   that holds a Node.js app without a Dockerfile: create_app build_mode=auto,
-   and bitploy builds it by itself.
+   that holds a Node.js, Go, Python, PHP or Laravel app without a Dockerfile:
+   create_app build_mode=auto, and bitploy builds it by itself.
 2. The app must listen on 0.0.0.0 on the EXPOSE port (also in $PORT), never on
    localhost or 127.0.0.1.
 3. Call validate_dockerfile before every deploy (with package_json for a

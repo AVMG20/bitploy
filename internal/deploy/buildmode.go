@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -247,10 +248,19 @@ func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []s
 		}
 		if (stack == "node" || stack == "nextjs" || stack == "node-static") && has["package.json"] {
 			if plan, ok := autoNodePlan(files, hasIndex, dockerignore, outputDir, read); ok {
-				return plan, nil
+				return withOtherDockerfile(plan, has), nil
+			}
+			if p, ok := readProject(files, hasIndex, read); ok && hasIndex && !p.scripts["start"] && p.serverOnly() {
+				e := nothingToBuild(files, true)
+				e.Message = "No Dockerfile found, and package.json has no start script, so bitploy does not know how to start this Node.js app."
+				e.Hint = `Add a start script to package.json, like "start": "node server.js", or add a Dockerfile: your AI assistant can write one.`
+				return BuildPlan{}, e
 			}
 		}
 		if plan, err, ok := stackPlan(stack, files, has, dockerignore, read); ok {
+			if err == nil {
+				plan = withOtherDockerfile(plan, has)
+			}
 			return plan, err
 		}
 		if !hasIndex && stack == "static" {
@@ -276,6 +286,26 @@ func PlanBuild(mode, dockerfilePath, homePageChoice, outputDir string, files []s
 		}
 	}
 	return BuildPlan{Kind: BuildKindDockerfile}, nil
+}
+
+var dockerfileName = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]+/)?(?:Dockerfile|dockerfile)(?:\.[A-Za-z0-9_.-]+)?$|^[A-Za-z0-9_.-]+\.[Dd]ockerfile$`)
+
+// withOtherDockerfile tells in a template plan's Why about a Dockerfile in
+// another place (docker/Dockerfile, Dockerfile.prod), which auto mode does not
+// build: the app's Dockerfile path picks it.
+func withOtherDockerfile(plan BuildPlan, has map[string]bool) BuildPlan {
+	var found []string
+	for f := range has {
+		if dockerfileName.MatchString(f) && !strings.HasPrefix(f, "Dockerfile.bitploy-") && strings.Count(f, "/") <= 1 {
+			found = append(found, f)
+		}
+	}
+	if len(found) == 0 {
+		return plan
+	}
+	sort.Strings(found)
+	plan.Why += " Found " + found[0] + ", which is not built: to build it instead, set the app's Dockerfile path to " + found[0] + "."
+	return plan
 }
 
 // otherCase returns a file whose name differs from want only in upper and

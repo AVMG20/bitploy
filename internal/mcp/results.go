@@ -573,7 +573,7 @@ func failureSteps(d app.Deployment) []string {
 	case "dockerfile_missing":
 		out = append(out, "Call get_template for the stack named in the error, save its Dockerfile and .dockerignore in the code folder, then "+redo+".")
 		if d.SourceKind == "git" {
-			out = append(out, "Cannot change the repository (not the user's, or no checkout) and it is a Node.js app or a front end? Call update_app with build_mode=auto and deploy with only app="+slug+": bitploy then builds it without a Dockerfile.")
+			out = append(out, "Cannot change the repository (not the user's, or no checkout) and it is a Node.js app, a front end, or a Go, Python, PHP or Laravel app? Call update_app with build_mode=auto and deploy with only app="+slug+": bitploy then builds it without a Dockerfile.")
 		}
 	case "port_unknown", "port_ambiguous", "port_reserved":
 		out = append(out, "Either keep exactly one EXPOSE <port> in the last stage of the Dockerfile and "+redo+", or call update_app with port=<number> and then deploy with only app="+slug+".")

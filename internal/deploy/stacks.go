@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/AVMG20/bitploy/internal/apperr"
 	"github.com/AVMG20/bitploy/internal/templates"
@@ -75,7 +76,53 @@ func cannotAdapt(stack string, files []string, what string) *apperr.Error {
 
 // ---- Go ----
 
-var goPackageMain = regexp.MustCompile(`(?m)^package\s+main\b`)
+var (
+	goPackageMain = regexp.MustCompile(`(?m)^package\s+main\b`)
+	// goIgnored matches the build constraint of a file that go build leaves
+	// out, like a code generator of package main in a library.
+	goIgnored = regexp.MustCompile(`(?m)^//\s*(?:go:build|\+build)\s+ignore\s*$`)
+	// goCgoModule matches a module in go.mod that only works with cgo.
+	goCgoModule = regexp.MustCompile(`(?m)^\s*(?:require\s+)?(?:github\.com/mattn/go-sqlite3|crawshaw\.io/sqlite|github\.com/mutecomm/go-sqlcipher(?:/v[0-9]+)?)\s+v`)
+)
+
+// maxPlanRead is how much of a code file the planner looks at.
+const maxPlanRead = 1 << 20
+
+// readText returns the start of a text file (up to maxPlanRead bytes) as
+// UTF-8: a file saved as UTF-16 with a byte order mark, like requirements.txt
+// from pip freeze in Windows PowerShell, is converted.
+func readText(read func(string) []byte, name string) string {
+	b := read(name)
+	switch {
+	case len(b) >= 2 && (b[0] == 0xFF && b[1] == 0xFE || b[0] == 0xFE && b[1] == 0xFF):
+		le := b[0] == 0xFF
+		b = b[2:]
+		if len(b) > 2*maxPlanRead {
+			b = b[:2*maxPlanRead]
+		}
+		u := make([]uint16, len(b)/2)
+		for i := range u {
+			if le {
+				u[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
+			} else {
+				u[i] = uint16(b[2*i])<<8 | uint16(b[2*i+1])
+			}
+		}
+		return string(utf16.Decode(u))
+	case len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF:
+		b = b[3:]
+	}
+	if len(b) > maxPlanRead {
+		b = b[:maxPlanRead]
+	}
+	return string(b)
+}
+
+// maxPlanFiles is how many files the planner reads to find where an app starts.
+const maxPlanFiles = 64
+
+// goCmdName is a folder name in cmd that can go into the build line.
+var goCmdName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // goMainDir finds the main package to build: the top folder when it has
 // main.go or another .go file of package main, else the one cmd/<name>/main.go.
@@ -90,14 +137,17 @@ func goMainDir(files []string, has map[string]bool, read func(string) []byte) (d
 		if !strings.Contains(f, "/") && strings.HasSuffix(f, ".go") && !strings.HasSuffix(f, "_test.go") {
 			top = append(top, f)
 		}
-		if parts := strings.Split(f, "/"); len(parts) == 3 && parts[0] == "cmd" && parts[2] == "main.go" && !seen[parts[1]] {
+		if parts := strings.Split(f, "/"); len(parts) == 3 && parts[0] == "cmd" && parts[2] == "main.go" && !seen[parts[1]] && goCmdName.MatchString(parts[1]) {
 			seen[parts[1]] = true
 			cmds = append(cmds, parts[1])
 		}
 	}
 	sort.Strings(top)
+	if len(top) > maxPlanFiles {
+		top = top[:maxPlanFiles]
+	}
 	for _, f := range top {
-		if goPackageMain.Match(read(f)) {
+		if src := readText(read, f); goPackageMain.MatchString(src) && !goIgnored.MatchString(src) {
 			return ".", nil, true
 		}
 	}
@@ -120,13 +170,17 @@ func goPlan(files []string, has map[string]bool, userIgnore []byte, read func(st
 			"Found a Go project, but no program to build (like main.go at the top, or cmd/server/main.go).",
 			"Put the main package in main.go at the top or in cmd/<name>/main.go, or add a Dockerfile (your AI assistant can write one).")
 	}
-	tpl, ok := templates.GoProgram(files, dir)
+	cgo := goCgoModule.MatchString(readText(read, "go.mod"))
+	tpl, ok := templates.GoProgram(files, dir, cgo)
 	if !ok {
 		return BuildPlan{}, cannotAdapt("go", files, "a Go app")
 	}
 	why := "Go app, built from the top folder."
 	if dir != "." {
 		why = "Go app, built from " + dir + "."
+	}
+	if cgo {
+		why += " It uses SQLite through cgo, so it is built with a C compiler."
 	}
 	return templatePlan(BuildKindGo, stackDockerfilePath(BuildKindGo), tpl, userIgnore, why), nil
 }
@@ -149,8 +203,9 @@ func normPyName(n string) string {
 	return strings.ReplaceAll(strings.ToLower(n), "_", "-")
 }
 
-// pythonDeps lists the packages named in requirements.txt and pyproject.toml,
-// in lower case with - for _. fastapi[standard] brings uvicorn with it.
+// pythonDeps lists the packages named in requirements.txt (and the files it
+// includes with -r) and pyproject.toml, in lower case with - for _.
+// fastapi[standard] brings uvicorn with it.
 func pythonDeps(read func(string) []byte) map[string]bool {
 	deps := map[string]bool{}
 	add := func(name, extras string) {
@@ -160,17 +215,24 @@ func pythonDeps(read func(string) []byte) map[string]bool {
 			deps["uvicorn"] = true
 		}
 	}
-	for _, line := range strings.Split(string(read("requirements.txt")), "\n") {
-		line, _, _ = strings.Cut(line, "#")
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "-") {
-			continue
-		}
-		if m := pyReqName.FindStringSubmatch(line); m != nil {
-			add(m[1], m[2])
+	reqs := []string{"requirements.txt"}
+	for i := 0; i < len(reqs) && i < 8; i++ {
+		for _, line := range strings.Split(readText(read, reqs[i]), "\n") {
+			line, _, _ = strings.Cut(line, "#")
+			line = strings.TrimSpace(line)
+			if inc, ok := pyInclude(line); ok {
+				reqs = append(reqs, path.Join(path.Dir(reqs[i]), inc))
+				continue
+			}
+			if line == "" || strings.HasPrefix(line, "-") {
+				continue
+			}
+			if m := pyReqName.FindStringSubmatch(line); m != nil {
+				add(m[1], m[2])
+			}
 		}
 	}
-	toml := string(read("pyproject.toml"))
+	toml := readText(read, "pyproject.toml")
 	for _, m := range pyQuoted.FindAllStringSubmatch(toml, -1) {
 		add(m[1], m[2])
 	}
@@ -180,11 +242,36 @@ func pythonDeps(read func(string) []byte) map[string]bool {
 	return deps
 }
 
+// pyInclude is the file a requirements line includes (-r base.txt), when it
+// is a plain relative path.
+func pyInclude(line string) (string, bool) {
+	var rest string
+	switch {
+	case strings.HasPrefix(line, "-r"):
+		rest = strings.TrimPrefix(line, "-r")
+	case strings.HasPrefix(line, "--requirement"):
+		rest = strings.TrimPrefix(line, "--requirement")
+	default:
+		return "", false
+	}
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, "="))
+	if rest == "" || strings.HasPrefix(rest, "/") || strings.Contains(rest, "://") {
+		return "", false
+	}
+	for _, part := range strings.Split(rest, "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	return rest, true
+}
+
 // pythonEntryCandidates lists the files that may start a Python web app, the
-// usual names first, then the other files at the top, then the app package.
+// usual names first, then the other files at the top, then the app package,
+// then the other packages at the top (flaskr/__init__.py with create_app).
 func pythonEntryCandidates(has map[string]bool) []string {
 	first := []string{"main.py", "app.py", "server.py", "api.py", "application.py", "wsgi.py", "asgi.py", "run.py"}
-	var out, rest []string
+	var out, rest, pkgs []string
 	seen := map[string]bool{}
 	for _, f := range first {
 		if has[f] {
@@ -193,8 +280,12 @@ func pythonEntryCandidates(has map[string]bool) []string {
 		}
 	}
 	for f := range has {
-		if !strings.Contains(f, "/") && strings.HasSuffix(f, ".py") && !seen[f] {
+		parts := strings.Split(f, "/")
+		switch {
+		case len(parts) == 1 && strings.HasSuffix(f, ".py") && !seen[f]:
 			rest = append(rest, f)
+		case len(parts) == 2 && parts[0] != "app" && parts[0] != "tests" && (parts[1] == "__init__.py" || parts[1] == "main.py" || parts[1] == "app.py"):
+			pkgs = append(pkgs, f)
 		}
 	}
 	sort.Strings(rest)
@@ -204,7 +295,43 @@ func pythonEntryCandidates(has map[string]bool) []string {
 			out = append(out, f)
 		}
 	}
+	sort.Strings(pkgs)
+	out = append(out, pkgs...)
+	if len(out) > maxPlanFiles {
+		out = out[:maxPlanFiles]
+	}
 	return out
+}
+
+var pyVersionLine = regexp.MustCompile(`^(?:python-)?(3\.[0-9]{1,2})(?:\.[0-9]+)?$`)
+
+// pythonVersion is the Python version, as major.minor, that the project asks
+// for in .python-version (uv, pyenv) or runtime.txt (python-3.11.4); "" for
+// none.
+func pythonVersion(read func(string) []byte) string {
+	for _, name := range []string{".python-version", "runtime.txt"} {
+		for _, line := range strings.Split(readText(read, name), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if m := pyVersionLine.FindStringSubmatch(line); m != nil {
+				return m[1]
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// withPythonVersion runs tpl on the Python version the project asks for.
+func withPythonVersion(tpl templates.Template, read func(string) []byte) templates.Template {
+	if v := pythonVersion(read); v != "" {
+		if t, ok := templates.WithPython(tpl, v); ok {
+			return t
+		}
+	}
+	return tpl
 }
 
 // pyModuleOf is the module name of a Python file: app/main.py is app.main,
@@ -229,7 +356,7 @@ func pythonEntry(has map[string]bool, read func(string) []byte, fastapi, flask b
 		if !ok {
 			continue
 		}
-		src := read(f)
+		src := []byte(readText(read, f))
 		if fastapi {
 			if m := fastAPIApp.FindSubmatch(src); m != nil {
 				return f, mod + ":" + string(m[1]), templates.PyServerUvicorn, true
@@ -250,6 +377,11 @@ func pythonEntry(has map[string]bool, read func(string) []byte, fastapi, flask b
 func pythonPlan(files []string, has map[string]bool, userIgnore []byte, read func(string) []byte) (BuildPlan, *apperr.Error) {
 	deps := pythonDeps(read)
 	fastapi, flask := deps["fastapi"], deps["flask"]
+	if !fastapi && !flask {
+		return BuildPlan{}, stackErr("python", files,
+			"Found a Python project, but its requirements.txt or pyproject.toml lists neither FastAPI nor Flask, so bitploy does not know how to start it.",
+			"A FastAPI or Flask app needs fastapi or flask in requirements.txt. Any other app needs a Dockerfile: your AI assistant can write one.")
+	}
 	file, target, server, ok := pythonEntry(has, read, fastapi, flask)
 	if !ok {
 		hint := "Put the app in main.py or app.py as app = FastAPI() or app = Flask(__name__), and list fastapi or flask in requirements.txt. Or add a Dockerfile: your AI assistant can write one."
@@ -264,6 +396,7 @@ func pythonPlan(files []string, has map[string]bool, userIgnore []byte, read fun
 	if !ok {
 		return BuildPlan{}, cannotAdapt("python", files, "a Python app")
 	}
+	tpl = withPythonVersion(tpl, read)
 	name := "Flask"
 	if server == templates.PyServerUvicorn {
 		name = "FastAPI"
@@ -278,7 +411,7 @@ func pythonPlan(files []string, has map[string]bool, userIgnore []byte, read fun
 // settings module manage.py sets (mysite.settings, config.settings.prod), else
 // the only <folder>/wsgi.py.
 func djangoModule(has map[string]bool, read func(string) []byte) (module, settings string, ok bool) {
-	if m := pySettings.FindSubmatch(read("manage.py")); m != nil {
+	if m := pySettings.FindStringSubmatch(readText(read, "manage.py")); m != nil {
 		settings = string(m[1])
 		parts := strings.Split(settings, ".")
 		for n := len(parts) - 1; n >= 1; n-- {
@@ -308,11 +441,10 @@ func djangoCollects(settings string, read func(string) []byte) bool {
 	if settings == "" {
 		return true
 	}
-	src := read(strings.ReplaceAll(settings, ".", "/") + ".py")
-	if src == nil {
+	s := readText(read, strings.ReplaceAll(settings, ".", "/")+".py")
+	if s == "" {
 		return true
 	}
-	s := string(src)
 	return strings.Contains(s, "STATIC_ROOT") || strings.Contains(s, "import *")
 }
 
@@ -337,6 +469,7 @@ func djangoPlan(files []string, has map[string]bool, userIgnore []byte, read fun
 	if !ok {
 		return BuildPlan{}, cannotAdapt("django", files, "a Django app")
 	}
+	tpl = withPythonVersion(tpl, read)
 	why := "Django app (" + module + "): installing its packages and running it with gunicorn. Migrations run on every start."
 	if !collect {
 		why += " The settings have no STATIC_ROOT, so static files are not collected."
@@ -355,7 +488,10 @@ func phpPlan(files []string, has map[string]bool, userIgnore []byte) (BuildPlan,
 			"Found a PHP project, but no index.php at the top to open.",
 			"Put index.php in the top folder, or add a Dockerfile: your AI assistant can write one.")
 	}
-	tpl, _ := templates.ForFiles("php", files)
+	tpl, ok := templates.PHPSite(files)
+	if !ok {
+		return BuildPlan{}, cannotAdapt("php", files, "a PHP site")
+	}
 	why := "PHP site: serving it with Apache."
 	if has["composer.json"] {
 		why = "PHP site: installing its Composer packages and serving it with Apache."

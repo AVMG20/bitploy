@@ -22,19 +22,77 @@ var (
 	pyTarget = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*(?:\(\))?$`)
 )
 
+// Lines of the go template that GoProgram swaps.
+const (
+	goStage1   = "# Stage 1: compile a static binary.\n"
+	goFromAlp  = "FROM golang:1.26-alpine AS build\n"
+	goWorkdir  = "WORKDIR /src\n"
+	goStage2   = "# Stage 2: copy only the binary into a tiny image that runs as a non-root user.\n"
+	goFromRun  = "FROM gcr.io/distroless/static-debian12:nonroot\n"
+	goCopyBin  = "COPY --from=build /out/app /app\n"
+	goNoCgo    = "RUN CGO_ENABLED=0 go build "
+	goWithCgo  = "RUN CGO_ENABLED=1 go build "
+	goFromDeb  = "FROM golang:1.26-bookworm AS build\n"
+	goFromBase = "FROM gcr.io/distroless/base-debian12:nonroot\n"
+)
+
+// GoRuntimeDirs are folders at the top of a Go project that a program often
+// reads at run time from the folder it starts in (html/template files, CSS).
+// GoProgram copies the ones the project has next to the binary.
+var GoRuntimeDirs = []string{"templates", "static", "public", "views", "assets", "migrations"}
+
 // GoProgram is the go template, adapted with ForFiles, that builds the main
-// package in dir (a folder of the module such as cmd/server) instead of the
-// top folder. ok is false for an unsafe dir or when the build line is gone.
-func GoProgram(files []string, dir string) (Template, bool) {
+// package in dir (a folder of the module such as cmd/server, or "." for the
+// top folder). It also copies GoRuntimeDirs the project has into the image,
+// next to where the program starts, and gives the program a /data folder it
+// can write to. cgo builds with a C compiler on Debian and runs on the
+// distroless image with glibc, for modules such as github.com/mattn/go-sqlite3
+// that do not work without cgo. ok is false for an unsafe dir or when the
+// template's lines are gone.
+func GoProgram(files []string, dir string, cgo bool) (Template, bool) {
 	tpl, _ := ForFiles("go", files)
-	if dir == "" || dir == "." {
-		return tpl, true
+	df := tpl.Dockerfile
+	for _, line := range []string{goStage1, goFromAlp, goWorkdir, goStage2, goFromRun, goCopyBin, goBuildLine} {
+		if strings.Count(df, line) != 1 {
+			return tpl, false
+		}
 	}
-	if !goPackageDir.MatchString(dir) || strings.Contains("/"+dir+"/", "/../") || strings.Count(tpl.Dockerfile, goBuildLine) != 1 {
-		return tpl, false
+	if dir != "" && dir != "." {
+		if !goPackageDir.MatchString(dir) || strings.Contains("/"+dir+"/", "/../") {
+			return tpl, false
+		}
+		df = strings.Replace(df, goBuildLine, strings.TrimSuffix(goBuildLine, ".")+"./"+dir, 1)
+		tpl.Readme += "\n- The program is built from `./" + dir + "`.\n"
 	}
-	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, goBuildLine, strings.TrimSuffix(goBuildLine, ".")+"./"+dir, 1)
-	tpl.Readme += "\n- The program is built from `./" + dir + "`.\n"
+	if cgo {
+		df = strings.Replace(df, goStage1, "# Stage 1: compile the binary with cgo: a module of the project needs a C compiler.\n", 1)
+		df = strings.Replace(df, goFromAlp, goFromDeb, 1)
+		df = strings.Replace(df, goNoCgo, goWithCgo, 1)
+		df = strings.Replace(df, goStage2, "# Stage 2: copy only the binary into a small image with the C library it needs, as a non-root user.\n", 1)
+		df = strings.Replace(df, goFromRun, goFromBase, 1)
+		tpl.Readme += "\n- A module in `go.mod` needs cgo (like `github.com/mattn/go-sqlite3`), so the binary is built on Debian with `CGO_ENABLED=1` and runs on `distroless/base`, which has the C library. `modernc.org/sqlite` needs no cgo.\n"
+	}
+	// The volume takes the owner of /data from the image, and the final
+	// image has no shell to create it.
+	df = strings.Replace(df, goWorkdir, "RUN mkdir /data\n"+goWorkdir, 1)
+	runtime := "COPY --from=build --chown=nonroot:nonroot /data /data\n"
+	var dirs []string
+	for _, d := range GoRuntimeDirs {
+		for _, f := range files {
+			if strings.HasPrefix(strings.TrimPrefix(f, "./"), d+"/") {
+				dirs = append(dirs, d)
+				break
+			}
+		}
+	}
+	if len(dirs) > 0 {
+		runtime += "# The program reads these folders at run time, from the folder it starts in.\nWORKDIR /srv\n"
+		for _, d := range dirs {
+			runtime += "COPY --from=build /src/" + d + " ./" + d + "\n"
+		}
+		tpl.Readme += "\n- The folders " + strings.Join(dirs, ", ") + " are copied into the image next to where the program starts (`/srv`), so it can read them at run time.\n"
+	}
+	tpl.Dockerfile = strings.Replace(df, goCopyBin, goCopyBin+runtime, 1)
 	return tpl, true
 }
 
@@ -72,6 +130,7 @@ func withPythonServer(tpl *Template, files, install []string, marker string) boo
 
 const (
 	pyUserMarker  = "# Run as an unprivileged user.\n"
+	pyUserLine    = "RUN useradd --system --uid 10001 --create-home app\n"
 	pyStartMarker = "# Change this to your start command."
 )
 
@@ -104,14 +163,36 @@ func PythonApp(files []string, server, target string, install []string) (Templat
 	default:
 		return tpl, false
 	}
-	i := strings.Index(tpl.Dockerfile, pyStartMarker)
-	if i < 0 || !withPythonServer(&tpl, files, install, pyUserMarker) {
+	if strings.Count(tpl.Dockerfile, pyStartMarker) != 1 || strings.Count(tpl.Dockerfile, pyUserMarker+pyUserLine) != 1 ||
+		!withPythonServer(&tpl, files, install, pyUserMarker) {
 		return tpl, false
 	}
-	i = strings.Index(tpl.Dockerfile, pyStartMarker)
+	// The volume takes the owner of /data from the image: the app user must
+	// own it to write a SQLite file there.
+	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, pyUserMarker+pyUserLine,
+		"# Run as an unprivileged user that can write to /data.\n"+strings.TrimSuffix(pyUserLine, "\n")+" \\\n && mkdir /data && chown app /data\n", 1)
+	i := strings.Index(tpl.Dockerfile, pyStartMarker)
 	tpl.Dockerfile = tpl.Dockerfile[:i] + "# " + server + " serves " + target + " on 0.0.0.0 and $PORT.\n" +
 		`CMD ["sh", "-c", "` + start + `"]` + "\n"
 	tpl.Readme += "\n- The app starts with " + server + " on `" + target + "`.\n"
+	return tpl, true
+}
+
+// pyVersion is a Python version as major.minor, like 3.12.
+var pyVersion = regexp.MustCompile(`^3\.[0-9]{1,2}$`)
+
+const pyFrom = "FROM python:3.14-slim\n"
+
+// WithPython makes a python or django template run on Python version (3.12),
+// the version the project asks for (.python-version), instead of the newest:
+// packages pinned for an older Python often have no wheels for the newest.
+// ok is false for anything but major.minor or when the FROM line is gone.
+func WithPython(tpl Template, version string) (Template, bool) {
+	if !pyVersion.MatchString(version) || strings.Count(tpl.Dockerfile, pyFrom) != 1 {
+		return tpl, false
+	}
+	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, pyFrom, "FROM python:"+version+"-slim\n", 1)
+	tpl.Readme += "\n- The project asks for Python " + version + ", so the image is `python:" + version + "-slim`.\n"
 	return tpl, true
 }
 
@@ -144,5 +225,21 @@ func Django(files []string, module string, collect bool, install []string) (Temp
 	if !withPythonServer(&tpl, files, install, djangoUserMarker) {
 		return tpl, false
 	}
+	return tpl, true
+}
+
+// phpChown is the line of the php template that hands the site to Apache's user.
+const phpChown = "RUN chown -R www-data:www-data /var/www/html "
+
+// PHPSite is the php template, adapted with ForFiles, with a /data folder that
+// Apache's user owns, so the site can keep a SQLite file there. ok is false
+// when the template's line is gone.
+func PHPSite(files []string) (Template, bool) {
+	tpl, _ := ForFiles("php", files)
+	if strings.Count(tpl.Dockerfile, phpChown) != 1 {
+		return tpl, false
+	}
+	tpl.Dockerfile = strings.Replace(tpl.Dockerfile, phpChown, "RUN mkdir /data \\\n && chown -R www-data:www-data /data /var/www/html ", 1)
+	tpl.Readme += "\n- `/data` is made in the image and owned by `www-data`, so the site can keep its SQLite file there.\n"
 	return tpl, true
 }

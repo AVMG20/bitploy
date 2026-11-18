@@ -22,17 +22,90 @@ func TestForFilesPHP(t *testing.T) {
 }
 
 func TestGoProgram(t *testing.T) {
-	base, _ := ForFiles("go", []string{"go.mod", "go.sum"})
-	if got, ok := GoProgram([]string{"go.mod", "go.sum"}, "."); !ok || got != base {
-		t.Error("the top folder is the template as it is")
+	top, ok := GoProgram([]string{"go.mod", "go.sum", "main.go"}, ".", false)
+	parses(t, "go", top.Dockerfile)
+	want := `# Stage 1: compile a static binary.
+FROM golang:1.26-alpine AS build
+# A module that needs a newer Go than this image makes Go download that version
+# instead of failing with "requires go >= ...".
+ENV GOTOOLCHAIN=auto
+RUN mkdir /data
+WORKDIR /src
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/app .
+
+# Stage 2: copy only the binary into a tiny image that runs as a non-root user.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/app /app
+COPY --from=build --chown=nonroot:nonroot /data /data
+USER nonroot:nonroot
+`
+	if !ok || !strings.HasPrefix(top.Dockerfile, want) || !strings.HasSuffix(top.Dockerfile, "EXPOSE 8080\nENTRYPOINT [\"/app\"]\n") {
+		t.Errorf("top folder: %v\n%s", ok, top.Dockerfile)
 	}
-	tpl, ok := GoProgram([]string{"go.mod", "go.sum"}, "cmd/server")
+
+	tpl, ok := GoProgram([]string{"go.mod", "go.sum"}, "cmd/server", false)
 	if !ok || !strings.Contains(tpl.Dockerfile, "-o /out/app ./cmd/server\n") || strings.Contains(tpl.Dockerfile, "-o /out/app .\n") {
 		t.Errorf("cmd/server: %v\n%s", ok, tpl.Dockerfile)
 	}
 	parses(t, "go cmd/server", tpl.Dockerfile)
-	for _, bad := range []string{"../x", "cmd/../../x", "/abs", "a b", "x;rm", "cmd//x"} {
-		if _, ok := GoProgram(nil, bad); ok {
+	for _, bad := range []string{"../x", "cmd/../../x", "/abs", "a b", "x;rm", "cmd//x", "cmd/x\nRUN id", `cmd/"x"`} {
+		if _, ok := GoProgram(nil, bad, false); ok {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+
+	// go-sqlite3 needs cgo: Debian with gcc to build, glibc to run.
+	tpl, ok = GoProgram([]string{"go.mod", "main.go"}, ".", true)
+	parses(t, "go cgo", tpl.Dockerfile)
+	df := tpl.Dockerfile
+	for _, w := range []string{
+		"FROM golang:1.26-bookworm AS build\n",
+		"RUN go mod tidy\nRUN CGO_ENABLED=1 go build -trimpath -ldflags=\"-s -w\" -o /out/app .\n",
+		"FROM gcr.io/distroless/base-debian12:nonroot\n",
+	} {
+		if !ok || !strings.Contains(df, w) {
+			t.Errorf("cgo lacks %q: %v\n%s", w, ok, df)
+		}
+	}
+	if strings.Contains(df, "alpine") || strings.Contains(df, "CGO_ENABLED=0") || strings.Contains(df, "distroless/static") || !strings.Contains(tpl.Readme, "go-sqlite3") {
+		t.Errorf("cgo:\n%s\n%s", df, tpl.Readme)
+	}
+
+	// Folders the program reads at run time sit next to where it starts.
+	tpl, _ = GoProgram([]string{"go.mod", "go.sum", "main.go", "templates/index.html", "static/css/app.css", "./public/robots.txt", "internal/templates/x.go", "templatesx"}, ".", false)
+	parses(t, "go folders", tpl.Dockerfile)
+	if !strings.Contains(tpl.Dockerfile, "COPY --from=build --chown=nonroot:nonroot /data /data\n"+
+		"# The program reads these folders at run time, from the folder it starts in.\n"+
+		"WORKDIR /srv\n"+
+		"COPY --from=build /src/templates ./templates\n"+
+		"COPY --from=build /src/static ./static\n"+
+		"COPY --from=build /src/public ./public\n"+
+		"USER nonroot:nonroot\n") {
+		t.Errorf("folders:\n%s", tpl.Dockerfile)
+	}
+}
+
+func TestPHPSite(t *testing.T) {
+	for _, files := range [][]string{{"index.php"}, {"index.php", "composer.json"}} {
+		tpl, ok := PHPSite(files)
+		parses(t, "php", tpl.Dockerfile)
+		if !ok || !strings.Contains(tpl.Dockerfile, "RUN mkdir /data \\\n && chown -R www-data:www-data /data /var/www/html /var/run/apache2") {
+			t.Errorf("%v: %v\n%s", files, ok, tpl.Dockerfile)
+		}
+	}
+}
+
+func TestWithPython(t *testing.T) {
+	base, _ := PythonApp([]string{"requirements.txt", "main.py"}, PyServerUvicorn, "main:app", nil)
+	tpl, ok := WithPython(base, "3.11")
+	if !ok || !strings.HasPrefix(tpl.Dockerfile, "FROM python:3.11-slim\n") {
+		t.Errorf("3.11: %v\n%s", ok, tpl.Dockerfile)
+	}
+	for _, bad := range []string{"", "3", "3.11.4", "2.7", "3.12\nRUN id", "latest"} {
+		if _, ok := WithPython(base, bad); ok {
 			t.Errorf("%q must be refused", bad)
 		}
 	}
@@ -41,6 +114,10 @@ func TestGoProgram(t *testing.T) {
 func TestPythonApp(t *testing.T) {
 	tpl, ok := PythonApp([]string{"requirements.txt", "main.py"}, PyServerUvicorn, "main:app", nil)
 	parses(t, "fastapi", tpl.Dockerfile)
+	// The app user owns /data, so the volume it gets is writable.
+	if !strings.Contains(tpl.Dockerfile, "RUN useradd --system --uid 10001 --create-home app \\\n && mkdir /data && chown app /data\nUSER app\n") {
+		t.Errorf("fastapi /data:\n%s", tpl.Dockerfile)
+	}
 	if !ok || !strings.HasSuffix(tpl.Dockerfile, `CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"]`+"\n") ||
 		strings.Contains(tpl.Dockerfile, `"python", "app.py"`) || strings.Contains(tpl.Dockerfile, "pip install uvicorn") {
 		t.Errorf("fastapi: %v\n%s", ok, tpl.Dockerfile)

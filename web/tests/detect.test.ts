@@ -24,6 +24,7 @@ interface Case {
   raw_package?: string
   next_config?: string
   go_only?: boolean
+  message_has?: string
   expect: { type?: string; output?: string; spa?: boolean; unsure?: boolean; warn?: boolean; none?: boolean; dockerfile?: boolean }
 }
 
@@ -51,6 +52,8 @@ for (const c of cases.filter((x) => !x.go_only)) {
     const want = c.expect
     if (want.none) {
       assert.equal(d.kind, 'none', JSON.stringify(d))
+      // The same words as the server, when the preview can know them.
+      if (c.message_has && d.kind === 'none' && c.files.includes('package.json')) assert.ok(d.message.includes(c.message_has), d.message)
       return
     }
     if (want.dockerfile) {

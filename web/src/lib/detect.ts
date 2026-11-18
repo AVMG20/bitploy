@@ -248,6 +248,18 @@ function fileServerStart(start: string): boolean {
   return m[1].split(/\s+/).every((arg) => arg === '' || /^(?:-\S*|\.|\.\/|[0-9]+)$/.test(arg))
 }
 
+/** Packages that only run on a server: the server's nodeServerDeps (nodeproject.go). */
+const NODE_SERVER_DEPS = [
+  'socket.io', 'ws', 'polka', 'restify', 'micro', 'h3', 'elysia', 'dotenv',
+  'pg', 'mysql', 'mysql2', 'sqlite3', 'better-sqlite3', 'mongodb', 'mongoose', '@prisma/client', 'sequelize', 'knex',
+  'nodemailer', 'discord.js', 'telegraf', 'node-telegram-bot-api',
+]
+
+/** package.json lists a package that only runs on a server, or its main file is named server (server.js). */
+function serverOnly(p: Project): boolean {
+  return NODE_SERVER_DEPS.some((d) => p.deps.has(d)) || (p.main.split('/').pop() ?? '').startsWith('server.')
+}
+
 /** Where a framework writes its site, and whether it is a single-page app. */
 function staticDefaults(fw: Framework): { output: string; spa: boolean } {
   switch (fw) {
@@ -307,7 +319,7 @@ function autoNode(p: Project): Template | Static | null {
   const build = p.scripts.has('build')
   // A plain website with a package.json for tools (prettier, eslint) or a dev
   // server: no framework, nothing to build and no server of its own.
-  if (fw === '' && !build && p.hasIndex) {
+  if (fw === '' && !build && p.hasIndex && !serverOnly(p)) {
     if (!p.scripts.has('start')) return { kind: 'static', label: 'Static site', ...(p.runtime ? { unsure: true } : {}) }
     if (fileServerStart(p.start)) return { kind: 'static', label: 'Static site', unsure: true }
   }
@@ -485,6 +497,13 @@ export function detectSource(
     const project = readProject(packageJson, nextConfig, hasIndex)
     const node = project && autoNode(project)
     if (node) return node
+    if (project && hasIndex && !project.scripts.has('start') && serverOnly(project)) {
+      return cannot(
+        'No start script',
+        'No Dockerfile found, and package.json has no start script, so bitploy does not know how to start this Node.js app.',
+        'Add a start script to package.json, like "start": "node server.js", or add a Dockerfile: your AI assistant can write one.',
+      )
+    }
   }
   if (stack === '') {
     const home = homePageOf(files, homePage)
