@@ -243,8 +243,15 @@ func adaptPython(t *Template, top map[string]bool) {
 	case top["requirements.txt"]:
 		return
 	case top["pyproject.toml"]:
-		block = "COPY . .\nRUN pip install .\n"
-		note = "Adapted for `pyproject.toml` without `requirements.txt`: the Dockerfile runs `pip install .`, so `gunicorn` and `uvicorn` must be dependencies in `pyproject.toml`."
+		// uv installs only the dependencies of [project]: pip install . also
+		// packages the project, which setuptools refuses for a flat folder
+		// with several modules, and the code runs from /app anyway.
+		block = "COPY --from=" + uvImage + " /uv /bin/uv\n" +
+			"# Install the dependencies listed in pyproject.toml, not the project itself: the code runs from /app.\n" +
+			"COPY pyproject.toml ./\n" +
+			"RUN uv pip install --system --no-cache -r pyproject.toml\n\n" +
+			"COPY . .\n"
+		note = "Adapted for `pyproject.toml` without a lock file or `requirements.txt`: the Dockerfile installs the dependencies of `[project]` with `uv pip install -r pyproject.toml` and runs the code from `/app` without installing the project itself, so `gunicorn` and `uvicorn` must be dependencies in `pyproject.toml`. Code in a `src/` folder: add `ENV PYTHONPATH=/app/src`."
 	default:
 		return
 	}

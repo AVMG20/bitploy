@@ -340,6 +340,11 @@ func ListFiles(dir string, max int) ([]string, error) {
 	return out, err
 }
 
+// MaxReadFile is the most bitploy reads of one file of the source to plan
+// and check a build (package.json, requirements.txt, a compose file): a larger
+// file counts as unreadable.
+const MaxReadFile = 1 << 20
+
 // ZipSource lists the files of a zip as ExtractZip would lay them out (junk
 // dropped, a single top folder stripped when strip is set) and returns the
 // content of the files want accepts, up to max bytes each (larger ones are

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -383,8 +384,13 @@ func (p *pipeline) validate(ctx context.Context) *apperr.Error {
 		return apperr.Internal(err)
 	}
 	read := func(rel string) []byte {
-		b, err := root.ReadFile(rel) // os.Root refuses to follow symlinks out of the tree
+		f, err := root.Open(rel) // os.Root refuses to follow symlinks out of the tree
 		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		b, err := io.ReadAll(io.LimitReader(f, deploy.MaxReadFile+1))
+		if err != nil || len(b) > deploy.MaxReadFile {
 			return nil
 		}
 		return b

@@ -227,7 +227,7 @@ func TestForFilesPython(t *testing.T) {
 		{"uv", []string{"pyproject.toml", "uv.lock"}, []string{"COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /bin/uv", "uv sync --frozen --no-dev", "/app/.venv/bin"}, []string{"COPY requirements.txt", "pip install -r"}},
 		{"uv beats requirements", []string{"pyproject.toml", "uv.lock", "requirements.txt"}, []string{"uv sync --frozen --no-dev"}, []string{"COPY requirements.txt", "pip install -r"}},
 		{"poetry", []string{"pyproject.toml", "poetry.lock"}, []string{"pip install poetry && poetry install --only main --no-root", "POETRY_VIRTUALENVS_CREATE=false"}, []string{"COPY requirements.txt", "pip install -r"}},
-		{"pyproject only", []string{"pyproject.toml"}, []string{"COPY . .\nRUN pip install ."}, []string{"COPY requirements.txt", "pip install -r"}},
+		{"pyproject only", []string{"pyproject.toml"}, []string{"COPY pyproject.toml ./\nRUN uv pip install --system --no-cache -r pyproject.toml\n\nCOPY . .\n"}, []string{"COPY requirements.txt", "pip install .", "RUN pip install -r"}},
 		{"nothing known", []string{"main.py"}, []string{"pip install -r requirements.txt"}, nil},
 	}
 	for _, stack := range []string{"python", "django"} {

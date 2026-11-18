@@ -1045,7 +1045,7 @@ func (s *Service) checkZipSource(ctx context.Context, row db.App, zipPath string
 	if row.ComposePath != "" {
 		wanted[path.Clean(row.ComposePath)] = true
 	}
-	files, contents, err := deploy.ZipSource(zipPath, strip, func(rel string) bool { return wanted[rel] || deploy.IsComposeFileName(rel) }, 1<<20)
+	files, contents, err := deploy.ZipSource(zipPath, strip, func(rel string) bool { return wanted[rel] || deploy.IsComposeFileName(rel) }, deploy.MaxReadFile)
 	if err != nil {
 		return deploy.CheckResult{}, err
 	}
@@ -1063,7 +1063,7 @@ func (s *Service) checkZipSource(ctx context.Context, row db.App, zipPath string
 		if !has[rel] {
 			return nil
 		}
-		_, more, err := deploy.ZipSource(zipPath, strip, func(r string) bool { return r == rel }, 1<<20)
+		_, more, err := deploy.ZipSource(zipPath, strip, func(r string) bool { return r == rel }, deploy.MaxReadFile)
 		if err != nil {
 			return nil
 		}
