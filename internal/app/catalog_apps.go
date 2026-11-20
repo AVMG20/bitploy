@@ -258,7 +258,7 @@ func (s *Service) DeployCatalogApp(ctx context.Context, a Actor, id string, in C
 	set, hidden := map[string]string{}, map[string]bool{}
 	for _, ev := range e.Env {
 		if ev.Generate == "secret" {
-			set[ev.Name], hidden[ev.Name] = ids.Base62(32), true
+			set[ev.Name], hidden[ev.Name] = ev.NewSecret(), true
 		} else {
 			set[ev.Name] = renameRefs(catalog.Fill(ev.Value, url), renamed)
 		}

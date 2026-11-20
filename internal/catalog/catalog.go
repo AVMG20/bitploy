@@ -27,6 +27,8 @@ import (
 	"embed"
 	"regexp"
 	"strings"
+
+	"github.com/AVMG20/bitploy/internal/ids"
 )
 
 //go:embed */Dockerfile
@@ -37,10 +39,20 @@ type EnvSpec struct {
 	Name string
 	// Value may contain {url}, the app's public URL, filled in when the app is created.
 	Value string
-	// Generate is "" (use Value) or "secret" (32 random base62 characters).
-	// A generated value is stored encrypted and never shown.
-	Generate    string
+	// Generate is "" (use Value) or "secret" (Length random base62
+	// characters). A generated value is stored encrypted and never shown.
+	Generate string
+	// Length is the length of a generated secret; 0 means 32.
+	Length      int
 	Description string
+}
+
+// NewSecret makes the value of a variable with Generate "secret".
+func (e EnvSpec) NewSecret() string {
+	if e.Length > 0 {
+		return ids.Base62(e.Length)
+	}
+	return ids.Base62(32)
 }
 
 // ServiceSpec is a service a multi-service entry adds next to its app, in
@@ -771,6 +783,32 @@ var entries = []Entry{
 			"Open {url}. There is no sign-in at first: set a password under Settings, General before you add watches.",
 			"Paste a page address under Add a new change detection watch, press Watch, and pick how often to check under the watch's Edit page.",
 			"Add a notification address under Settings, Notifications, for example discord://webhook_id/webhook_token or ntfy://topic.",
+		},
+	},
+	// Version: https://hub.docker.com/v2/repositories/rustrak/rustrak-server/tags (v0.30.1, 2026-11-20).
+	// The default image is the SQLite build with the dashboard; the -postgres tags need a database server.
+	{
+		ID:          "rustrak",
+		Name:        "Rustrak",
+		Tagline:     "Error tracking for your apps, with the Sentry SDKs",
+		Description: "Rustrak collects the errors your apps throw, groups them into issues and alerts you by Slack, email or webhook. It also shows performance traces, logs and release health. Your apps send to it with the Sentry SDKs: change only the DSN. Everything is kept in a SQLite database in the app's saved files (/data).",
+		Category:    "Monitoring",
+		Version:     "0.30.1",
+		Website:     "https://github.com/rustrak/rustrak",
+		Port:        8080,
+		MemoryMB:    256,
+		Volume:      true,
+		VolumeMB:    2048,
+		HealthPath:  "/health/ready",
+		Env: []EnvSpec{
+			{Name: "PUBLIC_URL", Value: "{url}", Description: "The address of this app. Rustrak puts it in each project's DSN and in the links of alerts and invites."},
+			{Name: "SESSION_SECRET_KEY", Generate: "secret", Length: 64, Description: "Signs sign-in sessions. Changing it signs everyone out."},
+		},
+		FirstSteps: []string{
+			"Rustrak has no sign-up page. Make your admin account: add the environment variable CREATE_SUPERUSER with your email and a password joined by a colon, like you@example.com:a-long-password, and restart the app.",
+			"Sign in at {url}, then delete CREATE_SUPERUSER. Rustrak reads it only while it has no accounts, and the password should not stay in it.",
+			"Create a project and copy its DSN into your app's Sentry SDK, in place of a Sentry DSN.",
+			"For alert and invite emails, add the environment variables SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD and SMTP_FROM with your mail provider's values and restart the app.",
 		},
 	},
 }

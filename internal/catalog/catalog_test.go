@@ -87,6 +87,9 @@ func TestEntries(t *testing.T) {
 				if ev.Generate != "" && ev.Generate != "secret" {
 					t.Errorf("env %s: generate %q", ev.Name, ev.Generate)
 				}
+				if ev.Length != 0 && (ev.Generate != "secret" || ev.Length < 16 || ev.Length > 128) {
+					t.Errorf("env %s: length %d needs generate secret and 16 to 128 characters", ev.Name, ev.Length)
+				}
 				if ev.Generate == "secret" && ev.Value != "" {
 					t.Errorf("env %s: a generated value has no fixed value", ev.Name)
 				}
@@ -168,4 +171,30 @@ func TestGetAndFill(t *testing.T) {
 	if len(IDs()) != len(All()) {
 		t.Error("IDs and All differ")
 	}
+}
+
+func TestNewSecretLength(t *testing.T) {
+	if n := len((EnvSpec{Generate: "secret"}).NewSecret()); n != 32 {
+		t.Errorf("default length %d, want 32", n)
+	}
+	if n := len((EnvSpec{Generate: "secret", Length: 64}).NewSecret()); n != 64 {
+		t.Errorf("length %d, want 64", n)
+	}
+}
+
+// Rustrak refuses to start with a SESSION_SECRET_KEY under 64 bytes.
+func TestRustrakSessionSecretIsLongEnough(t *testing.T) {
+	e, ok := Get("rustrak")
+	if !ok {
+		t.Fatal("no rustrak entry")
+	}
+	for _, ev := range e.Env {
+		if ev.Name == "SESSION_SECRET_KEY" {
+			if v := ev.NewSecret(); len(v) < 64 {
+				t.Errorf("secret of %d characters", len(v))
+			}
+			return
+		}
+	}
+	t.Error("no SESSION_SECRET_KEY")
 }
