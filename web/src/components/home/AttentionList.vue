@@ -56,38 +56,58 @@ function askAi(a: App) {
 </script>
 
 <template>
-  <section v-if="count" aria-labelledby="attention-title" data-testid="attention">
-    <div class="mb-3 flex items-center gap-2">
-      <h2 id="attention-title" class="text-sm font-semibold">Needs your attention</h2>
-      <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive/10 px-1.5 text-xs font-medium text-destructive tabular-nums">{{ count }}</span>
-    </div>
-    <div class="grid gap-3 md:grid-cols-2">
-      <div v-for="f in failed" :key="f.app.id" class="flex gap-3.5 rounded-xl border border-destructive/30 bg-card p-4 shadow-card">
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive"><Hammer class="size-4" aria-hidden="true" /></span>
-        <div class="min-w-0 flex-1">
-          <div class="flex flex-wrap items-center gap-x-2">
-            <span class="font-medium">{{ f.title }}</span>
-            <span class="text-xs text-muted-foreground">· {{ f.app.status === 'crashed' ? 'crashed' : 'deploy failed' }} <RelativeTime v-if="f.at" :date="f.at" /></span>
-          </div>
-          <p class="mt-1 line-clamp-3 text-sm text-muted-foreground">{{ f.reason }}</p>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" as-child><RouterLink :to="appRoute(f.app)">See what went wrong</RouterLink></Button>
-            <Button size="sm" variant="outline" @click="askAi(f.app)"><Sparkles /> Ask AI to fix</Button>
-          </div>
-        </div>
-      </div>
-      <div v-for="r in resources" :key="r.key" :class="cn('flex gap-3.5 rounded-xl border bg-card p-4 shadow-card', r.tone === 'bad' ? 'border-destructive/30' : 'border-warning/30')">
-        <span :class="cn('flex size-9 shrink-0 items-center justify-center rounded-lg', r.tone === 'bad' ? 'bg-destructive/10 text-destructive' : 'bg-warning/10 text-warning-text')">
-          <TriangleAlert v-if="r.tone === 'bad'" class="size-4" aria-hidden="true" /><Gauge v-else class="size-4" aria-hidden="true" />
+  <section v-if="count" aria-label="Needs your attention" data-testid="attention" class="grid gap-2.5">
+    <div
+      v-for="f in failed"
+      :key="f.app.id"
+      class="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/6 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div class="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+          <Hammer class="size-4" aria-hidden="true" />
         </span>
         <div class="min-w-0 flex-1">
-          <div class="font-medium">{{ r.title }}</div>
-          <p class="mt-1 text-sm text-muted-foreground">{{ r.text }}</p>
-          <div v-if="r.action === 'storage'" class="mt-3">
-            <Button size="sm" variant="outline" @click="emit('storage')">See storage per app</Button>
+          <div class="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span class="font-semibold">{{ f.title }}</span>
+            <span class="text-xs text-muted-foreground">
+              · {{ f.app.status === 'crashed' ? 'crashed' : 'deploy failed' }}
+              <template v-if="f.at"> <RelativeTime :date="f.at" /></template>
+            </span>
           </div>
+          <p class="line-clamp-2 text-xs text-muted-foreground">{{ f.reason }}</p>
         </div>
       </div>
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" class="h-7 bg-card text-xs" as-child>
+          <RouterLink :to="appRoute(f.app)">See what went wrong</RouterLink>
+        </Button>
+        <Button size="sm" variant="outline" class="h-7 bg-card text-xs text-primary-text" @click="askAi(f.app)">
+          <Sparkles class="size-3.5" /> Ask AI to fix
+        </Button>
+      </div>
+    </div>
+
+    <div
+      v-for="r in resources"
+      :key="r.key"
+      :class="cn(
+        'flex flex-col gap-3 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
+        r.tone === 'bad' ? 'border-destructive/30 bg-destructive/6' : 'border-warning/30 bg-warning/6',
+      )"
+    >
+      <div class="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+        <span :class="cn('flex size-8 shrink-0 items-center justify-center rounded-lg', r.tone === 'bad' ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning-text')">
+          <TriangleAlert v-if="r.tone === 'bad'" class="size-4" aria-hidden="true" />
+          <Gauge v-else class="size-4" aria-hidden="true" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-semibold">{{ r.title }}</div>
+          <p class="text-xs text-muted-foreground">{{ r.text }}</p>
+        </div>
+      </div>
+      <Button v-if="r.action === 'storage'" size="sm" variant="outline" class="h-7 w-fit bg-card text-xs" @click="emit('storage')">
+        See storage per app
+      </Button>
     </div>
   </section>
 </template>
