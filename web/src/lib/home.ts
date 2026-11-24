@@ -127,14 +127,18 @@ export interface HourlyBucket {
 }
 
 export interface ProjectMetricSummary {
+  /** Which metric this summary represents (used for hover formatting). */
+  metric?: HomeMetric
   /** Numeric value used for sorting and "Active" filtering; null when not applicable (e.g. worker for traffic). */
   value: number | null
   /** Short formatted value for the card and table cell ("47", "1.2k", "142 MB", "0.08"). */
   display: string
   /** Unit shown under the card value ("visits 24h", "RAM now", ...). */
   unit: string
-  /** Hourly values for the micro-sparkline. */
+  /** Hourly values for the sparkline. */
   points: number[]
+  /** Matching ISO timestamps for each entry in `points`. */
+  pointTimes?: string[]
   /** True when there is non-zero activity to highlight. */
   active: boolean
   tone: 'default' | 'danger'
@@ -184,21 +188,26 @@ function formatCardValue(metric: HomeMetric, value: number): string {
   return compactCount(Math.round(value))
 }
 
-function hourLabel(ts: string): string {
+export function formatHomeMetricPoint(metric: HomeMetric, value: number): string {
+  if (metric === 'memory') return formatMB(value)
+  if (metric === 'cpu') return formatCPU(value)
+  return formatCount(Math.round(value))
+}
+
+export function formatHourTick(ts: string | undefined): string {
+  if (!ts) return ''
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function bucketTooltip(metric: HomeMetric, ts: string, value: number): string {
-  const hr = hourLabel(ts)
+  const hr = formatHourTick(ts)
   const meta = homeMetricMeta(metric)
   const val =
-    metric === 'memory'
-      ? formatMB(value)
-      : metric === 'cpu'
-        ? formatCPU(value)
-        : `${formatCount(Math.round(value))} ${meta.heroUnit}`
+    metric === 'memory' || metric === 'cpu'
+      ? formatHomeMetricPoint(metric, value)
+      : `${formatHomeMetricPoint(metric, value)} ${meta.heroUnit}`
   return hr ? `${hr} · ${val}` : val
 }
 
@@ -231,10 +240,12 @@ export function aggregateTraffic(
     const publicRunning = p.apps.filter((a) => isPublicApp(a) && a.status === 'running')
     if (!publicRunning.length) {
       byProject[p.id] = {
+        metric,
         value: null,
         display: '—',
         unit: p.apps.length ? 'No web address' : '',
         points: [],
+        pointTimes: [],
         active: false,
         tone: 'default',
         title: 'No running public website',
@@ -263,13 +274,15 @@ export function aggregateTraffic(
       }
     }
 
-    const sortedHours = [...pHours.entries()].sort((a, b) => a[0].localeCompare(b[0])).map((x) => x[1])
+    const sortedEntries = [...pHours.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     if (loaded === 0) {
       byProject[p.id] = {
+        metric,
         value: null,
         display: '–',
         unit: meta.cardUnit,
         points: [],
+        pointTimes: [],
         active: false,
         tone: 'default',
         title: `Loading ${meta.label.toLowerCase()}…`,
@@ -281,10 +294,12 @@ export function aggregateTraffic(
     const display = formatCardValue(metric, pTotal)
     const isDanger = metric === 'errors' && pTotal > 0
     byProject[p.id] = {
+      metric,
       value: pTotal,
       display,
       unit: meta.cardUnit,
-      points: sortedHours,
+      points: sortedEntries.map((x) => x[1]),
+      pointTimes: sortedEntries.map((x) => x[0]),
       active: pTotal > 0,
       tone: isDanger ? 'danger' : 'default',
       title: `${formatCount(pTotal)} ${meta.heroUnit} in the last 24 hours`,
@@ -357,10 +372,12 @@ export function aggregateResources(
 
     if (!running.length) {
       byProject[p.id] = {
+        metric,
         value: 0,
         display: '0',
         unit: p.apps.some((a) => a.static) ? 'Static' : meta.cardUnit,
         points: [],
+        pointTimes: [],
         active: false,
         tone: 'default',
         title: p.apps.some((a) => a.static) ? 'Static site uses no container RAM or CPU' : 'No running containers',
@@ -397,13 +414,15 @@ export function aggregateResources(
       }
     }
 
-    const sortedHours = [...projHours.entries()].sort((a, b) => a[0].localeCompare(b[0])).map((x) => x[1])
+    const sortedEntries = [...projHours.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-24)
     const display = formatCardValue(metric, liveVal)
     byProject[p.id] = {
+      metric,
       value: liveVal,
       display,
       unit: meta.cardUnit,
-      points: sortedHours,
+      points: sortedEntries.map((x) => x[1]),
+      pointTimes: sortedEntries.map((x) => x[0]),
       active: liveVal > 0,
       tone: 'default',
       title: metric === 'memory' ? `${formatMB(liveVal)} in use (${formatMB(usage.memoryMB)} reserved)` : `${formatCPU(liveVal)} in use`,

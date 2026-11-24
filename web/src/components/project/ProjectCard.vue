@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ArrowUpRight, GitCommitHorizontal, Rocket, Sparkles, Users } from 'lucide-vue-next'
 import ServiceIcon from '@/components/ServiceIcon.vue'
+import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useActiveBuilds } from '@/composables/queries'
@@ -11,7 +12,7 @@ import { useTapTooltips } from '@/composables/useTapTooltips'
 import { projectRoute } from '@/lib/appLinks'
 import { appStatusInfo, exactTime, formatMB, hostOf } from '@/lib/format'
 import type { Tone } from '@/lib/format'
-import { projectLastDeploy, shortRelativeTime, sparklinePoints } from '@/lib/home'
+import { formatHomeMetricPoint, formatHourTick, projectLastDeploy, shortRelativeTime } from '@/lib/home'
 import type { ProjectMetricSummary } from '@/lib/home'
 import { aliasOf, appRole, isPublicApp, mainApp, ownerName, projectHealth, projectHealthText, roleTitle, sortProjectApps } from '@/lib/projects'
 import type { Project, ServiceTemplate } from '@/lib/types'
@@ -52,7 +53,18 @@ const PILL: Record<Tone, string> = {
 const pillClass = computed(() => PILL[appStatusInfo(health.value.status === 'empty' ? 'new' : health.value.status).tone])
 const isFailed = computed(() => health.value.status === 'failed' || health.value.status === 'crashed')
 
-const spark = computed(() => sparklinePoints(props.metric?.points ?? [], 34, 13))
+const sparkColor = computed(() => {
+  const m = props.metric
+  if (!m) return 'var(--chart-1)'
+  if (m.tone === 'danger') return 'var(--destructive)'
+  return m.active ? 'var(--chart-1)' : 'color-mix(in oklch, var(--muted-foreground) 45%, transparent)'
+})
+function formatSparkPoint(v: number): string {
+  return formatHomeMetricPoint(props.metric?.metric ?? 'requests', v)
+}
+function sparkTimeAt(index: number): string {
+  return formatHourTick(props.metric?.pointTimes?.[index])
+}
 const last = computed(() => projectLastDeploy(props.project))
 
 // Quiet single-app descriptor instead of repeating the project's name as a chip.
@@ -115,26 +127,29 @@ const tips = useTapTooltips()
 
       <div
         v-else-if="metric && metric.value !== null"
-        class="flex shrink-0 flex-col items-end gap-0.5"
-        :title="metric.title"
+        class="flex shrink-0 items-center gap-2.5"
       >
-        <span
-          :class="cn(
-            'inline-flex items-center gap-1.5 font-mono text-xs leading-none font-semibold tabular-nums',
-            metric.tone === 'danger' ? 'text-destructive' : metric.active ? 'text-foreground' : 'font-normal text-muted-foreground/70',
-          )"
-        >
-          <svg
-            v-if="spark"
-            viewBox="0 0 34 13"
-            :class="cn('h-3.5 w-8.5 shrink-0', metric.tone === 'danger' ? 'text-destructive' : metric.active ? 'text-primary-text' : 'text-border')"
-            aria-hidden="true"
+        <Sparkline
+          v-if="metric.points.length > 1"
+          class="relative z-10 w-16 shrink-0"
+          svg-class="h-6"
+          :values="metric.points"
+          :color="sparkColor"
+          :format="formatSparkPoint"
+          :label-at="sparkTimeAt"
+          :label="`${project.name} ${metric.unit}`"
+        />
+        <div class="flex shrink-0 flex-col items-end gap-0.5" :title="metric.title">
+          <span
+            :class="cn(
+              'font-mono text-xs leading-none font-semibold tabular-nums',
+              metric.tone === 'danger' ? 'text-destructive' : metric.active ? 'text-foreground' : 'font-normal text-muted-foreground/70',
+            )"
           >
-            <polyline fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" :points="spark" />
-          </svg>
-          <span>{{ metric.display }}</span>
-        </span>
-        <span class="text-[10.5px] leading-none text-muted-foreground/75">{{ metric.unit }}</span>
+            {{ metric.display }}
+          </span>
+          <span class="text-[10.5px] leading-none text-muted-foreground/75">{{ metric.unit }}</span>
+        </div>
       </div>
     </div>
 

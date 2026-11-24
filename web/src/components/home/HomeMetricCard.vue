@@ -1,13 +1,25 @@
 <script setup lang="ts">
 // Left card of the Home "At a glance" row: a selectable 24-hour fleet chart
 // (Visitors by default, switchable to Requests, Page views, Errors, Memory or
-// CPU) with a top-3 breakdown underneath.
+// CPU) rendered with Unovis + interactive crosshair/tooltip, with a top-3
+// breakdown underneath.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import { CurveType } from '@unovis/ts'
+import { VisArea, VisAxis, VisLine, VisScatter, VisXYContainer } from '@unovis/vue'
+import {
+  ChartContainer,
+  ChartCrosshair,
+  ChartTooltip,
+  ChartTooltipContent,
+  componentToString,
+} from '@/components/ui/chart'
+import type { ChartConfig } from '@/components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { projectRoute } from '@/lib/appLinks'
-import { HOME_METRICS, isHomeMetric } from '@/lib/home'
+import { compactCount, formatMB } from '@/lib/format'
+import { formatHomeMetricPoint, HOME_METRICS, isHomeMetric } from '@/lib/home'
 import type { HomeMetric, HomeMetricSummary } from '@/lib/home'
 import { cn } from '@/lib/utils'
 
@@ -22,41 +34,77 @@ function onMetricChange(v: unknown) {
   if (isHomeMetric(v)) metric.value = v
 }
 
-const maxBucket = computed(() => Math.max(0, ...props.summary.buckets.map((b) => b.value)))
-const nonZeroBuckets = computed(() => props.summary.buckets.map((b) => b.value).filter((v) => v > 0))
-const minBucket = computed(() => (nonZeroBuckets.value.length ? Math.min(...nonZeroBuckets.value) : 0))
-const maxTop = computed(() => Math.max(1, ...props.summary.top.map((t) => t.value)))
-
-function isPeakBar(v: number): boolean {
-  if (v <= 0 || maxBucket.value <= 0) return false
-  const spread = maxBucket.value - minBucket.value
-  // Flat series (e.g. steady RAM): only highlight bars when there is a meaningful rise.
-  if (spread < maxBucket.value * 0.12) return false
-  const floor = props.summary.meta.kind === 'resource' ? minBucket.value : 0
-  return v >= floor + (maxBucket.value - floor) * 0.72
+interface Datum {
+  date: Date
+  value: number
+  [key: string]: string | number | Date
 }
 
-function barHeightPct(v: number): number {
-  if (maxBucket.value <= 0 || v <= 0) return 5
-  return Math.max(8, Math.round((v / maxBucket.value) * 100))
-}
+const color = computed(() => (props.summary.tone === 'danger' ? 'var(--destructive)' : 'var(--chart-1)'))
 
-function axisTime(ts: string | undefined): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return ''
+const config = computed<ChartConfig>(() => ({
+  [props.summary.metric]: { label: props.summary.meta.label, color: color.value },
+}))
+
+const data = computed<Datum[]>(() =>
+  props.summary.buckets
+    .map((b) => {
+      const date = new Date(b.ts)
+      if (Number.isNaN(date.getTime())) return null
+      return {
+        date,
+        value: b.value,
+        [props.summary.metric]: formatHomeMetricPoint(props.summary.metric, b.value),
+      }
+    })
+    .filter((d): d is Datum => d !== null),
+)
+
+const maxY = computed(() => {
+  const peak = Math.max(0, ...data.value.map((d) => d.value))
+  if (props.summary.metric === 'cpu') return Math.max(0.05, peak * 1.15)
+  if (props.summary.metric === 'memory') return Math.max(16, peak * 1.15)
+  return Math.max(4, Math.ceil(peak * 1.12))
+})
+
+const x = (d: Datum) => d.date.getTime()
+const y = (d: Datum) => d.value
+
+const lastTime = computed(() => data.value.at(-1)?.date.getTime())
+const isCurrent = (ms: number) => props.summary.meta.kind === 'traffic' && ms === lastTime.value
+
+// Label whole hours counted back from the newest: every 6th hour across 24h.
+const tickValues = computed(() => {
+  const d = data.value
+  const n = d.length
+  if (n < 2) return d.map((p) => p.date.getTime())
+  const step = n <= 6 ? Math.max(1, Math.floor(n / 2)) : 6
+  return d.filter((_, i) => (n - 1 - i) % step === 0).map((p) => p.date.getTime())
+})
+
+function fmtTick(ms: number): string {
+  const d = new Date(ms)
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-const axisLabels = computed(() => {
-  const b = props.summary.buckets
-  if (b.length < 3) return null
-  return {
-    start: axisTime(b[0]?.ts),
-    mid: axisTime(b[Math.floor(b.length / 2)]?.ts),
-    end: 'Now',
-  }
-})
+function fmtY(t: number): string {
+  if (props.summary.metric === 'memory') return t === 0 ? '0' : formatMB(t)
+  if (props.summary.metric === 'cpu') return t === 0 ? '0' : `${Math.round(t * 100) / 100}`
+  return Number.isInteger(t) ? compactCount(t) : ''
+}
+
+const template = computed(() =>
+  componentToString(config.value, ChartTooltipContent, {
+    class: 'min-w-36 [&_.justify-between]:gap-4',
+    labelFormatter: (d: number | Date) => {
+      const date = d instanceof Date ? d : new Date(d)
+      const label = date.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+      return isCurrent(date.getTime()) ? `${label} (so far)` : label
+    },
+  }),
+)
+
+const maxTop = computed(() => Math.max(1, ...props.summary.top.map((t) => t.value)))
 
 const BADGE_CLASS = {
   good: 'bg-success/12 text-success',
@@ -85,12 +133,12 @@ const BADGE_CLASS = {
 
     <div v-if="loading" class="grid flex-1 gap-3 px-4 pt-1 pb-4">
       <Skeleton class="h-7 w-28" />
-      <Skeleton class="h-16 w-full" />
+      <Skeleton class="h-32 w-full" />
       <Skeleton class="h-12 w-full" />
     </div>
 
     <template v-else>
-      <div class="flex flex-wrap items-baseline gap-2 px-4 pb-2" :title="summary.totalTitle">
+      <div class="flex flex-wrap items-baseline gap-2 px-4 pb-1" :title="summary.totalTitle">
         <span class="text-2xl font-semibold tracking-tight tabular-nums">{{ summary.totalDisplay }}</span>
         <span class="text-xs text-muted-foreground">{{ summary.meta.heroUnit }}</span>
         <span
@@ -102,35 +150,20 @@ const BADGE_CLASS = {
         </span>
       </div>
 
-      <div class="mt-auto px-4 pb-3">
-        <div
-          v-if="summary.buckets.length"
-          class="flex h-[68px] items-end gap-[3px]"
-          role="img"
-          :aria-label="`${summary.meta.label} over the last 24 hours`"
-        >
-          <div
-            v-for="b in summary.buckets"
-            :key="b.ts"
-            :title="b.label"
-            :style="{ height: `${barHeightPct(b.value)}%` }"
-            :class="cn(
-              'min-h-[3px] flex-1 rounded-t-[2px] transition-colors',
-              b.value <= 0
-                ? 'bg-muted'
-                : summary.tone === 'danger'
-                  ? isPeakBar(b.value) ? 'bg-destructive hover:bg-destructive/80' : 'bg-destructive/45 hover:bg-destructive/75'
-                  : isPeakBar(b.value) ? 'bg-primary hover:bg-primary/85' : 'bg-primary/40 hover:bg-primary/75',
-            )"
-          />
-        </div>
-        <div v-else class="flex h-[68px] items-center text-xs text-muted-foreground">
+      <div class="mt-auto px-3 pb-2" role="region" :aria-label="`${summary.meta.label} over the last 24 hours`">
+        <ChartContainer v-if="data.length" :config="config" class="aspect-auto! h-32 w-full" cursor>
+          <VisXYContainer :data="data" :y-domain="[0, maxY]" :margin="{ top: 8, left: 4, right: 8 }">
+            <VisArea :x="x" :y="y" :color="color" :opacity="0.14" :curve-type="CurveType.MonotoneX" />
+            <VisLine :x="x" :y="y" :color="color" :line-width="2" :curve-type="CurveType.MonotoneX" />
+            <VisScatter v-if="data.length === 1" :x="x" :y="y" :color="color" :size="5" />
+            <VisAxis type="x" :x="x" :tick-values="tickValues" :tick-format="fmtTick" :grid-line="false" />
+            <VisAxis type="y" :num-ticks="3" :tick-format="fmtY" :domain-line="false" />
+            <ChartCrosshair :x="x" :y="[y]" :template="template" :color="color" />
+            <ChartTooltip />
+          </VisXYContainer>
+        </ChartContainer>
+        <div v-else class="flex h-32 items-center px-1 text-xs text-muted-foreground">
           {{ summary.emptyText }}
-        </div>
-        <div v-if="axisLabels" class="mt-1.5 flex justify-between font-mono text-[10px] text-muted-foreground/75">
-          <span>{{ axisLabels.start }}</span>
-          <span>{{ axisLabels.mid }}</span>
-          <span>{{ axisLabels.end }}</span>
         </div>
       </div>
 

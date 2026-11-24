@@ -4,6 +4,8 @@ import {
   aggregateResources,
   aggregateTraffic,
   filterAndSortProjects,
+  formatHomeMetricPoint,
+  formatHourTick,
   isHomeMetric,
   projectLastDeploy,
   shortRelativeTime,
@@ -135,7 +137,9 @@ test('aggregateTraffic sums multi-app projects and ranks by selected metric', ()
 
   const byRequests = aggregateTraffic([p1, p2, p3], traffic, 'requests')
   assert.equal(byRequests.total, 1500)
+  assert.equal(byRequests.byProject.p1?.metric, 'requests')
   assert.equal(byRequests.byProject.p1?.value, 1200)
+  assert.deepEqual(byRequests.byProject.p1?.pointTimes, ['2026-11-24T10:00:00Z', '2026-11-24T11:00:00Z'])
   assert.equal(byRequests.byProject.p2?.value, 300)
   assert.equal(byRequests.byProject.p3?.value, null)
   assert.equal(byRequests.top[0]?.projectId, 'p1')
@@ -175,6 +179,8 @@ test('aggregateResources buckets 5-minute samples by hour and sums live usage', 
   assert.equal(mem.buckets.length, 2)
   assert.equal(mem.buckets[0]?.value, 150)
   assert.equal(mem.buckets[1]?.value, 250)
+  assert.equal(mem.byProject.p1?.metric, 'memory')
+  assert.deepEqual(mem.byProject.p1?.pointTimes, ['2026-11-24T10:00:00.000Z', '2026-11-24T11:00:00.000Z'])
   assert.equal(mem.byProject.p2?.unit, 'Static')
   assert.equal(mem.badge?.text, '18% of limit')
 
@@ -182,6 +188,16 @@ test('aggregateResources buckets 5-minute samples by hour and sums live usage', 
   assert.equal(cpu.total, 0.25)
   assert.equal(cpu.buckets[0]?.value, 0.2)
   assert.equal(cpu.buckets[1]?.value, 0.5)
+})
+
+test('formatHomeMetricPoint and formatHourTick format hovered values cleanly', () => {
+  assert.equal(formatHomeMetricPoint('requests', 0), '0')
+  assert.equal(formatHomeMetricPoint('visitors', 1420), '1,420')
+  assert.equal(formatHomeMetricPoint('memory', 256), '256 MB')
+  assert.equal(formatHomeMetricPoint('cpu', 0.25), '0.25 CPU')
+  assert.equal(formatHourTick(undefined), '')
+  assert.equal(formatHourTick('not-a-date'), '')
+  assert.match(formatHourTick('2026-11-24T10:00:00Z'), /^\d{2}:\d{2}$/)
 })
 
 test('filterAndSortProjects filters and sorts cleanly', () => {

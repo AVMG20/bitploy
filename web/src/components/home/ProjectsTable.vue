@@ -4,12 +4,13 @@
 import { computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { ArrowUpRight, GitCommitHorizontal, Rocket, Sparkles } from 'lucide-vue-next'
+import Sparkline from '@/components/Sparkline.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import { useActiveBuilds } from '@/composables/queries'
 import { nowMs } from '@/composables/useNow'
 import { projectRoute } from '@/lib/appLinks'
 import { exactTime, hostOf } from '@/lib/format'
-import { projectLastDeploy, shortRelativeTime, sparklinePoints } from '@/lib/home'
+import { formatHomeMetricPoint, formatHourTick, projectLastDeploy, shortRelativeTime } from '@/lib/home'
 import type { HomeMetricMeta, ProjectMetricSummary } from '@/lib/home'
 import { aliasOf, appRole, isPublicApp, mainApp, projectHealth, roleTitle, sortProjectApps } from '@/lib/projects'
 import type { Project, ServiceTemplate } from '@/lib/types'
@@ -33,6 +34,15 @@ function servicesText(p: Project, templates: readonly ServiceTemplate[]): string
   return sorted.length > 4 ? `${names} +${sorted.length - 4}` : names
 }
 
+function sparkColor(m: ProjectMetricSummary): string {
+  if (m.tone === 'danger') return 'var(--destructive)'
+  return m.active ? 'var(--chart-1)' : 'color-mix(in oklch, var(--muted-foreground) 45%, transparent)'
+}
+
+function formatSparkPoint(v: number): string {
+  return formatHomeMetricPoint(props.metricMeta.key, v)
+}
+
 const rows = computed(() =>
   props.projects.map((p) => {
     const main = mainApp(p)
@@ -44,7 +54,6 @@ const rows = computed(() =>
       publicMain,
       services: servicesText(p, props.templates),
       metric,
-      spark: metric ? sparklinePoints(metric.points, 34, 13) : '',
       last: projectLastDeploy(p),
       status: health.status === 'empty' ? 'new' : health.status,
       phase: phaseOf(p.apps),
@@ -103,11 +112,11 @@ function openProject(id: string) {
             {{ r.services }}
           </td>
 
-          <td class="px-3 py-2.5 text-right whitespace-nowrap" :title="r.metric?.title">
-            <span
+          <td class="px-3 py-2.5 text-right whitespace-nowrap">
+            <div
               v-if="r.metric"
               :class="cn(
-                'inline-flex items-center justify-end gap-2 font-mono text-xs tabular-nums',
+                'inline-flex items-center justify-end gap-2.5 font-mono text-xs tabular-nums',
                 r.metric.tone === 'danger'
                   ? 'font-semibold text-destructive'
                   : r.metric.active
@@ -115,16 +124,19 @@ function openProject(id: string) {
                     : 'text-muted-foreground/70',
               )"
             >
-              <svg
-                v-if="r.spark"
-                viewBox="0 0 34 13"
-                :class="cn('hidden h-3.5 w-8.5 shrink-0 sm:block', r.metric.tone === 'danger' ? 'text-destructive' : r.metric.active ? 'text-primary-text' : 'text-border')"
-                aria-hidden="true"
-              >
-                <polyline fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" :points="r.spark" />
-              </svg>
-              <span>{{ r.metric.display }}</span>
-            </span>
+              <Sparkline
+                v-if="r.metric.points.length > 1"
+                class="hidden w-16 shrink-0 sm:block"
+                svg-class="h-5"
+                :values="r.metric.points"
+                :color="sparkColor(r.metric)"
+                :format="formatSparkPoint"
+                :label-at="(i) => formatHourTick(r.metric?.pointTimes?.[i])"
+                :label="`${r.project.name} ${metricMeta.label}`"
+                @click.stop
+              />
+              <span :title="r.metric.title">{{ r.metric.display }}</span>
+            </div>
             <span v-else class="font-mono text-xs text-muted-foreground/60">–</span>
           </td>
 
