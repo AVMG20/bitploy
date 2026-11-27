@@ -785,7 +785,7 @@ var entries = []Entry{
 			"Add a notification address under Settings, Notifications, for example discord://webhook_id/webhook_token or ntfy://topic.",
 		},
 	},
-	// Version: https://hub.docker.com/v2/repositories/rustrak/rustrak-server/tags (v0.30.1, 2026-11-20).
+	// Version: https://hub.docker.com/v2/repositories/rustrak/rustrak-server/tags (v0.34.1, 2026-11-26).
 	// The default image is the SQLite build with the dashboard; the -postgres tags need a database server.
 	{
 		ID:          "rustrak",
@@ -793,7 +793,7 @@ var entries = []Entry{
 		Tagline:     "Error tracking for your apps, with the Sentry SDKs",
 		Description: "Rustrak collects the errors your apps throw, groups them into issues and alerts you by Slack, email or webhook. It also shows performance traces, logs and release health. Your apps send to it with the Sentry SDKs: change only the DSN. Everything is kept in a SQLite database in the app's saved files (/data).",
 		Category:    "Monitoring",
-		Version:     "0.30.1",
+		Version:     "0.34.1",
 		Website:     "https://github.com/rustrak/rustrak",
 		Port:        8080,
 		MemoryMB:    256,
